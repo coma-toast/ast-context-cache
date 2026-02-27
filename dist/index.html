@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AST Context Cache - Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-hover: #1c2129;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb;
+  --green: #3fb950;
+  --green-dim: #238636;
+  --orange: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+  --pink: #f778ba;
+  --radius: 8px;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', -apple-system, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+.container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+header h1 .icon { font-size: 24px; }
+.project-select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+.project-select:focus { outline: none; border-color: var(--accent); }
+
+.grid { display: grid; gap: 16px; }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-1 { grid-template-columns: 1fr; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--mono);
+  line-height: 1.2;
+}
+.stat-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.stat-green { color: var(--green); }
+.stat-accent { color: var(--accent); }
+.stat-orange { color: var(--orange); }
+.stat-purple { color: var(--purple); }
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 24px 0 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toggle-group {
+  display: inline-flex;
+  background: var(--bg);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.toggle-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: var(--sans);
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.toggle-btn.active {
+  background: var(--accent-dim);
+  color: #fff;
+}
+.toggle-btn:hover:not(.active) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.bar-chart { display: flex; flex-direction: column; gap: 6px; }
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bar-label {
+  font-size: 12px;
+  font-family: var(--mono);
+  min-width: 100px;
+  text-align: right;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar-track {
+  flex: 1;
+  height: 22px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+.bar-value {
+  font-size: 11px;
+  font-family: var(--mono);
+  min-width: 42px;
+  text-align: right;
+  color: var(--text-dim);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+tr:hover td { background: var(--surface-hover); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.dim { color: var(--text-dim); }
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--mono);
+}
+.badge-green { background: var(--green-dim); color: var(--green); }
+.badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+.badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
+.badge-orange { background: rgba(210,153,34,0.15); color: var(--orange); }
+
+.error-detail {
+  display: none;
+  padding: 6px 10px;
+  background: rgba(248,81,73,0.08);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--red);
+  margin-top: 4px;
+  word-break: break-all;
+}
+.error-detail.open { display: block; }
+.error-toggle {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.watcher-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: pulse 2s infinite;
+}
+.watcher-dot.active { background: var(--green); }
+.watcher-dot.inactive { background: var(--text-dim); animation: none; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.chart-container {
+  width: 100%;
+  height: 200px;
+  position: relative;
+}
+.chart-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.refresh-btn {
+  background: var(--surface);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+.refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+.refresh-btn .spin { display: inline-block; transition: transform 0.3s; }
+.refresh-btn.spinning .spin { animation: rotate 0.8s linear infinite; }
+@keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.auto-badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+@media (max-width: 900px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .container { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1><span class="icon">&#x1F9E0;</span> AST Context Cache</h1>
+    <div class="header-controls">
+      <span class="auto-badge" id="autoLabel">auto 30s</span>
+      <button id="refreshBtn" class="refresh-btn" onclick="doRefresh()"><span class="spin">&#x21bb;</span> Refresh</button>
+      <select id="projectSelect" class="project-select">
+        <option value="">All Projects</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="grid grid-4" id="statsCards">
+    <div class="card">
+      <div class="card-title">Total Queries</div>
+      <div class="stat-value stat-accent" id="statQueries">-</div>
+      <div class="stat-label">Today: <span id="statToday">-</span></div>
+    </div>
+    <div class="card" title="Tokens saved by get_context_capsule queries vs reading full files. Only counted when search queries are made.">
+      <div class="card-title">Tokens Saved</div>
+      <div class="stat-value stat-green" id="statTokens">-</div>
+      <div class="stat-label">Today: <span id="statTodayTokens">-</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Avg Duration</div>
+      <div class="stat-value stat-orange" id="statDuration">-</div>
+      <div class="stat-label">milliseconds</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Sessions</div>
+      <div class="stat-value stat-purple" id="statSessions">-</div>
+      <div class="stat-label">Result chars: <span id="statChars">-</span></div>
+    </div>
+  </div>
+
+  <div class="section-title">Index Health</div>
+  <div class="grid grid-4" id="indexCards">
+    <div class="card">
+      <div class="card-title">Symbols Indexed</div>
+      <div class="stat-value stat-accent" id="idxSymbols">-</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Files Indexed</div>
+      <div class="stat-value stat-green" id="idxFiles">-</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Dependency Edges</div>
+      <div class="stat-value stat-orange" id="idxEdges">-</div>
+    </div>
+    <div class="card">
+      <div class="card-title">File Watchers</div>
+      <div class="stat-value stat-purple" id="idxWatchers">-</div>
+      <div class="stat-label" id="watcherLabel">-</div>
+    </div>
+  </div>
+
+  <div class="section-title">Activity
+    <div class="toggle-group" style="margin-left:12px">
+      <button class="toggle-btn active" data-interval="daily" onclick="setInterval(this)">Daily</button>
+      <button class="toggle-btn" data-interval="hourly" onclick="setInterval(this)">Hourly</button>
+    </div>
+    <div class="toggle-group" style="margin-left:8px">
+      <button class="toggle-btn active" data-metric="queries" onclick="setMetric(this)">Queries</button>
+      <button class="toggle-btn" data-metric="tokens_saved" onclick="setMetric(this)">Tokens</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="chart-container"><canvas id="tsChart"></canvas></div>
+  </div>
+
+  <div class="grid grid-2" style="margin-top:16px">
+    <div>
+      <div class="section-title">Symbol Breakdown</div>
+      <div class="card" id="symbolChart">
+        <div class="empty-state">No index data</div>
+      </div>
+    </div>
+    <div>
+      <div class="section-title">Language Breakdown</div>
+      <div class="card" id="langChart">
+        <div class="empty-state">No index data</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-2" style="margin-top:16px">
+    <div>
+      <div class="section-title">Tool Usage</div>
+      <div class="card" id="toolChart">
+        <div class="empty-state">No data</div>
+      </div>
+    </div>
+    <div>
+      <div class="section-title">Top Imports</div>
+      <div class="card" id="importChart">
+        <div class="empty-state">No data</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">Recent Queries</div>
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Tool</th>
+          <th>Project</th>
+          <th>Result</th>
+          <th>Duration</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="recentTable">
+        <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = '';
+let selectedProject = '';
+let tsInterval = 'daily';
+let tsMetric = 'queries';
+
+const $ = id => document.getElementById(id);
+const fmt = n => n == null ? '-' : n.toLocaleString();
+
+async function fetchJSON(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  const url = selectedProject ? `${API}${path}${sep}project_id=${encodeURIComponent(selectedProject)}` : `${API}${path}`;
+  const r = await fetch(url);
+  return r.json();
+}
+
+async function loadProjects() {
+  const ps = await fetchJSON('/api/projects');
+  const sel = $('projectSelect');
+  sel.innerHTML = '<option value="">All Projects</option>';
+  (ps || []).forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.path;
+    const sym = p.symbol_count ? ` (${fmt(p.symbol_count)} symbols)` : '';
+    o.textContent = `${p.name}${sym}`;
+    if (p.path === selectedProject) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+async function loadStats() {
+  const s = await fetchJSON('/api/stats');
+  $('statQueries').textContent = fmt(s.total_queries);
+  $('statTokens').textContent = fmt(s.total_tokens_saved);
+  $('statDuration').textContent = s.avg_duration_ms ? s.avg_duration_ms.toFixed(1) : '0';
+  $('statSessions').textContent = fmt(s.total_sessions);
+  $('statChars').textContent = fmt(s.total_chars);
+  $('statToday').textContent = fmt(s.today_queries);
+  $('statTodayTokens').textContent = fmt(s.today_tokens_saved);
+}
+
+async function loadIndexStats() {
+  const s = await fetchJSON('/api/index-stats');
+  $('idxSymbols').textContent = fmt(s.total_symbols);
+  $('idxFiles').textContent = fmt(s.total_files);
+  $('idxEdges').textContent = fmt(s.total_edges);
+
+  const ws = await fetchJSON('/api/watcher-status');
+  $('idxWatchers').textContent = fmt(ws.total_active);
+  if (ws.total_active > 0) {
+    const names = (ws.watchers || []).map(w => w.project_path.split('/').pop()).join(', ');
+    $('watcherLabel').innerHTML = `<span class="watcher-dot active"></span>${names}`;
+  } else {
+    $('watcherLabel').innerHTML = '<span class="watcher-dot inactive"></span>No active watchers';
+  }
+}
+
+const COLORS = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f778ba','#79c0ff','#56d364','#e3b341','#d2a8ff','#ff9bce'];
+
+function renderBarChart(el, items, labelKey, valueKey, colorIdx) {
+  if (!items || items.length === 0) {
+    el.innerHTML = '<div class="empty-state">No data</div>';
+    return;
+  }
+  const max = Math.max(...items.map(d => d[valueKey]));
+  el.innerHTML = '<div class="bar-chart">' + items.slice(0, 10).map((d, i) => {
+    const pct = max > 0 ? (d[valueKey] / max * 100) : 0;
+    const color = COLORS[(colorIdx + i) % COLORS.length];
+    const label = String(d[labelKey]).length > 20 ? '...' + String(d[labelKey]).slice(-17) : d[labelKey];
+    return `<div class="bar-row">
+      <span class="bar-label" title="${d[labelKey]}">${label}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="bar-value">${fmt(d[valueKey])}</span>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+async function loadSymbolKinds() {
+  const data = await fetchJSON('/api/symbol-kinds');
+  renderBarChart($('symbolChart'), data, 'kind', 'count', 0);
+}
+
+async function loadLanguageStats() {
+  const data = await fetchJSON('/api/language-stats');
+  renderBarChart($('langChart'), data, 'language', 'symbols', 3);
+}
+
+async function loadToolUsage() {
+  const data = await fetchJSON('/api/tools');
+  renderBarChart($('toolChart'), data, 'name', 'count', 1);
+}
+
+async function loadTopImports() {
+  const data = await fetchJSON('/api/top-imports');
+  renderBarChart($('importChart'), data, 'target', 'count', 5);
+}
+
+const TOOL_BADGES = {
+  get_context_capsule: 'badge-blue',
+  index_files: 'badge-green',
+  index_status: 'badge-blue',
+  get_impact_graph: 'badge-orange',
+  file_watcher: 'badge-green',
+};
+
+async function loadRecent() {
+  const qs = await fetchJSON('/api/recent?limit=50');
+  const tbody = $('recentTable');
+  if (!qs || qs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No queries recorded</td></tr>';
+    return;
+  }
+  tbody.innerHTML = qs.map((q, i) => {
+    const t = new Date(q.timestamp);
+    const timeStr = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const dateStr = t.toLocaleDateString([], {month:'short',day:'numeric'});
+    const badge = TOOL_BADGES[q.tool_name] || 'badge-blue';
+    const proj = q.project_path ? q.project_path.split('/').pop() : '-';
+    const hasErr = q.error && q.error.length > 0;
+    const status = hasErr
+      ? `<span class="badge badge-red error-toggle" onclick="toggleError(${i})">Error</span><div class="error-detail" id="err-${i}">${escHtml(q.error)}</div>`
+      : '<span class="badge badge-green">OK</span>';
+    return `<tr>
+      <td class="mono dim">${dateStr} ${timeStr}</td>
+      <td><span class="badge ${badge}">${q.tool_name}</span></td>
+      <td class="mono dim" title="${escHtml(q.project_path || '')}">${proj}</td>
+      <td class="mono">${fmt(q.result_chars)} chars</td>
+      <td class="mono">${q.duration_ms ? q.duration_ms.toFixed(1) : '0'}ms</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function toggleError(i) {
+  const el = document.getElementById('err-' + i);
+  if (el) el.classList.toggle('open');
+}
+
+let chartInstance = null;
+
+async function loadTimeseries() {
+  const data = await fetchJSON(`/api/timeseries?interval=${tsInterval}&days=30`);
+  const canvas = $('tsChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  if (!data || data.length === 0) {
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '13px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data for this period', W/2, H/2);
+    return;
+  }
+
+  const vals = data.map(d => d[tsMetric] || 0);
+  const labels = data.map(d => d.timestamp);
+  const max = Math.max(...vals, 1);
+  const padL = 50, padR = 16, padT = 16, padB = 28;
+  const cW = W - padL - padR;
+  const cH = H - padT - padB;
+
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + cH - (i/4) * cH;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(W - padR, y);
+    ctx.stroke();
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(fmt(Math.round(max * i / 4)), padL - 6, y + 3);
+  }
+
+  if (vals.length > 1) {
+    const grad = ctx.createLinearGradient(0, padT, 0, padT + cH);
+    const color = tsMetric === 'tokens_saved' ? '#3fb950' : '#58a6ff';
+    grad.addColorStop(0, color + '40');
+    grad.addColorStop(1, color + '00');
+
+    ctx.beginPath();
+    vals.forEach((v, i) => {
+      const x = padL + (i / (vals.length - 1)) * cW;
+      const y = padT + cH - (v / max) * cH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+
+    const lastX = padL + cW;
+    ctx.lineTo(lastX, padT + cH);
+    ctx.lineTo(padL, padT + cH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    vals.forEach((v, i) => {
+      const x = padL + (i / (vals.length - 1)) * cW;
+      const y = padT + cH - (v / max) * cH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    vals.forEach((v, i) => {
+      const x = padL + (i / (vals.length - 1)) * cW;
+      const y = padT + cH - (v / max) * cH;
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    });
+  }
+
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.textAlign = 'center';
+  const step = Math.max(1, Math.floor(labels.length / 6));
+  labels.forEach((l, i) => {
+    if (i % step === 0 || i === labels.length - 1) {
+      const x = padL + (i / Math.max(1, labels.length - 1)) * cW;
+      const short = tsInterval === 'hourly' ? l.slice(11, 16) : l.slice(5, 10);
+      ctx.fillText(short, x, H - 6);
+    }
+  });
+}
+
+function setInterval(btn) {
+  tsInterval = btn.dataset.interval;
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadTimeseries();
+}
+
+function setMetric(btn) {
+  tsMetric = btn.dataset.metric;
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadTimeseries();
+}
+
+$('projectSelect').addEventListener('change', e => {
+  selectedProject = e.target.value;
+  refreshAll();
+});
+
+async function refreshAll() {
+  await Promise.all([
+    loadStats(),
+    loadIndexStats(),
+    loadTimeseries(),
+    loadSymbolKinds(),
+    loadLanguageStats(),
+    loadToolUsage(),
+    loadTopImports(),
+    loadRecent(),
+  ]);
+}
+
+async function doRefresh() {
+  const btn = $('refreshBtn');
+  btn.classList.add('spinning');
+  btn.disabled = true;
+  try {
+    await loadProjects();
+    await refreshAll();
+  } finally {
+    btn.classList.remove('spinning');
+    btn.disabled = false;
+  }
+}
+
+async function init() {
+  await loadProjects();
+  await refreshAll();
+  window.addEventListener('resize', () => loadTimeseries());
+  window._autoRefresh = window.setInterval(refreshAll, 30000);
+}
+
+init();
+</script>
+</body>
+</html>
