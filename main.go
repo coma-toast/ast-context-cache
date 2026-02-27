@@ -166,12 +166,15 @@ func initDB() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
 		CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_file);
+		CREATE INDEX IF NOT EXISTS idx_queries_timestamp ON queries(timestamp);
+		CREATE INDEX IF NOT EXISTS idx_symbols_project ON symbols(project_path);
+		CREATE INDEX IF NOT EXISTS idx_edges_project ON edges(project_path);
 	`)
 
 	db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(name, fqn, code, content='symbols', content_rowid='id')`)
 
 	ensureFTSTriggers()
-	db.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	go db.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 
 	return nil
 }
@@ -671,8 +674,7 @@ func indexDirectory(dirPath, projectPath string) (int, error) {
 			return err
 		}
 		if info.IsDir() {
-			name := info.Name()
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "venv" || name == "__pycache__" || name == "dist" || name == "build" {
+			if shouldSkipDir(info.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -947,17 +949,17 @@ func handleAPIStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 
 	var s Stats
+	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
+	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	if pid != "" {
 		db.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), COALESCE(SUM(tokens_saved),0) FROM queries WHERE project_path = ?", pid).
 			Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
-		today := time.Now().Format("2006-01-02")
-		db.QueryRow("SELECT COUNT(*), COALESCE(SUM(tokens_saved),0) FROM queries WHERE timestamp LIKE ? AND project_path = ?", today+"%", pid).
+		db.QueryRow("SELECT COUNT(*), COALESCE(SUM(tokens_saved),0) FROM queries WHERE timestamp >= ? AND timestamp < ? AND project_path = ?", todayStart, tomorrowStart, pid).
 			Scan(&s.TodayQueries, &s.TodayTokensSaved)
 	} else {
 		db.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), COALESCE(SUM(tokens_saved),0) FROM queries").
 			Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
-		today := time.Now().Format("2006-01-02")
-		db.QueryRow("SELECT COUNT(*), COALESCE(SUM(tokens_saved),0) FROM queries WHERE timestamp LIKE ?", today+"%").
+		db.QueryRow("SELECT COUNT(*), COALESCE(SUM(tokens_saved),0) FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
 			Scan(&s.TodayQueries, &s.TodayTokensSaved)
 	}
 
@@ -1026,8 +1028,23 @@ func handleAPIRecent(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIProjects(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query("SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL GROUP BY project_path")
 	w.Header().Set("Content-Type", "application/json")
+	type symCount struct {
+		symbols int
+		files   int
+	}
+	symCounts := map[string]symCount{}
+	symRows, err := db.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+	if err == nil {
+		defer symRows.Close()
+		for symRows.Next() {
+			var pp string
+			var sc symCount
+			symRows.Scan(&pp, &sc.symbols, &sc.files)
+			symCounts[pp] = sc
+		}
+	}
+	rows, err := db.Query("SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL GROUP BY project_path")
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
@@ -1038,11 +1055,10 @@ func handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 		var p string
 		var c int
 		rows.Scan(&p, &c)
-		var symbols, files int
-		db.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", p).Scan(&symbols, &files)
+		sc := symCounts[p]
 		ps = append(ps, map[string]interface{}{
 			"path": p, "name": filepath.Base(p), "query_count": c,
-			"symbol_count": symbols, "file_count": files,
+			"symbol_count": sc.symbols, "file_count": sc.files,
 		})
 	}
 	if ps == nil {
@@ -1367,14 +1383,21 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func shouldSkipDir(name string) bool {
+	return strings.HasPrefix(name, ".") || skipDirs[name]
+}
+
 var (
 	watcherMu      sync.Mutex
 	activeWatchers = map[string]*fsnotify.Watcher{}
 	debounceMu     sync.Mutex
 	debounceTimers = map[string]*time.Timer{}
-	skipDirs       = map[string]bool{
-		"node_modules": true, ".git": true, "vendor": true, "venv": true,
+	skipDirs = map[string]bool{
+		"node_modules": true, "vendor": true, "venv": true, "env": true,
 		"__pycache__": true, "dist": true, "build": true, ".astcache": true,
+		"target": true, "bower_components": true, "third_party": true,
+		"site-packages": true, "coverage": true, "tmp": true,
+		"pkg": true, "Pods": true,
 	}
 )
 
@@ -1398,7 +1421,7 @@ func startWatcher(projectPath string) {
 			return err
 		}
 		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") || skipDirs[info.Name()] {
+			if shouldSkipDir(info.Name()) {
 				return filepath.SkipDir
 			}
 			w.Add(path)
@@ -1430,7 +1453,7 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 	path := event.Name
 
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		if event.Has(fsnotify.Create) && !strings.HasPrefix(info.Name(), ".") && !skipDirs[info.Name()] {
+		if event.Has(fsnotify.Create) && !shouldSkipDir(info.Name()) {
 			w.Add(path)
 		}
 		return
@@ -1480,6 +1503,12 @@ func main() {
 	if err := initDB(); err != nil {
 		log.Fatalf("DB error: %v", err)
 	}
+
+	go func() {
+		for range time.NewTicker(5 * time.Minute).C {
+			db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+		}
+	}()
 
 	restoreRows, err := db.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
 	if err == nil {
