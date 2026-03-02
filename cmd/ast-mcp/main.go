@@ -41,10 +41,17 @@ func main() {
 		log.Printf("WARNING: Failed to load vector cache: %v", err)
 	}
 
-	modelDir := filepath.Join(exeDir, "model")
+	modelDir := os.Getenv("MODEL_DIR")
+	if modelDir == "" {
+		modelDir = filepath.Join(exeDir, "model")
+	}
+	if err := embedder.EnsureModel(modelDir); err != nil {
+		log.Printf("WARNING: Could not ensure embedder model files: %v", err)
+	}
 	emb, err := embedder.New(modelDir)
 	if err != nil {
 		log.Printf("WARNING: Embedder init failed (vector features disabled): %v", err)
+		log.Printf("Embedder tip: need model/ (tokenizer.json + model.onnx) next to binary or MODEL_DIR set, and ONNXRUNTIME_LIB set to libonnxruntime path. See README.")
 	} else {
 		log.Printf("Embedder loaded: %s (%d dims)", embedder.ModelName, embedder.Dimensions)
 		mcp.SetEmbedder(emb)
