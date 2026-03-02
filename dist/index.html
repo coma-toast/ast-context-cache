@@ -362,6 +362,16 @@ tr:hover td { background: var(--surface-hover); }
       <div class="stat-value stat-purple" id="idxWatchers">-</div>
       <div class="stat-label" id="watcherLabel">-</div>
     </div>
+    <div class="card">
+      <div class="card-title">Vectors (Embeddings)</div>
+      <div class="stat-value stat-accent" id="idxVectors">-</div>
+      <div class="stat-label">In-memory cache</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Vector Memory</div>
+      <div class="stat-value stat-green" id="idxVectorMem">-</div>
+      <div class="stat-label">MB used</div>
+    </div>
   </div>
 
   <div class="section-title">Activity
@@ -474,6 +484,10 @@ async function loadIndexStats() {
   $('idxSymbols').textContent = fmt(s.total_symbols);
   $('idxFiles').textContent = fmt(s.total_files);
   $('idxEdges').textContent = fmt(s.total_edges);
+  const vecCount = s.total_vectors != null ? s.total_vectors : 0;
+  $('idxVectors').textContent = fmt(vecCount);
+  const vecMb = s.vector_memory_mb != null ? s.vector_memory_mb : 0;
+  $('idxVectorMem').textContent = typeof vecMb === 'number' ? vecMb.toFixed(2) : vecMb;
 
   const ws = await fetchJSON('/api/watcher-status');
   $('idxWatchers').textContent = fmt(ws.total_active);
