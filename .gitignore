@@ -3,3 +3,11 @@ ast-mcp
 *.db
 *.sync-conflict-*
 dashboard/node_modules/
+model/
+libtokenizers.a
+libtokenizers.tar.gz
+
+# Allow cmd/ast-mcp source (ignore rule above matches directory name)
+!cmd/
+!cmd/ast-mcp/
+!cmd/ast-mcp/**
