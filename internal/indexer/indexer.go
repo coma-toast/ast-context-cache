@@ -11,10 +11,12 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/bash"
 	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/python"
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
+	"github.com/smacker/go-tree-sitter/yaml"
 )
 
 var SkipDirs = map[string]bool{
@@ -46,6 +48,10 @@ func GetLanguage(path string) string {
 		return "bash"
 	case ".fish":
 		return "fish"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".tf", ".tfvars":
+		return "hcl"
 	}
 	return ""
 }
@@ -68,6 +74,10 @@ func getSitterLanguage(lang string) *sitter.Language {
 		return golang.GetLanguage()
 	case "bash":
 		return bash.GetLanguage()
+	case "yaml":
+		return yaml.GetLanguage()
+	case "hcl":
+		return hcl.GetLanguage()
 	}
 	return nil
 }
@@ -168,9 +178,46 @@ func extractSymbol(node *sitter.Node, content []byte, lang string) *SymbolDef {
 		if nodeType == "function_definition" {
 			return &SymbolDef{getFirstChildByType(node, content, "word"), "function"}
 		}
+
+	case "hcl":
+		switch nodeType {
+		case "block":
+			return extractHCLBlock(node, content)
+		case "attribute":
+			name := getFirstChildByType(node, content, "identifier")
+			if name != "" {
+				return &SymbolDef{name, "variable"}
+			}
+		}
 	}
 
 	return nil
+}
+
+func extractHCLBlock(node *sitter.Node, content []byte) *SymbolDef {
+	var blockType string
+	var labels []string
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		switch child.Type() {
+		case "identifier":
+			if blockType == "" {
+				blockType = child.Content(content)
+			}
+		case "string_lit":
+			if lit := getFirstChildByType(child, content, "template_literal"); lit != "" {
+				labels = append(labels, lit)
+			}
+		}
+	}
+	if blockType == "" {
+		return nil
+	}
+	name := blockType
+	if len(labels) > 0 {
+		name = strings.Join(labels, ".")
+	}
+	return &SymbolDef{name, blockType}
 }
 
 func extractImports(node *sitter.Node, content []byte, lang string) []string {
@@ -249,9 +296,61 @@ func extractImports(node *sitter.Node, content []byte, lang string) []string {
 				}
 			}
 		}
+
+	case "hcl":
+		if nodeType == "block" {
+			blockType := getFirstChildByType(node, content, "identifier")
+			if blockType == "module" {
+				if src := hclBlockAttrValue(node, content, "source"); src != "" {
+					imports = append(imports, src)
+				}
+			}
+		}
 	}
 
 	return imports
+}
+
+func hclBlockAttrValue(block *sitter.Node, content []byte, attrName string) string {
+	for i := 0; i < int(block.NamedChildCount()); i++ {
+		child := block.NamedChild(i)
+		if child.Type() == "body" {
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				attr := child.NamedChild(j)
+				if attr.Type() != "attribute" {
+					continue
+				}
+				name := getFirstChildByType(attr, content, "identifier")
+				if name != attrName {
+					continue
+				}
+				for k := 0; k < int(attr.NamedChildCount()); k++ {
+					expr := attr.NamedChild(k)
+					if expr.Type() == "expression" {
+						return extractHCLStringValue(expr, content)
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func extractHCLStringValue(expr *sitter.Node, content []byte) string {
+	for i := 0; i < int(expr.NamedChildCount()); i++ {
+		child := expr.NamedChild(i)
+		if child.Type() == "literal_value" {
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				lit := child.NamedChild(j)
+				if lit.Type() == "string_lit" {
+					if tpl := getFirstChildByType(lit, content, "template_literal"); tpl != "" {
+						return tpl
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func getFirstChildByType(node *sitter.Node, content []byte, nodeType string) string {
@@ -308,14 +407,17 @@ func IndexFile(filePath, projectPath string) (int, error) {
 	count := 0
 	lines := strings.Split(string(content), "\n")
 	root := tree.RootNode()
-	for i := 0; i < int(root.NamedChildCount()); i++ {
-		node := root.NamedChild(i)
 
+	if lang == "yaml" {
+		return indexYAMLTree(root, content, lines, filePath, projectPath)
+	}
+
+	walkNodes := collectTopLevelNodes(root, lang)
+	for _, node := range walkNodes {
 		for _, imp := range extractImports(node, content, lang) {
 			db.DB.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
 				filePath, imp, projectPath)
 		}
-
 		sym := extractSymbol(node, content, lang)
 		if sym == nil || sym.Name == "" {
 			continue
@@ -327,13 +429,11 @@ func IndexFile(filePath, projectPath string) (int, error) {
 			code = strings.TrimSpace(lines[start.Row])
 		}
 		fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Name)
-
 		skeleton := ""
 		if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
 			src := strings.Join(lines[start.Row:end.Row+1], "\n")
 			skeleton = ExtractSkeleton(src, lang, sym.Kind)
 		}
-
 		_, err := db.DB.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton)
 		if err == nil {
@@ -341,6 +441,27 @@ func IndexFile(filePath, projectPath string) (int, error) {
 		}
 	}
 	return count, nil
+}
+
+// collectTopLevelNodes returns the nodes to walk for symbol extraction.
+// For HCL, we descend into the body node since blocks are children of body, not config_file directly.
+func collectTopLevelNodes(root *sitter.Node, lang string) []*sitter.Node {
+	var nodes []*sitter.Node
+	if lang == "hcl" {
+		for i := 0; i < int(root.NamedChildCount()); i++ {
+			child := root.NamedChild(i)
+			if child.Type() == "body" {
+				for j := 0; j < int(child.NamedChildCount()); j++ {
+					nodes = append(nodes, child.NamedChild(j))
+				}
+				return nodes
+			}
+		}
+	}
+	for i := 0; i < int(root.NamedChildCount()); i++ {
+		nodes = append(nodes, root.NamedChild(i))
+	}
+	return nodes
 }
 
 func IndexDirectory(dirPath, projectPath string) (int, error) {
