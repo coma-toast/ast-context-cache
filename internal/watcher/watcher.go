@@ -138,3 +138,18 @@ func GetStatus() map[string]interface{} {
 		"total_active": len(watchers),
 	}
 }
+
+func StopWatcher(projectPath string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	w, exists := activeWatchers[projectPath]
+	if !exists {
+		return nil
+	}
+
+	w.Close()
+	delete(activeWatchers, projectPath)
+	log.Printf("Stopped watcher for %s", projectPath)
+	return nil
+}
