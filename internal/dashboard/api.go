@@ -23,6 +23,8 @@ func NewHandler(frontendDir string) http.Handler {
 	mux.HandleFunc("/api/projects", handleProjects)
 	mux.HandleFunc("/api/reset", handleReset)
 	mux.HandleFunc("/api/delete", handleDeleteProject)
+	mux.HandleFunc("/api/reset-project", handleResetProject)
+	mux.HandleFunc("/api/stop-watcher", handleStopWatcher)
 	mux.HandleFunc("/api/timeseries", handleTimeseries)
 	mux.HandleFunc("/api/index-stats", handleIndexStats)
 	mux.HandleFunc("/api/symbol-kinds", handleSymbolKinds)
@@ -293,10 +295,10 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 		db.DB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"total_symbols": totalSymbols,
-		"total_files":   totalFiles,
-		"total_edges":   totalEdges,
-		"total_vectors": search.Cache.Count(pid),
+		"total_symbols":    totalSymbols,
+		"total_files":      totalFiles,
+		"total_edges":      totalEdges,
+		"total_vectors":    search.Cache.Count(pid),
 		"vector_memory_mb": search.Cache.MemoryMB(),
 	})
 }
@@ -402,11 +404,11 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"total_vectors":    totalVectors,
-		"db_vectors":       dbVectors,
-		"memory_mb":        memoryMB,
-		"dimensions":       search.VectorDims,
-		"cache_loaded":     totalVectors > 0,
+		"total_vectors": totalVectors,
+		"db_vectors":    dbVectors,
+		"memory_mb":     memoryMB,
+		"dimensions":    search.VectorDims,
+		"cache_loaded":  totalVectors > 0,
 	})
 }
 
@@ -432,4 +434,57 @@ func staticHandler(frontendDir string) http.HandlerFunc {
 		w.Header().Set("Content-Type", ct)
 		w.Write(data)
 	}
+}
+
+func handleResetProject(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req map[string]string
+	json.NewDecoder(r.Body).Decode(&req)
+	projectPath := req["project_path"]
+
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+
+	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
+	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.EnsureFTSTriggers()
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
+}
+
+func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req map[string]string
+	json.NewDecoder(r.Body).Decode(&req)
+	projectPath := req["project_path"]
+
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+
+	err := watcher.StopWatcher(projectPath)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "project_path": projectPath})
 }

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/fsnotify/fsnotify"
 	_ "github.com/mattn/go-sqlite3"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -1392,7 +1393,7 @@ var (
 	activeWatchers = map[string]*fsnotify.Watcher{}
 	debounceMu     sync.Mutex
 	debounceTimers = map[string]*time.Timer{}
-	skipDirs = map[string]bool{
+	skipDirs       = map[string]bool{
 		"node_modules": true, "vendor": true, "venv": true, "env": true,
 		"__pycache__": true, "dist": true, "build": true, ".astcache": true,
 		"target": true, "bower_components": true, "third_party": true,
@@ -1723,6 +1724,8 @@ func main() {
 	dashMux.HandleFunc("/api/projects", handleAPIProjects)
 	dashMux.HandleFunc("/api/reset", handleAPIReset)
 	dashMux.HandleFunc("/api/delete", handleAPIDeleteProject)
+	dashMux.HandleFunc("/api/reset-project", handleAPIResetProject)
+	dashMux.HandleFunc("/api/stop-watcher", handleAPIStopWatcher)
 	dashMux.HandleFunc("/api/timeseries", handleAPITimeseries)
 	dashMux.HandleFunc("/api/index-stats", handleAPIIndexStats)
 	dashMux.HandleFunc("/api/symbol-kinds", handleAPISymbolKinds)
@@ -1740,4 +1743,58 @@ func main() {
 	addr := fmt.Sprintf(":%d", DASHBOARD_PORT)
 	log.Printf("Dashboard: http://localhost%s", addr)
 	log.Fatal(http.ListenAndServe(addr, dashMux))
+}
+
+func handleAPIResetProject(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req map[string]interface{}
+	json.NewDecoder(r.Body).Decode(&req)
+	projectPath, ok := req["project_path"].(string)
+	if !ok || projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+
+	watcher.StopWatcher(projectPath)
+
+	db.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	db.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
+	db.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	ensureFTSTriggers()
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
+}
+
+func handleAPIStopWatcher(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req map[string]string
+	json.NewDecoder(r.Body).Decode(&req)
+	projectPath := req["project_path"]
+
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+
+	err := watcher.StopWatcher(projectPath)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "project_path": projectPath})
 }
