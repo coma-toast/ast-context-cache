@@ -98,7 +98,7 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 			db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", path, projectPath)
 			db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", path, projectPath)
 			log.Printf("Removed symbols for deleted file: %s", path)
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, 0, 0, 0, 0,
+			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, 0, 0, 0, 0, 0, 0,
 				float64(time.Since(start).Milliseconds()), projectPath, "")
 			if PostIndexHook != nil {
 				go PostIndexHook(path, projectPath, true)
@@ -108,7 +108,7 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 			if err == nil {
 				log.Printf("Re-indexed %s: %d symbols", path, n)
 				resultJSON, _ := json.Marshal(map[string]interface{}{"file": path, "symbols": n})
-				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, len(resultJSON), 0, 0, 0,
+				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, len(resultJSON), 0, 0, 0, 0, 0,
 					float64(time.Since(start).Milliseconds()), projectPath, "")
 				if PostIndexHook != nil {
 					go PostIndexHook(path, projectPath, false)

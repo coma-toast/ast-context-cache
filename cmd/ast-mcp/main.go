@@ -37,6 +37,10 @@ func main() {
 
 	go db.StartWALCheckpoint()
 
+	for _, tbl := range []string{"symbols", "edges", "queries", "vectors", "summaries"} {
+		db.DB.Exec("DELETE FROM " + tbl + " WHERE project_path = '.'")
+	}
+
 	if err := search.Cache.Load(); err != nil {
 		log.Printf("WARNING: Failed to load vector cache: %v", err)
 	}

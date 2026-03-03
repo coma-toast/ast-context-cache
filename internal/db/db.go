@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -70,6 +71,8 @@ func Init() error {
 
 	// Migration: add skeleton column if missing
 	DB.Exec(`ALTER TABLE symbols ADD COLUMN skeleton TEXT`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN file_baseline_tokens INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN full_baseline_tokens INTEGER DEFAULT 0`)
 
 	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS edges (
@@ -146,15 +149,24 @@ func EnsureFTSTriggers() {
 	END`)
 }
 
-func LogQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens, tokensSaved int, durationMs float64, projectPath, errMsg string) {
+func LogQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens int, durationMs float64, projectPath, errMsg string) {
 	sessionID := fmt.Sprintf("session-%d", time.Now().Unix()/3600)
 	argsJSON, _ := json.Marshal(args)
-	DB.Exec("INSERT INTO queries (timestamp, tool_name, arguments, result_chars, input_tokens, output_tokens, tokens_saved, duration_ms, interface, session_id, error, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		time.Now().Format(time.RFC3339), toolName, string(argsJSON), resultChars, inputTokens, outputTokens, tokensSaved, durationMs, "http", sessionID, errMsg, projectPath)
+	DB.Exec("INSERT INTO queries (timestamp, tool_name, arguments, result_chars, input_tokens, output_tokens, tokens_saved, file_baseline_tokens, full_baseline_tokens, duration_ms, interface, session_id, error, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		time.Now().Format(time.RFC3339), toolName, string(argsJSON), resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens, durationMs, "http", sessionID, errMsg, projectPath)
 }
 
 func EstimateTokens(text string) int {
 	return len(text) / 4
+}
+
+// RelPath strips the projectPath prefix from an absolute file path, returning
+// a relative path for more compact (token-efficient) results.
+func RelPath(file, projectPath string) string {
+	if projectPath != "" && strings.HasPrefix(file, projectPath+"/") {
+		return strings.TrimPrefix(file, projectPath+"/")
+	}
+	return file
 }
 
 func StartWALCheckpoint() {

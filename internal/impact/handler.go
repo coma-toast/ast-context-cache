@@ -9,6 +9,12 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
+type impactEntryOut struct {
+	File   string `json:"file"`
+	Target string `json:"target"`
+	Kind   string `json:"kind"`
+}
+
 func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 	symbol, _ := args["symbol"].(string)
 	if projectPath == "" {
@@ -79,13 +85,22 @@ func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 
 	keys := make([]string, 0, len(symbolFiles))
 	for k := range symbolFiles {
-		keys = append(keys, k)
+		keys = append(keys, db.RelPath(k, projectPath))
+	}
+
+	relImpacts := make([]impactEntryOut, len(impacts))
+	for i, imp := range impacts {
+		relImpacts[i] = impactEntryOut{
+			File:   db.RelPath(imp.File, projectPath),
+			Target: imp.Target,
+			Kind:   imp.Kind,
+		}
 	}
 
 	data, _ := json.Marshal(map[string]interface{}{
 		"symbol":      symbol,
 		"defined_in":  keys,
-		"impacted_by": impacts,
+		"impacted_by": relImpacts,
 		"total_files": len(seen),
 	})
 	return string(data)

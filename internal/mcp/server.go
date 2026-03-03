@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
@@ -110,8 +112,14 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			projectPath = pp
 		}
 	}
+	if projectPath != "" {
+		if abs, err := filepath.Abs(projectPath); err == nil {
+			projectPath = filepath.Clean(abs)
+		}
+	}
 
 	var result interface{}
+	loggedToolCall := false
 	switch toolName {
 	case "index_files":
 		path, _ := toolArgs["path"].(string)
@@ -168,23 +176,34 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 
 		inputTokens := db.EstimateTokens(query)
 		outputTokens := db.EstimateTokens(contextStr)
-		const baselineContextTokens = 4000
-		tokensSaved := baselineContextTokens - outputTokens
+
+		var parsed map[string]interface{}
+		fileBaseline, fullBaseline := 0, 0
+		if err := json.Unmarshal([]byte(contextStr), &parsed); err == nil {
+			if v, ok := parsed["file_baseline_tokens"].(float64); ok {
+				fileBaseline = int(v)
+			}
+			if v, ok := parsed["full_baseline_tokens"].(float64); ok {
+				fullBaseline = int(v)
+			}
+		}
+
+		tokensSaved := fileBaseline - outputTokens
 		if tokensSaved < 0 {
 			tokensSaved = 0
 		}
 
-		db.LogQuery(toolName, args, len(contextStr), inputTokens, outputTokens, tokensSaved, float64(time.Since(start).Milliseconds()), projectPath, "")
+		db.LogQuery(toolName, args, len(contextStr), inputTokens, outputTokens, tokensSaved, fileBaseline, fullBaseline, float64(time.Since(start).Milliseconds()), projectPath, "")
 
-		resultWithMeta := map[string]interface{}{
-			"query":         query,
-			"results":       json.RawMessage(contextStr),
-			"tokens_saved":  tokensSaved,
-			"input_tokens":  inputTokens,
-			"output_tokens": outputTokens,
+		if parsed != nil {
+			parsed["tokens_saved"] = tokensSaved
+			parsed["input_tokens"] = inputTokens
+			parsed["output_tokens"] = outputTokens
+			resultJSON, _ := json.Marshal(parsed)
+			result = json.RawMessage(resultJSON)
+		} else {
+			result = json.RawMessage(contextStr)
 		}
-		resultJSON, _ := json.Marshal(resultWithMeta)
-		result = json.RawMessage(resultJSON)
 	case "get_impact_graph":
 		sym := ""
 		if s, ok := toolArgs["symbol"].(string); ok {
@@ -232,14 +251,17 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			queryVec, embErr := emb.EmbedSingle(query)
 			if embErr != nil {
 				result = map[string]string{"error": "embed query: " + embErr.Error()}
-			} else {
-				scored := search.Cache.Search(queryVec, projectPath, docType, limit)
+		} else {
+			scored := search.Cache.Search(queryVec, projectPath, docType, limit)
 				fileCache := map[string][]string{}
+				matchedFiles := map[string]bool{}
+				fullBaselineTokens := 0
 				results := make([]map[string]interface{}, len(scored))
 				for i, s := range scored {
 					results[i] = s.Data
 					file, _ := s.Data["file"].(string)
 					if file != "" {
+						matchedFiles[file] = true
 						rows, qErr := db.DB.Query("SELECT start_line, end_line FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
 							file, s.Data["name"], projectPath)
 						if qErr == nil {
@@ -250,18 +272,35 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 								results[i]["end_line"] = el
 								if src := indexer.ReadSourceRange(file, sl, el, fileCache); src != "" {
 									results[i]["source"] = src
+									fullBaselineTokens += db.EstimateTokens(src)
 								}
 							}
 							rows.Close()
 						}
 					}
+					results[i]["file"] = db.RelPath(file, projectPath)
 				}
-				data, _ := json.Marshal(map[string]interface{}{
-					"query":         query,
-					"results":       results,
-					"total_vectors": search.Cache.Count(projectPath),
+				fileBaselineTokens := 0
+				for f := range matchedFiles {
+					if lines, ok := fileCache[f]; ok {
+						fileBaselineTokens += db.EstimateTokens(strings.Join(lines, "\n"))
+					}
+				}
+				respData, _ := json.Marshal(map[string]interface{}{
+					"query":                query,
+					"results":              results,
+					"total_vectors":        search.Cache.Count(projectPath),
+					"file_baseline_tokens": fileBaselineTokens,
+					"full_baseline_tokens": fullBaselineTokens,
 				})
-				result = json.RawMessage(data)
+				outTokens := db.EstimateTokens(string(respData))
+				saved := fileBaselineTokens - outTokens
+				if saved < 0 {
+					saved = 0
+				}
+				db.LogQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, saved, fileBaselineTokens, fullBaselineTokens, float64(time.Since(start).Milliseconds()), projectPath, "")
+				loggedToolCall = true
+				result = json.RawMessage(respData)
 			}
 		}
 	case "get_project_map":
@@ -283,7 +322,24 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if file == "" || projectPath == "" {
 			result = map[string]string{"error": "file and project_path required"}
 		} else {
-			result = json.RawMessage(handleFileContext(file, projectPath, mode))
+			fcStr := handleFileContext(file, projectPath, mode)
+			result = json.RawMessage(fcStr)
+			var fcParsed map[string]interface{}
+			if err := json.Unmarshal([]byte(fcStr), &fcParsed); err == nil {
+				fileBase, fullBase, outTokens := 0, 0, db.EstimateTokens(fcStr)
+				if v, ok := fcParsed["file_baseline_tokens"].(float64); ok {
+					fileBase = int(v)
+				}
+				if v, ok := fcParsed["full_baseline_tokens"].(float64); ok {
+					fullBase = int(v)
+				}
+				saved := fileBase - outTokens
+				if saved < 0 {
+					saved = 0
+				}
+				db.LogQuery(toolName, args, len(fcStr), 0, outTokens, saved, fileBase, fullBase, float64(time.Since(start).Milliseconds()), projectPath, "")
+				loggedToolCall = true
+			}
 		}
 	case "sync_remote":
 		result = json.RawMessage(handleSyncRemote(toolArgs, projectPath))
@@ -315,9 +371,9 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		result = map[string]string{"error": "not implemented: " + toolName}
 	}
 
-	if toolName != "get_context_capsule" {
+	if toolName != "get_context_capsule" && !loggedToolCall {
 		resultJSON, _ := json.Marshal(result)
-		db.LogQuery(toolName, args, len(resultJSON), 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
+		db.LogQuery(toolName, args, len(resultJSON), 0, 0, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
 	}
 	json.NewEncoder(w).Encode(JSONRPCResponse{
 		JSONRPC: JSONRPCVersion,

@@ -4,17 +4,17 @@ func GetTools() []Tool {
 	return []Tool{
 		{
 			Name:        "get_context_capsule",
-			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction). Supports Python, JS/TS, Go, Bash, Fish.",
+			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction), 'auto' (full for top 3 results, skeleton for rest). Supports Python, JS/TS, Go, Bash, Fish.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query":        map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":         map[string]string{"type": "string", "description": "Response mode: 'full' (default, returns source), 'skeleton' (signatures only), 'summary' (cached summaries)"},
+					"mode":         map[string]string{"type": "string", "description": "Response mode: 'full' (default, returns source), 'skeleton' (signatures only), 'summary' (cached summaries), 'auto' (full for top 3 results, skeleton for rest — best balance of detail and token efficiency)"},
 					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return. Results are packed greedily by score until budget is exhausted."},
-				},
-				"required": []string{"query", "project_path"},
+				"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
+			},
+			"required": []string{"query", "project_path"},
 			},
 		},
 		{

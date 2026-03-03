@@ -74,9 +74,8 @@ func handleProjectMap(projectPath string, depth int) string {
 	sort.Strings(topDirs)
 
 	result := map[string]interface{}{
-		"project_path": projectPath,
-		"depth":        depth,
-		"total_files":  len(sortedFiles),
+		"depth":       depth,
+		"total_files": len(sortedFiles),
 	}
 
 	if depth == 1 {
@@ -116,6 +115,7 @@ func handleFileContext(file, projectPath, mode string) string {
 
 	fileCache := map[string][]string{}
 	var symbols []map[string]interface{}
+	fullBaselineTokens := 0
 
 	for rows.Next() {
 		var name, kind, skeleton, code string
@@ -129,13 +129,21 @@ func handleFileContext(file, projectPath, mode string) string {
 			"end_line":   endLine,
 		}
 
+		var fullSrc string
+		if startLine > 0 && endLine > 0 {
+			fullSrc = indexer.ReadSourceRange(file, startLine, endLine, fileCache)
+		}
+		if fullSrc != "" {
+			fullBaselineTokens += db.EstimateTokens(fullSrc)
+		}
+
 		switch mode {
 		case "skeleton":
 			if skeleton != "" {
 				sym["skeleton"] = skeleton
-			} else if src := indexer.ReadSourceRange(file, startLine, endLine, fileCache); src != "" {
+			} else if fullSrc != "" {
 				lang := indexer.GetLanguage(file)
-				sym["skeleton"] = indexer.ExtractSkeleton(src, lang, kind)
+				sym["skeleton"] = indexer.ExtractSkeleton(fullSrc, lang, kind)
 			}
 		case "summary":
 			var summary string
@@ -148,8 +156,8 @@ func handleFileContext(file, projectPath, mode string) string {
 				sym["_fallback"] = "skeleton"
 			}
 		default: // "full"
-			if src := indexer.ReadSourceRange(file, startLine, endLine, fileCache); src != "" {
-				sym["source"] = src
+			if fullSrc != "" {
+				sym["source"] = fullSrc
 			}
 		}
 
@@ -173,14 +181,25 @@ func handleFileContext(file, projectPath, mode string) string {
 		lang = "Bash"
 	case ".fish":
 		lang = "Fish"
+	case ".yaml", ".yml":
+		lang = "YAML"
+	case ".tf", ".tfvars":
+		lang = "HCL"
+	}
+
+	fileBaselineTokens := 0
+	if lines, ok := fileCache[file]; ok {
+		fileBaselineTokens = db.EstimateTokens(strings.Join(lines, "\n"))
 	}
 
 	data, _ := json.Marshal(map[string]interface{}{
-		"file":     file,
-		"language": lang,
-		"mode":     mode,
-		"symbols":  symbols,
-		"total":    len(symbols),
+		"file":                 db.RelPath(file, projectPath),
+		"language":             lang,
+		"mode":                 mode,
+		"symbols":              symbols,
+		"total":                len(symbols),
+		"file_baseline_tokens": fileBaselineTokens,
+		"full_baseline_tokens": fullBaselineTokens,
 	})
 	return string(data)
 }

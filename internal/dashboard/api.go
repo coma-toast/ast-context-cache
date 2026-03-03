@@ -105,9 +105,9 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,'') FROM queries WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?", pid, lim)
+		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?", pid, lim)
 	} else {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,'') FROM queries ORDER BY timestamp DESC LIMIT ?", lim)
+		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries ORDER BY timestamp DESC LIMIT ?", lim)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
@@ -117,11 +117,27 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	qs := []map[string]interface{}{}
 	for rows.Next() {
-		var t, n, pp, errMsg string
-		var rc int
+		var t, n, pp, errMsg, argsJSON string
+		var rc, saved, fileBaseline int
 		var dm float64
-		rows.Scan(&t, &n, &rc, &dm, &pp, &errMsg)
-		qs = append(qs, map[string]interface{}{"timestamp": t, "tool_name": n, "result_chars": rc, "duration_ms": dm, "project_path": pp, "error": errMsg})
+		rows.Scan(&t, &n, &rc, &dm, &pp, &errMsg, &argsJSON, &saved, &fileBaseline)
+		entry := map[string]interface{}{"timestamp": t, "tool_name": n, "result_chars": rc, "duration_ms": dm, "project_path": pp, "error": errMsg, "tokens_saved": saved, "file_baseline_tokens": fileBaseline}
+		var parsed map[string]interface{}
+		if json.Unmarshal([]byte(argsJSON), &parsed) == nil {
+			if a, ok := parsed["arguments"].(map[string]interface{}); ok {
+				parsed = a
+			}
+			if q, ok := parsed["query"].(string); ok {
+				entry["query"] = q
+			}
+			if m, ok := parsed["mode"].(string); ok && m != "" {
+				entry["mode"] = m
+			}
+			if tb, ok := parsed["token_budget"].(float64); ok && tb > 0 {
+				entry["token_budget"] = int(tb)
+			}
+		}
+		qs = append(qs, entry)
 	}
 	json.NewEncoder(w).Encode(qs)
 }

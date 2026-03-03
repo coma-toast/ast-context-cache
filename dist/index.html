@@ -250,6 +250,41 @@ tr:hover td { background: var(--surface-hover); }
   50% { opacity: 0.4; }
 }
 
+.watcher-card .card-title { margin-bottom: 8px; }
+.watcher-card .watcher-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.watcher-card .watcher-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.watcher-card .watcher-item .watcher-name {
+  font-weight: 500;
+  color: var(--text);
+}
+.watcher-card .watcher-item .watcher-path {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+.watcher-card .watcher-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
 .chart-container {
   width: 100%;
   height: 200px;
@@ -292,30 +327,23 @@ tr:hover td { background: var(--surface-hover); }
 .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
 .refresh-btn .spin { display: inline-block; transition: transform 0.3s; }
 .refresh-btn.spinning .spin { animation: rotate 0.8s linear infinite; }
-.refresh-btn .progress-ring {
+.refresh-btn .progress-bar {
   position: absolute;
   left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: var(--accent);
   pointer-events: none;
+  border-radius: 0 0 5px 5px;
+  opacity: 0.7;
 }
-.refresh-btn .progress-ring circle {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
-  stroke-dasharray: 100;
-  stroke-dashoffset: 0;
-  transform-origin: center;
-  transform: rotate(-90deg);
-  opacity: 0.4;
+.refresh-btn .progress-bar.progressing {
+  animation: progressBar 30s linear forwards;
 }
-.refresh-btn .progress-ring.progressing circle {
-  animation: progressRing 30s linear forwards;
-}
-@keyframes progressRing {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: 100; }
+@keyframes progressBar {
+  from { width: 100%; }
+  to { width: 0; }
 }
 @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .settings-btn {
@@ -455,7 +483,7 @@ tr:hover td { background: var(--surface-hover); }
     <div class="header-controls">
       <span class="auto-badge" id="autoLabel">auto 30s</span>
       <button id="refreshBtn" class="refresh-btn" onclick="doRefresh()">
-        <svg class="progress-ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45"/></svg>
+        <div class="progress-bar"></div>
         <span class="spin">&#x21bb;</span> Refresh
       </button>
       <button class="settings-btn" onclick="openSettings()" title="Settings">&#x2699;</button>
@@ -503,11 +531,6 @@ tr:hover td { background: var(--surface-hover); }
       <div class="stat-value stat-orange" id="idxEdges">-</div>
     </div>
     <div class="card">
-      <div class="card-title">File Watchers</div>
-      <div class="stat-value stat-purple" id="idxWatchers">-</div>
-      <div class="stat-label" id="watcherLabel">-</div>
-    </div>
-    <div class="card">
       <div class="card-title">Vectors (Embeddings)</div>
       <div class="stat-value stat-accent" id="idxVectors">-</div>
       <div class="stat-label">In-memory cache</div>
@@ -519,10 +542,17 @@ tr:hover td { background: var(--surface-hover); }
     </div>
   </div>
 
+  <div class="card watcher-card" style="margin-top:16px">
+    <div class="card-title">File Watchers</div>
+    <div class="watcher-items" id="watcherItems">
+      <div class="watcher-empty"><span class="watcher-dot inactive"></span>No active watchers</div>
+    </div>
+  </div>
+
   <div class="section-title">Activity
     <div class="toggle-group" style="margin-left:12px">
-      <button class="toggle-btn active" data-interval="daily" onclick="setInterval(this)">Daily</button>
-      <button class="toggle-btn" data-interval="hourly" onclick="setInterval(this)">Hourly</button>
+      <button class="toggle-btn active" data-interval="daily" onclick="setTsInterval(this)">Daily</button>
+      <button class="toggle-btn" data-interval="hourly" onclick="setTsInterval(this)">Hourly</button>
     </div>
     <div class="toggle-group" style="margin-left:8px">
       <button class="toggle-btn active" data-metric="queries" onclick="setMetric(this)">Queries</button>
@@ -570,14 +600,17 @@ tr:hover td { background: var(--surface-hover); }
         <tr>
           <th>Time</th>
           <th>Tool</th>
+          <th>Query</th>
+          <th>Mode</th>
+          <th>Budget</th>
+          <th>Saved</th>
           <th>Project</th>
-          <th>Result</th>
           <th>Duration</th>
           <th>Status</th>
         </tr>
       </thead>
       <tbody id="recentTable">
-        <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+        <tr><td colspan="9" class="empty-state">Loading...</td></tr>
       </tbody>
     </table>
   </div>
@@ -659,12 +692,15 @@ async function loadIndexStats() {
   $('idxVectorMem').textContent = typeof vecMb === 'number' ? vecMb.toFixed(2) : vecMb;
 
   const ws = await fetchJSON('/api/watcher-status');
-  $('idxWatchers').textContent = fmt(ws.total_active);
+  const el = $('watcherItems');
   if (ws.total_active > 0) {
-    const names = (ws.watchers || []).map(w => w.project_path.split('/').pop()).join(', ');
-    $('watcherLabel').innerHTML = `<span class="watcher-dot active"></span>${names}`;
+    const sorted = (ws.watchers || []).slice().sort((a, b) => a.project_path.localeCompare(b.project_path));
+    el.innerHTML = sorted.map(w => {
+      const name = w.project_path.split('/').pop() || w.project_path;
+      return `<div class="watcher-item"><span class="watcher-dot active"></span><span class="watcher-name">${escHtml(name)}</span><span class="watcher-path" title="${escHtml(w.project_path)}">${escHtml(w.project_path)}</span></div>`;
+    }).join('');
   } else {
-    $('watcherLabel').innerHTML = '<span class="watcher-dot inactive"></span>No active watchers';
+    el.innerHTML = '<div class="watcher-empty"><span class="watcher-dot inactive"></span>No active watchers</div>';
   }
 }
 
@@ -720,7 +756,7 @@ async function loadRecent() {
   const qs = await fetchJSON('/api/recent?limit=50');
   const tbody = $('recentTable');
   if (!qs || qs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No queries recorded</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No queries recorded</td></tr>';
     return;
   }
   tbody.innerHTML = qs.map((q, i) => {
@@ -733,11 +769,18 @@ async function loadRecent() {
     const status = hasErr
       ? `<span class="badge badge-red error-toggle" onclick="toggleError(${i})">Error</span><div class="error-detail" id="err-${i}">${escHtml(q.error)}</div>`
       : '<span class="badge badge-green">OK</span>';
+    const queryText = q.query ? escHtml(q.query.length > 40 ? q.query.slice(0, 37) + '...' : q.query) : '-';
+    const modeText = q.mode || '-';
+    const budgetText = q.token_budget ? fmt(q.token_budget) : '-';
+    const savedText = q.tokens_saved > 0 ? fmt(q.tokens_saved) : '-';
     return `<tr>
       <td class="mono dim">${dateStr} ${timeStr}</td>
       <td><span class="badge ${badge}">${q.tool_name}</span></td>
+      <td class="mono" title="${escHtml(q.query || '')}">${queryText}</td>
+      <td class="mono">${modeText}</td>
+      <td class="mono">${budgetText}</td>
+      <td class="mono">${savedText}</td>
       <td class="mono dim" title="${escHtml(q.project_path || '')}">${proj}</td>
-      <td class="mono">${fmt(q.result_chars)} chars</td>
       <td class="mono">${q.duration_ms ? q.duration_ms.toFixed(1) : '0'}ms</td>
       <td>${status}</td>
     </tr>`;
@@ -852,7 +895,7 @@ async function loadTimeseries() {
   });
 }
 
-function setInterval(btn) {
+function setTsInterval(btn) {
   tsInterval = btn.dataset.interval;
   btn.parentElement.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -894,6 +937,10 @@ async function doRefresh() {
   } finally {
     btn.classList.remove('spinning');
     btn.disabled = false;
+    const bar = btn.querySelector('.progress-bar');
+    bar.classList.remove('progressing');
+    void bar.offsetWidth;
+    bar.classList.add('progressing');
   }
 }
 
@@ -902,22 +949,22 @@ async function init() {
   await refreshAll();
   window.addEventListener('resize', () => loadTimeseries());
   window._autoRefresh = window.setInterval(refreshAll, 30000);
-  startProgressRing();
+  startProgressBar();
 }
 
 let progressTimeout = null;
-function startProgressRing() {
+function startProgressBar() {
   const btn = $('refreshBtn');
-  const ring = btn.querySelector('.progress-ring');
+  const bar = btn.querySelector('.progress-bar');
   
   function animate() {
-    ring.classList.remove('progressing');
-    void ring.offsetWidth;
-    ring.classList.add('progressing');
+    bar.classList.remove('progressing');
+    void bar.offsetWidth;
+    bar.classList.add('progressing');
   }
   
   animate();
-  progressTimeout = setInterval(animate, 30000);
+  progressTimeout = window.setInterval(animate, 30000);
 }
 
 async function openSettings() {
@@ -965,6 +1012,7 @@ async function loadSettingsWatchers() {
       list.innerHTML = '<div class="empty-state">No active watchers</div>';
       return;
     }
+    ws.watchers.sort((a, b) => a.project_path.localeCompare(b.project_path));
     list.innerHTML = ws.watchers.map(w => `
       <div class="project-item" data-path="${escHtml(w.project_path)}">
         <div class="info">

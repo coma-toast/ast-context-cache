@@ -2,6 +2,7 @@ package context
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
@@ -15,7 +16,7 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 	query, _ := args["query"].(string)
 	mode, _ := args["mode"].(string)
 	sessionID, _ := args["session_id"].(string)
-	tokenBudget := 0
+	tokenBudget := 4000
 	if tb, ok := args["token_budget"].(float64); ok && tb > 0 {
 		tokenBudget = int(tb)
 	}
@@ -39,9 +40,12 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 	}
 
 	fileCache := map[string][]string{}
+	matchedFiles := map[string]bool{}
 	var results []map[string]interface{}
 	skipped := 0
 	tokensUsed := 0
+	fullBaselineTokens := 0
+	fullCount := 0
 	for i := 0; i < limit; i++ {
 		data := scored[i].Data
 		file, _ := data["file"].(string)
@@ -56,7 +60,27 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 			continue
 		}
 
-		switch mode {
+		matchedFiles[file] = true
+
+		// Always read the full source (cached) to compute the full-mode baseline
+		var fullSrc string
+		if startLine > 0 && endLine > 0 {
+			fullSrc = indexer.ReadSourceRange(file, startLine, endLine, fileCache)
+		}
+		if fullSrc != "" {
+			fullBaselineTokens += db.EstimateTokens(fullSrc)
+		}
+
+		effectiveMode := mode
+		if mode == "auto" {
+			if fullCount < 3 {
+				effectiveMode = "full"
+			} else {
+				effectiveMode = "skeleton"
+			}
+		}
+
+		switch effectiveMode {
 		case "skeleton":
 			if startLine > 0 && endLine > 0 {
 				var skeleton string
@@ -64,10 +88,10 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 					file, name, projectPath, startLine).Scan(&skeleton)
 				if skeleton != "" {
 					data["skeleton"] = skeleton
-				} else if src := indexer.ReadSourceRange(file, startLine, endLine, fileCache); src != "" {
+				} else if fullSrc != "" {
 					lang := indexer.GetLanguage(file)
 					kind, _ := data["kind"].(string)
-					data["skeleton"] = indexer.ExtractSkeleton(src, lang, kind)
+					data["skeleton"] = indexer.ExtractSkeleton(fullSrc, lang, kind)
 				}
 			}
 		case "summary":
@@ -92,13 +116,15 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 				}
 			}
 		default: // "full"
-			if startLine > 0 && endLine > 0 {
-				if src := indexer.ReadSourceRange(file, startLine, endLine, fileCache); src != "" {
-					data["source"] = src
-				}
+			if fullSrc != "" {
+				data["source"] = fullSrc
 			}
 		}
 
+		if effectiveMode == "full" {
+			fullCount++
+		}
+		data["file"] = db.RelPath(file, projectPath)
 		resultJSON, _ := json.Marshal(data)
 		resultTokens := db.EstimateTokens(string(resultJSON))
 		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
@@ -110,7 +136,21 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		LogReturned(sessionID, file, 0, mode, resultTokens)
 	}
 
-	resp := map[string]interface{}{"query": query, "mode": mode, "results": results, "tokens_used": tokensUsed}
+	fileBaselineTokens := 0
+	for f := range matchedFiles {
+		if lines, ok := fileCache[f]; ok {
+			fileBaselineTokens += db.EstimateTokens(strings.Join(lines, "\n"))
+		}
+	}
+
+	resp := map[string]interface{}{
+		"query":                query,
+		"mode":                 mode,
+		"results":              results,
+		"tokens_used":          tokensUsed,
+		"file_baseline_tokens": fileBaselineTokens,
+		"full_baseline_tokens": fullBaselineTokens,
+	}
 	if tokenBudget > 0 {
 		resp["token_budget"] = tokenBudget
 		resp["tokens_remaining"] = tokenBudget - tokensUsed
