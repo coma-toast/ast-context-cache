@@ -7,7 +7,12 @@ CGO_FLAGS := CGO_LDFLAGS="-L$(PROJ_DIR) -L$(ORT_LIB)" CGO_CFLAGS="-I$(ORT_INC)"
 
 BINARY := ast-mcp
 TOKENIZER_LIB := libtokenizers.a
-TOKENIZER_URL := https://github.com/daulet/tokenizers/releases/latest/download/libtokenizers.darwin-arm64.tar.gz
+# Pre-built libtokenizers: pick by GOOS-GOARCH (see https://github.com/daulet/tokenizers/releases)
+GOOS := $(shell go env GOOS)
+GOARCH := $(shell go env GOARCH)
+TOKENIZER_ARCH := $(GOOS)-$(GOARCH)
+TOKENIZER_BASE := https://github.com/daulet/tokenizers/releases/latest/download
+TOKENIZER_URL := $(TOKENIZER_BASE)/libtokenizers.$(TOKENIZER_ARCH).tar.gz
 
 .PHONY: help build run download-model download-tokenizer-lib clean test
 
@@ -24,8 +29,8 @@ download-model:
 
 download-tokenizer-lib:
 	@if [ ! -f $(TOKENIZER_LIB) ]; then \
-		echo "Downloading libtokenizers for darwin-arm64..."; \
-		curl -L -o libtokenizers.tar.gz $(TOKENIZER_URL); \
+		echo "Downloading libtokenizers for $(TOKENIZER_ARCH)..."; \
+		curl -sfL -o libtokenizers.tar.gz $(TOKENIZER_URL) || (echo "Unsupported or missing build for $(TOKENIZER_ARCH). Download manually from $(TOKENIZER_BASE) and extract libtokenizers.a into project root."; exit 1); \
 		tar xzf libtokenizers.tar.gz; \
 		rm -f libtokenizers.tar.gz; \
 	else \
