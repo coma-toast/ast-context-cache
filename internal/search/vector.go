@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
@@ -26,16 +28,42 @@ type VectorEntry struct {
 }
 
 type VectorCache struct {
-	mu      sync.RWMutex
-	entries []VectorEntry
+	mu       sync.RWMutex
+	entries  []VectorEntry
+	loaded   bool
+	lastUsed time.Time
+	stopIdle chan struct{}
 }
 
-var Cache = &VectorCache{}
+var Cache = &VectorCache{stopIdle: make(chan struct{})}
 
-func (vc *VectorCache) Load() error {
+func init() {
+	go Cache.idleLoop()
+}
+
+func (vc *VectorCache) ensureLoaded() {
+	vc.mu.RLock()
+	if vc.loaded {
+		vc.lastUsed = time.Now()
+		vc.mu.RUnlock()
+		return
+	}
+	vc.mu.RUnlock()
+
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if vc.loaded {
+		vc.lastUsed = time.Now()
+		return
+	}
+	vc.loadFromDB()
+}
+
+func (vc *VectorCache) loadFromDB() {
 	rows, err := db.DB.Query("SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors")
 	if err != nil {
-		return fmt.Errorf("load vectors: %w", err)
+		log.Printf("WARNING: load vectors: %v", err)
+		return
 	}
 	defer rows.Close()
 
@@ -50,10 +78,62 @@ func (vc *VectorCache) Load() error {
 		}
 	}
 
-	vc.mu.Lock()
 	vc.entries = entries
-	vc.mu.Unlock()
+	vc.loaded = true
+	vc.lastUsed = time.Now()
 	log.Printf("Loaded %d vectors into memory (%.1f MB)", len(entries), float64(len(entries)*VectorDims*4)/(1024*1024))
+}
+
+func (vc *VectorCache) Unload() {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
+	n := len(vc.entries)
+	vc.entries = nil
+	vc.loaded = false
+	log.Printf("Vector cache unloaded (%d entries freed)", n)
+}
+
+func (vc *VectorCache) idleTimeout() time.Duration {
+	val := db.GetSetting("idle_unload_minutes", "1")
+	mins, err := strconv.Atoi(val)
+	if err != nil || mins < 0 {
+		mins = 1
+	}
+	if mins == 0 {
+		return 0
+	}
+	return time.Duration(mins) * time.Minute
+}
+
+func (vc *VectorCache) idleLoop() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			timeout := vc.idleTimeout()
+			if timeout == 0 {
+				continue
+			}
+			vc.mu.Lock()
+			if vc.loaded && time.Since(vc.lastUsed) > timeout {
+				n := len(vc.entries)
+				vc.entries = nil
+				vc.loaded = false
+				log.Printf("Vector cache unloaded after %v idle (%d entries freed)", timeout, n)
+			}
+			vc.mu.Unlock()
+		case <-vc.stopIdle:
+			return
+		}
+	}
+}
+
+func (vc *VectorCache) Load() error {
+	vc.ensureLoaded()
 	return nil
 }
 
@@ -61,6 +141,7 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 	if len(query) != VectorDims {
 		return nil
 	}
+	vc.ensureLoaded()
 
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
@@ -113,6 +194,7 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 }
 
 func (vc *VectorCache) Upsert(entries []VectorEntry) error {
+	vc.ensureLoaded()
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return err
@@ -160,6 +242,9 @@ func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
 
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
 	n := 0
 	for _, e := range vc.entries {
 		if e.SourceFile == filePath && e.ProjectPath == projectPath {
@@ -173,15 +258,25 @@ func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
 
 func (vc *VectorCache) Count(projectPath string) int {
 	vc.mu.RLock()
-	defer vc.mu.RUnlock()
-	if projectPath == "" {
-		return len(vc.entries)
-	}
-	count := 0
-	for _, e := range vc.entries {
-		if e.ProjectPath == projectPath {
-			count++
+	if vc.loaded {
+		defer vc.mu.RUnlock()
+		if projectPath == "" {
+			return len(vc.entries)
 		}
+		count := 0
+		for _, e := range vc.entries {
+			if e.ProjectPath == projectPath {
+				count++
+			}
+		}
+		return count
+	}
+	vc.mu.RUnlock()
+	var count int
+	if projectPath == "" {
+		db.DB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&count)
+	} else {
+		db.DB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", projectPath).Scan(&count)
 	}
 	return count
 }
@@ -189,10 +284,20 @@ func (vc *VectorCache) Count(projectPath string) int {
 func (vc *VectorCache) MemoryMB() float64 {
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
+	if !vc.loaded {
+		return 0
+	}
 	return float64(len(vc.entries)*VectorDims*4) / (1024 * 1024)
 }
 
+func (vc *VectorCache) IsLoaded() bool {
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+	return vc.loaded
+}
+
 func (vc *VectorCache) GetAll(projectPath string) []VectorEntry {
+	vc.ensureLoaded()
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
 	if projectPath == "" {

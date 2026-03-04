@@ -460,6 +460,35 @@ tr:hover td { background: var(--surface-hover); }
   color: var(--text-dim);
   font-size: 13px;
 }
+.perf-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.perf-setting label {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text);
+}
+.perf-input {
+  width: 80px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--mono);
+}
+.perf-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.perf-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
 .auto-badge {
   font-size: 10px;
   color: var(--text-dim);
@@ -624,6 +653,15 @@ tr:hover td { background: var(--surface-hover); }
       <button class="close-btn" onclick="closeSettings()">&times;</button>
     </div>
     
+    <div class="section">
+      <div class="section-title">Performance</div>
+      <div class="perf-setting">
+        <label for="idleUnloadMinutes">Idle unload timeout (minutes)</label>
+        <input type="number" id="idleUnloadMinutes" min="0" step="1" value="1" class="perf-input" />
+        <span class="perf-hint">Embedder model and vector cache are unloaded after this many minutes of inactivity to free memory. Set to 0 to keep loaded.</span>
+      </div>
+    </div>
+
     <div class="section">
       <div class="section-title">Projects</div>
       <div class="project-list" id="projectList">
@@ -970,8 +1008,27 @@ function startProgressBar() {
 async function openSettings() {
   const modal = $('settingsModal');
   modal.classList.add('open');
+  await loadPerformanceSettings();
   await loadSettingsProjects();
   await loadSettingsWatchers();
+}
+
+async function loadPerformanceSettings() {
+  try {
+    const r = await fetch(`${API}/api/settings`);
+    const settings = await r.json();
+    const el = $('idleUnloadMinutes');
+    el.value = settings.idle_unload_minutes || '1';
+    el.onchange = async () => {
+      const val = Math.max(0, parseInt(el.value) || 0);
+      el.value = val;
+      await fetch(`${API}/api/settings`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key: 'idle_unload_minutes', value: String(val)})
+      });
+    };
+  } catch (e) { /* settings endpoint may not exist on older servers */ }
 }
 
 function closeSettings() {

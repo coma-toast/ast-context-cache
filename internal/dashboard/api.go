@@ -32,6 +32,7 @@ func NewHandler(frontendDir string) http.Handler {
 	mux.HandleFunc("/api/top-imports", handleTopImports)
 	mux.HandleFunc("/api/watcher-status", handleWatcherStatus)
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
+	mux.HandleFunc("/api/settings", handleSettings)
 	mux.HandleFunc("/", staticHandler(frontendDir))
 	return mux
 }
@@ -205,6 +206,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		db.DB.Exec("DELETE FROM edges")
 		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
+		go db.Compact()
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
 	} else if projectPath != "" {
 		_, err := db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
@@ -242,6 +244,7 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
+	go db.Compact()
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }
 
@@ -424,8 +427,35 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 		"db_vectors":    dbVectors,
 		"memory_mb":     memoryMB,
 		"dimensions":    search.VectorDims,
-		"cache_loaded":  totalVectors > 0,
+		"cache_loaded":  search.Cache.IsLoaded(),
 	})
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == "POST" {
+		var req map[string]string
+		json.NewDecoder(r.Body).Decode(&req)
+		key, value := req["key"], req["value"]
+		if key == "" {
+			json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
+			return
+		}
+		if err := db.SetSetting(key, value); err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
+		return
+	}
+	defaults := map[string]string{"idle_unload_minutes": "1"}
+	settings := db.GetAllSettings()
+	for k, v := range defaults {
+		if _, ok := settings[k]; !ok {
+			settings[k] = v
+		}
+	}
+	json.NewEncoder(w).Encode(settings)
 }
 
 func staticHandler(frontendDir string) http.HandlerFunc {
@@ -476,6 +506,7 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
+	go db.Compact()
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }

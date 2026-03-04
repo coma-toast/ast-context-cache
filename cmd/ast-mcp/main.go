@@ -41,10 +41,6 @@ func main() {
 		db.DB.Exec("DELETE FROM " + tbl + " WHERE project_path = '.'")
 	}
 
-	if err := search.Cache.Load(); err != nil {
-		log.Printf("WARNING: Failed to load vector cache: %v", err)
-	}
-
 	modelDir := os.Getenv("MODEL_DIR")
 	if modelDir == "" {
 		modelDir = filepath.Join(exeDir, "model")
@@ -52,20 +48,15 @@ func main() {
 	if err := embedder.EnsureModel(modelDir); err != nil {
 		log.Printf("WARNING: Could not ensure embedder model files: %v", err)
 	}
-	emb, err := embedder.New(modelDir)
-	if err != nil {
-		log.Printf("WARNING: Embedder init failed (vector features disabled): %v", err)
-		log.Printf("Embedder tip: need model/ (tokenizer.json + model.onnx) next to binary or MODEL_DIR set, and ONNXRUNTIME_LIB set to libonnxruntime path. See README.")
-	} else {
-		log.Printf("Embedder loaded: %s (%d dims)", embedder.ModelName, embedder.Dimensions)
-		mcp.SetEmbedder(emb)
-		ctxpkg.Emb = emb
-		watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
-			if removed {
-				search.Cache.DeleteByFile(filePath, projectPath)
-			} else {
-				indexer.EmbedFileSymbols(emb, filePath, projectPath)
-			}
+	emb := embedder.NewLazy(modelDir)
+	log.Printf("Embedder configured (lazy-load from %s)", modelDir)
+	mcp.SetEmbedder(emb)
+	ctxpkg.Emb = emb
+	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
+		if removed {
+			search.Cache.DeleteByFile(filePath, projectPath)
+		} else {
+			indexer.EmbedFileSymbols(emb, filePath, projectPath)
 		}
 	}
 
@@ -85,12 +76,31 @@ func main() {
 	mcpMux.HandleFunc("/mcp", mcp.NewHandler())
 	mcpMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "healthy", "service": "ast-context-cache", "version": "2.0.0", "embedder": emb != nil})
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "healthy", "service": "ast-context-cache", "version": "2.0.0", "embedder": emb.IsLoaded()})
 	})
-	if emb != nil {
-		mcpMux.HandleFunc("/embed", emb.HandleEmbed)
-		mcpMux.HandleFunc("/embed/health", emb.HandleHealth)
-	}
+	mcpMux.HandleFunc("/embed", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Texts []string `json:"texts"` }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+			return
+		}
+		if len(req.Texts) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"embeddings": [][]float32{}})
+			return
+		}
+		embeddings, err := emb.Embed(req.Texts)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"embeddings": embeddings})
+	})
+	mcpMux.HandleFunc("/embed/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "model": embedder.ModelName, "dimensions": embedder.Dimensions, "loaded": emb.IsLoaded()})
+	})
 	mcpMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
 			return

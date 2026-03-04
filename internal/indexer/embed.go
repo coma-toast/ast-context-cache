@@ -8,7 +8,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
-func EmbedDirectorySymbols(emb *embedder.Embedder, dirPath, projectPath string) {
+func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) {
 	rows, err := db.DB.Query(
 		"SELECT DISTINCT file FROM symbols WHERE project_path = ?", projectPath)
 	if err != nil {
@@ -30,7 +30,7 @@ func EmbedDirectorySymbols(emb *embedder.Embedder, dirPath, projectPath string) 
 	log.Printf("Finished embedding all symbols for %s (%d files)", projectPath, len(files))
 }
 
-func EmbedFileSymbols(emb *embedder.Embedder, filePath, projectPath string) {
+func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) {
 	rows, err := db.DB.Query(
 		"SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?",
 		filePath, projectPath)

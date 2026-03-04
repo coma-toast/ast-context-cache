@@ -16,6 +16,11 @@ import (
 	ort "github.com/yalue/onnxruntime_go"
 )
 
+type Interface interface {
+	Embed(texts []string) ([][]float32, error)
+	EmbedSingle(text string) ([]float32, error)
+}
+
 const (
 	ModelName  = "all-mpnet-base-v2"
 	Dimensions = 768

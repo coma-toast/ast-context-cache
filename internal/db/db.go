@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,10 +135,41 @@ func Init() error {
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_vectors_hash ON vectors(content_hash, project_path);
 	`)
 
+	DB.Exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
+
 	EnsureFTSTriggers()
 	go DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 
 	return nil
+}
+
+func GetSetting(key, defaultValue string) string {
+	var val string
+	err := DB.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&val)
+	if err != nil {
+		return defaultValue
+	}
+	return val
+}
+
+func SetSetting(key, value string) error {
+	_, err := DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value)
+	return err
+}
+
+func GetAllSettings() map[string]string {
+	result := map[string]string{}
+	rows, err := DB.Query("SELECT key, value FROM settings")
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		rows.Scan(&k, &v)
+		result[k] = v
+	}
+	return result
 }
 
 func EnsureFTSTriggers() {
@@ -170,7 +202,21 @@ func RelPath(file, projectPath string) string {
 }
 
 func StartWALCheckpoint() {
-	for range time.NewTicker(5 * time.Minute).C {
-		DB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	walTicker := time.NewTicker(5 * time.Minute)
+	vacuumTicker := time.NewTicker(24 * time.Hour)
+	for {
+		select {
+		case <-walTicker.C:
+			DB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+		case <-vacuumTicker.C:
+			Compact()
+		}
 	}
+}
+
+func Compact() {
+	log.Println("Running VACUUM...")
+	start := time.Now()
+	DB.Exec(`VACUUM`)
+	log.Printf("VACUUM completed in %v", time.Since(start))
 }
