@@ -187,16 +187,20 @@ func DeleteWatcher(projectPath string) {
 	log.Printf("Deleted watcher for %s", projectPath)
 }
 
-// EnsureWatcher restarts a watcher if it was previously known but is currently stopped.
+// EnsureWatcher starts a watcher for the project if one isn't already running.
+// Works for both previously-known stopped watchers and projects that have
+// indexed data but no watcher yet.
 func EnsureWatcher(projectPath string) {
 	if projectPath == "" {
 		return
 	}
 	mu.Lock()
 	_, active := activeWatchers[projectPath]
-	known := knownProjects[projectPath]
 	mu.Unlock()
-	if !active && known {
+	if active {
+		return
+	}
+	if info, err := os.Stat(projectPath); err == nil && info.IsDir() {
 		go StartWatcher(projectPath)
 	}
 }
