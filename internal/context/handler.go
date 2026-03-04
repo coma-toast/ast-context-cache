@@ -60,15 +60,9 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 			continue
 		}
 
-		matchedFiles[file] = true
-
-		// Always read the full source (cached) to compute the full-mode baseline
 		var fullSrc string
 		if startLine > 0 && endLine > 0 {
 			fullSrc = indexer.ReadSourceRange(file, startLine, endLine, fileCache)
-		}
-		if fullSrc != "" {
-			fullBaselineTokens += db.EstimateTokens(fullSrc)
 		}
 
 		effectiveMode := mode
@@ -132,6 +126,10 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		}
 		tokensUsed += resultTokens
 
+		matchedFiles[file] = true
+		if fullSrc != "" {
+			fullBaselineTokens += db.EstimateTokens(fullSrc)
+		}
 		results = append(results, data)
 		LogReturned(sessionID, file, 0, mode, resultTokens)
 	}

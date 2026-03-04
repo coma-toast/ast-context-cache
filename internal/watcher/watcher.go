@@ -78,7 +78,56 @@ func StartWatcher(projectPath string) {
 		}
 	}()
 
+	go catchUp(projectPath)
 	log.Printf("File watcher started for %s", projectPath)
+}
+
+func catchUp(projectPath string) {
+	indexed := db.GetIndexedFiles(projectPath)
+	seen := map[string]bool{}
+	stale := 0
+	filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if indexer.ShouldSkipDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !indexer.IsCodeFile(path) {
+			return nil
+		}
+		seen[path] = true
+		if idxTime, ok := indexed[path]; ok && !info.ModTime().After(idxTime) {
+			return nil
+		}
+		n, err := indexer.IndexFile(path, projectPath)
+		if err == nil {
+			stale++
+			log.Printf("Catch-up re-indexed %s: %d symbols", path, n)
+			if PostIndexHook != nil {
+				go PostIndexHook(path, projectPath, false)
+			}
+		}
+		return nil
+	})
+	removed := 0
+	for file := range indexed {
+		if !seen[file] {
+			db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", file, projectPath)
+			db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", file, projectPath)
+			db.DeleteIndexedFile(file, projectPath)
+			removed++
+			if PostIndexHook != nil {
+				go PostIndexHook(file, projectPath, true)
+			}
+		}
+	}
+	if stale > 0 || removed > 0 {
+		log.Printf("Catch-up complete for %s: %d re-indexed, %d removed", projectPath, stale, removed)
+	}
 }
 
 func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher) {
@@ -109,6 +158,7 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 		if removed {
 			db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", path, projectPath)
 			db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", path, projectPath)
+			db.DeleteIndexedFile(path, projectPath)
 			log.Printf("Removed symbols for deleted file: %s", path)
 			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, 0, 0, 0, 0, 0, 0,
 				float64(time.Since(start).Milliseconds()), projectPath, "")

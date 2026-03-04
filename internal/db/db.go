@@ -137,6 +137,15 @@ func Init() error {
 
 	DB.Exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
 
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS indexed_files (
+			file TEXT NOT NULL,
+			project_path TEXT NOT NULL,
+			indexed_at DATETIME NOT NULL,
+			PRIMARY KEY (file, project_path)
+		);
+	`)
+
 	EnsureFTSTriggers()
 	go DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 
@@ -199,6 +208,33 @@ func RelPath(file, projectPath string) string {
 		return strings.TrimPrefix(file, projectPath+"/")
 	}
 	return file
+}
+
+func UpsertIndexedFile(file, projectPath string, indexedAt time.Time) {
+	DB.Exec(`INSERT INTO indexed_files (file, project_path, indexed_at) VALUES (?, ?, ?)
+		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at`,
+		file, projectPath, indexedAt.Format(time.RFC3339))
+}
+
+func GetIndexedFiles(projectPath string) map[string]time.Time {
+	result := map[string]time.Time{}
+	rows, err := DB.Query("SELECT file, indexed_at FROM indexed_files WHERE project_path = ?", projectPath)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var file, ts string
+		rows.Scan(&file, &ts)
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			result[file] = t
+		}
+	}
+	return result
+}
+
+func DeleteIndexedFile(file, projectPath string) {
+	DB.Exec("DELETE FROM indexed_files WHERE file = ? AND project_path = ?", file, projectPath)
 }
 
 func StartWALCheckpoint() {
