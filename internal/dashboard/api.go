@@ -206,6 +206,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.DB.Exec("DELETE FROM edges")
+		db.DB.Exec("DELETE FROM indexed_files")
 		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
 		go db.Compact()
@@ -217,6 +218,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+		db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
@@ -244,6 +246,7 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
 	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	go db.Compact()
@@ -506,6 +509,7 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	go db.Compact()
@@ -578,6 +582,7 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	go db.Compact()

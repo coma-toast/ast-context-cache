@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -66,6 +67,7 @@ func indexYAMLTree(root *sitter.Node, content []byte, lines []string, filePath, 
 			count++
 		}
 	}
+	db.UpsertIndexedFile(filePath, projectPath, time.Now())
 	return count, nil
 }
 

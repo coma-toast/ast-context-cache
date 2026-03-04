@@ -192,7 +192,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			}
 		}
 
-		tokensSaved := fileBaseline - outputTokens
+		tokensSaved := fullBaseline - outputTokens
 		if tokensSaved < 0 {
 			tokensSaved = 0
 		}
@@ -298,7 +298,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					"full_baseline_tokens": fullBaselineTokens,
 				})
 				outTokens := db.EstimateTokens(string(respData))
-				saved := fileBaselineTokens - outTokens
+				saved := fullBaselineTokens - outTokens
 				if saved < 0 {
 					saved = 0
 				}
@@ -337,7 +337,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if v, ok := fcParsed["full_baseline_tokens"].(float64); ok {
 					fullBase = int(v)
 				}
-				saved := fileBase - outTokens
+				saved := fullBase - outTokens
 				if saved < 0 {
 					saved = 0
 				}

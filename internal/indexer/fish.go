@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
@@ -82,5 +83,6 @@ func IndexFishFile(filePath, projectPath string) (int, error) {
 			}
 		}
 	}
+	db.UpsertIndexedFile(filePath, projectPath, time.Now())
 	return count, nil
 }

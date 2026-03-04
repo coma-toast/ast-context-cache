@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -440,6 +441,7 @@ func IndexFile(filePath, projectPath string) (int, error) {
 			count++
 		}
 	}
+	db.UpsertIndexedFile(filePath, projectPath, time.Now())
 	return count, nil
 }
 
