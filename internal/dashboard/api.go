@@ -25,6 +25,8 @@ func NewHandler(frontendDir string) http.Handler {
 	mux.HandleFunc("/api/delete", handleDeleteProject)
 	mux.HandleFunc("/api/reset-project", handleResetProject)
 	mux.HandleFunc("/api/stop-watcher", handleStopWatcher)
+	mux.HandleFunc("/api/start-watcher", handleStartWatcher)
+	mux.HandleFunc("/api/delete-watcher", handleDeleteWatcher)
 	mux.HandleFunc("/api/timeseries", handleTimeseries)
 	mux.HandleFunc("/api/index-stats", handleIndexStats)
 	mux.HandleFunc("/api/symbol-kinds", handleSymbolKinds)
@@ -534,4 +536,50 @@ func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "project_path": projectPath})
+}
+
+func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req map[string]string
+	json.NewDecoder(r.Body).Decode(&req)
+	projectPath := req["project_path"]
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+	go watcher.StartWatcher(projectPath)
+	json.NewEncoder(w).Encode(map[string]string{"status": "started", "project_path": projectPath})
+}
+
+func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req map[string]string
+	json.NewDecoder(r.Body).Decode(&req)
+	projectPath := req["project_path"]
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+	watcher.DeleteWatcher(projectPath)
+	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
+	db.DB.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
+	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.EnsureFTSTriggers()
+	go db.Compact()
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -16,9 +17,15 @@ import (
 var (
 	mu             sync.Mutex
 	activeWatchers = map[string]*fsnotify.Watcher{}
+	knownProjects  = map[string]bool{} // true = active, false = stopped
+	lastActivity   = map[string]time.Time{}
 	debounceMu     sync.Mutex
 	debounceTimers = map[string]*time.Timer{}
 )
+
+func init() {
+	go idleLoop()
+}
 
 // PostIndexHook is called after a file is indexed or removed.
 // Set this from outside the package to add vector embedding, etc.
@@ -37,6 +44,8 @@ func StartWatcher(projectPath string) {
 		return
 	}
 	activeWatchers[projectPath] = w
+	knownProjects[projectPath] = true
+	lastActivity[projectPath] = time.Now()
 	mu.Unlock()
 
 	filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
@@ -73,6 +82,9 @@ func StartWatcher(projectPath string) {
 }
 
 func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher) {
+	mu.Lock()
+	lastActivity[projectPath] = time.Now()
+	mu.Unlock()
 	path := event.Name
 
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
@@ -125,17 +137,25 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 func GetStatus() map[string]interface{} {
 	mu.Lock()
 	watchers := []map[string]interface{}{}
-	for project := range activeWatchers {
-		watchers = append(watchers, map[string]interface{}{
+	active := 0
+	for project, isActive := range knownProjects {
+		entry := map[string]interface{}{
 			"project_path": project,
-			"active":       true,
-		})
+			"active":       isActive,
+		}
+		if t, ok := lastActivity[project]; ok {
+			entry["last_activity"] = t.Format(time.RFC3339)
+		}
+		watchers = append(watchers, entry)
+		if isActive {
+			active++
+		}
 	}
 	mu.Unlock()
 
 	return map[string]interface{}{
 		"watchers":     watchers,
-		"total_active": len(watchers),
+		"total_active": active,
 	}
 }
 
@@ -150,6 +170,72 @@ func StopWatcher(projectPath string) error {
 
 	w.Close()
 	delete(activeWatchers, projectPath)
+	knownProjects[projectPath] = false
 	log.Printf("Stopped watcher for %s", projectPath)
 	return nil
+}
+
+func DeleteWatcher(projectPath string) {
+	mu.Lock()
+	if w, exists := activeWatchers[projectPath]; exists {
+		w.Close()
+		delete(activeWatchers, projectPath)
+	}
+	delete(knownProjects, projectPath)
+	delete(lastActivity, projectPath)
+	mu.Unlock()
+	log.Printf("Deleted watcher for %s", projectPath)
+}
+
+// EnsureWatcher restarts a watcher if it was previously known but is currently stopped.
+func EnsureWatcher(projectPath string) {
+	if projectPath == "" {
+		return
+	}
+	mu.Lock()
+	_, active := activeWatchers[projectPath]
+	known := knownProjects[projectPath]
+	mu.Unlock()
+	if !active && known {
+		go StartWatcher(projectPath)
+	}
+}
+
+func idleTimeout() time.Duration {
+	val := db.GetSetting("idle_unload_minutes", "1")
+	mins, err := strconv.Atoi(val)
+	if err != nil || mins < 0 {
+		mins = 1
+	}
+	if mins == 0 {
+		return 0
+	}
+	return time.Duration(mins) * time.Minute
+}
+
+func idleLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		timeout := idleTimeout()
+		if timeout == 0 {
+			continue
+		}
+		mu.Lock()
+		now := time.Now()
+		var toStop []string
+		for project, isActive := range knownProjects {
+			if !isActive {
+				continue
+			}
+			if t, ok := lastActivity[project]; ok && now.Sub(t) > timeout {
+				toStop = append(toStop, project)
+			}
+		}
+		mu.Unlock()
+		for _, p := range toStop {
+			log.Printf("Watcher idle timeout for %s", p)
+			StopWatcher(p)
+		}
+	}
 }

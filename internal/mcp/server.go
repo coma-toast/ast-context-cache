@@ -118,6 +118,10 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		}
 	}
 
+	if projectPath != "" {
+		watcher.EnsureWatcher(projectPath)
+	}
+
 	var result interface{}
 	loggedToolCall := false
 	switch toolName {

@@ -250,39 +250,40 @@ tr:hover td { background: var(--surface-hover); }
   50% { opacity: 0.4; }
 }
 
-.watcher-card .card-title { margin-bottom: 8px; }
+.watcher-card .card-title { margin-bottom: 6px; }
 .watcher-card .watcher-items {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 .watcher-card .watcher-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: var(--bg);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.watcher-card .watcher-item .watcher-name {
-  font-weight: 500;
+  gap: 5px;
+  font-size: 12px;
   color: var(--text);
+  padding: 1px 0;
 }
-.watcher-card .watcher-item .watcher-path {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
+.watcher-card .watcher-item.stopped { color: var(--text-dim); }
+.watcher-card .watcher-actions {
   margin-left: auto;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 300px;
+  display: none;
+  gap: 2px;
 }
+.watcher-card .watcher-item:hover .watcher-actions { display: flex; }
+.watcher-card .watcher-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  opacity: 0.5;
+  line-height: 1;
+}
+.watcher-card .watcher-actions button:hover { opacity: 1; }
 .watcher-card .watcher-empty {
   color: var(--text-dim);
-  font-size: 13px;
-  padding: 4px 0;
+  font-size: 12px;
 }
 
 .chart-container {
@@ -569,12 +570,11 @@ tr:hover td { background: var(--surface-hover); }
       <div class="stat-value stat-green" id="idxVectorMem">-</div>
       <div class="stat-label">MB used</div>
     </div>
-  </div>
-
-  <div class="card watcher-card" style="margin-top:16px">
-    <div class="card-title">File Watchers</div>
-    <div class="watcher-items" id="watcherItems">
-      <div class="watcher-empty"><span class="watcher-dot inactive"></span>No active watchers</div>
+    <div class="card watcher-card">
+      <div class="card-title">File Watchers</div>
+      <div class="watcher-items" id="watcherItems">
+        <div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
+      </div>
     </div>
   </div>
 
@@ -658,7 +658,7 @@ tr:hover td { background: var(--surface-hover); }
       <div class="perf-setting">
         <label for="idleUnloadMinutes">Idle unload timeout (minutes)</label>
         <input type="number" id="idleUnloadMinutes" min="0" step="1" value="1" class="perf-input" />
-        <span class="perf-hint">Embedder model and vector cache are unloaded after this many minutes of inactivity to free memory. Set to 0 to keep loaded.</span>
+        <span class="perf-hint">Embedder model, vector cache, and file watchers are unloaded after this many minutes of inactivity to free resources. Set to 0 to keep loaded.</span>
       </div>
     </div>
 
@@ -666,13 +666,6 @@ tr:hover td { background: var(--surface-hover); }
       <div class="section-title">Projects</div>
       <div class="project-list" id="projectList">
         <div class="empty-state">Loading...</div>
-      </div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">File Watchers</div>
-      <div class="project-list" id="watcherList">
-        <div class="empty-state">No active watchers</div>
       </div>
     </div>
   </div>
@@ -731,14 +724,20 @@ async function loadIndexStats() {
 
   const ws = await fetchJSON('/api/watcher-status');
   const el = $('watcherItems');
-  if (ws.total_active > 0) {
-    const sorted = (ws.watchers || []).slice().sort((a, b) => a.project_path.localeCompare(b.project_path));
+  const all = ws.watchers || [];
+  if (all.length > 0) {
+    const sorted = all.slice().sort((a, b) => a.project_path.localeCompare(b.project_path));
     el.innerHTML = sorted.map(w => {
       const name = w.project_path.split('/').pop() || w.project_path;
-      return `<div class="watcher-item"><span class="watcher-dot active"></span><span class="watcher-name">${escHtml(name)}</span><span class="watcher-path" title="${escHtml(w.project_path)}">${escHtml(w.project_path)}</span></div>`;
+      const dotCls = w.active ? 'active' : 'inactive';
+      const itemCls = w.active ? '' : ' stopped';
+      const toggleBtn = w.active
+        ? `<button title="Pause" onclick="event.stopPropagation();watcherStop('${escHtml(w.project_path)}')">&#x23F8;</button>`
+        : `<button title="Start" onclick="event.stopPropagation();watcherStart('${escHtml(w.project_path)}')">&#x25B6;</button>`;
+      return `<div class="watcher-item${itemCls}" title="${escHtml(w.project_path)}"><span class="watcher-dot ${dotCls}"></span>${escHtml(name)}<span class="watcher-actions">${toggleBtn}<button title="Delete" onclick="event.stopPropagation();watcherDelete('${escHtml(w.project_path)}')">&#x1F5D1;</button></span></div>`;
     }).join('');
   } else {
-    el.innerHTML = '<div class="watcher-empty"><span class="watcher-dot inactive"></span>No active watchers</div>';
+    el.innerHTML = '<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>';
   }
 }
 
@@ -1010,7 +1009,6 @@ async function openSettings() {
   modal.classList.add('open');
   await loadPerformanceSettings();
   await loadSettingsProjects();
-  await loadSettingsWatchers();
 }
 
 async function loadPerformanceSettings() {
@@ -1061,31 +1059,6 @@ async function loadSettingsProjects() {
   }
 }
 
-async function loadSettingsWatchers() {
-  const list = $('watcherList');
-  try {
-    const ws = await fetch('/api/watcher-status').then(r => r.json());
-    if (!ws.watchers || ws.watchers.length === 0) {
-      list.innerHTML = '<div class="empty-state">No active watchers</div>';
-      return;
-    }
-    ws.watchers.sort((a, b) => a.project_path.localeCompare(b.project_path));
-    list.innerHTML = ws.watchers.map(w => `
-      <div class="project-item" data-path="${escHtml(w.project_path)}">
-        <div class="info">
-          <div class="name">${escHtml(w.project_path.split('/').pop())}</div>
-          <div class="path" title="${escHtml(w.project_path)}">${escHtml(w.project_path)}</div>
-        </div>
-        <div class="actions">
-          <button class="action-btn danger" onclick="stopWatcher('${escHtml(w.project_path)}')">Stop</button>
-        </div>
-      </div>
-    `).join('');
-  } catch(e) {
-    list.innerHTML = '<div class="empty-state">Failed to load watchers</div>';
-  }
-}
-
 async function resetProject(path) {
   if (!confirm(`Reset all data for ${path}? This will clear indexed symbols and queries.`)) return;
   try {
@@ -1102,38 +1075,35 @@ async function resetProject(path) {
 }
 
 async function deleteProject(path) {
-  if (!confirm(`Completely delete ${path}? This will remove all indexed data and stop file watchers permanently.`)) return;
+  if (!confirm(`Completely delete ${path}? This will remove all indexed data and stop file watchers.`)) return;
   try {
-    await fetch('/api/stop-watcher', {
+    await fetch('/api/delete-watcher', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({project_path: path})
     });
-    await fetch('/api/reset-project', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({project_path: path, delete: true})
-    });
     await loadSettingsProjects();
-    await loadSettingsWatchers();
     await refreshAll();
   } catch(e) {
     alert('Failed to delete project');
   }
 }
 
-async function stopWatcher(path) {
-  try {
-    await fetch('/api/stop-watcher', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({project_path: path})
-    });
-    await loadSettingsWatchers();
-    await refreshAll();
-  } catch(e) {
-    alert('Failed to stop watcher');
-  }
+async function watcherStop(path) {
+  await fetch('/api/stop-watcher', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({project_path: path}) });
+  await refreshAll();
+}
+
+async function watcherStart(path) {
+  await fetch('/api/start-watcher', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({project_path: path}) });
+  await refreshAll();
+}
+
+async function watcherDelete(path) {
+  if (!confirm(`Delete ${path.split('/').pop()}? This removes all indexed data for this project.`)) return;
+  await fetch('/api/delete-watcher', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({project_path: path}) });
+  await loadSettingsProjects();
+  await refreshAll();
 }
 
 $('settingsModal').addEventListener('click', e => {
