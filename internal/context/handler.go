@@ -10,7 +10,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
-var Emb *embedder.Embedder
+var Emb embedder.Interface
 
 func HandleGetContext(args map[string]interface{}, projectPath string) string {
 	query, _ := args["query"].(string)

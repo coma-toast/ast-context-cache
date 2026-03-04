@@ -17,13 +17,13 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
-var emb *embedder.Embedder
+var emb embedder.Interface
 
-func SetEmbedder(e *embedder.Embedder) {
+func SetEmbedder(e embedder.Interface) {
 	emb = e
 }
 
-func GetEmbedder() *embedder.Embedder {
+func GetEmbedder() embedder.Interface {
 	return emb
 }
 

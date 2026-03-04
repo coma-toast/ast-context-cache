@@ -10,7 +10,7 @@ const rrfK = 60 // reciprocal rank fusion constant
 
 // HybridSearch runs BM25 and vector search in parallel, merges via RRF.
 // If emb is nil, falls back to BM25 only.
-func HybridSearch(query, projectPath string, emb *embedder.Embedder, limit int) []ScoredResult {
+func HybridSearch(query, projectPath string, emb embedder.Interface, limit int) []ScoredResult {
 	bm25Results := BM25Search(query, projectPath)
 
 	var vectorResults []ScoredResult
