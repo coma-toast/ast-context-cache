@@ -12,9 +12,9 @@ func GetTools() []Tool {
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
 					"mode":         map[string]string{"type": "string", "description": "Response mode: 'full' (default, returns source), 'skeleton' (signatures only), 'summary' (cached summaries), 'auto' (full for top 3 results, skeleton for rest — best balance of detail and token efficiency)"},
 					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-				"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
-			},
-			"required": []string{"query", "project_path"},
+					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
+				},
+				"required": []string{"query", "project_path"},
 			},
 		},
 		{
@@ -94,50 +94,170 @@ func GetTools() []Tool {
 			},
 		},
 		{
-			Name:        "get_file_context",
-			Description: "Get all symbols in a specific file with mode selection. Smarter than raw file read -- returns structured, mode-aware context. Modes: 'full' (source code), 'skeleton' (signatures), 'summary' (cached summaries).",
+			Name:        "analyze_dead_code",
+			Description: "Find unused functions, classes, and imports in indexed code. Identifies symbols that are never called or imported, helping to identify code that can be removed.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"file":         map[string]string{"type": "string", "description": "Absolute path to the file"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":         map[string]string{"type": "string", "description": "Response mode: 'full' (default), 'skeleton', 'summary'"},
-					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup."},
-					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return."},
-				},
-				"required": []string{"file", "project_path"},
-			},
-		},
-		{
-			Name:        "sync_remote",
-			Description: "Push or pull vectors to/from a remote Milvus vector database. Use for backup and cross-machine sync. Configured via REMOTE_VECTORDB_URL env var (default: https://ai.jasondale.me/vectordb/mcp).",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"project_path": map[string]string{"type": "string", "description": "Project path to sync (optional, syncs all if omitted)"},
-					"direction":    map[string]string{"type": "string", "description": "'push' (local->remote, default) or 'pull' (remote->local)"},
-					"collection":   map[string]string{"type": "string", "description": "Remote collection name (default: configsync_docs)"},
-				},
-			},
-		},
-		{
-			Name:        "reset_project",
-			Description: "Reset (delete) indexed data for a specific project. Use this to clear stale index data for one project.",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project to reset"},
+					"kind":         map[string]string{"type": "string", "description": "Type of symbols to check: 'function', 'class', 'method', 'import' (default: all)"},
 				},
 				"required": []string{"project_path"},
 			},
 		},
 		{
-			Name:        "reset_all",
-			Description: "Reset (delete) ALL indexed data for ALL projects. Use with caution - this will clear the entire index database.",
+			Name:        "analyze_complexity",
+			Description: "Calculate cyclomatic complexity for functions and methods. Returns complexity scores to identify potentially hard-to-maintain code that may need refactoring.",
 			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
+				"type": "object",
+				"properties": map[string]interface{}{
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"threshold":    map[string]string{"type": "integer", "description": "Minimum complexity to report (default: 10)"},
+					"limit":        map[string]string{"type": "integer", "description": "Max results to return (default: 20)"},
+				},
+				"required": []string{"project_path"},
 			},
+		},
+		{
+			Name:        "execute_code",
+			Description: "Execute JavaScript code in a sandboxed environment against search results. The LLM writes processing code that runs locally - only the output enters context, saving 65-99% tokens. Data is injected as 'DATA' variable.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"code":    map[string]string{"type": "string", "description": "JavaScript code to execute. Results available as 'DATA' variable (array of search results). Return array for output."},
+					"data":    map[string]string{"type": "string", "description": "JSON stringified data to process (typically from a previous search)"},
+					"timeout": map[string]string{"type": "integer", "description": "Execution timeout in seconds (default: 5)"},
+				},
+				"required": []string{"code", "data"},
+			},
+		},
+		{
+			Name:        "export_bundle",
+			Description: "Export indexed code as a portable bundle file. Bundles can be shared or imported on other machines without re-indexing.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project to export"},
+					"output_path":  map[string]string{"type": "string", "description": "Output file path for the bundle (.astbundle)"},
+				},
+				"required": []string{"project_path", "output_path"},
+			},
+		},
+		{
+			Name:        "import_bundle",
+			Description: "Import a previously exported code bundle. Loads all symbols, edges, and summaries without needing to re-index.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"bundle_path": map[string]string{"type": "string", "description": "Path to the .astbundle file to import"},
+				},
+				"required": []string{"bundle_path"},
+			},
+		},
+	}
+}
+
+// GetPrompts returns LLM-optimized system prompts for efficient tool usage
+func GetPrompts() []Prompt {
+	return []Prompt{
+		{
+			Name:        "efficient-context-usage",
+			Description: "Guidelines for token-efficient code context retrieval",
+			Prompt: `# Efficient Code Context Usage Guide
+
+## Token Optimization Strategies
+
+### 1. Use 'auto' Mode (Recommended Default)
+- Mode 'auto' returns full source for top 3 results, skeleton for rest
+- This provides ~80% token savings while maintaining detail for key matches
+- Only use 'full' when you need complete implementation details
+
+### 2. Use 'skeleton' Mode for Exploration
+- Use mode='skeleton' when exploring unfamiliar codebases
+- Returns function signatures only (~90% token reduction)
+- Perfect for understanding structure before diving into details
+
+### 3. Use 'summary' Mode for Broad Context
+- Use mode='summary' after exploring to get high-level overviews
+- Requires calling cache_summary first to create summaries
+- Provides ~94% token reduction
+
+### 4. Leverage Session Deduplication
+- Always pass session_id to get_context_capsule
+- This prevents re-sending files you've already seen in this conversation
+- The tool tracks what's been returned and auto-skips duplicates
+
+### 5. Use Token Budget Wisely
+- Set token_budget to control response size
+- Default is 4000 tokens - adjust based on need
+- Tool stops adding results when budget is exhausted
+
+### 6. Use Semantic Search for Intent
+- search_semantic finds symbols by meaning, not just text
+- Natural language queries: "function that handles auth"
+- Great for exploratory searches
+
+### 7. Cache Your Own Summaries
+- Call cache_summary after understanding a file
+- Future queries using mode='summary' will use your cached summaries
+- This creates personalized, token-efficient context
+
+### 8. Use get_project_map First
+- For new projects, start with get_project_map (depth=1 or 2)
+- Understand structure before diving into files
+- Only ~200 tokens for full project overview
+
+### 9. Use get_impact_graph for Change Analysis
+- Before modifying code, call get_impact_graph
+- Shows all files that depend on a symbol
+- Helps understand blast radius of changes
+
+### Recommended Workflow
+1. get_project_map to understand structure
+2. get_context_capsule with mode='auto' for initial search
+3. Use skeleton mode for broad exploration
+4. Cache summaries of key files
+5. Use impact graph before making changes`,
+		},
+		{
+			Name:        "context-mode-decisions",
+			Description: "When to use each context retrieval mode",
+			Prompt: `# Context Mode Selection Guide
+
+## Mode Quick Reference
+
+| Mode | Tokens | Use When |
+|------|--------|----------|
+| 'full' | 100% | Need complete implementation details |
+| 'auto' | ~20% | Default - need balance of detail and efficiency |
+| 'skeleton' | ~10% | Exploring structure, understanding signatures |
+| 'summary' | ~6% | Already cached, need high-level overview |
+
+## Decision Tree
+
+### Initial Exploration of Unfamiliar Code
+→ Use mode='skeleton' or mode='auto'
+→ Get broad understanding without token bloat
+
+### Deep Dive into Specific Function
+→ Use mode='full' for the specific function
+→ Keep token budget small (1000-2000)
+
+### Understanding File Structure
+→ Use get_file_context with mode='skeleton'
+→ See all functions/classes at once
+
+### Repeating Context in Same Session
+→ session_id enables automatic deduplication
+→ Same files won't be re-sent
+
+### Broad Search Across Many Files
+→ mode='auto' with high limit (20-30)
+→ Get top results in full, rest as skeleton
+
+### After Writing Code (Self-Documentation)
+→ Call cache_summary to document what you learned
+→ Future sessions can benefit from your summaries`,
 		},
 	}
 }

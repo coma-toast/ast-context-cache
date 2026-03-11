@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
@@ -16,6 +17,10 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 	query, _ := args["query"].(string)
 	mode, _ := args["mode"].(string)
 	sessionID, _ := args["session_id"].(string)
+	limit := 30
+	if l, ok := args["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+	}
 	tokenBudget := 4000
 	if tb, ok := args["token_budget"].(float64); ok && tb > 0 {
 		tokenBudget = int(tb)
@@ -30,11 +35,15 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		return `{"error": "query required"}`
 	}
 
+	cacheKey := cache.HashQuery(query, projectPath, mode, limit)
+	if cached, found := cache.GlobalCache.Get(cacheKey); found {
+		return cached
+	}
+
 	scored := search.HybridSearch(query, projectPath, Emb, 30)
 
 	returnedFiles := GetReturnedFiles(sessionID)
 
-	limit := 30
 	if len(scored) < limit {
 		limit = len(scored)
 	}
@@ -67,10 +76,23 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 
 		effectiveMode := mode
 		if mode == "auto" {
-			if fullCount < 3 {
-				effectiveMode = "full"
+			score := scored[i].Score
+			maxScore := scored[0].Score
+			if maxScore > 0 {
+				scoreRatio := score / maxScore
+				if scoreRatio >= 0.5 || fullCount < 2 {
+					effectiveMode = "full"
+				} else if scoreRatio >= 0.2 {
+					effectiveMode = "skeleton"
+				} else {
+					effectiveMode = "summary"
+				}
 			} else {
-				effectiveMode = "skeleton"
+				if fullCount < 3 {
+					effectiveMode = "full"
+				} else {
+					effectiveMode = "skeleton"
+				}
 			}
 		}
 
@@ -157,5 +179,7 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		resp["deduped"] = skipped
 	}
 	finalData, _ := json.Marshal(resp)
-	return string(finalData)
+	resultStr := string(finalData)
+	cache.GlobalCache.Set(cacheKey, resultStr)
+	return resultStr
 }

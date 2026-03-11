@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -35,6 +37,9 @@ func NewHandler(frontendDir string) http.Handler {
 	mux.HandleFunc("/api/watcher-status", handleWatcherStatus)
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
 	mux.HandleFunc("/api/settings", handleSettings)
+	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
+	mux.HandleFunc("/api/agent-install", handleAgentInstall)
+	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/", staticHandler(frontendDir))
 	return mux
 }
@@ -461,6 +466,207 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	json.NewEncoder(w).Encode(settings)
+}
+
+type AgentInfo struct {
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	GlobalPath  string `json:"global_path"`
+	ProjectPath string `json:"project_path"`
+	Description string `json:"description"`
+}
+
+var supportedAgents = []AgentInfo{
+	{"cursor", "Cursor", "~/.cursor/mcp.json", ".cursor/mcp.json", "MCP server config for Cursor IDE"},
+	{"opencode", "OpenCode", "~/.config/opencode/opencode.jsonc", "opencode.jsonc", "MCP settings for OpenCode"},
+	{"claude_code", "Claude Code", "~/.claude.json", "CLAUDE.md", "Claude Code instructions file"},
+	{"claude_desktop", "Claude Desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", ".claude_desktop_config.json", "Claude Desktop MCP config"},
+}
+
+func handleAgentConfigs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	configs, err := db.GetAgentConfigs()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	type response struct {
+		Agents    []AgentInfo      `json:"agents"`
+		Installed []db.AgentConfig `json:"installed"`
+	}
+	json.NewEncoder(w).Encode(response{Agents: supportedAgents, Installed: configs})
+}
+
+func handleAgentInstall(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		AgentType string `json:"agent_type"`
+		IsGlobal  bool   `json:"is_global"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.AgentType == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "agent_type required"})
+		return
+	}
+
+	var agent AgentInfo
+	for _, a := range supportedAgents {
+		if a.Type == req.AgentType {
+			agent = a
+			break
+		}
+	}
+	if agent.Type == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "unknown agent type"})
+		return
+	}
+
+	home := os.Getenv("HOME")
+	var installPath string
+	if req.IsGlobal {
+		installPath = agent.GlobalPath
+	} else {
+		installPath = agent.ProjectPath
+	}
+
+	fullPath := installPath
+	if strings.HasPrefix(fullPath, "~/") {
+		fullPath = filepath.Join(home, strings.TrimPrefix(fullPath, "~"))
+	}
+
+	instructions := generateAgentInstructions(req.AgentType)
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(instructions)))
+
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create dir: " + err.Error()})
+		return
+	}
+
+	if err := os.WriteFile(fullPath, []byte(instructions), 0644); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file: " + err.Error()})
+		return
+	}
+
+	if err := db.AddAgentConfig(req.AgentType, installPath, req.IsGlobal, hash); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save config: " + err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":       "installed",
+		"agent_type":   req.AgentType,
+		"path":         fullPath,
+		"is_global":    req.IsGlobal,
+		"instructions": instructions,
+	})
+}
+
+func handleAgentUninstall(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		AgentType string `json:"agent_type"`
+		IsGlobal  bool   `json:"is_global"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	home := os.Getenv("HOME")
+	var installPath string
+	if req.IsGlobal {
+		for _, a := range supportedAgents {
+			if a.Type == req.AgentType {
+				installPath = a.GlobalPath
+				break
+			}
+		}
+	} else {
+		for _, a := range supportedAgents {
+			if a.Type == req.AgentType {
+				installPath = a.ProjectPath
+				break
+			}
+		}
+	}
+
+	fullPath := installPath
+	if strings.HasPrefix(fullPath, "~/") {
+		fullPath = filepath.Join(home, strings.TrimPrefix(fullPath, "~"))
+	}
+
+	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to remove file: " + err.Error()})
+		return
+	}
+
+	if err := db.RemoveAgentConfig(req.AgentType, installPath); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to remove config: " + err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "uninstalled", "path": fullPath})
+}
+
+func generateAgentInstructions(agentType string) string {
+	prompts := mcp.GetPrompts()
+	var promptText string
+	for _, p := range prompts {
+		if p.Name == "efficient-context-usage" {
+			promptText = p.Prompt
+			break
+		}
+	}
+
+	switch agentType {
+	case "claude_code":
+		return "# Code Context Instructions\n\n" + promptText + "\n\nUse these tools for efficient code search:\n- get_context_capsule: Search code with token-efficient modes\n- cache_summary: Cache your own summaries\n- analyze_dead_code: Find unused code\n"
+	case "cursor":
+		return `{
+  "mcpServers": {
+    "ast-context-cache": {
+      "url": "http://localhost:7821/mcp"
+    }
+  }
+}`
+	case "opencode":
+		return `{
+  "mcpServers": {
+    "ast-context-cache": {
+      "url": "http://localhost:7821/mcp"
+    }
+  }
+}`
+	case "claude_desktop":
+		return `{
+  "mcpServers": {
+    "ast-context-cache": {
+      "command": "http",
+      "url": "http://localhost:7821/mcp"
+    }
+  }
+}`
+	default:
+		return promptText
+	}
 }
 
 func staticHandler(frontendDir string) http.HandlerFunc {
