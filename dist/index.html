@@ -461,6 +461,53 @@ tr:hover td { background: var(--surface-hover); }
   color: var(--text-dim);
   font-size: 13px;
 }
+.settings-modal .agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-modal .agent-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.settings-modal .agent-item .info { flex: 1; min-width: 0; }
+.settings-modal .agent-item .name {
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.settings-modal .agent-item .desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.settings-modal .agent-item .paths {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  margin-top: 6px;
+}
+.settings-modal .agent-item .paths span {
+  display: block;
+}
+.settings-modal .agent-item .paths .global { color: var(--green); }
+.settings-modal .agent-item .paths .project { color: var(--accent); }
+.settings-modal .agent-item .install-btns {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.settings-modal .agent-item .installed-badge {
+  font-size: 11px;
+  padding: 4px 8px;
+  background: var(--green-dim);
+  color: var(--green);
+  border-radius: 4px;
+}
 .perf-setting {
   display: flex;
   flex-direction: column;
@@ -665,6 +712,16 @@ tr:hover td { background: var(--surface-hover); }
     <div class="section">
       <div class="section-title">Projects</div>
       <div class="project-list" id="projectList">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Agent Integration</div>
+      <p style="color: var(--text-dim); margin-bottom: 16px; font-size: 13px;">
+        Install context instructions for your AI coding agents. This teaches them how to use ast-context-cache efficiently.
+      </p>
+      <div class="agent-list" id="agentList">
         <div class="empty-state">Loading...</div>
       </div>
     </div>
@@ -1009,6 +1066,7 @@ async function openSettings() {
   modal.classList.add('open');
   await loadPerformanceSettings();
   await loadSettingsProjects();
+  await loadSettingsAgents();
 }
 
 async function loadPerformanceSettings() {
@@ -1059,18 +1117,70 @@ async function loadSettingsProjects() {
   }
 }
 
-async function resetProject(path) {
-  if (!confirm(`Reset all data for ${path}? This will clear indexed symbols and queries.`)) return;
+async function loadSettingsAgents() {
+  const list = $('agentList');
   try {
-    await fetch('/api/reset-project', {
+    const data = await fetch('/api/agent-configs').then(r => r.json());
+    if (data.error) {
+      list.innerHTML = '<div class="empty-state">Error: ' + data.error + '</div>';
+      return;
+    }
+    const installed = data.installed || [];
+    list.innerHTML = (data.agents || []).map(agent => {
+      const globalInstalled = installed.find(i => i.agent_type === agent.type && i.is_global);
+      const projectInstalled = installed.find(i => i.agent_type === agent.type && !i.is_global);
+      return `
+        <div class="agent-item" data-type="${escHtml(agent.type)}">
+          <div class="info">
+            <div class="name">${escHtml(agent.name)}</div>
+            <div class="desc">${escHtml(agent.description)}</div>
+            <div class="paths">
+              <span class="global">Global: ${escHtml(agent.global_path)}</span>
+              <span class="project">Project: ${escHtml(agent.project_path)}</span>
+            </div>
+          </div>
+          <div class="install-btns">
+            ${globalInstalled ? '<span class="installed-badge">Global</span>' : `<button class="action-btn" onclick="installAgent('${agent.type}', true)">Global</button>`}
+            ${projectInstalled ? '<span class="installed-badge">Project</span>' : `<button class="action-btn" onclick="installAgent('${agent.type}', false)">Project</button>`}
+            ${globalInstalled || projectInstalled ? `<button class="action-btn danger" onclick="uninstallAgent('${agent.type}', ${globalInstalled ? 'true' : 'false'})">Remove</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div class="empty-state">Failed to load agents</div>';
+  }
+}
+
+async function installAgent(agentType, isGlobal) {
+  try {
+    const r = await fetch('/api/agent-install', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({project_path: path})
+      body: JSON.stringify({agent_type: agentType, is_global: isGlobal})
     });
-    await loadSettingsProjects();
-    await refreshAll();
+    const data = await r.json();
+    if (data.error) {
+      alert('Failed to install: ' + data.error);
+    } else {
+      await loadSettingsAgents();
+    }
   } catch(e) {
-    alert('Failed to reset project');
+    alert('Failed to install agent');
+  }
+}
+
+async function uninstallAgent(agentType, isGlobal) {
+  if (!confirm(`Remove ${agentType} configuration?`)) return;
+  try {
+    await fetch('/api/agent-uninstall', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agent_type: agentType, is_global: isGlobal})
+    });
+    await loadSettingsAgents();
+  } catch(e) {
+    alert('Failed to uninstall agent');
   }
 }
 

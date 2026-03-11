@@ -75,6 +75,14 @@ func NewHandler() http.HandlerFunc {
 				ID:      rpcReq.ID,
 				Result:  map[string]interface{}{"tools": GetTools()},
 			})
+		case "prompts/list":
+			json.NewEncoder(w).Encode(JSONRPCResponse{
+				JSONRPC: JSONRPCVersion,
+				ID:      rpcReq.ID,
+				Result:  map[string]interface{}{"prompts": GetPrompts()},
+			})
+		case "prompts/get":
+			handlePromptGet(w, rpcReq)
 		case "tools/call":
 			handleToolCall(w, rpcReq)
 		default:
@@ -255,8 +263,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			queryVec, embErr := emb.EmbedSingle(query)
 			if embErr != nil {
 				result = map[string]string{"error": "embed query: " + embErr.Error()}
-		} else {
-			scored := search.Cache.Search(queryVec, projectPath, docType, limit)
+			} else {
+				scored := search.Cache.Search(queryVec, projectPath, docType, limit)
 				fileCache := map[string][]string{}
 				matchedFiles := map[string]bool{}
 				fullBaselineTokens := 0
@@ -371,6 +379,16 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			db.DB.Exec("DELETE FROM edges")
 			result = map[string]string{"status": "deleted", "message": "All indexed data cleared"}
 		}
+	case "analyze_dead_code":
+		result = handleAnalyzeDeadCode(toolArgs, projectPath)
+	case "analyze_complexity":
+		result = handleAnalyzeComplexity(toolArgs, projectPath)
+	case "execute_code":
+		result = handleExecuteCode(toolArgs)
+	case "export_bundle":
+		result = handleExportBundle(toolArgs)
+	case "import_bundle":
+		result = handleImportBundle(toolArgs)
 	default:
 		result = map[string]string{"error": "not implemented: " + toolName}
 	}

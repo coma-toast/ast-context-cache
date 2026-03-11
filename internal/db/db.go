@@ -138,6 +138,18 @@ func Init() error {
 	DB.Exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
 
 	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS agent_configs (
+			id INTEGER PRIMARY KEY,
+			agent_type TEXT NOT NULL,
+			install_path TEXT NOT NULL,
+			is_global INTEGER DEFAULT 0,
+			instructions_hash TEXT,
+			installed_at TEXT DEFAULT (datetime('now')),
+			UNIQUE(agent_type, install_path)
+		);
+	`)
+
+	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS indexed_files (
 			file TEXT NOT NULL,
 			project_path TEXT NOT NULL,
@@ -179,6 +191,44 @@ func GetAllSettings() map[string]string {
 		result[k] = v
 	}
 	return result
+}
+
+type AgentConfig struct {
+	ID               int    `json:"id"`
+	AgentType        string `json:"agent_type"`
+	InstallPath      string `json:"install_path"`
+	IsGlobal         bool   `json:"is_global"`
+	InstructionsHash string `json:"instructions_hash"`
+	InstalledAt      string `json:"installed_at"`
+}
+
+func GetAgentConfigs() ([]AgentConfig, error) {
+	rows, err := DB.Query("SELECT id, agent_type, install_path, is_global, instructions_hash, installed_at FROM agent_configs ORDER BY agent_type")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var configs []AgentConfig
+	for rows.Next() {
+		var c AgentConfig
+		var isGlobal int
+		rows.Scan(&c.ID, &c.AgentType, &c.InstallPath, &isGlobal, &c.InstructionsHash, &c.InstalledAt)
+		c.IsGlobal = isGlobal == 1
+		configs = append(configs, c)
+	}
+	return configs, nil
+}
+
+func AddAgentConfig(agentType, installPath string, isGlobal bool, hash string) error {
+	_, err := DB.Exec(`INSERT INTO agent_configs (agent_type, install_path, is_global, instructions_hash) VALUES (?, ?, ?, ?)
+		ON CONFLICT(agent_type, install_path) DO UPDATE SET instructions_hash = excluded.instructions_hash, installed_at = datetime('now')`,
+		agentType, installPath, map[bool]int{true: 1, false: 0}[isGlobal], hash)
+	return err
+}
+
+func RemoveAgentConfig(agentType, installPath string) error {
+	_, err := DB.Exec("DELETE FROM agent_configs WHERE agent_type = ? AND install_path = ?", agentType, installPath)
+	return err
 }
 
 func EnsureFTSTriggers() {
