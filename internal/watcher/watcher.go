@@ -107,11 +107,8 @@ func catchUp(projectPath string) {
 		if err == nil {
 			stale++
 			log.Printf("Catch-up re-indexed %s: %d symbols", path, n)
-			saved := fullT - skelT
-			if saved < 0 {
-				saved = 0
-			}
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, 0, 0, skelT, saved, fullT, fullT, 0, projectPath, "")
+			// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
+			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, 0, 0, skelT, 0, fullT, fullT, 0, projectPath, "")
 			if PostIndexHook != nil {
 				go PostIndexHook(path, projectPath, false)
 			}
@@ -175,11 +172,8 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 			if err == nil {
 				log.Printf("Re-indexed %s: %d symbols", path, n)
 				resultJSON, _ := json.Marshal(map[string]interface{}{"file": path, "symbols": n})
-				saved := fullT - skelT
-				if saved < 0 {
-					saved = 0
-				}
-				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, len(resultJSON), 0, skelT, saved, fullT, fullT,
+				// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
+				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, len(resultJSON), 0, skelT, 0, fullT, fullT,
 					float64(time.Since(start).Milliseconds()), projectPath, "")
 				if PostIndexHook != nil {
 					go PostIndexHook(path, projectPath, false)

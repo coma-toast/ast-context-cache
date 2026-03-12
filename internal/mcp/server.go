@@ -397,9 +397,17 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		resultJSON, _ := json.Marshal(result)
 		db.LogQuery(toolName, args, len(resultJSON), 0, 0, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
 	}
+	// MCP tools/call response must have result.content[].text and isError so clients pass tool output to the model.
+	resultJSON, _ := json.Marshal(result)
+	mcpResult := map[string]interface{}{
+		"content": []map[string]interface{}{
+			{"type": "text", "text": string(resultJSON)},
+		},
+		"isError": false,
+	}
 	json.NewEncoder(w).Encode(JSONRPCResponse{
 		JSONRPC: JSONRPCVersion,
 		ID:      rpcReq.ID,
-		Result:  result,
+		Result:  mcpResult,
 	})
 }

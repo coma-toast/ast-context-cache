@@ -866,7 +866,7 @@ async function loadRecent() {
     const queryText = q.query ? escHtml(q.query.length > 40 ? q.query.slice(0, 37) + '...' : q.query) : '-';
     const modeText = q.mode || '-';
     const budgetText = q.token_budget ? fmt(q.token_budget) : '-';
-    const savedText = q.tokens_saved > 0 ? fmt(q.tokens_saved) : '-';
+    const savedText = (q.tool_name === 'file_watcher' || q.tokens_saved <= 0) ? '-' : fmt(q.tokens_saved);
     return `<tr>
       <td class="mono dim">${dateStr} ${timeStr}</td>
       <td><span class="badge ${badge}">${q.tool_name}</span></td>
