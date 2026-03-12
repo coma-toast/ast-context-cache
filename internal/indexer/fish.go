@@ -10,10 +10,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
-func IndexFishFile(filePath, projectPath string) (int, error) {
+func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return 0, err
+		return 0, 0, 0, err
 	}
 
 	db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath)
@@ -84,5 +84,5 @@ func IndexFishFile(filePath, projectPath string) (int, error) {
 		}
 	}
 	db.UpsertIndexedFile(filePath, projectPath, time.Now())
-	return count, nil
+	return count, 0, 0, nil
 }

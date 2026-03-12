@@ -153,7 +153,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 						}
 					}
 				} else {
-					n, indexErr = indexer.IndexFile(path, projectPath)
+					n, _, _, indexErr = indexer.IndexFile(path, projectPath)
 					if indexErr == nil && emb != nil {
 						go indexer.EmbedFileSymbols(emb, path, projectPath)
 					}
