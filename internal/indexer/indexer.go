@@ -374,10 +374,10 @@ func getVarDeclName(node *sitter.Node, content []byte) string {
 	return ""
 }
 
-func IndexFile(filePath, projectPath string) (int, error) {
+func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens int, err error) {
 	lang := GetLanguage(filePath)
 	if lang == "" {
-		return 0, fmt.Errorf("unsupported: %s", filePath)
+		return 0, 0, 0, fmt.Errorf("unsupported: %s", filePath)
 	}
 	if lang == "fish" {
 		return IndexFishFile(filePath, projectPath)
@@ -385,12 +385,12 @@ func IndexFile(filePath, projectPath string) (int, error) {
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return 0, err
+		return 0, 0, 0, err
 	}
 
 	sitterLang := getSitterLanguage(lang)
 	if sitterLang == nil {
-		return 0, fmt.Errorf("no parser for: %s", lang)
+		return 0, 0, 0, fmt.Errorf("no parser for: %s", lang)
 	}
 
 	parser := sitter.NewParser()
@@ -398,14 +398,13 @@ func IndexFile(filePath, projectPath string) (int, error) {
 
 	tree, err := parser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
-		return 0, err
+		return 0, 0, 0, err
 	}
 	defer tree.Close()
 
 	db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath)
 	db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath)
 
-	count := 0
 	lines := strings.Split(string(content), "\n")
 	root := tree.RootNode()
 
@@ -433,7 +432,9 @@ func IndexFile(filePath, projectPath string) (int, error) {
 		skeleton := ""
 		if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
 			src := strings.Join(lines[start.Row:end.Row+1], "\n")
+			fullTokens += db.EstimateTokens(src)
 			skeleton = ExtractSkeleton(src, lang, sym.Kind)
+			skeletonTokens += db.EstimateTokens(skeleton)
 		}
 		_, err := db.DB.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton)
@@ -442,7 +443,7 @@ func IndexFile(filePath, projectPath string) (int, error) {
 		}
 	}
 	db.UpsertIndexedFile(filePath, projectPath, time.Now())
-	return count, nil
+	return count, fullTokens, skeletonTokens, nil
 }
 
 // collectTopLevelNodes returns the nodes to walk for symbol extraction.
@@ -481,7 +482,7 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		if !IsCodeFile(path) {
 			return nil
 		}
-		n, err := IndexFile(path, projectPath)
+		n, _, _, err := IndexFile(path, projectPath)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
