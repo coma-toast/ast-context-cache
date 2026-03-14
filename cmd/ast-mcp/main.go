@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,6 +26,20 @@ const (
 )
 
 func main() {
+	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")
+	codeModeFlag := flag.Bool("code-mode", true, "Enable execute_code sandbox tool (default: true)")
+	flag.Parse()
+
+	cfg := mcp.DefaultConfig()
+	if *tierFlag != "" {
+		cfg.ActiveTier = mcp.ParseTier(*tierFlag)
+	}
+	if !*codeModeFlag {
+		cfg.CodeMode = false
+	}
+	mcp.SetConfig(cfg)
+	log.Printf("Config: tier=%s code_mode=%v", cfg.ActiveTier, cfg.CodeMode)
+
 	log.Println("Initializing...")
 
 	exePath, _ := os.Executable()
@@ -79,7 +94,9 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "healthy", "service": "ast-context-cache", "version": "2.0.0", "embedder": emb.IsLoaded()})
 	})
 	mcpMux.HandleFunc("/embed", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Texts []string `json:"texts"` }
+		var req struct {
+			Texts []string `json:"texts"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
 			return
