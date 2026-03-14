@@ -18,6 +18,7 @@ import (
 )
 
 var emb embedder.Interface
+var srvCfg = DefaultConfig()
 
 func SetEmbedder(e embedder.Interface) {
 	emb = e
@@ -25,6 +26,14 @@ func SetEmbedder(e embedder.Interface) {
 
 func GetEmbedder() embedder.Interface {
 	return emb
+}
+
+func SetConfig(cfg ServerConfig) {
+	srvCfg = cfg
+}
+
+func GetConfig() ServerConfig {
+	return srvCfg
 }
 
 func NewHandler() http.HandlerFunc {
@@ -35,7 +44,7 @@ func NewHandler() http.HandlerFunc {
 			json.NewEncoder(w).Encode(JSONRPCResponse{
 				JSONRPC: JSONRPCVersion,
 				ID:      1,
-				Result:  map[string]interface{}{"tools": GetTools()},
+				Result:  map[string]interface{}{"tools": FilterTools(srvCfg)},
 			})
 			return
 		}
@@ -73,7 +82,7 @@ func NewHandler() http.HandlerFunc {
 			json.NewEncoder(w).Encode(JSONRPCResponse{
 				JSONRPC: JSONRPCVersion,
 				ID:      rpcReq.ID,
-				Result:  map[string]interface{}{"tools": GetTools()},
+				Result:  map[string]interface{}{"tools": FilterTools(srvCfg)},
 			})
 		case "prompts/list":
 			json.NewEncoder(w).Encode(JSONRPCResponse{
@@ -112,6 +121,21 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		toolArgs = a
 	} else {
 		toolArgs = args
+	}
+
+	if !IsToolAllowed(toolName, srvCfg) {
+		mcpErr := map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": "tool not available at tier " + string(srvCfg.ActiveTier) + ": " + toolName},
+			},
+			"isError": true,
+		}
+		json.NewEncoder(w).Encode(JSONRPCResponse{
+			JSONRPC: JSONRPCVersion,
+			ID:      rpcReq.ID,
+			Result:  mcpErr,
+		})
+		return
 	}
 
 	projectPath := ""

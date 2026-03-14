@@ -16,6 +16,8 @@ func GetTools() []Tool {
 				},
 				"required": []string{"query", "project_path"},
 			},
+			Tier:     TierCore,
+			ReadOnly: true,
 		},
 		{
 			Name:        "index_files",
@@ -28,6 +30,7 @@ func GetTools() []Tool {
 				},
 				"required": []string{"path", "project_path"},
 			},
+			Tier: TierExtended,
 		},
 		{
 			Name:        "index_status",
@@ -38,6 +41,8 @@ func GetTools() []Tool {
 					"project_path": map[string]string{"type": "string", "description": "Project root path (optional, returns all if omitted)"},
 				},
 			},
+			Tier:     TierCore,
+			ReadOnly: true,
 		},
 		{
 			Name:        "get_impact_graph",
@@ -50,6 +55,8 @@ func GetTools() []Tool {
 				},
 				"required": []string{"symbol", "project_path"},
 			},
+			Tier:     TierCore,
+			ReadOnly: true,
 		},
 		{
 			Name:        "cache_summary",
@@ -64,6 +71,7 @@ func GetTools() []Tool {
 				},
 				"required": []string{"file", "summary", "project_path"},
 			},
+			Tier: TierExtended,
 		},
 		{
 			Name:        "search_semantic",
@@ -80,6 +88,8 @@ func GetTools() []Tool {
 				},
 				"required": []string{"query", "project_path"},
 			},
+			Tier:     TierCore,
+			ReadOnly: true,
 		},
 		{
 			Name:        "get_project_map",
@@ -92,6 +102,8 @@ func GetTools() []Tool {
 				},
 				"required": []string{"project_path"},
 			},
+			Tier:     TierCore,
+			ReadOnly: true,
 		},
 		{
 			Name:        "analyze_dead_code",
@@ -104,6 +116,8 @@ func GetTools() []Tool {
 				},
 				"required": []string{"project_path"},
 			},
+			Tier:     TierExtended,
+			ReadOnly: true,
 		},
 		{
 			Name:        "analyze_complexity",
@@ -117,6 +131,8 @@ func GetTools() []Tool {
 				},
 				"required": []string{"project_path"},
 			},
+			Tier:     TierExtended,
+			ReadOnly: true,
 		},
 		{
 			Name:        "execute_code",
@@ -130,6 +146,7 @@ func GetTools() []Tool {
 				},
 				"required": []string{"code", "data"},
 			},
+			Tier: TierComplete,
 		},
 		{
 			Name:        "export_bundle",
@@ -142,6 +159,8 @@ func GetTools() []Tool {
 				},
 				"required": []string{"project_path", "output_path"},
 			},
+			Tier:     TierExtended,
+			ReadOnly: true,
 		},
 		{
 			Name:        "import_bundle",
@@ -153,8 +172,41 @@ func GetTools() []Tool {
 				},
 				"required": []string{"bundle_path"},
 			},
+			Tier: TierExtended,
 		},
 	}
+}
+
+// FilterTools returns only tools accessible at the given tier/config.
+func FilterTools(cfg ServerConfig) []Tool {
+	all := GetTools()
+	filtered := make([]Tool, 0, len(all))
+	for _, t := range all {
+		if !TierIncludes(cfg.ActiveTier, t.Tier) {
+			continue
+		}
+		if t.Name == "execute_code" && !cfg.CodeMode {
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+	return filtered
+}
+
+// IsToolAllowed checks if a specific tool name is permitted under the given config.
+func IsToolAllowed(toolName string, cfg ServerConfig) bool {
+	for _, t := range GetTools() {
+		if t.Name == toolName {
+			if !TierIncludes(cfg.ActiveTier, t.Tier) {
+				return false
+			}
+			if t.Name == "execute_code" && !cfg.CodeMode {
+				return false
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // GetPrompts returns LLM-optimized system prompts for efficient tool usage
