@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 )
@@ -93,4 +94,27 @@ func HashQuery(query, projectPath, mode string, limit int) string {
 	bytes, _ := json.Marshal(data)
 	hash := sha256.Sum256(bytes)
 	return hex.EncodeToString(hash[:])
+}
+
+func (c *QueryCache) ClearProject(projectPath string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	prefix := projectPath + ":"
+	for key := range c.entries {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.entries, key)
+		}
+	}
+}
+
+func (c *QueryCache) Stats() (int, int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.maxSize, len(c.entries)
+}
+
+func (c *QueryCache) ClearAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries = make(map[string]*cacheEntry)
 }

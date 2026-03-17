@@ -25,6 +25,10 @@ func dbPath() string {
 	return filepath.Join(home, defaultDBPath)
 }
 
+func GetDBPath() string {
+	return dbPath()
+}
+
 func Init() error {
 	p := dbPath()
 	os.MkdirAll(filepath.Dir(p), 0755)

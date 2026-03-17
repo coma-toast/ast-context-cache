@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -40,6 +42,7 @@ func NewHandler(frontendDir string) http.Handler {
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
 	mux.HandleFunc("/api/agent-install", handleAgentInstall)
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
+	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/", staticHandler(frontendDir))
 	return mux
 }
@@ -216,6 +219,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		db.DB.Exec("DELETE FROM indexed_files")
 		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
+		cache.GlobalCache.ClearAll()
 		go db.Compact()
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
 	} else if projectPath != "" {
@@ -228,6 +232,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
+		cache.GlobalCache.ClearProject(projectPath)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 	} else {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
@@ -256,6 +261,7 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
+	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }
@@ -721,6 +727,7 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
+	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
@@ -794,6 +801,44 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
+	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
+}
+
+func handleSystemResources(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	allocMB := float64(memStats.Alloc) / (1024 * 1024)
+	totalAllocMB := float64(memStats.TotalAlloc) / (1024 * 1024)
+	sysMB := float64(memStats.Sys) / (1024 * 1024)
+
+	dbPath := db.GetDBPath()
+	var diskSize int64
+	if fi, err := os.Stat(dbPath); err == nil {
+		diskSize = fi.Size()
+	}
+
+	vectorMemMB := search.Cache.MemoryMB()
+	queryCacheSize, queryCacheEntries := cache.GlobalCache.Stats()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"memory": map[string]float64{
+			"alloc_mb":        allocMB,
+			"total_alloc_mb":  totalAllocMB,
+			"sys_mb":          sysMB,
+			"vector_cache_mb": vectorMemMB,
+		},
+		"disk": map[string]int64{
+			"db_size_bytes": diskSize,
+		},
+		"cache": map[string]int{
+			"query_cache_size":    queryCacheSize,
+			"query_cache_entries": queryCacheEntries,
+		},
+		"goroutines": runtime.NumGoroutine(),
+	})
 }
