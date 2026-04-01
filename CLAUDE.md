@@ -5,8 +5,30 @@
 This project includes an MCP server (`ast-context-cache`) that provides efficient code search tools.
 When researching this codebase, **always prefer using the MCP tools** over direct grep/read:
 - Faster and more token-efficient than grep/read/glob
-- Supports semantic search and smart caching
+- Supports semantic search, doc caching, and smart deduplication
 - Run `make run` to start the MCP server, then use the tools below
+
+# Available Tools
+
+## Core
+- **get_context_capsule** - BM25+vector hybrid search with modes: full, skeleton, summary, auto
+- **search_semantic** - Natural language search: "function that handles auth"
+- **get_file_context** - All symbols in a file with mode-aware output (use instead of reading files)
+- **get_project_map** - Project structure overview (~200 tokens at depth=2)
+- **get_impact_graph** - Blast radius of a symbol before making changes
+- **index_status** - Check if a project is indexed
+- **search_docs** - Search cached library/framework documentation
+
+## Extended
+- **index_files** - Index a file or directory (starts file watcher)
+- **cache_summary** - Cache summaries for future queries
+- **analyze_dead_code** - Find unused functions, classes, imports
+- **analyze_complexity** - Find hard-to-maintain code by cyclomatic complexity
+- **export_bundle** / **import_bundle** - Portable code bundles without re-indexing
+- **add_doc_source** / **remove_doc_source** / **list_doc_sources** / **update_doc_source** - Track and cache external documentation
+
+## Complete
+- **execute_code** - Run JS in a sandbox against search results; only output enters context
 
 # Efficient Code Context Usage Guide
 
@@ -57,14 +79,16 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - Shows all files that depend on a symbol
 - Helps understand blast radius of changes
 
+### 10. Use search_docs for Documentation
+- Search cached library/framework docs instead of web searches
+- Add sources with add_doc_source (supports markdown, html, json URLs)
+- Doc sources auto-refresh every hour
+
 ### Recommended Workflow
 1. get_project_map to understand structure
 2. get_context_capsule with mode='auto' for initial search
-3. Use skeleton mode for broad exploration
-4. Cache summaries of key files
-5. Use impact graph before making changes
-
-Use these tools for efficient code search:
-- get_context_capsule: Search code with token-efficient modes
-- cache_summary: Cache your own summaries
-- analyze_dead_code: Find unused code
+3. get_file_context for all symbols in a specific file
+4. Use skeleton mode for broad exploration
+5. Cache summaries of key files
+6. Use impact graph before making changes
+7. Use search_docs for library/framework questions

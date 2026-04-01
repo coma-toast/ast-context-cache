@@ -14,6 +14,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -43,6 +44,7 @@ func NewHandler(frontendDir string) http.Handler {
 	mux.HandleFunc("/api/agent-install", handleAgentInstall)
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
+	mux.HandleFunc("/api/doc-sources", handleDocSources)
 	mux.HandleFunc("/", staticHandler(frontendDir))
 	return mux
 }
@@ -840,5 +842,18 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 			"query_cache_entries": queryCacheEntries,
 		},
 		"goroutines": runtime.NumGoroutine(),
+	})
+}
+
+func handleDocSources(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	sources, err := docs.ListSources()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"sources": sources,
+		"total":   len(sources),
 	})
 }

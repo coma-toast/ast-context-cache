@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	ctxpkg "github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
@@ -86,6 +88,14 @@ func main() {
 		}
 		restoreRows.Close()
 	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			docs.UpdateAllSources()
+		}
+	}()
 
 	mcpMux := http.NewServeMux()
 	mcpMux.HandleFunc("/mcp", mcp.NewHandler())

@@ -106,6 +106,21 @@ func GetTools() []Tool {
 			ReadOnly: true,
 		},
 		{
+			Name:        "get_file_context",
+			Description: "Get all symbols in a specific file with mode-aware output. Returns function signatures, source code, or cached summaries for every symbol in the file. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"file":         map[string]string{"type": "string", "description": "Absolute path to the file"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"mode":         map[string]string{"type": "string", "description": "Response mode: 'full' (default, returns source), 'skeleton' (signatures only), 'summary' (cached summaries)"},
+				},
+				"required": []string{"file", "project_path"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
 			Name:        "analyze_dead_code",
 			Description: "Find unused functions, classes, and imports in indexed code. Identifies symbols that are never called or imported, helping to identify code that can be removed.",
 			InputSchema: map[string]interface{}{
@@ -171,6 +186,69 @@ func GetTools() []Tool {
 					"bundle_path": map[string]string{"type": "string", "description": "Path to the .astbundle file to import"},
 				},
 				"required": []string{"bundle_path"},
+			},
+			Tier: TierExtended,
+		},
+		{
+			Name:        "search_docs",
+			Description: "Search locally cached documentation by title or content. Returns matching documentation entries from tracked doc sources.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]string{"type": "string", "description": "Search query for documentation"},
+					"limit": map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
+				},
+				"required": []string{"query"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
+			Name:        "add_doc_source",
+			Description: "Add a documentation source to track. Fetches and caches docs from the given URL. Supports markdown, html, json types.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name":    map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
+					"type":    map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'json'"},
+					"url":     map[string]string{"type": "string", "description": "URL to fetch documentation from"},
+					"version": map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
+				},
+				"required": []string{"name", "type", "url"},
+			},
+			Tier: TierExtended,
+		},
+		{
+			Name:        "remove_doc_source",
+			Description: "Remove a documentation source and all its cached content.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id": map[string]string{"type": "integer", "description": "ID of the doc source to remove"},
+				},
+				"required": []string{"id"},
+			},
+			Tier: TierExtended,
+		},
+		{
+			Name:        "list_doc_sources",
+			Description: "List all tracked documentation sources with their last update time.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
+			Name:        "update_doc_source",
+			Description: "Manually update a documentation source by fetching fresh content from the URL.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id": map[string]string{"type": "integer", "description": "ID of the doc source to update"},
+				},
+				"required": []string{"id"},
 			},
 			Tier: TierExtended,
 		},
