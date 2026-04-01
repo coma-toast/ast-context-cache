@@ -491,6 +491,25 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				result = map[string]interface{}{"status": "updated", "id": id}
 			}
 		}
+	case "retrieve":
+		query, _ := toolArgs["query"].(string)
+		if query == "" || projectPath == "" {
+			result = map[string]string{"error": "query and project_path required"}
+		} else {
+			retrieveResult := HandleRetrieve(toolArgs, projectPath)
+			if errMsg, ok := retrieveResult["error"].(string); ok {
+				result = map[string]string{"error": errMsg}
+			} else {
+				result = retrieveResult["result"]
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(result.(json.RawMessage)), &parsed); err == nil {
+					ctxLen := len(parsed["context"].(string))
+					outTokens := db.EstimateTokens(parsed["context"].(string))
+					db.LogQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
+					loggedToolCall = true
+				}
+			}
+		}
 	default:
 		result = map[string]string{"error": "not implemented: " + toolName}
 	}

@@ -252,6 +252,25 @@ func GetTools() []Tool {
 			},
 			Tier: TierExtended,
 		},
+		{
+			Name:        "retrieve",
+			Description: "RAG-style retrieval: hybrid search across code + docs, reranks results, assembles context within token budget. Returns formatted context ready for LLM consumption. Supports markdown, xml, json output formats.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query":          map[string]string{"type": "string", "description": "Natural language query to retrieve context for"},
+					"project_path":   map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"limit":          map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
+					"token_budget":   map[string]string{"type": "integer", "description": "Max tokens for assembled context (default 4000)"},
+					"include_docs":   map[string]string{"type": "boolean", "description": "Include documentation sources (default true)"},
+					"include_source": map[string]string{"type": "boolean", "description": "Include full source code in results (default false)"},
+					"format":         map[string]string{"type": "string", "description": "Output format: 'markdown', 'xml', 'json' (default 'markdown')"},
+				},
+				"required": []string{"query", "project_path"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
 	}
 }
 
