@@ -46,7 +46,6 @@ func main() {
 
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
-	frontendDir := filepath.Join(exeDir, "dist")
 
 	if err := db.Init(); err != nil {
 		log.Fatalf("DB error: %v", err)
@@ -135,7 +134,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": fmt.Sprintf("http://localhost:%d", dashboardPort)})
 	})
 
-	dashHandler := dashboard.NewHandler(frontendDir)
+	dashHandler := dashboard.NewHandler("")
 
 	go func() {
 		addr := fmt.Sprintf(":%d", mcpPort)

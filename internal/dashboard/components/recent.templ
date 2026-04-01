@@ -1,0 +1,144 @@
+package components
+
+import "fmt"
+
+type RecentQuery struct {
+	Timestamp  string
+	ToolName   string
+	Query      string
+	Mode       string
+	Budget     int
+	Saved      int
+	Project    string
+	DurationMs float64
+	Error      string
+}
+
+var toolBadges = map[string]string{
+	"get_context_capsule": "badge-blue",
+	"search_semantic":     "badge-purple",
+	"get_file_context":    "badge-blue",
+	"get_project_map":     "badge-blue",
+	"get_impact_graph":    "badge-orange",
+	"index_files":         "badge-green",
+	"index_status":        "badge-blue",
+	"cache_summary":       "badge-green",
+	"analyze_dead_code":   "badge-orange",
+	"analyze_complexity":  "badge-orange",
+	"search_docs":         "badge-purple",
+	"add_doc_source":      "badge-green",
+	"remove_doc_source":   "badge-red",
+	"list_doc_sources":    "badge-blue",
+	"update_doc_source":   "badge-green",
+	"export_bundle":       "badge-orange",
+	"import_bundle":       "badge-green",
+	"execute_code":        "badge-orange",
+	"file_watcher":        "badge-green",
+}
+
+func getBadgeClass(tool string) string {
+	if c, ok := toolBadges[tool]; ok {
+		return c
+	}
+	return "badge-blue"
+}
+
+func truncQuery(s string) string {
+	if len(s) > 40 {
+		return s[:37] + "..."
+	}
+	return s
+}
+
+func shortProject(path string) string {
+	if path == "" {
+		return "-"
+	}
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' {
+			return path[i+1:]
+		}
+	}
+	return path
+}
+
+templ RecentTable(queries []RecentQuery) {
+	<div class="card" style="padding:0;overflow-x:auto">
+		<table>
+			<thead>
+				<tr>
+					<th>Time</th>
+					<th>Tool</th>
+					<th>Query</th>
+					<th>Mode</th>
+					<th>Budget</th>
+					<th>Saved</th>
+					<th>Project</th>
+					<th>Duration</th>
+					<th>Status</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(queries) == 0 {
+					<tr><td colspan="9" class="empty-state">No queries recorded</td></tr>
+				} else {
+					for i, q := range queries {
+						<tr>
+							<td class="mono dim">{ q.Timestamp }</td>
+							<td><span class={ "badge", getBadgeClass(q.ToolName) }>{ q.ToolName }</span></td>
+							<td class="mono" title={ q.Query }>
+								if q.Query != "" {
+									{ truncQuery(q.Query) }
+								} else {
+									-
+								}
+							</td>
+							<td class="mono">
+								if q.Mode != "" {
+									{ q.Mode }
+								} else {
+									-
+								}
+							</td>
+							<td class="mono">
+								if q.Budget > 0 {
+									{ fmtInt(q.Budget) }
+								} else {
+									-
+								}
+							</td>
+							<td class="mono">
+								if q.ToolName != "file_watcher" && q.Saved > 0 {
+									{ fmtInt(q.Saved) }
+								} else {
+									-
+								}
+							</td>
+							<td class="mono" title={ q.Project }>{ shortProject(q.Project) }</td>
+							<td class="mono">
+								if q.DurationMs > 0 {
+									{ fmt.Sprintf("%.0fms", q.DurationMs) }
+								} else {
+									-
+								}
+							</td>
+							<td>
+								if q.Error != "" {
+									<span class="badge badge-red error-toggle" onclick={ toggleErrorScript(i) }>Error</span>
+									<div class="error-detail" id={ fmt.Sprintf("err-%d", i) }>{ q.Error }</div>
+								} else {
+									<span class="badge badge-green">OK</span>
+								}
+							</td>
+						</tr>
+					}
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+script toggleErrorScript(i int) {
+	const el = document.getElementById('err-' + i);
+	if (el) el.classList.toggle('open');
+}

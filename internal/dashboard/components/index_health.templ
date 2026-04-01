@@ -1,0 +1,80 @@
+package components
+
+import "fmt"
+
+type IndexHealth struct {
+	TotalSymbols  int
+	TotalFiles    int
+	TotalEdges    int
+	TotalVectors  int
+	VectorMemMB   float64
+	MemoryMB      float64
+	DiskSize      string
+	Watchers      []WatcherInfo
+}
+
+type WatcherInfo struct {
+	ProjectPath string
+	Name        string
+	Active      bool
+}
+
+templ IndexHealthCards(h IndexHealth) {
+	<div class="grid grid-4">
+		<div class="card">
+			<div class="card-title">Symbols Indexed</div>
+			<div class="stat-value stat-accent">{ fmtInt(h.TotalSymbols) }</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Files Indexed</div>
+			<div class="stat-value stat-green">{ fmtInt(h.TotalFiles) }</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Dependency Edges</div>
+			<div class="stat-value stat-orange">{ fmtInt(h.TotalEdges) }</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Vectors (Embeddings)</div>
+			<div class="stat-value stat-accent">{ fmtInt(h.TotalVectors) }</div>
+			<div class="stat-label">In-memory cache</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Vector Memory</div>
+			<div class="stat-value stat-green">{ fmt.Sprintf("%.2f", h.VectorMemMB) }</div>
+			<div class="stat-label">MB used</div>
+		</div>
+		<div class="card watcher-card">
+			<div class="card-title">File Watchers</div>
+			<div class="watcher-items">
+				if len(h.Watchers) == 0 {
+					<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
+				} else {
+					for _, w := range h.Watchers {
+						<div class={ "watcher-item", templ.KV("stopped", !w.Active) } title={ w.ProjectPath }>
+							<span class={ "watcher-dot", templ.KV("active", w.Active), templ.KV("inactive", !w.Active) }></span>
+							{ w.Name }
+							<span class="watcher-actions">
+								if w.Active {
+									<button title="Pause" hx-post="/api/stop-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x23F8;</button>
+								} else {
+									<button title="Start" hx-post="/api/start-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x25B6;</button>
+								}
+								<button title="Delete" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", w.Name) } hx-headers='{"Content-Type":"application/json"}'>&#x1F5D1;</button>
+							</span>
+						</div>
+					}
+				}
+			</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Memory Usage</div>
+			<div class="stat-value stat-purple">{ fmt.Sprintf("%.1f", h.MemoryMB) }</div>
+			<div class="stat-label">MB allocated</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Disk Usage</div>
+			<div class="stat-value stat-accent">{ h.DiskSize }</div>
+			<div class="stat-label">DB size</div>
+		</div>
+	</div>
+}
