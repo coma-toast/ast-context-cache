@@ -1,0 +1,58 @@
+package components
+
+import "fmt"
+
+type BarItem struct {
+	Label string
+	Value int
+}
+
+var chartColors = []string{"#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#f778ba", "#79c0ff", "#56d364", "#e3b341", "#d2a8ff", "#ff9bce"}
+
+templ BarChart(items []BarItem, colorOffset int) {
+	if len(items) == 0 {
+		<div class="card"><div class="empty-state">No data</div></div>
+	} else {
+		<div class="card">
+			<div class="bar-chart">
+				for i, item := range items {
+					if i < 10 {
+						<div class="bar-row">
+							<span class="bar-label" title={ item.Label }>{ truncLabel(item.Label) }</span>
+							<div class="bar-track">
+								<div class="bar-fill" style={ barStyle(item.Value, maxVal(items), colorOffset+i) }></div>
+							</div>
+							<span class="bar-value">{ fmtInt(item.Value) }</span>
+						</div>
+					}
+				}
+			</div>
+		</div>
+	}
+}
+
+func truncLabel(s string) string {
+	if len(s) > 20 {
+		return "..." + s[len(s)-17:]
+	}
+	return s
+}
+
+func maxVal(items []BarItem) int {
+	m := 0
+	for _, item := range items {
+		if item.Value > m {
+			m = item.Value
+		}
+	}
+	return m
+}
+
+func barStyle(val, max, colorIdx int) string {
+	pct := 0.0
+	if max > 0 {
+		pct = float64(val) / float64(max) * 100
+	}
+	color := chartColors[colorIdx%len(chartColors)]
+	return fmt.Sprintf("width:%.1f%%;background:%s", pct, color)
+}

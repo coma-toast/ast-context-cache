@@ -1,0 +1,56 @@
+package components
+
+import "fmt"
+
+type Stats struct {
+	TotalQueries    int
+	TodayQueries    int
+	TokensSaved     int
+	TodayTokens     int
+	AvgDurationMs   float64
+	Sessions        int
+	TotalChars      int
+}
+
+func fmtInt(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	s := fmt.Sprintf("%d", n)
+	if n < 1000 {
+		return s
+	}
+	result := ""
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result += ","
+		}
+		result += string(c)
+	}
+	return result
+}
+
+templ StatsCards(s Stats) {
+	<div class="grid grid-4">
+		<div class="card">
+			<div class="card-title">Total Queries</div>
+			<div class="stat-value stat-accent">{ fmtInt(s.TotalQueries) }</div>
+			<div class="stat-label">Today: { fmtInt(s.TodayQueries) }</div>
+		</div>
+		<div class="card" title="Tokens saved by search queries vs reading full files">
+			<div class="card-title">Tokens Saved</div>
+			<div class="stat-value stat-green">{ fmtInt(s.TokensSaved) }</div>
+			<div class="stat-label">Today: { fmtInt(s.TodayTokens) }</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Avg Duration</div>
+			<div class="stat-value stat-orange">{ fmt.Sprintf("%.1f", s.AvgDurationMs) }</div>
+			<div class="stat-label">milliseconds</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Sessions</div>
+			<div class="stat-value stat-purple">{ fmtInt(s.Sessions) }</div>
+			<div class="stat-label">Result chars: { fmtInt(s.TotalChars) }</div>
+		</div>
+	</div>
+}

@@ -3,8 +3,10 @@ package dashboard
 import (
 	"crypto/sha256"
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,8 +22,14 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
-func NewHandler(frontendDir string) http.Handler {
+//go:embed static/*
+var staticAssets embed.FS
+var staticFS, _ = fs.Sub(staticAssets, "static")
+
+func NewHandler(_ string) http.Handler {
 	mux := http.NewServeMux()
+
+	// JSON APIs (kept for backward compatibility + MCP tools)
 	mux.HandleFunc("/api/stats", handleStats)
 	mux.HandleFunc("/api/tools", handleTools)
 	mux.HandleFunc("/api/recent", handleRecent)
@@ -45,7 +53,27 @@ func NewHandler(frontendDir string) http.Handler {
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/api/doc-sources", handleDocSources)
-	mux.HandleFunc("/", staticHandler(frontendDir))
+
+	// HTML partials (htmx targets)
+	mux.HandleFunc("/partials/stats", handleStatsPartial)
+	mux.HandleFunc("/partials/index-health", handleIndexHealthPartial)
+	mux.HandleFunc("/partials/recent", handleRecentPartial)
+	mux.HandleFunc("/partials/charts/symbols", handleSymbolChartPartial)
+	mux.HandleFunc("/partials/charts/languages", handleLanguageChartPartial)
+	mux.HandleFunc("/partials/charts/tools", handleToolChartPartial)
+	mux.HandleFunc("/partials/charts/imports", handleImportChartPartial)
+	mux.HandleFunc("/partials/settings", handleSettingsPartial)
+	mux.HandleFunc("/partials/activity-data", handleActivityDataPartial)
+
+	// SSE stream for real-time toasts
+	mux.HandleFunc("/events", handleSSE)
+
+	// Static assets (CSS, JS)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+
+	// Dashboard page (templ-rendered)
+	mux.HandleFunc("/", handleDashboardPage)
+
 	return mux
 }
 
@@ -680,29 +708,6 @@ func generateAgentInstructions(agentType string) string {
 	}
 }
 
-func staticHandler(frontendDir string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if path == "/" {
-			path = "/index.html"
-		}
-		fp := filepath.Join(frontendDir, strings.TrimPrefix(path, "/"))
-		if _, err := os.Stat(fp); os.IsNotExist(err) {
-			fp = filepath.Join(frontendDir, "index.html")
-		}
-		ct := "text/plain"
-		if strings.HasSuffix(fp, ".html") {
-			ct = "text/html"
-		} else if strings.HasSuffix(fp, ".css") {
-			ct = "text/css"
-		} else if strings.HasSuffix(fp, ".js") {
-			ct = "application/javascript"
-		}
-		data, _ := os.ReadFile(fp)
-		w.Header().Set("Content-Type", ct)
-		w.Write(data)
-	}
-}
 
 func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

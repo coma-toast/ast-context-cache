@@ -1,0 +1,52 @@
+package components
+
+type ToastData struct {
+	ToolName   string
+	Query      string
+	TimeStr    string
+	SavedText  string
+	DurationMs string
+	ToolColor  string
+}
+
+var toolColors = map[string]string{
+	"get_context_capsule": "#58a6ff",
+	"search_semantic":     "#bc8cff",
+	"get_file_context":    "#58a6ff",
+	"get_project_map":     "#58a6ff",
+	"get_impact_graph":    "#d29922",
+	"index_files":         "#3fb950",
+	"index_status":        "#58a6ff",
+	"cache_summary":       "#3fb950",
+	"analyze_dead_code":   "#d29922",
+	"analyze_complexity":  "#d29922",
+	"search_docs":         "#bc8cff",
+	"add_doc_source":      "#3fb950",
+	"remove_doc_source":   "#f85149",
+	"list_doc_sources":    "#58a6ff",
+	"update_doc_source":   "#3fb950",
+	"export_bundle":       "#d29922",
+	"import_bundle":       "#3fb950",
+	"execute_code":        "#d29922",
+	"file_watcher":        "#3fb950",
+}
+
+func GetToolColor(tool string) string {
+	if c, ok := toolColors[tool]; ok {
+		return c
+	}
+	return "#58a6ff"
+}
+
+templ Toast(t ToastData) {
+	<div class="toast" style={ "border-left: 3px solid " + t.ToolColor }>
+		<div class="toast-header">
+			<span class="toast-title" style={ "color:" + t.ToolColor }>{ t.ToolName }</span>
+			<span class="toast-time">{ t.TimeStr }</span>
+		</div>
+		<div class="toast-body">
+			<span class="toast-query" title={ t.Query }>{ t.Query }</span>
+			<span class="toast-meta">{ t.SavedText } { t.DurationMs }</span>
+		</div>
+	</div>
+}

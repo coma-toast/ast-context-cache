@@ -25,7 +25,7 @@ else
   ORT_DYLIB := $(ORT_DYLIB_LINUX)
 endif
 
-.PHONY: help setup deps build run clean install uninstall
+.PHONY: help setup deps generate build run clean install uninstall
 
 help:
 	@echo "ast-context-cache"
@@ -102,7 +102,10 @@ download-tokenizer-lib:
 
 # ── Build & Run ────────────────────────────────────────────────────
 
-build: download-model download-tokenizer-lib
+generate:
+	templ generate ./internal/dashboard/components/
+
+build: download-model download-tokenizer-lib generate
 	@echo "Building ast-mcp..."
 	$(CGO_FLAGS) go build -tags sqlite_fts5 -o $(BINARY) ./cmd/ast-mcp/
 	@echo "Built: ./$(BINARY)"

@@ -1,0 +1,147 @@
+package components
+
+import "fmt"
+
+type AgentInfo struct {
+	Type            string
+	Name            string
+	GlobalPath      string
+	ProjectPath     string
+	Description     string
+	GlobalInstalled bool
+	ProjectInstalled bool
+}
+
+type DocSource struct {
+	ID          int
+	Name        string
+	Type        string
+	URL         string
+	Version     string
+	LastUpdated string
+}
+
+type SettingsData struct {
+	IdleUnloadMinutes int
+	Projects          []Project
+	Agents            []AgentInfo
+	DocSources        []DocSource
+}
+
+templ Settings(data SettingsData) {
+	<div class="section">
+		<div class="section-title">Performance</div>
+		<div class="perf-setting">
+			<label for="idleUnloadMinutes">Idle unload timeout (minutes)</label>
+			<input type="number" id="idleUnloadMinutes" min="0" step="1" value={ fmt.Sprint(data.IdleUnloadMinutes) } class="perf-input"
+				hx-post="/api/settings" hx-trigger="change" hx-swap="none"
+				hx-vals='{"key":"idle_unload_minutes"}' hx-include="this"
+				name="value"/>
+			<span class="perf-hint">Embedder model, vector cache, and file watchers are unloaded after this many minutes of inactivity. Set to 0 to keep loaded.</span>
+		</div>
+	</div>
+
+	<div class="section">
+		<div class="section-title">Projects</div>
+		<div class="project-list">
+			if len(data.Projects) == 0 {
+				<div class="empty-state">No indexed projects</div>
+			} else {
+				for _, p := range data.Projects {
+					<div class="project-item">
+						<div class="info">
+							<div class="name">{ p.Name }</div>
+							<div class="path" title={ p.Path }>{ p.Path }</div>
+						</div>
+						<div class="actions">
+							<button class="action-btn" hx-post="/api/reset-project" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Reset</button>
+							<button class="action-btn danger" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", p.Name) } hx-headers='{"Content-Type":"application/json"}'>Delete</button>
+						</div>
+					</div>
+				}
+			}
+		</div>
+	</div>
+
+	<div class="section">
+		<div class="section-title">Agent Integration</div>
+		<p style="color: var(--text-dim); margin-bottom: 16px; font-size: 13px;">
+			Install context instructions for your AI coding agents.
+		</p>
+		<div class="agent-list">
+			if len(data.Agents) == 0 {
+				<div class="empty-state">No agents available</div>
+			} else {
+				for _, a := range data.Agents {
+					<div class="agent-item">
+						<div class="info">
+							<div class="name">{ a.Name }</div>
+							<div class="desc">{ a.Description }</div>
+							<div class="paths">
+								<span class="global">Global: { a.GlobalPath }</span>
+								<span class="project">Project: { a.ProjectPath }</span>
+							</div>
+						</div>
+						<div class="install-btns">
+							if a.GlobalInstalled {
+								<span class="installed-badge">Global</span>
+							} else {
+								<button class="action-btn" hx-post="/api/agent-install" hx-vals={ fmt.Sprintf(`{"agent_type":"%s","is_global":true}`, a.Type) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Global</button>
+							}
+							if a.ProjectInstalled {
+								<span class="installed-badge">Project</span>
+							} else {
+								<button class="action-btn" hx-post="/api/agent-install" hx-vals={ fmt.Sprintf(`{"agent_type":"%s","is_global":false}`, a.Type) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Project</button>
+							}
+							if a.GlobalInstalled || a.ProjectInstalled {
+								<button class="action-btn danger" hx-post="/api/agent-uninstall" hx-vals={ fmt.Sprintf(`{"agent_type":"%s","is_global":%t}`, a.Type, a.GlobalInstalled) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Remove %s configuration?", a.Name) } hx-headers='{"Content-Type":"application/json"}'>Remove</button>
+							}
+						</div>
+					</div>
+				}
+			}
+		</div>
+	</div>
+
+	<div class="section">
+		<div class="section-title">Documentation Sources</div>
+		<div class="card" style="padding:0;overflow-x:auto">
+			<table>
+				<thead>
+					<tr>
+						<th>Name</th>
+						<th>Type</th>
+						<th>URL</th>
+						<th>Version</th>
+						<th>Last Updated</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					if len(data.DocSources) == 0 {
+						<tr><td colspan="6" class="empty-state">No doc sources configured</td></tr>
+					} else {
+						for _, s := range data.DocSources {
+							<tr>
+								<td><strong>{ s.Name }</strong></td>
+								<td><span class="badge badge-blue">{ s.Type }</span></td>
+								<td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={ s.URL }>{ s.URL }</td>
+								<td>
+									if s.Version != "" {
+										{ s.Version }
+									} else {
+										-
+									}
+								</td>
+								<td class="mono dim">{ s.LastUpdated }</td>
+								<td>
+									<button class="badge badge-green" style="cursor:pointer;border:none" hx-post="/api/doc-sources" hx-vals={ fmt.Sprintf(`{"action":"update","id":%d}`, s.ID) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Update</button>
+								</td>
+							</tr>
+						}
+					}
+				</tbody>
+			</table>
+		</div>
+	</div>
+}
