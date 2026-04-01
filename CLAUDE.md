@@ -18,6 +18,7 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - **get_impact_graph** - Blast radius of a symbol before making changes
 - **index_status** - Check if a project is indexed
 - **search_docs** - Search cached library/framework documentation
+- **retrieve** - RAG-style retrieval: hybrid search + reranking + context assembly (code + docs)
 
 ## Extended
 - **index_files** - Index a file or directory (starts file watcher)
