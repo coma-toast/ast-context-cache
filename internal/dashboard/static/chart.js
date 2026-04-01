@@ -18,9 +18,6 @@ document.addEventListener('alpine:init', () => {
         async refresh() {
             this.refreshing = true;
             htmx.trigger(document.body, 'refresh');
-            document.querySelectorAll('[hx-trigger*="every"]').forEach(el => {
-                htmx.trigger(el, 'load');
-            });
             setTimeout(() => {
                 this.refreshing = false;
                 this.resetProgressBar();
