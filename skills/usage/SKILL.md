@@ -18,7 +18,8 @@ Use this skill when the user asks to:
 2. Index if needed: index_files(path="/path/to/project", project_path="/path/to/project")
 3. Search: get_context_capsule(query="function_name", project_path="/path/to/project", mode="auto")
 4. Before changes: get_impact_graph(symbol="ClassName", project_path="/path/to/project")
-5. Search docs: search_docs(query="React hooks")
+5. RAG retrieve: retrieve(query="how does auth work", project_path="/path/to/project")
+6. Search docs: search_docs(query="React hooks")
 ```
 
 ## Tool Selection Guide
@@ -34,11 +35,34 @@ Use this skill when the user asks to:
 | Find dead code | `analyze_dead_code` | - |
 | Find complex code | `analyze_complexity` | - |
 | Cache your findings | `cache_summary` | - |
+| **RAG retrieval** | `retrieve` | - |
 | Search documentation | `search_docs` | - |
 | Add doc source | `add_doc_source` | - |
 | List doc sources | `list_doc_sources` | - |
 | Update doc source | `update_doc_source` | - |
 | Remove doc source | `remove_doc_source` | - |
+
+## RAG Retrieval
+
+The `retrieve` tool does full RAG-style retrieval in one call:
+- Hybrid search (BM25 + vector) across code AND docs
+- Reranks and deduplicates results
+- Assembles context within token budget
+- Returns formatted output (markdown/xml/json)
+
+```
+# Basic RAG retrieval
+retrieve(query="how does authentication work", project_path="/path/to/project")
+
+# With custom budget and format
+retrieve(query="database connection pooling", project_path="/path/to/project", token_budget=2000, format="xml")
+
+# Code only (skip docs)
+retrieve(query="error handling patterns", project_path="/path/to/project", include_docs=false)
+
+# Include full source code
+retrieve(query="middleware implementation", project_path="/path/to/project", include_source=true)
+```
 
 ## Documentation Tools
 

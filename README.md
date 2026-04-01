@@ -159,7 +159,8 @@ The server may crash or stop unexpectedly. Follow these steps to recover:
 5. get_file_context  →  all symbols in a specific file
 6. get_impact_graph  →  blast radius before modifying a symbol
 7. cache_summary  →  save what you learned for future queries
-8. search_docs  →  search cached library/framework documentation
+8. retrieve  →  RAG-style retrieval (code + docs → formatted context)
+9. search_docs  →  search cached library/framework documentation
 ```
 
 ### Token Optimization
@@ -186,6 +187,7 @@ Always pass `session_id` to avoid re-sending symbols already seen in the convers
 | `get_impact_graph` | Find the blast radius of a symbol -- files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly. Returns formatted context ready for LLM. |
 
 ### Extended
 
