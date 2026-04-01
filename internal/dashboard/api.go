@@ -708,7 +708,6 @@ func generateAgentInstructions(agentType string) string {
 	}
 }
 
-
 func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
@@ -747,9 +746,8 @@ func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	var req map[string]string
-	json.NewDecoder(r.Body).Decode(&req)
-	projectPath := req["project_path"]
+	r.ParseForm()
+	projectPath := r.FormValue("project_path")
 
 	if projectPath == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
@@ -772,9 +770,8 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	var req map[string]string
-	json.NewDecoder(r.Body).Decode(&req)
-	projectPath := req["project_path"]
+	r.ParseForm()
+	projectPath := r.FormValue("project_path")
 	if projectPath == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return
@@ -790,9 +787,8 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	var req map[string]string
-	json.NewDecoder(r.Body).Decode(&req)
-	projectPath := req["project_path"]
+	r.ParseForm()
+	projectPath := r.FormValue("project_path")
 	if projectPath == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return
