@@ -94,21 +94,119 @@ Add to your `opencode.jsonc`:
 }
 ```
 
+## For AI Agents
+
+Instructions for AI coding agents to install, run, and recover the MCP server.
+
+### Install & Run
+
+```bash
+cd /path/to/ast-context-cache
+make setup   # one-time: installs deps, downloads model, builds binary
+make run     # starts server on :7821 (MCP) and :7830 (dashboard)
+```
+
+If the shell function is installed (`make install`), use `ast-mcp start` instead.
+
+### Verify It's Running
+
+```bash
+curl -s http://localhost:7821/health
+```
+
+Expected response: `{"service":"ast-context-cache","status":"healthy","version":"1.0.0"}`
+
+### Crash Recovery
+
+The server may crash or stop unexpectedly. Follow these steps to recover:
+
+1. **Check if the process is alive:**
+   ```bash
+   pgrep -f ast-mcp || echo "not running"
+   ```
+
+2. **If not running, restart it:**
+   ```bash
+   cd /path/to/ast-context-cache && make run
+   ```
+   Or with the shell function: `ast-mcp restart`
+
+3. **If the port is stuck (address already in use):**
+   ```bash
+   lsof -i :7821          # find the stale process
+   kill <pid>             # kill it
+   make run               # restart
+   ```
+
+4. **If the binary is broken or stale:**
+   ```bash
+   cd /path/to/ast-context-cache
+   make build && make run
+   ```
+
+5. **Health check after restart:**
+   ```bash
+   curl -s http://localhost:7821/health
+   ```
+
+### Recommended Workflow
+
+```
+1. index_status  →  check if project is indexed
+2. index_files   →  index if needed (starts file watcher)
+3. get_project_map depth=2  →  orient yourself (~200 tokens)
+4. get_context_capsule mode=auto  →  search code (top 3 full, rest skeleton)
+5. get_file_context  →  all symbols in a specific file
+6. get_impact_graph  →  blast radius before modifying a symbol
+7. cache_summary  →  save what you learned for future queries
+8. search_docs  →  search cached library/framework documentation
+```
+
+### Token Optimization
+
+| Mode | Token Usage | Best For |
+|------|-------------|----------|
+| `auto` | ~20% | Most searches (default) |
+| `skeleton` | ~10% | Exploring unfamiliar code |
+| `summary` | ~6% | High-level overviews (requires `cache_summary` first) |
+| `full` | 100% | Complete implementation details |
+
+Always pass `session_id` to avoid re-sending symbols already seen in the conversation.
+
 ## MCP Tools
+
+### Core
 
 | Tool | Description |
 |------|-------------|
-| `index_files` | Index a file or directory using tree-sitter AST parsing. Extracts symbols and import edges. |
-| `index_status` | Get statistics about indexed symbols (total files, symbol count). |
-| `get_context_capsule` | BM25-ranked full-text search across indexed symbols. Returns source code. |
+| `get_context_capsule` | BM25+vector hybrid search across indexed symbols. Modes: `full`, `skeleton`, `summary`, `auto`. |
 | `search_semantic` | Semantic search by meaning using vector embeddings. |
-| `get_file_context` | Get all symbols in a specific file with mode-aware output. |
-| `get_project_map` | Project structure overview at configurable depth. |
+| `get_file_context` | Get all symbols in a specific file with mode-aware output. Use instead of reading files directly. |
+| `get_project_map` | Project structure overview at configurable depth (1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Find the blast radius of a symbol -- files that import or depend on it. |
+| `index_status` | Check if a project is indexed. Returns file/symbol counts. |
+| `search_docs` | Search locally cached documentation by title or content (FTS). |
+
+### Extended
+
+| Tool | Description |
+|------|-------------|
+| `index_files` | Index a file or directory using tree-sitter AST parsing. Starts a file watcher. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
-| `reset_project` | Delete indexed data for a specific project. |
-| `reset_all` | Delete all indexed data for all projects. |
-| `sync_remote` | Push/pull vectors to remote Milvus for cross-machine sync. |
+| `analyze_dead_code` | Find unused functions, classes, and imports. |
+| `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
+| `export_bundle` | Export indexed code as a portable `.astbundle` file. |
+| `import_bundle` | Import a previously exported bundle without re-indexing. |
+| `add_doc_source` | Add a documentation URL to track and cache (markdown, html, json). |
+| `remove_doc_source` | Remove a tracked documentation source. |
+| `list_doc_sources` | List all tracked documentation sources. |
+| `update_doc_source` | Manually refresh a documentation source. |
+
+### Complete
+
+| Tool | Description |
+|------|-------------|
+| `execute_code` | Run JavaScript code in a sandbox against search results. Only output enters context. |
 
 ## Architecture
 
@@ -137,6 +235,9 @@ Add to your `opencode.jsonc`:
 - **edges** -- `source_file`, `source_symbol`, `target`, `kind`, `project_path`
 - **queries** -- Tool call log with timestamps, durations, token savings
 - **summaries** -- Cached summaries for files/symbols
+- **doc_sources** -- Tracked documentation URLs with type, version, content hash
+- **doc_content** -- Cached documentation entries (title, content, section)
+- **docs_fts** -- FTS5 virtual table over `doc_content` for full-text doc search
 
 ## Configuration
 

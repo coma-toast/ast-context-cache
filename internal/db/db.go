@@ -162,6 +162,43 @@ func Init() error {
 		);
 	`)
 
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS doc_sources (
+			id INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			type TEXT NOT NULL,
+			url TEXT NOT NULL,
+			version TEXT,
+			last_updated TEXT,
+			created_at TEXT DEFAULT (datetime('now')),
+			UNIQUE(name, type, url)
+		);
+	`)
+
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS doc_content (
+			id INTEGER PRIMARY KEY,
+			source_id INTEGER NOT NULL,
+			title TEXT NOT NULL,
+			content TEXT NOT NULL,
+			path TEXT,
+			content_hash TEXT,
+			updated_at TEXT DEFAULT (datetime('now')),
+			FOREIGN KEY (source_id) REFERENCES doc_sources(id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_doc_content_source ON doc_content(source_id);
+		CREATE INDEX IF NOT EXISTS idx_doc_content_title ON doc_content(title);
+	`)
+
+	DB.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, content, content='doc_content', content_rowid='id')`)
+
+	DB.Exec(`CREATE TRIGGER IF NOT EXISTS docs_fts_ins AFTER INSERT ON doc_content BEGIN
+		INSERT INTO docs_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+	END`)
+	DB.Exec(`CREATE TRIGGER IF NOT EXISTS docs_fts_del AFTER DELETE ON doc_content BEGIN
+		INSERT INTO docs_fts(docs_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
+	END`)
+
 	EnsureFTSTriggers()
 	go DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 

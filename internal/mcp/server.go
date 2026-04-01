@@ -10,6 +10,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
@@ -413,6 +414,83 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		result = handleExportBundle(toolArgs)
 	case "import_bundle":
 		result = handleImportBundle(toolArgs)
+	case "search_docs":
+		query, _ := toolArgs["query"].(string)
+		limit := 10
+		if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
+			limit = int(l)
+		}
+		if query == "" {
+			result = map[string]string{"error": "query is required"}
+		} else {
+			entries, err := docs.SearchDocs(query, limit)
+			if err != nil {
+				result = map[string]string{"error": err.Error()}
+			} else {
+				result = map[string]interface{}{
+					"query":   query,
+					"results": entries,
+					"total":   len(entries),
+				}
+			}
+		}
+	case "add_doc_source":
+		name, _ := toolArgs["name"].(string)
+		docType, _ := toolArgs["type"].(string)
+		docURL, _ := toolArgs["url"].(string)
+		version, _ := toolArgs["version"].(string)
+		if name == "" || docType == "" || docURL == "" {
+			result = map[string]string{"error": "name, type, and url are required"}
+		} else {
+			id, err := docs.AddSource(name, docType, docURL, version)
+			if err != nil {
+				result = map[string]string{"error": err.Error()}
+			} else {
+				go docs.UpdateSource(id)
+				result = map[string]interface{}{
+					"status": "added",
+					"id":     id,
+					"name":   name,
+					"url":    docURL,
+				}
+			}
+		}
+	case "remove_doc_source":
+		idFloat, _ := toolArgs["id"].(float64)
+		id := int(idFloat)
+		if id == 0 {
+			result = map[string]string{"error": "id is required"}
+		} else {
+			err := docs.RemoveSource(id)
+			if err != nil {
+				result = map[string]string{"error": err.Error()}
+			} else {
+				result = map[string]interface{}{"status": "removed", "id": id}
+			}
+		}
+	case "list_doc_sources":
+		sources, err := docs.ListSources()
+		if err != nil {
+			result = map[string]string{"error": err.Error()}
+		} else {
+			result = map[string]interface{}{
+				"sources": sources,
+				"total":   len(sources),
+			}
+		}
+	case "update_doc_source":
+		idFloat, _ := toolArgs["id"].(float64)
+		id := int(idFloat)
+		if id == 0 {
+			result = map[string]string{"error": "id is required"}
+		} else {
+			err := docs.UpdateSource(id)
+			if err != nil {
+				result = map[string]string{"error": err.Error()}
+			} else {
+				result = map[string]interface{}{"status": "updated", "id": id}
+			}
+		}
 	default:
 		result = map[string]string{"error": "not implemented: " + toolName}
 	}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ast-context-cache": {
+      "command": "http",
+      "url": "http://localhost:7821/mcp"
+    }
+  }
+}

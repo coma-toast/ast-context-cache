@@ -1052,6 +1052,70 @@ async function loadRecent() {
       <td class="mono">${modeText}</td>
       <td class="mono">${budgetText}</td>
       <td class="mono">${savedText}</td>
+      <td class="mono" title="${escHtml(q.project_path || '')}">${proj}</td>
+      <td class="mono">${q.duration_ms ? q.duration_ms.toFixed(0) + 'ms' : '-'}</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadDocSources() {
+  try {
+    const r = await fetch('/api/doc-sources');
+    const data = await r.json();
+    const tbody = $('docSourcesTable');
+    const sources = data.sources || [];
+    if (sources.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No doc sources configured</td></tr>';
+      return;
+    }
+    tbody.innerHTML = sources.map(s => {
+      const updated = s.last_updated ? new Date(s.last_updated).toLocaleString() : 'Never';
+      return `<tr>
+        <td><strong>${escHtml(s.name)}</strong></td>
+        <td><span class="badge badge-blue">${s.type}</span></td>
+        <td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(s.url)}">${escHtml(s.url)}</td>
+        <td>${escHtml(s.version || '-')}</td>
+        <td class="mono dim">${updated}</td>
+        <td><button class="badge badge-green" onclick="updateDocSource(${s.id})" style="cursor:pointer;border:none">Update</button></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    $('docSourcesTable').innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load</td></tr>';
+  }
+}
+
+async function updateDocSource(id) {
+  try {
+    const r = await fetch('/api/doc-sources', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'update', id})
+    });
+    await loadDocSources();
+  } catch(e) {}
+}
+  tbody.innerHTML = qs.map((q, i) => {
+    const t = new Date(q.timestamp);
+    const timeStr = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const dateStr = t.toLocaleDateString([], {month:'short',day:'numeric'});
+    const badge = TOOL_BADGES[q.tool_name] || 'badge-blue';
+    const proj = q.project_path ? q.project_path.split('/').pop() : '-';
+    const hasErr = q.error && q.error.length > 0;
+    const status = hasErr
+      ? `<span class="badge badge-red error-toggle" onclick="toggleError(${i})">Error</span><div class="error-detail" id="err-${i}">${escHtml(q.error)}</div>`
+      : '<span class="badge badge-green">OK</span>';
+    const queryText = q.query ? escHtml(q.query.length > 40 ? q.query.slice(0, 37) + '...' : q.query) : '-';
+    const modeText = q.mode || '-';
+    const budgetText = q.token_budget ? fmt(q.token_budget) : '-';
+    const savedText = (q.tool_name === 'file_watcher' || q.tokens_saved <= 0) ? '-' : fmt(q.tokens_saved);
+    return `<tr>
+      <td class="mono dim">${dateStr} ${timeStr}</td>
+      <td><span class="badge ${badge}">${q.tool_name}</span></td>
+      <td class="mono" title="${escHtml(q.query || '')}">${queryText}</td>
+      <td class="mono">${modeText}</td>
+      <td class="mono">${budgetText}</td>
+      <td class="mono">${savedText}</td>
       <td class="mono dim" title="${escHtml(q.project_path || '')}">${proj}</td>
       <td class="mono">${q.duration_ms ? q.duration_ms.toFixed(1) : '0'}ms</td>
       <td>${status}</td>
@@ -1191,6 +1255,7 @@ async function refreshAll() {
     loadStats(),
     loadIndexStats(),
     loadSystemResources(),
+    loadDocSources(),
     loadTimeseries(),
     loadSymbolKinds(),
     loadLanguageStats(),
@@ -1289,8 +1354,27 @@ async function loadSettingsProjects() {
         <div class="actions">
           <button class="action-btn" onclick="resetProject('${escHtml(p.path)}')">Reset</button>
           <button class="action-btn danger" onclick="deleteProject('${escHtml(p.path)}')">Delete</button>
-        </div>
-      </div>
+  </div>
+
+  <div class="section-title">Documentation Sources</div>
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>URL</th>
+          <th>Version</th>
+          <th>Last Updated</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="docSourcesTable">
+        <tr><td colspan="6" class="empty-state">No doc sources configured</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
     `).join('');
   } catch(e) {
     list.innerHTML = '<div class="empty-state">Failed to load projects</div>';
