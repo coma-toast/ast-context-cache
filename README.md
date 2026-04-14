@@ -9,7 +9,8 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 - **Semantic embeddings** -- Optional ONNX-based vector search for semantic similarity
 - **Dependency graph** -- Import/call edges stored in an `edges` table; query blast radius with `get_impact_graph`
 - **Source code in results** -- Search results include the actual source, not just file pointers
-- **File watcher** -- `fsnotify`-based incremental re-indexing with debounce
+- **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
+- **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
 - **Dashboard** -- Web UI on port 7830 with stats, charts, and recent query history
 - **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency
 

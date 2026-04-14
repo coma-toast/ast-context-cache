@@ -1,3 +1,7 @@
+// Package watcher runs fsnotify-based incremental indexing. Events are filtered with
+// indexer.IsCodeFile first (supported code extensions, or .log/.txt when index_log_files is on),
+// then MatchWatcherIgnore using watcher_ignore_globs so generated or noisy paths can be skipped
+// before debounce/re-index.
 package watcher
 
 import (
@@ -100,6 +104,9 @@ func catchUp(projectPath string) {
 			return nil
 		}
 		seen[path] = true
+		if MatchWatcherIgnore(path, projectPath, GetWatcherIgnorePatterns()) {
+			return nil
+		}
 		if idxTime, ok := indexed[path]; ok && !info.ModTime().After(idxTime) {
 			return nil
 		}
@@ -146,6 +153,9 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 	}
 
 	if !indexer.IsCodeFile(path) {
+		return
+	}
+	if MatchWatcherIgnore(path, projectPath, GetWatcherIgnorePatterns()) {
 		return
 	}
 

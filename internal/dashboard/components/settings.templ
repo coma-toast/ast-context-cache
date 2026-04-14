@@ -22,10 +22,18 @@ type DocSource struct {
 }
 
 type SettingsData struct {
-	IdleUnloadMinutes int
-	Projects          []Project
-	Agents            []AgentInfo
-	DocSources        []DocSource
+	IdleUnloadMinutes       int
+	WatcherIgnoreGlobs      string
+	IndexLogFiles           bool
+	LogRetentionEnabled     bool
+	LogRetentionRoots       string
+	LogRetentionMaxAgeDays  int
+	LogRetentionMaxTotalMB  int
+	LogRetentionDryRun      bool
+	LogRetentionLastRun     string
+	Projects                []Project
+	Agents                  []AgentInfo
+	DocSources              []DocSource
 }
 
 templ Settings(data SettingsData) {
@@ -39,6 +47,87 @@ templ Settings(data SettingsData) {
 				name="value"/>
 			<span class="perf-hint">Embedder model, vector cache, and file watchers are unloaded after this many minutes of inactivity. Set to 0 to keep loaded.</span>
 		</div>
+	</div>
+
+	<div class="section">
+		<div class="section-title">File watcher &amp; indexing</div>
+		<p class="perf-hint" style="margin-bottom:12px">
+			Plain <span class="mono">.log</span> files are not indexed unless you enable log search below.
+			Ignore patterns apply to paths that would otherwise be indexed as code (or as logs when enabled)—for example generated sources under <span class="mono">dist/</span> or <span class="mono">*.pb.go</span>.
+		</p>
+		<form class="perf-setting" hx-post="/api/settings" hx-swap="none">
+			<input type="hidden" name="key" value="watcher_ignore_globs"/>
+			<label for="watcherIgnoreGlobs">Watcher ignore globs (JSON array)</label>
+			<textarea id="watcherIgnoreGlobs" name="value" rows="5" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px">{ data.WatcherIgnoreGlobs }</textarea>
+			<span class="perf-hint">Example: <span class="mono">["dist/**","**/*.pb.go","gen/*"]</span>. Applied after <span class="mono">IsCodeFile</span> (and log indexing when enabled).</span>
+			<button type="submit" class="action-btn" style="margin-top:8px">Save ignore patterns</button>
+		</form>
+		<form class="perf-setting" style="margin-top:16px" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+			<label for="indexLogFiles">Index <span class="mono">.log</span> / <span class="mono">.txt</span> (BM25/FTS search only, no embeddings)</label>
+			<input type="hidden" name="key" value="index_log_files"/>
+			<select id="indexLogFiles" class="perf-input" name="value">
+				if data.IndexLogFiles {
+					<option value="false">Off</option>
+					<option value="true" selected>On</option>
+				} else {
+					<option value="false" selected>Off</option>
+					<option value="true">On</option>
+				}
+			</select>
+		</form>
+	</div>
+
+	<div class="section">
+		<div class="section-title">Log retention (optional)</div>
+		<p class="perf-hint" style="margin-bottom:12px">
+			Deletes only <span class="mono">.log</span> files under absolute directory roots you list. Disabled by default; use dry-run first.
+		</p>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+			<label for="logRetentionEnabled">Enable log retention job</label>
+			<input type="hidden" name="key" value="log_retention_enabled"/>
+			<select id="logRetentionEnabled" class="perf-input" name="value">
+				if data.LogRetentionEnabled {
+					<option value="false">Off</option>
+					<option value="true" selected>On</option>
+				} else {
+					<option value="false" selected>Off</option>
+					<option value="true">On</option>
+				}
+			</select>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-swap="none">
+			<input type="hidden" name="key" value="log_retention_roots"/>
+			<label for="logRetentionRoots">Absolute roots (JSON array of strings)</label>
+			<textarea id="logRetentionRoots" name="value" rows="3" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px">{ data.LogRetentionRoots }</textarea>
+			<span class="perf-hint">Example: <span class="mono">["/var/log/myapp","/Users/me/proj/logs"]</span></span>
+			<button type="submit" class="action-btn" style="margin-top:8px">Save roots</button>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="logRetentionMaxAge">Max age (days, 0 = unused)</label>
+			<input type="hidden" name="key" value="log_retention_max_age_days"/>
+			<input type="number" id="logRetentionMaxAge" min="0" step="1" class="perf-input" name="value" value={ fmt.Sprint(data.LogRetentionMaxAgeDays) }/>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="logRetentionMaxMB">Max total size across roots (MiB, 0 = unused)</label>
+			<input type="hidden" name="key" value="log_retention_max_total_mib"/>
+			<input type="number" id="logRetentionMaxMB" min="0" step="1" class="perf-input" name="value" value={ fmt.Sprint(data.LogRetentionMaxTotalMB) }/>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+			<label for="logRetentionDryRun">Dry run (log only, no deletes)</label>
+			<input type="hidden" name="key" value="log_retention_dry_run"/>
+			<select id="logRetentionDryRun" class="perf-input" name="value">
+				if data.LogRetentionDryRun {
+					<option value="false">Off</option>
+					<option value="true" selected>On</option>
+				} else {
+					<option value="false" selected>Off</option>
+					<option value="true">On</option>
+				}
+			</select>
+		</form>
+		if data.LogRetentionLastRun != "" {
+			<div class="perf-hint mono" style="margin-top:8px">Last run: { data.LogRetentionLastRun }</div>
+		}
 	</div>
 
 	<div class="section">

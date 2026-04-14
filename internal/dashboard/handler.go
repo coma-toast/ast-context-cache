@@ -335,6 +335,26 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 			idleMinutes = parsed
 		}
 	}
+	watcherIgn := settings["watcher_ignore_globs"]
+	if watcherIgn == "" {
+		watcherIgn = "[]"
+	}
+	indexLog := settings["index_log_files"] == "true"
+	logRoots := settings["log_retention_roots"]
+	if logRoots == "" {
+		logRoots = "[]"
+	}
+	logRetentionMaxAge := 0
+	if v, ok := settings["log_retention_max_age_days"]; ok && v != "" {
+		logRetentionMaxAge, _ = strconv.Atoi(v)
+	}
+	logRetentionMaxMB := 0
+	if v, ok := settings["log_retention_max_total_mib"]; ok && v != "" {
+		logRetentionMaxMB, _ = strconv.Atoi(v)
+	}
+	logRetentionEn := settings["log_retention_enabled"] == "true"
+	logDry := settings["log_retention_dry_run"] == "true"
+	logLast := settings["log_retention_last_run"]
 
 	projects := loadProjects("")
 
@@ -385,10 +405,18 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := components.SettingsData{
-		IdleUnloadMinutes: idleMinutes,
-		Projects:          projects,
-		Agents:            agents,
-		DocSources:        docSources,
+		IdleUnloadMinutes:       idleMinutes,
+		WatcherIgnoreGlobs:      watcherIgn,
+		IndexLogFiles:           indexLog,
+		LogRetentionEnabled:     logRetentionEn,
+		LogRetentionRoots:       logRoots,
+		LogRetentionMaxAgeDays:  logRetentionMaxAge,
+		LogRetentionMaxTotalMB:  logRetentionMaxMB,
+		LogRetentionDryRun:      logDry,
+		LogRetentionLastRun:     logLast,
+		Projects:                projects,
+		Agents:                  agents,
+		DocSources:              docSources,
 	}
 	components.Settings(data).Render(r.Context(), w)
 }

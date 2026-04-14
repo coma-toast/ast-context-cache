@@ -17,6 +17,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -73,6 +75,9 @@ func main() {
 		if removed {
 			search.Cache.DeleteByFile(filePath, projectPath)
 		} else {
+			if indexer.ShouldSkipEmbed(filePath) {
+				return
+			}
 			embedqueue.SubmitPriority(filePath, projectPath, db.IsPinnedProject(projectPath))
 		}
 	}
@@ -94,6 +99,7 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			docs.UpdateAllSources()
+			logretention.RunOnce()
 		}
 	}()
 

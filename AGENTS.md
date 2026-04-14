@@ -29,7 +29,7 @@ When working with codebases that have an MCP server available, **always prefer M
 
 | Tool | Description |
 |------|-------------|
-| `index_files` | Index a file or directory. Starts a file watcher for incremental re-indexing. |
+| `index_files` | Index a file or directory. Starts a file watcher for incremental re-indexing. Plain `.log` is not indexed unless enabled in dashboard settings; watcher ignore globs apply to paths that would otherwise be indexed as code. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |

@@ -23,6 +23,7 @@ type WatcherInfo struct {
 }
 
 templ IndexHealthCards(h IndexHealth) {
+	<div class="subsection-title">Search index</div>
 	<div class="grid grid-4">
 		<div class="card">
 			<div class="card-title">Symbols Indexed</div>
@@ -36,6 +37,19 @@ templ IndexHealthCards(h IndexHealth) {
 			<div class="card-title">Dependency Edges</div>
 			<div class="stat-value stat-orange">{ fmtInt(h.TotalEdges) }</div>
 		</div>
+		<div class="card">
+			<div class="card-title">Memory Usage</div>
+			<div class="stat-value stat-purple">{ fmt.Sprintf("%.1f", h.MemoryMB) }</div>
+			<div class="stat-label">MB allocated</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Disk Usage</div>
+			<div class="stat-value stat-accent">{ h.DiskSize }</div>
+			<div class="stat-label">DB size</div>
+		</div>
+	</div>
+	<div class="subsection-title">Runtime &amp; embeddings</div>
+	<div class="grid grid-4">
 		<div class="card">
 			<div class="card-title">Vectors (Embeddings)</div>
 			<div class="stat-value stat-accent">{ fmtInt(h.TotalVectors) }</div>
@@ -68,16 +82,6 @@ templ IndexHealthCards(h IndexHealth) {
 					}
 				}
 			</div>
-		</div>
-		<div class="card">
-			<div class="card-title">Memory Usage</div>
-			<div class="stat-value stat-purple">{ fmt.Sprintf("%.1f", h.MemoryMB) }</div>
-			<div class="stat-label">MB allocated</div>
-		</div>
-		<div class="card">
-			<div class="card-title">Disk Usage</div>
-			<div class="stat-value stat-accent">{ h.DiskSize }</div>
-			<div class="stat-label">DB size</div>
 		</div>
 		<div class="card">
 			<div class="card-title">Embed queue</div>

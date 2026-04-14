@@ -95,6 +95,18 @@ header h1 .icon { font-size: 24px; }
 .stat-orange { color: var(--orange); }
 .stat-purple { color: var(--purple); }
 
+.subsection-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 20px 0 10px;
+  font-weight: 600;
+}
+.subsection-title:first-child {
+  margin-top: 0;
+}
+
 .section-title {
   font-size: 14px;
   font-weight: 600;

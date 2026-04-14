@@ -34,6 +34,12 @@ func ShouldSkipDir(name string) bool {
 
 func GetLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
+	if indexLogFilesEnabled() {
+		switch ext {
+		case ".log", ".txt":
+			return "plaintext"
+		}
+	}
 	switch ext {
 	case ".py":
 		return "python"
@@ -378,6 +384,9 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	lang := GetLanguage(filePath)
 	if lang == "" {
 		return 0, 0, 0, fmt.Errorf("unsupported: %s", filePath)
+	}
+	if lang == "plaintext" {
+		return indexPlaintextFile(filePath, projectPath)
 	}
 	if lang == "fish" {
 		return IndexFishFile(filePath, projectPath)
