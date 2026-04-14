@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
@@ -34,6 +35,16 @@ type RetrieveStats struct {
 	DocResults   int     `json:"doc_results"`
 	TotalTokens  int     `json:"total_tokens"`
 	SearchTimeMs float64 `json:"search_time_ms"`
+	// Pipeline observability (hybrid search + assembly)
+	BM25Candidates     int     `json:"bm25_candidates,omitempty"`
+	VectorCandidates   int     `json:"vector_candidates,omitempty"`
+	HybridAfterFuse    int     `json:"hybrid_after_fuse,omitempty"`
+	AfterDedup         int     `json:"after_dedup,omitempty"`
+	ChunksInBudget     int     `json:"chunks_in_budget,omitempty"`
+	TokensEstAllChunks int     `json:"tokens_est_all_chunks,omitempty"`
+	CodeRetrieveMs     float64 `json:"code_retrieve_ms,omitempty"`
+	DocsRetrieveMs     float64 `json:"docs_retrieve_ms,omitempty"`
+	DedupBudgetMs      float64 `json:"dedup_budget_ms,omitempty"`
 }
 
 func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]interface{} {
@@ -67,30 +78,51 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 		format = f
 	}
 
-	var chunks []RetrieveChunk
-	var codeResults, docResults int
-	totalTokens := 0
+	filters := search.ParseSearchFilters(args)
+	tStart := time.Now()
 
-	codeChunks, codeCount := retrieveCode(query, projectPath, limit, includeSource)
-	chunks = append(chunks, codeChunks...)
-	codeResults = codeCount
+	tCode := time.Now()
+	codeChunks, codeCount, hybridMetrics := retrieveCode(query, projectPath, limit, includeSource, filters)
+	codeMs := float64(time.Since(tCode).Milliseconds())
 
+	var docChunks []RetrieveChunk
+	docCount := 0
+	var docsMs float64
 	if includeDocs {
-		docChunks, docCount := retrieveDocs(query, limit/2)
-		chunks = append(chunks, docChunks...)
-		docResults = docCount
+		tDocs := time.Now()
+		docChunks, docCount = retrieveDocs(query, limit/2)
+		docsMs = float64(time.Since(tDocs).Milliseconds())
 	}
 
+	chunks := append(codeChunks, docChunks...)
+
+	tDedup := time.Now()
 	chunks = rankAndDedup(chunks)
-	chunks, totalTokens = budgetChunks(chunks, tokenBudget)
+	afterDedup := len(chunks)
+	tokensEstAll := 0
+	for _, c := range chunks {
+		tokensEstAll += db.EstimateTokens(c.Content)
+	}
+	chunks, totalTokens := budgetChunks(chunks, tokenBudget)
+	dedupBudgetMs := float64(time.Since(tDedup).Milliseconds())
 
 	result := RetrieveResult{
 		Query:  query,
 		Chunks: chunks,
 		Stats: RetrieveStats{
-			CodeResults: codeResults,
-			DocResults:  docResults,
-			TotalTokens: totalTokens,
+			CodeResults:        codeCount,
+			DocResults:         docCount,
+			TotalTokens:        totalTokens,
+			SearchTimeMs:       float64(time.Since(tStart).Milliseconds()),
+			BM25Candidates:     hybridMetrics.BM25Candidates,
+			VectorCandidates:   hybridMetrics.VectorCandidates,
+			HybridAfterFuse:    hybridMetrics.HybridAfterFuse,
+			AfterDedup:         afterDedup,
+			ChunksInBudget:     len(chunks),
+			TokensEstAllChunks: tokensEstAll,
+			CodeRetrieveMs:     codeMs,
+			DocsRetrieveMs:     docsMs,
+			DedupBudgetMs:      dedupBudgetMs,
 		},
 	}
 
@@ -102,8 +134,8 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 }
 
-func retrieveCode(query, projectPath string, limit int, includeSource bool) ([]RetrieveChunk, int) {
-	results := search.HybridSearch(query, projectPath, emb, limit*2)
+func retrieveCode(query, projectPath string, limit int, _ bool, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics) {
+	results, metrics := search.HybridSearch(query, projectPath, emb, limit*2, filters)
 	if len(results) > limit {
 		results = results[:limit]
 	}
@@ -151,7 +183,7 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool) ([]R
 		})
 	}
 
-	return chunks, len(results)
+	return chunks, len(results), metrics
 }
 
 func retrieveDocs(query string, limit int) ([]RetrieveChunk, int) {

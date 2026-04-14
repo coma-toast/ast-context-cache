@@ -285,6 +285,9 @@ func idleLoop() {
 			if !isActive {
 				continue
 			}
+			if db.IsPinnedProject(project) {
+				continue
+			}
 			if t, ok := lastActivity[project]; ok && now.Sub(t) > timeout {
 				toStop = append(toStop, project)
 			}

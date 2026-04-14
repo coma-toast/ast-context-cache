@@ -11,6 +11,9 @@ type IndexHealth struct {
 	MemoryMB      float64
 	DiskSize      string
 	Watchers      []WatcherInfo
+	EmbedQueued   int
+	EmbedActive   int
+	PinnedCount   int
 }
 
 type WatcherInfo struct {
@@ -75,6 +78,21 @@ templ IndexHealthCards(h IndexHealth) {
 			<div class="card-title">Disk Usage</div>
 			<div class="stat-value stat-accent">{ h.DiskSize }</div>
 			<div class="stat-label">DB size</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Embed queue</div>
+			<div class="stat-value stat-accent">{ fmtInt(h.EmbedQueued) }</div>
+			<div class="stat-label">Queued jobs (backpressure)</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Embedding active</div>
+			<div class="stat-value stat-green">{ fmtInt(h.EmbedActive) }</div>
+			<div class="stat-label">Workers running</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Pinned projects</div>
+			<div class="stat-value stat-purple">{ fmtInt(h.PinnedCount) }</div>
+			<div class="stat-label">Priority embed + warm vectors</div>
 		</div>
 	</div>
 }

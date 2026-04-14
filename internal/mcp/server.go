@@ -12,6 +12,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -174,13 +175,13 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					if indexErr == nil {
 						go watcher.StartWatcher(projectPath)
 						if emb != nil {
-							go indexer.EmbedDirectorySymbols(emb, path, projectPath)
+							go embedqueue.EnqueueAllSymbolsFiles(projectPath)
 						}
 					}
 				} else {
 					n, _, _, indexErr = indexer.IndexFile(path, projectPath)
 					if indexErr == nil && emb != nil {
-						go indexer.EmbedFileSymbols(emb, path, projectPath)
+						go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
 					}
 				}
 				if indexErr != nil {
@@ -197,19 +198,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if q, ok := toolArgs["query"].(string); ok {
 			query = q
 		}
-		mode := ""
-		if m, ok := toolArgs["mode"].(string); ok {
-			mode = m
-		}
-		sessionID := ""
-		if s, ok := toolArgs["session_id"].(string); ok {
-			sessionID = s
-		}
-		var tokenBudget float64
-		if tb, ok := toolArgs["token_budget"].(float64); ok {
-			tokenBudget = tb
-		}
-		contextStr := context.HandleGetContext(map[string]interface{}{"query": query, "mode": mode, "session_id": sessionID, "token_budget": tokenBudget}, projectPath)
+		contextStr := context.HandleGetContext(toolArgs, projectPath)
 
 		inputTokens := db.EstimateTokens(query)
 		outputTokens := db.EstimateTokens(contextStr)
@@ -289,7 +278,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if embErr != nil {
 				result = map[string]string{"error": "embed query: " + embErr.Error()}
 			} else {
-				scored := search.Cache.Search(queryVec, projectPath, docType, limit)
+				filters := search.ParseSearchFilters(toolArgs)
+				scored := search.Cache.Search(queryVec, projectPath, docType, limit, filters)
 				fileCache := map[string][]string{}
 				matchedFiles := map[string]bool{}
 				fullBaselineTokens := 0

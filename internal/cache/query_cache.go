@@ -84,12 +84,15 @@ func (c *QueryCache) Set(key, result string) {
 	}
 }
 
-func HashQuery(query, projectPath, mode string, limit int) string {
+func HashQuery(query, projectPath, mode string, limit int, filtersKey string) string {
 	data := map[string]interface{}{
 		"query":        query,
 		"project_path": projectPath,
 		"mode":         mode,
 		"limit":        limit,
+	}
+	if filtersKey != "" {
+		data["filters"] = filtersKey
 	}
 	bytes, _ := json.Marshal(data)
 	hash := sha256.Sum256(bytes)

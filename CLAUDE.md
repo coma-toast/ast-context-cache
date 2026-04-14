@@ -93,3 +93,14 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 5. Cache summaries of key files
 6. Use impact graph before making changes
 7. Use search_docs for library/framework questions
+
+### Optional search filters (get_context_capsule, search_semantic, retrieve)
+
+- **path_prefix** — limit to symbols under a project-relative path (e.g. `internal/mcp`) or absolute prefix.
+- **language** — `go`, `python`, `typescript`, `javascript`, `rust`, etc. (file extension filter).
+- **kinds** / **kind** — comma-separated or single symbol kind (`function`, `method`, …).
+
+### Pipeline observability
+
+- **get_context_capsule** — response includes **pipeline**: `bm25_candidates`, `vector_candidates`, `hybrid_after_fuse`.
+- **retrieve** — **stats** adds the same hybrid counts plus `after_dedup`, `chunks_in_budget`, `tokens_est_all_chunks`, and stage timings (`code_retrieve_ms`, `docs_retrieve_ms`, `dedup_budget_ms`, `search_time_ms`).

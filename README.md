@@ -174,6 +174,31 @@ The server may crash or stop unexpectedly. Follow these steps to recover:
 
 Always pass `session_id` to avoid re-sending symbols already seen in the conversation.
 
+### Optional search filters
+
+For **`get_context_capsule`**, **`search_semantic`**, and **`retrieve`**, you can narrow results before hybrid ranking:
+
+| Parameter | Purpose |
+|-----------|---------|
+| `path_prefix` | Only symbols under this path (project-relative, e.g. `internal/mcp`, or an absolute path prefix). |
+| `language` | Coarse language filter: `go`, `python`, `typescript`, `javascript`, `rust`, etc. (uses file extensions). |
+| `kinds` | Comma-separated symbol kinds (e.g. `function,method`). |
+| `kind` | Single kind (same as one entry in `kinds`). |
+
+All are optional; omitting them preserves previous behavior.
+
+When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (file suffix), and `path_prefix` constraints in the query where possible, so fewer rows are scanned before ranking. A final Go-side check still enforces the same rules for edge cases.
+
+### Pipeline observability
+
+- **`get_context_capsule`** responses include a `pipeline` object: `bm25_candidates`, `vector_candidates`, `hybrid_after_fuse` (counts after filters, through BM25 + vector + RRF stages).
+- **`retrieve`** `stats` include those counts plus `after_dedup`, `chunks_in_budget`, `tokens_est_all_chunks`, and timing fields (`code_retrieve_ms`, `docs_retrieve_ms`, `dedup_budget_ms`, `search_time_ms`).
+
+### Indexing queue, pinning, and warm vectors
+
+- **Embedding work** runs through a **bounded queue** with multiple workers so rapid file changes do not spawn unbounded ONNX goroutines. The dashboard **Index health** section shows **embed queue** depth and **active** embedding workers.
+- **Pinned projects** (Settings → **Pin** on a project): file-change embeddings are **prioritized** on the high queue; **watchers are not auto-stopped** for idle timeout on pinned projects; **vector cache idle unload** uses a **longer effective timeout** when any project is pinned (warmer “tier” without a separate cold store).
+
 ## MCP Tools
 
 ### Core

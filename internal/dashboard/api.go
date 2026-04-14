@@ -48,6 +48,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/watcher-status", handleWatcherStatus)
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
 	mux.HandleFunc("/api/settings", handleSettings)
+	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
 	mux.HandleFunc("/api/agent-install", handleAgentInstall)
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
@@ -478,6 +479,32 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 		"dimensions":    search.VectorDims,
 		"cache_loaded":  search.Cache.IsLoaded(),
 	})
+}
+
+func handlePinProject(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	var req struct {
+		ProjectPath string `json:"project_path"`
+		Pinned      bool   `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	if req.ProjectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+	if err := db.TogglePinnedProject(req.ProjectPath, req.Pinned); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "pinned": req.Pinned})
 }
 
 func handleSettings(w http.ResponseWriter, r *http.Request) {

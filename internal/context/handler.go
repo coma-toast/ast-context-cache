@@ -35,12 +35,17 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		return `{"error": "query required"}`
 	}
 
-	cacheKey := cache.HashQuery(query, projectPath, mode, limit)
+	filters := search.ParseSearchFilters(args)
+	filtersKey := ""
+	if filters != nil {
+		filtersKey = filters.CacheKey()
+	}
+	cacheKey := cache.HashQuery(query, projectPath, mode, limit, filtersKey)
 	if cached, found := cache.GlobalCache.Get(cacheKey); found {
 		return cached
 	}
 
-	scored := search.HybridSearch(query, projectPath, Emb, 30)
+	scored, pipeMetrics := search.HybridSearch(query, projectPath, Emb, 30, filters)
 
 	returnedFiles := GetReturnedFiles(sessionID)
 
@@ -170,6 +175,11 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		"tokens_used":          tokensUsed,
 		"file_baseline_tokens": fileBaselineTokens,
 		"full_baseline_tokens": fullBaselineTokens,
+		"pipeline": map[string]interface{}{
+			"bm25_candidates":   pipeMetrics.BM25Candidates,
+			"vector_candidates": pipeMetrics.VectorCandidates,
+			"hybrid_after_fuse": pipeMetrics.HybridAfterFuse,
+		},
 	}
 	if tokenBudget > 0 {
 		resp["token_budget"] = tokenBudget

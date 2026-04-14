@@ -12,19 +12,26 @@ type ScoredResult struct {
 	Score float64
 }
 
-func BM25Search(query, projectPath string) []ScoredResult {
+func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResult {
 	terms := strings.Fields(strings.ToLower(query))
 	var scored []ScoredResult
 
 	ftsQuery := BuildFTSQuery(terms)
 	if ftsQuery != "" {
-		rows, err := db.DB.Query(`
+		q := `
 			SELECT s.name, s.kind, s.file, s.start_line, s.end_line, f.rank
 			FROM symbols_fts f
 			JOIN symbols s ON f.rowid = s.id
-			WHERE s.project_path = ? AND symbols_fts MATCH ?
+			WHERE s.project_path = ? AND symbols_fts MATCH ?`
+		args := []interface{}{projectPath, ftsQuery}
+		if frag, extra := symbolFilterSQL(filters, projectPath); frag != "" {
+			q += " AND " + frag
+			args = append(args, extra...)
+		}
+		q += `
 			ORDER BY f.rank
-			LIMIT 100`, projectPath, ftsQuery)
+			LIMIT 100`
+		rows, err := db.DB.Query(q, args...)
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -44,26 +51,31 @@ func BM25Search(query, projectPath string) []ScoredResult {
 	}
 
 	if len(scored) == 0 {
-		scored = FallbackSearch(terms, projectPath)
+		scored = FallbackSearch(terms, projectPath, filters)
 	}
 
+	scored = filterScoredResults(scored, projectPath, filters)
 	return scored
 }
 
-func FallbackSearch(terms []string, projectPath string) []ScoredResult {
+func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) []ScoredResult {
 	var conditions []string
 	var sqlArgs []interface{}
 	sqlArgs = append(sqlArgs, projectPath)
 	for _, term := range terms {
 		pattern := "%" + term + "%"
-		conditions = append(conditions, "(LOWER(name) LIKE ? OR LOWER(fqn) LIKE ? OR LOWER(code) LIKE ?)")
+		conditions = append(conditions, "(LOWER(s.name) LIKE ? OR LOWER(s.fqn) LIKE ? OR LOWER(s.code) LIKE ?)")
 		sqlArgs = append(sqlArgs, pattern, pattern, pattern)
 	}
-	where := "project_path = ?"
+	where := "s.project_path = ?"
 	if len(conditions) > 0 {
 		where += " AND (" + strings.Join(conditions, " OR ") + ")"
 	}
-	rows, err := db.DB.Query("SELECT name, kind, file, start_line, end_line FROM symbols WHERE "+where+" LIMIT 100", sqlArgs...)
+	if frag, extra := symbolFilterSQL(filters, projectPath); frag != "" {
+		where += " AND " + frag
+		sqlArgs = append(sqlArgs, extra...)
+	}
+	rows, err := db.DB.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
 	if err != nil {
 		return nil
 	}

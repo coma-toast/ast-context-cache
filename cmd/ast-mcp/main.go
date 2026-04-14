@@ -16,7 +16,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
-	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -68,11 +68,12 @@ func main() {
 	log.Printf("Embedder configured (lazy-load from %s)", modelDir)
 	mcp.SetEmbedder(emb)
 	ctxpkg.Emb = emb
+	embedqueue.Start(emb)
 	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
 		if removed {
 			search.Cache.DeleteByFile(filePath, projectPath)
 		} else {
-			indexer.EmbedFileSymbols(emb, filePath, projectPath)
+			embedqueue.SubmitPriority(filePath, projectPath, db.IsPinnedProject(projectPath))
 		}
 	}
 

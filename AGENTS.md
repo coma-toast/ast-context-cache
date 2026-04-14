@@ -63,6 +63,9 @@ When working with codebases that have an MCP server available, **always prefer M
 4. **Use get_file_context over read** - Returns structured, mode-aware results
 5. **Cache summaries** - Call cache_summary after understanding key files
 6. **Use search_docs** - For library/framework documentation questions
+7. **Optional filters** - On `get_context_capsule`, `search_semantic`, and `retrieve`, pass `path_prefix`, `language`, and/or `kinds` / `kind` to narrow results to a subtree or language
+8. **Pipeline stats** - `get_context_capsule` returns `pipeline` counts; `retrieve` stats include hybrid-stage counts and timings (see README / CLAUDE.md)
+9. **Indexing load** - Embeddings go through a bounded **queue** with workers (dashboard: embed queue / active). **Pin** heavy projects in Settings for priority embedding, no idle watcher stop, and warmer vector unload behavior
 
 ### Documentation Tools
 
@@ -89,3 +92,7 @@ Avoid:
 - Multi-angle searches (use MCP search_semantic instead)
 - Cross-module pattern discovery
 - Unfamiliar codebase exploration
+
+## Slide / `slidehq` workspaces
+
+When researching or changing code in Slide repositories (for example `common`, `sandbox`, `box`, `cloud`, `agent`), **prefer shared logic and patterns from [`github.com/slidehq/common`](https://github.com/slidehq/common)** over inventing new abstractions in a single repo. Check common for existing utilities, errors, task patterns, retries, and logging before adding parallel implementations elsewhere.

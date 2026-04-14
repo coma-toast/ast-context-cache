@@ -14,6 +14,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -94,6 +95,10 @@ func handleIndexHealthPartial(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	q, activeEmb := embedqueue.Stats()
+	h.EmbedQueued = q
+	h.EmbedActive = int(activeEmb)
+	h.PinnedCount = db.PinnedProjectCount()
 	components.IndexHealthCards(h).Render(r.Context(), w)
 }
 
@@ -421,6 +426,7 @@ func loadProjects(pid string) []components.Project {
 			QueryCount:  c,
 			SymbolCount: sc.symbols,
 			FileCount:   sc.files,
+			Pinned:      db.IsPinnedProject(p),
 		})
 	}
 	return ps

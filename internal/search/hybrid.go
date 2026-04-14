@@ -8,24 +8,35 @@ import (
 
 const rrfK = 60 // reciprocal rank fusion constant
 
+// HybridSearchMetrics counts candidates at each hybrid-search stage (after filters, before final limit).
+type HybridSearchMetrics struct {
+	BM25Candidates   int `json:"bm25_candidates"`
+	VectorCandidates int `json:"vector_candidates"`
+	HybridAfterFuse  int `json:"hybrid_after_fuse"`
+}
+
 // HybridSearch runs BM25 and vector search in parallel, merges via RRF.
-// If emb is nil, falls back to BM25 only.
-func HybridSearch(query, projectPath string, emb embedder.Interface, limit int) []ScoredResult {
-	bm25Results := BM25Search(query, projectPath)
+// If emb is nil, falls back to BM25 only. filters may be nil.
+func HybridSearch(query, projectPath string, emb embedder.Interface, limit int, filters *SearchFilters) ([]ScoredResult, *HybridSearchMetrics) {
+	metrics := &HybridSearchMetrics{}
+	bm25Results := BM25Search(query, projectPath, filters)
+	metrics.BM25Candidates = len(bm25Results)
 
 	var vectorResults []ScoredResult
 	if emb != nil && Cache.Count(projectPath) > 0 {
 		queryVec, err := emb.EmbedSingle(query)
 		if err == nil {
-			vectorResults = Cache.Search(queryVec, projectPath, "", limit*2)
+			vectorResults = Cache.Search(queryVec, projectPath, "", limit*2, filters)
 		}
 	}
+	metrics.VectorCandidates = len(vectorResults)
 
 	if len(vectorResults) == 0 {
 		if len(bm25Results) > limit {
 			bm25Results = bm25Results[:limit]
 		}
-		return bm25Results
+		metrics.HybridAfterFuse = len(bm25Results)
+		return bm25Results, metrics
 	}
 
 	type fusedEntry struct {
@@ -70,10 +81,12 @@ func HybridSearch(query, projectPath string, emb embedder.Interface, limit int) 
 		return merged[i].Score > merged[j].Score
 	})
 
+	metrics.HybridAfterFuse = len(merged)
+
 	if len(merged) > limit {
 		merged = merged[:limit]
 	}
-	return merged
+	return merged, metrics
 }
 
 func resultKey(r ScoredResult) string {

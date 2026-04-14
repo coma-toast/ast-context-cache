@@ -54,6 +54,11 @@ templ Settings(data SettingsData) {
 							<div class="path" title={ p.Path }>{ p.Path }</div>
 						</div>
 						<div class="actions">
+							if p.Pinned {
+								<button class="action-btn" title="Pinned: priority embedding and longer vector warm" hx-post="/api/pin-project" hx-vals={ fmt.Sprintf(`{"project_path":"%s","pinned":false}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Unpin</button>
+							} else {
+								<button class="action-btn" title="Pin for priority embedding and warmer vectors" hx-post="/api/pin-project" hx-vals={ fmt.Sprintf(`{"project_path":"%s","pinned":true}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Pin</button>
+							}
 							<button class="action-btn" hx-post="/api/reset-project" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Reset</button>
 							<button class="action-btn danger" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", p.Name) } hx-headers='{"Content-Type":"application/json"}'>Delete</button>
 						</div>
