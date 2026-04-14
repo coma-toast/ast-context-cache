@@ -48,6 +48,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/watcher-status", handleWatcherStatus)
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
 	mux.HandleFunc("/api/settings", handleSettings)
+	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
 	mux.HandleFunc("/api/agent-install", handleAgentInstall)
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
@@ -480,12 +481,45 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handlePinProject(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	var req struct {
+		ProjectPath string `json:"project_path"`
+		Pinned      bool   `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	if req.ProjectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+	if err := db.TogglePinnedProject(req.ProjectPath, req.Pinned); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "pinned": req.Pinned})
+}
+
 func handleSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == "POST" {
-		var req map[string]string
-		json.NewDecoder(r.Body).Decode(&req)
-		key, value := req["key"], req["value"]
+		ct := r.Header.Get("Content-Type")
+		var key, value string
+		if strings.Contains(ct, "application/json") {
+			var req map[string]string
+			json.NewDecoder(r.Body).Decode(&req)
+			key, value = req["key"], req["value"]
+		} else {
+			r.ParseForm()
+			key, value = r.FormValue("key"), r.FormValue("value")
+		}
 		if key == "" {
 			json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
 			return
@@ -497,7 +531,16 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
 		return
 	}
-	defaults := map[string]string{"idle_unload_minutes": "1"}
+	defaults := map[string]string{
+		"idle_unload_minutes":         "1",
+		"watcher_ignore_globs":         "[]",
+		"index_log_files":              "false",
+		"log_retention_enabled":        "false",
+		"log_retention_roots":          "[]",
+		"log_retention_max_age_days":   "0",
+		"log_retention_max_total_mib":  "0",
+		"log_retention_dry_run":        "false",
+	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
 		if _, ok := settings[k]; !ok {
@@ -708,7 +751,6 @@ func generateAgentInstructions(agentType string) string {
 	}
 }
 
-
 func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
@@ -747,9 +789,8 @@ func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	var req map[string]string
-	json.NewDecoder(r.Body).Decode(&req)
-	projectPath := req["project_path"]
+	r.ParseForm()
+	projectPath := r.FormValue("project_path")
 
 	if projectPath == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
@@ -772,9 +813,8 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	var req map[string]string
-	json.NewDecoder(r.Body).Decode(&req)
-	projectPath := req["project_path"]
+	r.ParseForm()
+	projectPath := r.FormValue("project_path")
 	if projectPath == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return
@@ -790,9 +830,8 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	var req map[string]string
-	json.NewDecoder(r.Body).Decode(&req)
-	projectPath := req["project_path"]
+	r.ParseForm()
+	projectPath := r.FormValue("project_path")
 	if projectPath == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return

@@ -14,7 +14,7 @@ func ExampleFilterTools_core() {
 		names = append(names, t.Name)
 	}
 	fmt.Println(strings.Join(names, ", "))
-	// Output: get_context_capsule, index_status, get_impact_graph, search_semantic, get_project_map
+	// Output: get_context_capsule, index_status, get_impact_graph, search_semantic, get_project_map, get_file_context, search_docs, list_doc_sources, retrieve
 }
 
 func ExampleFilterTools_extended() {
@@ -26,7 +26,7 @@ func ExampleFilterTools_extended() {
 		names = append(names, t.Name)
 	}
 	fmt.Println(strings.Join(names, ", "))
-	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, search_semantic, get_project_map, analyze_dead_code, analyze_complexity, export_bundle, import_bundle
+	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, search_semantic, get_project_map, get_file_context, analyze_dead_code, analyze_complexity, export_bundle, import_bundle, search_docs, add_doc_source, remove_doc_source, list_doc_sources, update_doc_source, retrieve
 }
 
 func ExampleFilterTools_complete() {
@@ -38,7 +38,7 @@ func ExampleFilterTools_complete() {
 		names = append(names, t.Name)
 	}
 	fmt.Println(strings.Join(names, ", "))
-	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, search_semantic, get_project_map, analyze_dead_code, analyze_complexity, execute_code, export_bundle, import_bundle
+	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, search_semantic, get_project_map, get_file_context, analyze_dead_code, analyze_complexity, execute_code, export_bundle, import_bundle, search_docs, add_doc_source, remove_doc_source, list_doc_sources, update_doc_source, retrieve
 }
 
 func ExampleFilterTools_completeNoCodeMode() {

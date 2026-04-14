@@ -31,6 +31,9 @@ func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) 
 }
 
 func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) {
+	if ShouldSkipEmbed(filePath) {
+		return
+	}
 	rows, err := db.DB.Query(
 		"SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?",
 		filePath, projectPath)

@@ -33,7 +33,7 @@ make build
 ```bash
 make run
 ```
-Starts the MCP server on `http://localhost:7821/mcp`
+Starts the MCP server on `http://localhost:7821/mcp` and dashboard on `http://localhost:7830`
 
 ## Shell Function (Optional)
 
@@ -88,8 +88,11 @@ Add to `CLAUDE.md` in your project:
 
 Use ast-context-cache MCP server (http://localhost:7821/mcp) for efficient code search.
 - get_context_capsule: Search code with token-efficient modes
+- get_file_context: Get all symbols in a specific file
 - cache_summary: Cache your own summaries
 - analyze_dead_code: Find unused code
+- search_docs: Search cached documentation
+- retrieve: RAG-style retrieval (code + docs → formatted context)
 ```
 
 ## Dashboard

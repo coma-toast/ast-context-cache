@@ -8,6 +8,7 @@ type Project struct {
 	QueryCount  int
 	SymbolCount int
 	FileCount   int
+	Pinned      bool
 }
 
 templ Page(projects []Project) {

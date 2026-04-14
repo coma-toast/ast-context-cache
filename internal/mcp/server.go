@@ -12,6 +12,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -174,13 +175,13 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					if indexErr == nil {
 						go watcher.StartWatcher(projectPath)
 						if emb != nil {
-							go indexer.EmbedDirectorySymbols(emb, path, projectPath)
+							go embedqueue.EnqueueAllSymbolsFiles(projectPath)
 						}
 					}
 				} else {
 					n, _, _, indexErr = indexer.IndexFile(path, projectPath)
 					if indexErr == nil && emb != nil {
-						go indexer.EmbedFileSymbols(emb, path, projectPath)
+						go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
 					}
 				}
 				if indexErr != nil {
@@ -197,19 +198,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if q, ok := toolArgs["query"].(string); ok {
 			query = q
 		}
-		mode := ""
-		if m, ok := toolArgs["mode"].(string); ok {
-			mode = m
-		}
-		sessionID := ""
-		if s, ok := toolArgs["session_id"].(string); ok {
-			sessionID = s
-		}
-		var tokenBudget float64
-		if tb, ok := toolArgs["token_budget"].(float64); ok {
-			tokenBudget = tb
-		}
-		contextStr := context.HandleGetContext(map[string]interface{}{"query": query, "mode": mode, "session_id": sessionID, "token_budget": tokenBudget}, projectPath)
+		contextStr := context.HandleGetContext(toolArgs, projectPath)
 
 		inputTokens := db.EstimateTokens(query)
 		outputTokens := db.EstimateTokens(contextStr)
@@ -289,7 +278,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if embErr != nil {
 				result = map[string]string{"error": "embed query: " + embErr.Error()}
 			} else {
-				scored := search.Cache.Search(queryVec, projectPath, docType, limit)
+				filters := search.ParseSearchFilters(toolArgs)
+				scored := search.Cache.Search(queryVec, projectPath, docType, limit, filters)
 				fileCache := map[string][]string{}
 				matchedFiles := map[string]bool{}
 				fullBaselineTokens := 0
@@ -489,6 +479,25 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				result = map[string]string{"error": err.Error()}
 			} else {
 				result = map[string]interface{}{"status": "updated", "id": id}
+			}
+		}
+	case "retrieve":
+		query, _ := toolArgs["query"].(string)
+		if query == "" || projectPath == "" {
+			result = map[string]string{"error": "query and project_path required"}
+		} else {
+			retrieveResult := HandleRetrieve(toolArgs, projectPath)
+			if errMsg, ok := retrieveResult["error"].(string); ok {
+				result = map[string]string{"error": errMsg}
+			} else {
+				result = retrieveResult["result"]
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(result.(json.RawMessage)), &parsed); err == nil {
+					ctxLen := len(parsed["context"].(string))
+					outTokens := db.EstimateTokens(parsed["context"].(string))
+					db.LogQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
+					loggedToolCall = true
+				}
 			}
 		}
 	default:

@@ -27,6 +27,7 @@ When working with codebases that have an MCP server available, **always prefer M
 - **get_file_context** - Get all symbols in a specific file
 - **cache_summary** - Cache your own summaries for future queries
 - **search_docs** - Search cached documentation
+- **retrieve** - RAG-style retrieval: hybrid search + reranking + context assembly
 
 ### Mode Selection
 
@@ -44,6 +45,7 @@ When working with codebases that have an MCP server available, **always prefer M
 3. **Use get_project_map first** - ~200 tokens for full project overview
 4. **Cache summaries** - Call cache_summary after understanding key files
 5. **Use search_docs** - For library/framework documentation questions
+6. **Use retrieve** - For RAG-style context assembly (code + docs in one call)
 ```
 
 ## Cursor
@@ -72,6 +74,7 @@ When searching code, prefer using the ast-context-cache MCP tools:
 - Use search_semantic for natural language queries
 - Use get_impact_graph before making changes to understand blast radius
 - Use get_file_context to get all symbols in a specific file
+- Use retrieve for RAG-style context assembly (code + docs)
 - Always pass session_id for deduplication
 - Use search_docs for library/framework documentation
 ```
@@ -104,6 +107,7 @@ Use ast-context-cache MCP server (http://localhost:7821/mcp) for efficient code 
 - cache_summary: Cache your own summaries
 - analyze_dead_code: Find unused code
 - search_docs: Search cached documentation
+- retrieve: RAG-style retrieval (code + docs → formatted context)
 ```
 
 ## VS Code (GitHub Copilot)

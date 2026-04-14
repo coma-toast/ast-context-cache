@@ -105,7 +105,12 @@ func (vc *VectorCache) idleTimeout() time.Duration {
 	if mins == 0 {
 		return 0
 	}
-	return time.Duration(mins) * time.Minute
+	d := time.Duration(mins) * time.Minute
+	// Tiered "warm": keep vectors longer when any project is pinned (reduces reload churn).
+	if db.PinnedProjectCount() > 0 {
+		d *= 3
+	}
+	return d
 }
 
 func (vc *VectorCache) idleLoop() {
@@ -137,7 +142,7 @@ func (vc *VectorCache) Load() error {
 	return nil
 }
 
-func (vc *VectorCache) Search(query []float32, projectPath string, docType string, limit int) []ScoredResult {
+func (vc *VectorCache) Search(query []float32, projectPath string, docType string, limit int, filters *SearchFilters) []ScoredResult {
 	if len(query) != VectorDims {
 		return nil
 	}
@@ -158,6 +163,11 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 		}
 		if docType != "" && e.DocType != docType {
 			continue
+		}
+		if filters != nil && !filters.Empty() {
+			if !filters.MatchesSymbol(e.SourceFile, e.Kind, projectPath) {
+				continue
+			}
 		}
 		sim := cosineSimilarity(query, e.Vector)
 		results = append(results, scored{entry: e, sim: sim})

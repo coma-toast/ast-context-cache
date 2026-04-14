@@ -6,20 +6,39 @@ ast-context-cache is an MCP server that provides token-efficient code search for
 
 ## Available Tools
 
-| Tool | Purpose | Tier |
-|------|---------|------|
-| `get_context_capsule` | Search code symbols with hybrid BM25+vector search | Core |
-| `search_semantic` | Natural language search ("function that handles auth") | Core |
-| `get_project_map` | Hierarchical project overview (~200 tokens) | Core |
-| `get_impact_graph` | Find all files depending on a symbol | Core |
-| `index_status` | Check if a project is indexed | Core |
-| `index_files` | Index source files for searching | Extended |
-| `cache_summary` | Cache your summaries for future queries | Extended |
-| `analyze_dead_code` | Find unused functions/classes/imports | Extended |
-| `analyze_complexity` | Calculate cyclomatic complexity | Extended |
-| `export_bundle` | Export indexed code as portable bundle | Extended |
-| `import_bundle` | Import a previously exported bundle | Extended |
-| `execute_code` | Run JS code against search results (sandboxed) | Complete |
+### Core
+
+| Tool | Purpose |
+|------|---------|
+| `get_context_capsule` | Search code symbols with hybrid BM25+vector search |
+| `search_semantic` | Natural language search ("function that handles auth") |
+| `get_file_context` | All symbols in a specific file with mode-aware output |
+| `get_project_map` | Hierarchical project overview (~200 tokens) |
+| `get_impact_graph` | Find all files depending on a symbol |
+| `index_status` | Check if a project is indexed |
+| `search_docs` | Search cached library/framework documentation |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly |
+
+### Extended
+
+| Tool | Purpose |
+|------|---------|
+| `index_files` | Index source files for searching |
+| `cache_summary` | Cache your summaries for future queries |
+| `analyze_dead_code` | Find unused functions/classes/imports |
+| `analyze_complexity` | Calculate cyclomatic complexity |
+| `export_bundle` | Export indexed code as portable bundle |
+| `import_bundle` | Import a previously exported bundle |
+| `add_doc_source` | Add a documentation URL to track and cache |
+| `remove_doc_source` | Remove a tracked documentation source |
+| `list_doc_sources` | List all tracked documentation sources |
+| `update_doc_source` | Manually refresh a documentation source |
+
+### Complete
+
+| Tool | Purpose |
+|------|---------|
+| `execute_code` | Run JS code against search results (sandboxed) |
 
 ## Recommended Workflow
 
@@ -42,6 +61,10 @@ get_context_capsule(query="handleAuth", project_path="/path/to/project", mode="a
 
 # Natural language search
 search_semantic(query="function that validates user input", project_path="/path/to/project")
+
+# RAG-style retrieval (code + docs → formatted context)
+retrieve(query="how does authentication work", project_path="/path/to/project")
+retrieve(query="error handling patterns", project_path="/path", format="xml")
 
 # Before making changes
 get_impact_graph(symbol="UserService", project_path="/path/to/project")

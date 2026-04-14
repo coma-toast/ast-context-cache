@@ -9,7 +9,8 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 - **Semantic embeddings** -- Optional ONNX-based vector search for semantic similarity
 - **Dependency graph** -- Import/call edges stored in an `edges` table; query blast radius with `get_impact_graph`
 - **Source code in results** -- Search results include the actual source, not just file pointers
-- **File watcher** -- `fsnotify`-based incremental re-indexing with debounce
+- **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
+- **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
 - **Dashboard** -- Web UI on port 7830 with stats, charts, and recent query history
 - **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency
 
@@ -159,7 +160,8 @@ The server may crash or stop unexpectedly. Follow these steps to recover:
 5. get_file_context  →  all symbols in a specific file
 6. get_impact_graph  →  blast radius before modifying a symbol
 7. cache_summary  →  save what you learned for future queries
-8. search_docs  →  search cached library/framework documentation
+8. retrieve  →  RAG-style retrieval (code + docs → formatted context)
+9. search_docs  →  search cached library/framework documentation
 ```
 
 ### Token Optimization
@@ -172,6 +174,31 @@ The server may crash or stop unexpectedly. Follow these steps to recover:
 | `full` | 100% | Complete implementation details |
 
 Always pass `session_id` to avoid re-sending symbols already seen in the conversation.
+
+### Optional search filters
+
+For **`get_context_capsule`**, **`search_semantic`**, and **`retrieve`**, you can narrow results before hybrid ranking:
+
+| Parameter | Purpose |
+|-----------|---------|
+| `path_prefix` | Only symbols under this path (project-relative, e.g. `internal/mcp`, or an absolute path prefix). |
+| `language` | Coarse language filter: `go`, `python`, `typescript`, `javascript`, `rust`, etc. (uses file extensions). |
+| `kinds` | Comma-separated symbol kinds (e.g. `function,method`). |
+| `kind` | Single kind (same as one entry in `kinds`). |
+
+All are optional; omitting them preserves previous behavior.
+
+When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (file suffix), and `path_prefix` constraints in the query where possible, so fewer rows are scanned before ranking. A final Go-side check still enforces the same rules for edge cases.
+
+### Pipeline observability
+
+- **`get_context_capsule`** responses include a `pipeline` object: `bm25_candidates`, `vector_candidates`, `hybrid_after_fuse` (counts after filters, through BM25 + vector + RRF stages).
+- **`retrieve`** `stats` include those counts plus `after_dedup`, `chunks_in_budget`, `tokens_est_all_chunks`, and timing fields (`code_retrieve_ms`, `docs_retrieve_ms`, `dedup_budget_ms`, `search_time_ms`).
+
+### Indexing queue, pinning, and warm vectors
+
+- **Embedding work** runs through a **bounded queue** with multiple workers so rapid file changes do not spawn unbounded ONNX goroutines. The dashboard **Index health** section shows **embed queue** depth and **active** embedding workers.
+- **Pinned projects** (Settings → **Pin** on a project): file-change embeddings are **prioritized** on the high queue; **watchers are not auto-stopped** for idle timeout on pinned projects; **vector cache idle unload** uses a **longer effective timeout** when any project is pinned (warmer “tier” without a separate cold store).
 
 ## MCP Tools
 
@@ -186,6 +213,7 @@ Always pass `session_id` to avoid re-sending symbols already seen in the convers
 | `get_impact_graph` | Find the blast radius of a symbol -- files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly. Returns formatted context ready for LLM. |
 
 ### Extended
 
