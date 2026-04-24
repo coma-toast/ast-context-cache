@@ -20,14 +20,27 @@ import (
 )
 
 var emb embedder.Interface
+var embLastUse time.Time
+var embState = "idle" // idle, loading, ready, error
 var srvCfg = DefaultConfig()
 
 func SetEmbedder(e embedder.Interface) {
 	emb = e
+	embState = "ready"
+	embLastUse = time.Now()
 }
 
 func GetEmbedder() embedder.Interface {
 	return emb
+}
+
+func EmbedderState() (state string, lastUse time.Duration) {
+	return embState, time.Since(embLastUse)
+}
+
+func RecordEmbed() {
+	embLastUse = time.Now()
+	embState = "ready"
 }
 
 func SetConfig(cfg ServerConfig) {
@@ -275,6 +288,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				docType = dt
 			}
 			queryVec, embErr := emb.EmbedSingle(query)
+			RecordEmbed()
 			if embErr != nil {
 				result = map[string]string{"error": "embed query: " + embErr.Error()}
 			} else {

@@ -9,6 +9,7 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import "fmt"
+import "time"
 
 type Project struct {
 	Path        string
@@ -19,7 +20,12 @@ type Project struct {
 	Pinned      bool
 }
 
-func Page(projects []Project) templ.Component {
+type HealthInfo struct {
+	Version   string
+	StartTime time.Time
+}
+
+func Page(projects []Project, health HealthInfo) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -52,7 +58,7 @@ func Page(projects []Project) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-ext=\"sse\" sse-connect=\"/events\"><div id=\"toast-container\" class=\"toast-container\" sse-swap=\"toast\" hx-swap=\"afterbegin\"></div></div><div class=\"container\" x-data=\"dashboard()\"><header><h1><span class=\"icon\">&#x1F9E0;</span> AST Context Cache</h1><div class=\"header-controls\"><span class=\"auto-badge\">auto 30s</span> <button class=\"refresh-btn\" @click=\"refresh()\" :class=\"{ 'spinning': refreshing }\"><div class=\"progress-bar\" :class=\"{ 'progressing': progressing }\"></div><span class=\"spin\">&#x21bb;</span> Refresh</button> <button class=\"settings-btn\" @click=\"settingsOpen = true\" title=\"Settings\">&#x2699;</button> <select class=\"project-select\" x-model=\"selectedProject\" @change=\"refresh()\"><option value=\"\">All Projects</option> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-ext=\"sse\" sse-connect=\"/events\"><div id=\"toast-container\" class=\"toast-container\" sse-swap=\"toast\" hx-swap=\"afterbegin\"></div></div><div class=\"container\" x-data=\"dashboard()\"><header><h1><span class=\"icon\">&#x1F9E0;</span> AST Context Cache</h1><div id=\"health-bar\" hx-get=\"/partials/health\" hx-trigger=\"load, every 5s\" hx-swap=\"innerHTML\" class=\"health-bar-inline\"></div><div class=\"header-controls\"><span class=\"auto-badge\">auto 30s</span> <button class=\"refresh-btn\" @click=\"refresh()\" :class=\"{ 'spinning': refreshing }\"><div class=\"progress-bar\" :class=\"{ 'progressing': progressing }\"></div><span class=\"spin\">&#x21bb;</span> Refresh</button> <button class=\"settings-btn\" @click=\"settingsOpen = true\" title=\"Settings\">&#x2699;</button> <select class=\"project-select\" x-model=\"selectedProject\" @change=\"refresh()\"><option value=\"\">All Projects</option> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -64,7 +70,7 @@ func Page(projects []Project) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(p.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 32, Col: 29}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 39, Col: 29}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -77,7 +83,7 @@ func Page(projects []Project) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 32, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 39, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -86,7 +92,7 @@ func Page(projects []Project) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf(" (%d symbols)", p.SymbolCount))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 32, Col: 87}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 39, Col: 87}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {

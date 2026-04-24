@@ -3,17 +3,20 @@ package components
 import "fmt"
 
 type IndexHealth struct {
-	TotalSymbols  int
-	TotalFiles    int
+	TotalSymbols    int
+	TotalFiles     int
 	TotalEdges    int
 	TotalVectors  int
 	VectorMemMB   float64
 	MemoryMB      float64
 	DiskSize      string
-	Watchers      []WatcherInfo
+	Watchers     []WatcherInfo
 	EmbedQueued   int
-	EmbedActive   int
-	PinnedCount   int
+	EmbedActive  int
+	EmbedWorkers int
+	EmbedComplete int64
+	EmbedThroughput int64
+	PinnedCount  int
 }
 
 type WatcherInfo struct {
@@ -86,12 +89,22 @@ templ IndexHealthCards(h IndexHealth) {
 		<div class="card">
 			<div class="card-title">Embed queue</div>
 			<div class="stat-value stat-accent">{ fmtInt(h.EmbedQueued) }</div>
-			<div class="stat-label">Queued jobs (backpressure)</div>
+			<div class="stat-label">Queued jobs (high=128 low=2048)</div>
 		</div>
 		<div class="card">
-			<div class="card-title">Embedding active</div>
-			<div class="stat-value stat-green">{ fmtInt(h.EmbedActive) }</div>
-			<div class="stat-label">Workers running</div>
+			<div class="card-title">Embedding workers</div>
+			<div class="stat-value stat-green">{ fmtInt(h.EmbedWorkers) }</div>
+			<div class="stat-label">
+				if h.EmbedActive > 0 {
+					<span class="pulse-dot"></span>
+				}
+				{ fmt.Sprintf("%d/sec (5s)", h.EmbedThroughput) }
+			</div>
+		</div>
+		<div class="card">
+			<div class="card-title">Total embedded</div>
+			<div class="stat-value stat-purple">{ fmtInt64(h.EmbedComplete) }</div>
+			<div class="stat-label">embeddings completed</div>
 		</div>
 		<div class="card">
 			<div class="card-title">Pinned projects</div>

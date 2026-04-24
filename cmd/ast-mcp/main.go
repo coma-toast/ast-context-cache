@@ -27,7 +27,18 @@ import (
 const (
 	mcpPort       = 7821
 	dashboardPort = 7830
+	appVersion   = "2.0.0"
 )
+
+var startTime = time.Now()
+
+func GetVersion() string {
+	return appVersion
+}
+
+func GetStartTime() time.Time {
+	return startTime
+}
 
 func main() {
 	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")

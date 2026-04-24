@@ -1,6 +1,7 @@
 package components
 
 import "fmt"
+import "time"
 
 type Project struct {
 	Path        string
@@ -11,7 +12,12 @@ type Project struct {
 	Pinned      bool
 }
 
-templ Page(projects []Project) {
+type HealthInfo struct {
+	Version    string
+	StartTime time.Time
+}
+
+templ Page(projects []Project, health HealthInfo) {
 	@Layout("AST Context Cache - Dashboard") {
 		<div hx-ext="sse" sse-connect="/events">
 			<div id="toast-container" class="toast-container" sse-swap="toast" hx-swap="afterbegin"></div>
@@ -19,6 +25,7 @@ templ Page(projects []Project) {
 		<div class="container" x-data="dashboard()">
 			<header>
 				<h1><span class="icon">&#x1F9E0;</span> AST Context Cache</h1>
+				<div id="health-bar" hx-get="/partials/health" hx-trigger="load, every 5s" hx-swap="innerHTML" class="health-bar-inline"></div>
 				<div class="header-controls">
 					<span class="auto-badge">auto 30s</span>
 					<button class="refresh-btn" @click="refresh()" :class="{ 'spinning': refreshing }">

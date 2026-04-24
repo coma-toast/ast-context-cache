@@ -14,6 +14,8 @@ type QueryCache struct {
 	entries map[string]*cacheEntry
 	maxAge  time.Duration
 	maxSize int
+	hits    int64
+	misses  int64
 }
 
 type cacheEntry struct {
@@ -56,9 +58,11 @@ func (c *QueryCache) Get(key string) (string, bool) {
 	defer c.mu.RUnlock()
 	if entry, ok := c.entries[key]; ok {
 		if time.Since(entry.timestamp) < c.maxAge {
+			c.hits++
 			return entry.result, true
 		}
 	}
+	c.misses++
 	return "", false
 }
 
@@ -114,6 +118,16 @@ func (c *QueryCache) Stats() (int, int) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.maxSize, len(c.entries)
+}
+
+func (c *QueryCache) HitRatio() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	total := c.hits + c.misses
+	if total == 0 {
+		return 0
+	}
+	return float64(c.hits) / float64(total)
 }
 
 func (c *QueryCache) ClearAll() {
