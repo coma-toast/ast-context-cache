@@ -4,16 +4,20 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 )
 
+// ring buffer for throughput (last 5 seconds, 10 slots @ 500ms)
 const (
-	workers = 3
-	highCap = 128
-	lowCap  = 2048
+	workers       = 3
+	highCap       = 128
+	lowCap        = 2048
+	throughputSlots = 10
+	throughputWindow = 500 * time.Millisecond
 )
 
 type job struct {
@@ -21,11 +25,21 @@ type job struct {
 }
 
 var (
-	emb      embedder.Interface
-	highCh   chan job
-	lowCh    chan job
-	started  sync.Once
-	inFlight int64
+	emb           embedder.Interface
+	highCh        chan job
+	lowCh         chan job
+	started       sync.Once
+	inFlight     int64
+	completed    int64
+	throughput   [throughputSlots]int64
+	lastSlot     int64
+	startedAt    time.Time
+
+	// Recent activity log (last 20 embeddings)
+	recentActivity      [20]string
+	recentActivityIdx   int
+	recentActivityCount int
+	recentActivityMu    sync.Mutex
 )
 
 // Start launches worker goroutines; safe to call once.
@@ -37,6 +51,7 @@ func Start(e embedder.Interface) {
 		for i := 0; i < workers; i++ {
 			go worker()
 		}
+		startedAt = time.Now()
 		log.Printf("embed queue: %d workers (high=%d low=%d)", workers, highCap, lowCap)
 	})
 }
@@ -64,6 +79,13 @@ func run(j job) {
 		return
 	}
 	indexer.EmbedFileSymbols(emb, j.file, j.projectPath)
+	atomic.AddInt64(&completed, 1)
+	recordActivity(j.file)
+
+	slot := int(time.Since(startedAt) / throughputWindow)
+	if slot >= 0 && slot < throughputSlots {
+		atomic.AddInt64(&throughput[slot%throughputSlots], 1)
+	}
 }
 
 // Submit enqueues a low-priority embed for one file.
@@ -112,10 +134,52 @@ func EnqueueAllSymbolsFiles(projectPath string) {
 	}
 }
 
-// Stats returns queued jobs (waiting in channels) and active embedding workers.
-func Stats() (queued int, active int64) {
-	if highCh == nil {
-		return 0, atomic.LoadInt64(&inFlight)
+// ThroughputLast5s returns embeddings processed in last 5 seconds.
+func ThroughputLast5s() int64 {
+	if startedAt.IsZero() {
+		return 0
 	}
-	return len(highCh) + len(lowCh), atomic.LoadInt64(&inFlight)
+	var total int64
+	currentSlot := int(time.Since(startedAt) / throughputWindow)
+	for i := 0; i < throughputSlots; i++ {
+		slot := currentSlot - i
+		if slot < 0 {
+			slot += throughputSlots
+		}
+		total += atomic.LoadInt64(&throughput[slot%throughputSlots])
+	}
+	return total
+}
+
+// Stats returns queued jobs, active workers, total workers, completed, and throughput.
+func Stats() (queued int, active int64, totalWorkers int, completed int64, throughput int64) {
+	if highCh == nil {
+		return 0, atomic.LoadInt64(&inFlight), workers, atomic.LoadInt64(&completed), 0
+	}
+	return len(highCh) + len(lowCh), atomic.LoadInt64(&inFlight), workers, atomic.LoadInt64(&completed), ThroughputLast5s()
+}
+
+func recordActivity(file string) {
+	recentActivityMu.Lock()
+	defer recentActivityMu.Unlock()
+	recentActivity[recentActivityIdx] = file
+	recentActivityIdx = (recentActivityIdx + 1) % 20
+	if recentActivityCount < 20 {
+		recentActivityCount++
+	}
+}
+
+// RecentActivity returns the most recent embedding activity (newest first).
+func RecentActivity() []string {
+	recentActivityMu.Lock()
+	defer recentActivityMu.Unlock()
+	if recentActivityCount == 0 {
+		return nil
+	}
+	result := make([]string, recentActivityCount)
+	for i := 0; i < recentActivityCount; i++ {
+		idx := (recentActivityIdx - recentActivityCount + i + 20) % 20
+		result[i] = recentActivity[idx]
+	}
+	return result
 }

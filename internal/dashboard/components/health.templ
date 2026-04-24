@@ -1,0 +1,93 @@
+package components
+
+import "fmt"
+import "time"
+
+type Health struct {
+	EmbedderState    string
+	EmbedderLast    time.Duration
+	QueueWorkers   int
+	QueueThroughput int64
+	QueueQueued   int
+	CacheHitRatio float64
+	VectorMemMB   float64
+	HeapMB       float64
+	TotalAllocMB  float64
+	Uptime      time.Duration
+	Version     string
+}
+
+func (h Health) EmbedderEmoji() string {
+	switch h.EmbedderState {
+	case "ready":
+		return "✅"
+	case "loading":
+		return "⏳"
+	case "error":
+		return "❌"
+	default:
+		return "💤"
+	}
+}
+
+func (h Health) EmbedderStatus() string {
+	if h.EmbedderState == "idle" {
+		return "Idle"
+	}
+	if h.EmbedderLast < time.Second {
+		return "just now"
+	}
+	if h.EmbedderLast < time.Minute {
+		return fmt.Sprintf("%.0fs ago", h.EmbedderLast.Seconds())
+	}
+	return fmt.Sprintf("%.0fm ago", h.EmbedderLast.Minutes())
+}
+
+func (h Health) CachePercent() int {
+	return int(h.CacheHitRatio * 100)
+}
+
+func (h Health) FormatUptime() string {
+	if h.Uptime < time.Minute {
+		return fmt.Sprintf("%.0fs", h.Uptime.Seconds())
+	}
+	if h.Uptime < time.Hour {
+		return fmt.Sprintf("%.0fm", h.Uptime.Minutes())
+	}
+	if h.Uptime < 24*time.Hour {
+		return fmt.Sprintf("%.1fh", h.Uptime.Hours())
+	}
+	return fmt.Sprintf("%.0fd", h.Uptime.Hours()/24)
+}
+
+templ HealthBar(h Health) {
+	<div class="health-bar">
+		<span class="health-item" title="Embedder state">
+			<span class="health-emoji">{ h.EmbedderEmoji() }</span>
+			<span class="health-value">{ h.EmbedderStatus() }</span>
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item" title="Queue throughput">
+			<span class="health-label">Q:</span>
+			<span class="health-value">{ fmt.Sprintf("%d/s", h.QueueThroughput) }</span>
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item" title="Cache hit ratio">
+			<span class="health-label">Cache:</span>
+			<span class="health-value">{ fmt.Sprintf("%d%%", h.CachePercent()) }</span>
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item" title="Memory usage">
+			<span class="health-label">Heap:</span>
+			<span class="health-value">{ fmt.Sprintf("%.0fMB", h.HeapMB) }</span>
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item" title="Uptime">
+			<span class="health-value mono">{ h.FormatUptime() }</span>
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item" title="Version">
+			<span class="health-value mono">v{ h.Version }</span>
+		</span>
+	</div>
+}

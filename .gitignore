@@ -2,12 +2,14 @@ ast-mcp
 .astcache/
 *.db
 *.sync-conflict-*
-dashboard/node_modules/
+node_modules/
 model/
 libtokenizers.a
 libtokenizers.tar.gz
-
-# Allow cmd/ast-mcp source (ignore rule above matches directory name)
-!cmd/
-!cmd/ast-mcp/
-!cmd/ast-mcp/**
+.DS_Store
+cmd/ast-mcp/dist/
+internal/dashboard/react/
+ui/
+*.zip
+*.tar.gz
+tmp/

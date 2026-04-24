@@ -248,6 +248,15 @@ tr:hover td { background: var(--surface-hover); }
 }
 .watcher-dot.active { background: var(--green); }
 .watcher-dot.inactive { background: var(--text-dim); animation: none; }
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  margin-right: 4px;
+  animation: pulse 1s infinite;
+}
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -625,4 +634,38 @@ tr:hover td { background: var(--surface-hover); }
 @media (max-width: 600px) {
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
   .container { padding: 16px; }
+}
+
+/* Health bar styles */
+.health-bar-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.health-bar-inline .health-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.health-bar-inline .health-label {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.health-bar-inline .health-value {
+  font-weight: 500;
+}
+
+.health-bar-inline .health-emoji {
+  font-size: 14px;
+}
+
+.health-bar-inline .health-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
 }

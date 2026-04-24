@@ -30,6 +30,24 @@ func fmtInt(n int) string {
 	return result
 }
 
+func fmtInt64(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	s := fmt.Sprintf("%d", n)
+	if n < 1000 {
+		return s
+	}
+	result := ""
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result += ","
+		}
+		result += string(c)
+	}
+	return result
+}
+
 templ StatsCards(s Stats) {
 	<div class="grid grid-4">
 		<div class="card">

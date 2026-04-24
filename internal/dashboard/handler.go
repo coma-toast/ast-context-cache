@@ -11,13 +11,17 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
+
+var serverStartTime = time.Now()
 
 func handleDashboardPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -25,7 +29,11 @@ func handleDashboardPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projects := loadProjects("")
-	components.Page(projects).Render(r.Context(), w)
+	h := components.HealthInfo{
+		Version:    "2.0.0",
+		StartTime: serverStartTime,
+	}
+	components.Page(projects, h).Render(r.Context(), w)
 }
 
 func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +54,39 @@ func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 			Scan(&s.TodayQueries, &s.TodayTokens)
 	}
 	components.StatsCards(s).Render(r.Context(), w)
+}
+
+func handleActivityPartial(w http.ResponseWriter, r *http.Request) {
+	activity := embedqueue.RecentActivity()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string][]string{"activity": activity})
+}
+
+func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+
+	state, lastUse := mcp.EmbedderState()
+
+	q, _, workers, _, throughput := embedqueue.Stats()
+
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	heapMB := float64(memStats.HeapAlloc) / (1024 * 1024)
+
+	cacheHit := cache.GlobalCache.HitRatio()
+
+	h := components.Health{
+		EmbedderState:    state,
+		EmbedderLast:    lastUse,
+		QueueWorkers:   workers,
+		QueueThroughput: throughput,
+		QueueQueued:   q,
+		CacheHitRatio: cacheHit,
+		HeapMB:         heapMB,
+		Uptime:        time.Since(serverStartTime),
+		Version:       "2.0.0",
+	}
+	components.HealthBar(h).Render(r.Context(), w)
 }
 
 func handleIndexHealthPartial(w http.ResponseWriter, r *http.Request) {
@@ -95,9 +136,12 @@ func handleIndexHealthPartial(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	q, activeEmb := embedqueue.Stats()
+	q, activeEmb, workers, completed, throughput := embedqueue.Stats()
 	h.EmbedQueued = q
 	h.EmbedActive = int(activeEmb)
+	h.EmbedWorkers = workers
+	h.EmbedComplete = completed
+	h.EmbedThroughput = throughput
 	h.PinnedCount = db.PinnedProjectCount()
 	components.IndexHealthCards(h).Render(r.Context(), w)
 }

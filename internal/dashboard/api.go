@@ -26,6 +26,10 @@ import (
 var staticAssets embed.FS
 var staticFS, _ = fs.Sub(staticAssets, "static")
 
+//go:embed react
+var distAssets embed.FS
+var distFS, _ = fs.Sub(distAssets, "react")
+
 func NewHandler(_ string) http.Handler {
 	mux := http.NewServeMux()
 
@@ -65,6 +69,12 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/partials/charts/imports", handleImportChartPartial)
 	mux.HandleFunc("/partials/settings", handleSettingsPartial)
 	mux.HandleFunc("/partials/activity-data", handleActivityDataPartial)
+	mux.HandleFunc("/partials/health", handleHealthPartial)
+
+	// Aliases for React dashboard
+	mux.HandleFunc("/dashboard/partials/health", handleHealthPartial)
+	mux.HandleFunc("/dashboard/partials/activity", handleActivityPartial)
+	mux.HandleFunc("/dashboard/events", handleSSE)
 
 	// SSE stream for real-time toasts
 	mux.HandleFunc("/events", handleSSE)
@@ -74,6 +84,9 @@ func NewHandler(_ string) http.Handler {
 
 	// Dashboard page (templ-rendered)
 	mux.HandleFunc("/", handleDashboardPage)
+
+	// React dashboard (Vite build)
+	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.FS(distFS))))
 
 	return mux
 }
@@ -870,6 +883,7 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 
 	vectorMemMB := search.Cache.MemoryMB()
 	queryCacheSize, queryCacheEntries := cache.GlobalCache.Stats()
+	cacheHitRatio := cache.GlobalCache.HitRatio()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"memory": map[string]float64{
@@ -881,9 +895,10 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 		"disk": map[string]int64{
 			"db_size_bytes": diskSize,
 		},
-		"cache": map[string]int{
+		"cache": map[string]interface{}{
 			"query_cache_size":    queryCacheSize,
 			"query_cache_entries": queryCacheEntries,
+			"hit_ratio":        cacheHitRatio,
 		},
 		"goroutines": runtime.NumGoroutine(),
 	})
