@@ -48,6 +48,7 @@ type ServerConfig struct {
 	ActiveTier  Tier // Which tier of tools to expose
 	CodeMode    bool // Whether execute_code is enabled (requires TierComplete)
 	SandboxSecs int  // Timeout for code sandbox execution
+	ToolConfigs map[string]*ToolConfig // Overrides for individual tools
 }
 
 // DefaultConfig returns config from environment variables with sensible defaults.
@@ -64,6 +65,7 @@ func DefaultConfig() ServerConfig {
 		ActiveTier:  tier,
 		CodeMode:    codeMode,
 		SandboxSecs: 30,
+		ToolConfigs: LoadToolConfigs(),
 	}
 }
 

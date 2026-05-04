@@ -1,6 +1,49 @@
 package mcp
 
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+type ToolConfig struct {
+	Enabled     bool   `json:"enabled"`
+	Tier        Tier   `json:"tier"`
+	Description string `json:"description"`
+}
+
+func getToolsConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".astcache", "tools.json")
+}
+
+func LoadToolConfigs() map[string]*ToolConfig {
+	path := getToolsConfigPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make(map[string]*ToolConfig)
+	}
+	var configs map[string]*ToolConfig
+	if err := json.Unmarshal(data, &configs); err != nil {
+		return make(map[string]*ToolConfig)
+	}
+	return configs
+}
+
+func SaveToolConfigs(configs map[string]*ToolConfig) error {
+	path := getToolsConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(configs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
 func GetTools() []Tool {
+
 	return []Tool{
 		{
 			Name:        "get_context_capsule",
@@ -291,9 +334,21 @@ func FilterTools(cfg ServerConfig) []Tool {
 	all := GetTools()
 	filtered := make([]Tool, 0, len(all))
 	for _, t := range all {
-		if !TierIncludes(cfg.ActiveTier, t.Tier) {
-			continue
+		// Check config override first
+		if conf, ok := cfg.ToolConfigs[t.Name]; ok {
+			if !conf.Enabled {
+				continue
+			}
+			if !TierIncludes(cfg.ActiveTier, conf.Tier) {
+				continue
+			}
+		} else {
+			// Default behavior
+			if !TierIncludes(cfg.ActiveTier, t.Tier) {
+				continue
+			}
 		}
+
 		if t.Name == "execute_code" && !cfg.CodeMode {
 			continue
 		}
@@ -306,9 +361,21 @@ func FilterTools(cfg ServerConfig) []Tool {
 func IsToolAllowed(toolName string, cfg ServerConfig) bool {
 	for _, t := range GetTools() {
 		if t.Name == toolName {
-			if !TierIncludes(cfg.ActiveTier, t.Tier) {
-				return false
+			// Check config override first
+			if conf, ok := cfg.ToolConfigs[toolName]; ok {
+				if !conf.Enabled {
+					return false
+				}
+				if !TierIncludes(cfg.ActiveTier, conf.Tier) {
+					return false
+				}
+			} else {
+				// Default behavior
+				if !TierIncludes(cfg.ActiveTier, t.Tier) {
+					return false
+				}
 			}
+
 			if t.Name == "execute_code" && !cfg.CodeMode {
 				return false
 			}
