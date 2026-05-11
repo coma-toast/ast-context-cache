@@ -1,5 +1,9 @@
 # Agent Code Research Guidelines
 
+## Running the MCP server
+
+Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that can supervise `ast-mcp` and merge MCP JSON, see [mcp-local](https://github.com/coma-toast/mcp-local) and that repository’s documentation.
+
 ## MCP Server Tools (Preferred)
 
 When working with codebases that have an MCP server available, **always prefer MCP tools** over direct grep/read/glob:

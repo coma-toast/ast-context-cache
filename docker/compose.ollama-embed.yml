@@ -1,0 +1,19 @@
+# Local Ollama for 768-dim text embeddings (matches ast-context-cache index, e.g. nomic-embed-text).
+# Usage:
+#   docker compose -f docker/compose.ollama-embed.yml up -d
+#   docker exec -it ollama-embed ollama pull nomic-embed-text
+# Then start ast-mcp with:
+#   EMBED_BACKEND=ollama OLLAMA_HOST=http://127.0.0.1:11434 make run
+
+services:
+  ollama-embed:
+    image: ollama/ollama
+    container_name: ollama-embed
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_embed_data:/root/.ollama
+    # Optional: set OLLAMA_MAX_LOADED_MODELS etc. in environment
+
+volumes:
+  ollama_embed_data:

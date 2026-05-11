@@ -64,7 +64,7 @@ templ HealthBar(h Health) {
 	<div class="health-bar">
 		<span class="health-item" title="Embedder state">
 			<span class="health-emoji">{ h.EmbedderEmoji() }</span>
-			<span class="health-value">{ h.EmbedderStatus() }</span>
+			<span class="health-summary">{ h.EmbedderStatus() }</span>
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item" title="Queue throughput">
@@ -83,11 +83,11 @@ templ HealthBar(h Health) {
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item" title="Uptime">
-			<span class="health-value mono">{ h.FormatUptime() }</span>
+			<span class="health-value">{ h.FormatUptime() }</span>
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item" title="Version">
-			<span class="health-value mono">v{ h.Version }</span>
+			<span class="health-value">v{ h.Version }</span>
 		</span>
 	</div>
 }

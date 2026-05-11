@@ -26,10 +26,6 @@ import (
 var staticAssets embed.FS
 var staticFS, _ = fs.Sub(staticAssets, "static")
 
-//go:embed react
-var distAssets embed.FS
-var distFS, _ = fs.Sub(distAssets, "react")
-
 func NewHandler(_ string) http.Handler {
 	mux := http.NewServeMux()
 
@@ -84,9 +80,6 @@ func NewHandler(_ string) http.Handler {
 
 	// Dashboard page (templ-rendered)
 	mux.HandleFunc("/", handleDashboardPage)
-
-	// React dashboard (Vite build)
-	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.FS(distFS))))
 
 	return mux
 }

@@ -6,7 +6,9 @@ This project includes an MCP server (`ast-context-cache`) that provides efficien
 When researching this codebase, **always prefer using the MCP tools** over direct grep/read:
 - Faster and more token-efficient than grep/read/glob
 - Supports semantic search, doc caching, and smart deduplication
-- Run `make run` to start the MCP server, then use the tools below
+- Run `make run` to start the MCP server, then use the tools below (or `ast-mcp start` if you installed the shell function with `make install`).
+
+**Optional launcher:** For a unified local MCP supervisor (start `ast-mcp`, merge MCP config, etc.), see the standalone [mcp-local](https://github.com/coma-toast/mcp-local) repository and its README. This repo does not include that binary.
 
 # Available Tools
 
