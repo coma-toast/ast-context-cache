@@ -26,10 +26,6 @@ import (
 var staticAssets embed.FS
 var staticFS, _ = fs.Sub(staticAssets, "static")
 
-//go:embed react
-var distAssets embed.FS
-var distFS, _ = fs.Sub(distAssets, "react")
-
 func NewHandler(_ string) http.Handler {
 	mux := http.NewServeMux()
 
@@ -59,6 +55,9 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/api/doc-sources", handleDocSources)
 
+	// WebSocket
+	mux.HandleFunc("/ws", handleWS)
+
 	// HTML partials (htmx targets)
 	mux.HandleFunc("/partials/stats", handleStatsPartial)
 	mux.HandleFunc("/partials/index-health", handleIndexHealthPartial)
@@ -84,9 +83,6 @@ func NewHandler(_ string) http.Handler {
 
 	// Dashboard page (templ-rendered)
 	mux.HandleFunc("/", handleDashboardPage)
-
-	// React dashboard (Vite build)
-	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.FS(distFS))))
 
 	return mux
 }
@@ -796,7 +792,6 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
@@ -816,11 +811,10 @@ func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "project_path": projectPath})
+	handleIndexHealthPartial(w, r)
 }
 
 func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
@@ -833,11 +827,10 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go watcher.StartWatcher(projectPath)
-	json.NewEncoder(w).Encode(map[string]string{"status": "started", "project_path": projectPath})
+	handleIndexHealthPartial(w, r)
 }
 
 func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
@@ -862,7 +855,7 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
+	handleIndexHealthPartial(w, r)
 }
 
 func handleSystemResources(w http.ResponseWriter, r *http.Request) {

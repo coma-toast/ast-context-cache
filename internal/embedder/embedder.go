@@ -171,11 +171,12 @@ func (e *Embedder) embedSingle(text string) ([]float32, error) {
 	result := make([]float32, Dimensions)
 	copy(result, raw)
 
-	normalize(result)
+	NormalizeL2(result)
 	return result, nil
 }
 
-func normalize(v []float32) {
+// NormalizeL2 in-place L2-normalizes a vector (used for ONNX and remote embedders).
+func NormalizeL2(v []float32) {
 	var sum float64
 	for _, x := range v {
 		sum += float64(x) * float64(x)

@@ -33,7 +33,7 @@ func handleDashboardPage(w http.ResponseWriter, r *http.Request) {
 		Version:    "2.0.0",
 		StartTime: serverStartTime,
 	}
-	components.Page(projects, h).Render(r.Context(), w)
+	components.PageTemplate(projects, h).Render(r.Context(), w)
 }
 
 func handleStatsPartial(w http.ResponseWriter, r *http.Request) {

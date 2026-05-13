@@ -17,15 +17,25 @@ type HealthInfo struct {
 	StartTime time.Time
 }
 
-templ Page(projects []Project, health HealthInfo) {
-	@Layout("AST Context Cache - Dashboard") {
-		<div hx-ext="sse" sse-connect="/events">
-			<div id="toast-container" class="toast-container" sse-swap="toast" hx-swap="afterbegin"></div>
-		</div>
+templ PageTemplate(projects []Project, health HealthInfo) {
+	<!DOCTYPE html>
+	<html lang="en">
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+		<title>AST Context Cache - Dashboard</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com"/>
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+		<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+		<link rel="stylesheet" href="/static/styles.css"/>
+		<script src="/static/htmx.min.js"></script>
+		<script defer src="/static/alpine.min.js"></script>
+	</head>
+	<body>
 		<div class="container" x-data="dashboard()">
 			<header>
 				<h1><span class="icon">&#x1F9E0;</span> AST Context Cache</h1>
-				<div id="health-bar" hx-get="/partials/health" hx-trigger="load, every 5s" hx-swap="innerHTML" class="health-bar-inline"></div>
+				<div id="health-bar"></div>
 				<div class="header-controls">
 					<span class="auto-badge">auto 30s</span>
 					<button class="refresh-btn" @click="refresh()" :class="{ 'spinning': refreshing }">
@@ -42,87 +52,80 @@ templ Page(projects []Project, health HealthInfo) {
 				</div>
 			</header>
 
-		<div id="stats-cards" hx-get="/partials/stats" hx-trigger="load, every 30s, refresh from:body" hx-swap="innerHTML">
-			<div class="grid grid-4">
-				<div class="card"><div class="card-title">Total Queries</div><div class="stat-value stat-accent">-</div></div>
-				<div class="card"><div class="card-title">Tokens Saved</div><div class="stat-value stat-green">-</div></div>
-				<div class="card"><div class="card-title">Avg Duration</div><div class="stat-value stat-orange">-</div></div>
-				<div class="card"><div class="card-title">Sessions</div><div class="stat-value stat-purple">-</div></div>
-			</div>
-		</div>
-
-		<div class="section-title">Index Health</div>
-		<div id="index-health" hx-get="/partials/index-health" hx-trigger="load, every 30s, refresh from:body" hx-swap="innerHTML">
-			<div class="grid grid-4">
-				<div class="card"><div class="card-title">Loading...</div><div class="stat-value stat-accent">-</div></div>
-			</div>
-		</div>
-
-		<div class="section-title" style="display:flex;align-items:center;gap:12px">
-			Activity
-			<div class="toggle-group" x-data>
-				<button class="toggle-btn" :class="{ 'active': $store.chart.interval === 'daily' }" @click="$store.chart.interval = 'daily'; $dispatch('chart-update')">Daily</button>
-				<button class="toggle-btn" :class="{ 'active': $store.chart.interval === 'hourly' }" @click="$store.chart.interval = 'hourly'; $dispatch('chart-update')">Hourly</button>
-			</div>
-			<div class="toggle-group" x-data>
-				<button class="toggle-btn" :class="{ 'active': $store.chart.metric === 'queries' }" @click="$store.chart.metric = 'queries'; $dispatch('chart-update')">Queries</button>
-				<button class="toggle-btn" :class="{ 'active': $store.chart.metric === 'tokens_saved' }" @click="$store.chart.metric = 'tokens_saved'; $dispatch('chart-update')">Tokens</button>
-			</div>
-		</div>
-		<div id="activity-chart" hx-get="/partials/activity-data" hx-trigger="load, every 30s, refresh from:body" hx-swap="none"
-			x-data="timeseriesChart()" x-init="init()" @htmx:after-request.window="handleData($event)">
-			<div class="card">
-				<div class="chart-container"><canvas x-ref="canvas"></canvas></div>
-			</div>
-		</div>
-
-		<div class="grid grid-2" style="margin-top:16px">
-			<div>
-				<div class="section-title">Symbol Breakdown</div>
-				<div id="symbol-chart" hx-get="/partials/charts/symbols" hx-trigger="load, every 30s, refresh from:body" hx-swap="innerHTML">
-					<div class="card"><div class="empty-state">Loading...</div></div>
+			<div class="section-title">Search index</div>
+			<div id="stats-cards">
+				<div class="grid grid-4">
+					<div class="card"><div class="card-title">Total Queries</div><div class="stat-value stat-accent">-</div></div>
+					<div class="card"><div class="card-title">Tokens Saved</div><div class="stat-value stat-green">-</div></div>
+					<div class="card"><div class="card-title">Avg Duration</div><div class="stat-value stat-orange">-</div></div>
+					<div class="card"><div class="card-title">Sessions</div><div class="stat-value stat-purple">-</div></div>
 				</div>
 			</div>
-			<div>
-				<div class="section-title">Language Breakdown</div>
-				<div id="lang-chart" hx-get="/partials/charts/languages" hx-trigger="load, every 30s, refresh from:body" hx-swap="innerHTML">
-					<div class="card"><div class="empty-state">Loading...</div></div>
+
+			<div class="section-title">Index Health</div>
+			<div id="index-health">
+				<div class="grid grid-4">
+					<div class="card"><div class="card-title">Loading...</div><div class="stat-value stat-accent">-</div></div>
 				</div>
 			</div>
-		</div>
 
-		<div class="grid grid-2" style="margin-top:16px">
-			<div>
-				<div class="section-title">Tool Usage</div>
-				<div id="tool-chart" hx-get="/partials/charts/tools" hx-trigger="load, every 30s, refresh from:body" hx-swap="innerHTML">
-					<div class="card"><div class="empty-state">Loading...</div></div>
+			<div class="section-title" style="display:flex;align-items:center;gap:12px">
+				Activity
+				<div class="toggle-group" x-data>
+					<button class="toggle-btn" :class="{ 'active': $store.chart.interval === 'daily' }" @click="$store.chart.interval = 'daily'; $dispatch('chart-update')">Daily</button>
+					<button class="toggle-btn" :class="{ 'active': $store.chart.interval === 'hourly' }" @click="$store.chart.interval = 'hourly'; $dispatch('chart-update')">Hourly</button>
+				</div>
+				<div class="toggle-group" x-data>
+					<button class="toggle-btn" :class="{ 'active': $store.chart.metric === 'queries' }" @click="$store.chart.metric = 'queries'; $dispatch('chart-update')">Queries</button>
+					<button class="toggle-btn" :class="{ 'active': $store.chart.metric === 'tokens_saved' }" @click="$store.chart.metric = 'tokens_saved'; $dispatch('chart-update')">Tokens</button>
 				</div>
 			</div>
-			<div>
-				<div class="section-title">Top Imports</div>
-				<div id="import-chart" hx-get="/partials/charts/imports" hx-trigger="load, every 30s, refresh from:body" hx-swap="innerHTML">
-					<div class="card"><div class="empty-state">Loading...</div></div>
+			<div id="activity-chart">
+				<div class="card">
+					<div class="chart-container"><canvas x-ref="canvas"></canvas></div>
 				</div>
 			</div>
-		</div>
 
-		<div class="section-title">Recent Queries</div>
-		<div id="recent-queries" hx-get="/partials/recent" hx-trigger="load, every 30s, refresh from:body" hx-swap="innerHTML">
-			<div class="card" style="padding:0"><table><tbody><tr><td class="empty-state">Loading...</td></tr></tbody></table></div>
-		</div>
+			<div class="grid grid-2" style="margin-top:16px">
+				<div>
+					<div class="section-title">Symbol Breakdown</div>
+					<div id="symbol-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
+				</div>
+				<div>
+					<div class="section-title">Language Breakdown</div>
+					<div id="lang-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
+				</div>
+			</div>
 
-			<!-- Settings Modal -->
+			<div class="grid grid-2" style="margin-top:16px">
+				<div>
+					<div class="section-title">Tool Usage</div>
+					<div id="tool-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
+				</div>
+				<div>
+					<div class="section-title">Top Imports</div>
+					<div id="import-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
+				</div>
+			</div>
+
+			<div class="section-title">Recent Queries</div>
+			<div id="recent-queries">
+				<div class="card" style="padding:0"><table><tbody><tr><td class="empty-state">Loading...</td></tr></tbody></table></div>
+			</div>
+
 			<div class="settings-modal" :class="{ 'open': settingsOpen }" @click.self="settingsOpen = false" x-cloak>
 				<div class="modal-content">
 					<div class="modal-header">
 						<h2>Settings</h2>
 						<button class="close-btn" @click="settingsOpen = false">&times;</button>
 					</div>
-					<div id="settings-content" hx-get="/partials/settings" hx-trigger="intersect once" hx-swap="innerHTML">
-						<div class="empty-state">Loading...</div>
-					</div>
+					<div id="settings-content"><div class="empty-state">Loading...</div></div>
 				</div>
 			</div>
 		</div>
-	}
+		<div id="toast-container" class="toast-container"></div>
+		<script src="/static/ws.js"></script>
+		<script src="/static/chart.js"></script>
+	</body>
+	</html>
 }
