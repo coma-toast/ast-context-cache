@@ -4,6 +4,18 @@
 
 Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that can supervise `ast-mcp` and merge MCP JSON, see [mcp-local](https://github.com/coma-toast/mcp-local) and that repository’s documentation.
 
+## Skills / Ready-Made Agent Instructions
+
+The `skills/` directory in this repo contains copy-paste-ready agent instruction blocks and editor configs:
+
+| Skill | Contents |
+|-------|----------|
+| `skills/agents/SKILL.md` | MCP config snippets for OpenCode, Cursor, Claude, VS Code, JetBrains + `AGENTS.md`/`CLAUDE.md` blocks to paste into your project |
+| `skills/install/SKILL.md` | Step-by-step install guide for agents helping users set up ast-context-cache |
+| `skills/usage/SKILL.md` | Tool selection guide, RAG retrieval examples, token optimization tips |
+
+To import a skill into your agent session, read `skills/<name>/SKILL.md` from the repo root and follow the instructions inside.
+
 ## MCP Server Tools (Preferred)
 
 When working with codebases that have an MCP server available, **always prefer MCP tools** over direct grep/read/glob:
@@ -12,6 +24,7 @@ When working with codebases that have an MCP server available, **always prefer M
 - **search_semantic** - Natural language search: "function that handles auth"
 - **get_file_context** - Get all symbols in a specific file (use instead of reading files)
 - **get_impact_graph** - See all files depending on a symbol before making changes
+- **retrieve** - RAG-style retrieval combining code + docs into formatted context
 - **search_docs** - Search cached library/framework documentation
 - **cache_summary** - Cache your own summaries for future queries
 
@@ -28,6 +41,7 @@ When working with codebases that have an MCP server available, **always prefer M
 | `get_impact_graph` | Blast radius of a symbol -- files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). Supports `markdown`, `xml`, `json` output. |
 
 #### Extended
 

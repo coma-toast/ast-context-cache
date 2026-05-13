@@ -10,6 +10,18 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 
 **Optional launcher:** For a unified local MCP supervisor (start `ast-mcp`, merge MCP config, etc.), see the standalone [mcp-local](https://github.com/coma-toast/mcp-local) repository and its README. This repo does not include that binary.
 
+## Skills (Ready-Made Instruction Blocks)
+
+The `skills/` directory contains copy-paste-ready agent instruction blocks:
+
+| Skill | Contents |
+|-------|----------|
+| `skills/agents/SKILL.md` | MCP config for OpenCode, Cursor, Claude, VS Code, JetBrains + full AGENTS.md/CLAUDE.md block |
+| `skills/install/SKILL.md` | Step-by-step install guide for agents helping users set up ast-context-cache |
+| `skills/usage/SKILL.md` | Tool selection guide, RAG retrieval examples, token optimization tips |
+
+To import a skill: read `skills/<name>/SKILL.md` and follow the instructions inside.
+
 # Available Tools
 
 ## Core

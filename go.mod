@@ -11,11 +11,12 @@ require (
 )
 
 require (
-	github.com/a-h/templ v0.3.1001 // indirect
+	github.com/a-h/templ v0.3.1020
 	github.com/dlclark/regexp2 v1.11.4 // indirect
-	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c // indirect
+	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
-	golang.org/x/sys v0.34.0 // indirect
+	github.com/gorilla/websocket v1.5.3
+	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.3.8 // indirect
 )

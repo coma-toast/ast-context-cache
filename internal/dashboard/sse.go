@@ -1,14 +1,11 @@
 package dashboard
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
@@ -17,7 +14,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, ok := w.(http.Flusher)
+	_, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
@@ -78,20 +75,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 					durText = fmt.Sprintf("%.0fms", durationMs)
 				}
 
-				toast := components.ToastData{
-					ToolName:   toolName,
-					Query:      query,
-					TimeStr:    timeStr,
-					SavedText:  savedText,
-					DurationMs: durText,
-					ToolColor:  components.GetToolColor(toolName),
-				}
-
-				var buf bytes.Buffer
-				components.Toast(toast).Render(context.Background(), &buf)
-
-				fmt.Fprintf(w, "event: toast\ndata: %s\n\n", buf.String())
-				flusher.Flush()
+				broadcastToastWS(toolName, query, timeStr, savedText, durText, "inherit")
 			}
 			rows.Close()
 		}
