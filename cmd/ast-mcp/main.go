@@ -74,11 +74,11 @@ func main() {
 	if modelDir == "" {
 		modelDir = filepath.Join(exeDir, "model")
 	}
-	if err := embedder.EnsureModel(modelDir); err != nil {
-		log.Printf("WARNING: Could not ensure embedder model files: %v", err)
+	emb, embedLoaded, err := embedder.NewForMain(modelDir)
+	if err != nil {
+		log.Fatalf("embedder: %v", err)
 	}
-	emb := embedder.NewLazy(modelDir)
-	log.Printf("Embedder configured (lazy-load from %s)", modelDir)
+	log.Printf("Embedder configured: backend=%s model=%s dims=%d", embedder.ActiveBackend, embedder.ActiveModel, embedder.ActiveDim)
 	mcp.SetEmbedder(emb)
 	ctxpkg.Emb = emb
 	embedqueue.Start(emb)
@@ -118,7 +118,14 @@ func main() {
 	mcpMux.HandleFunc("/mcp", mcp.NewHandler())
 	mcpMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "healthy", "service": "ast-context-cache", "version": "2.0.0", "embedder": emb.IsLoaded()})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "healthy",
+			"service":     "ast-context-cache",
+			"version":     "2.0.0",
+			"embedder":    embedLoaded(),
+			"embed_mode":  embedder.ActiveBackend,
+			"embed_model": embedder.ActiveModel,
+		})
 	})
 	mcpMux.HandleFunc("/embed", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -143,7 +150,14 @@ func main() {
 	})
 	mcpMux.HandleFunc("/embed/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "model": embedder.ModelName, "dimensions": embedder.Dimensions, "loaded": emb.IsLoaded()})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":     "ok",
+			"model":      embedder.ActiveModel,
+			"dimensions": embedder.ActiveDim,
+			"loaded":     embedLoaded(),
+			"backend":    embedder.ActiveBackend,
+			"runtime":    embedder.ActiveRuntime,
+		})
 	})
 	mcpMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {

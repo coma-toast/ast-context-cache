@@ -6,7 +6,7 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 
 - **Multi-language** -- Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML
 - **BM25-ranked full-text search** -- FTS5 virtual table with fallback LIKE scoring
-- **Semantic embeddings** -- Optional ONNX-based vector search for semantic similarity
+- **Semantic embeddings** -- Default ONNX (all-mpnet, 768-d) or pluggable Ollama / HTTP remote (must stay 768-d to match the index)
 - **Dependency graph** -- Import/call edges stored in an `edges` table; query blast radius with `get_impact_graph`
 - **Source code in results** -- Search results include the actual source, not just file pointers
 - **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
@@ -42,6 +42,22 @@ MCP: http://localhost:7821/mcp
 Dashboard: http://localhost:7830
 ```
 
+## Embedding backends
+
+The vector store is built for **768-dimensional** L2-normalized embeddings. The default is local **ONNX** (no extra services). Alternatives use environment variables and do not require downloading `model.onnx` for the main process (unless you switch back to `onnx`).
+
+| `EMBED_BACKEND` | When to use | Main env vars |
+|-----------------|------------|---------------|
+| `onnx` (default) | Full local path: `make setup` pulls HuggingFace ONNX + tokenizer | `MODEL_DIR` to override model directory |
+| `ollama` | Local or Docker [Ollama](https://ollama.com) with a **768-d** model; default `nomic-embed-text` | `OLLAMA_HOST` (e.g. `http://127.0.0.1:11434`), `OLLAMA_EMBED_MODEL` |
+| `http` | Any service that matches the built-in JSON: `POST` body `{"texts":["..."]}` → `{"embeddings":[[float32,...]]}` (same as `http://localhost:7821/embed` on the ONNX server) | `EMBED_HTTP_URL` (default `http://127.0.0.1:8080/embed`), `EMBED_HTTP_BEARER` |
+
+**Docker (Ollama only):** from the repo root, `docker compose -f docker/compose.ollama-embed.yml up -d`, then `docker exec -it ollama-embed ollama pull nomic-embed-text`, then run ast-mcp with `EMBED_BACKEND=ollama`.
+
+**Process environment:** Whatever starts `ast-mcp` (foreground terminal, the `ast-mcp` shell function from `make install`, systemd, or another supervisor) must have the embedding variables from the table above exported for non-default backends—for example set `EMBED_BACKEND=ollama` and `OLLAMA_HOST` in the same environment as the process that execs `./ast-mcp`.
+
+`GET /health` and `GET /embed/health` include `embed_mode`, `embed_model`, and `backend` so you can confirm which path is active.
+
 ## Shell Function (optional)
 
 Install a shell function for easy start/stop management:
@@ -64,6 +80,10 @@ ast-mcp dash       # open the dashboard in a browser
 ```
 
 To uninstall: `make uninstall`
+
+## Optional: mcp-local launcher
+
+This repository ships only the **`ast-mcp`** binary. If you prefer a separate Go CLI to start it, merge editor MCP JSON with other servers, or similar workflows, use **[mcp-local](https://github.com/coma-toast/mcp-local)** (its own repository). Clone and build from that project, then follow **its** README for `config.json`, environment variables, and commands such as `start`, `sync`, and `json`—details are not duplicated here so they stay in sync with that tool.
 
 ## Configure Your Editor
 
