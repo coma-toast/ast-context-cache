@@ -2,7 +2,13 @@
 
 ## Running the MCP server
 
-Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that can supervise `ast-mcp` and merge MCP JSON, see [mcp-local](https://github.com/coma-toast/mcp-local) and that repository’s documentation.
+Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that supervises `ast-mcp`, registers Cursor/OpenCode/Claude, and manages `~/.astcache/tools.json`, see [mcp-local](https://github.com/coma-toast/mcp-local) — agent workflows: [mcp-local/AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
+
+## Tool tiers (server policy)
+
+The host sets which MCP tools exist via **`AST_MCP_TIER`** (`core` | `extended` | `complete`) and optional **`~/.astcache/tools.json`** per-tool `enabled` / `tier` overrides (`AST_MCP_TOOLS_CONFIG` for path). **`AST_MCP_CODE_MODE=false`** disables `execute_code`. Config is read at **ast-mcp startup** only.
+
+Agents see only `tools/list` results—they cannot negotiate tier over MCP. If `index_files` or `execute_code` is missing, ask the user to raise tier or adjust `tools.json` and restart. Full tables and examples: [README.md](README.md#tool-tiers-and-per-tool-overrides), [skills/tools.json.example](skills/tools.json.example).
 
 ## Skills / Ready-Made Agent Instructions
 

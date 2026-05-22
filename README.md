@@ -6,13 +6,13 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 
 - **Multi-language** -- Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML
 - **BM25-ranked full-text search** -- FTS5 virtual table with fallback LIKE scoring
-- **Semantic embeddings** -- Default ONNX (all-mpnet, 768-d) or pluggable Ollama / HTTP remote (must stay 768-d to match the index)
+- **Semantic embeddings** -- Default ONNX (all-mpnet, 768-d) or pluggable Ollama / HTTP / OpenAI-compatible remote (must stay 768-d to match the index)
 - **Dependency graph** -- Import/call edges stored in an `edges` table; query blast radius with `get_impact_graph`
 - **Source code in results** -- Search results include the actual source, not just file pointers
 - **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
 - **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
 - **Dashboard** -- Web UI on port 7830 with stats, charts, and recent query history
-- **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency
+- **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency; **synchronous=NORMAL** and a **32 MiB page cache** reduce fsync pressure; **PASSIVE WAL checkpoints** every 10 minutes (less write amplification than aggressive truncate). Per-file indexing uses **one transaction** per file; MCP **query** and **session** dedup rows are **batched** before insert.
 
 ## Quick Start
 
@@ -51,10 +51,15 @@ The vector store is built for **768-dimensional** L2-normalized embeddings. The 
 | `onnx` (default) | Full local path: `make setup` pulls HuggingFace ONNX + tokenizer | `MODEL_DIR` to override model directory |
 | `ollama` | Local or Docker [Ollama](https://ollama.com) with a **768-d** model; default `nomic-embed-text` | `OLLAMA_HOST` (e.g. `http://127.0.0.1:11434`), `OLLAMA_EMBED_MODEL` |
 | `http` | Any service that matches the built-in JSON: `POST` body `{"texts":["..."]}` → `{"embeddings":[[float32,...]]}` (same as `http://localhost:7821/embed` on the ONNX server) | `EMBED_HTTP_URL` (default `http://127.0.0.1:8080/embed`), `EMBED_HTTP_BEARER` |
+| `openai` (alias: `litellm`) | [LiteLLM](https://docs.litellm.ai/docs/), OpenAI, or any **OpenAI-compatible** `POST /v1/embeddings` gateway; vectors must be **768-d** (native model or `dimensions` in JSON) | `EMBED_OPENAI_BASE_URL` (default `https://api.openai.com/v1`), **`EMBED_OPENAI_MODEL`** (required), `EMBED_OPENAI_API_KEY`, `EMBED_OPENAI_DIMENSIONS` (optional: unset sends `768` for v3 shortening; `0` omits the field) |
+
+**OpenAI / LiteLLM:** Point `EMBED_OPENAI_BASE_URL` at your gateway root including `/v1` (e.g. `https://your-litellm/v1`). If you change embedding model or dimensionality, clear or re-index so stored vectors stay consistent with the 768-d index.
 
 **Docker (Ollama only):** from the repo root, `docker compose -f docker/compose.ollama-embed.yml up -d`, then `docker exec -it ollama-embed ollama pull nomic-embed-text`, then run ast-mcp with `EMBED_BACKEND=ollama`.
 
-**Process environment:** Whatever starts `ast-mcp` (foreground terminal, the `ast-mcp` shell function from `make install`, systemd, or another supervisor) must have the embedding variables from the table above exported for non-default backends—for example set `EMBED_BACKEND=ollama` and `OLLAMA_HOST` in the same environment as the process that execs `./ast-mcp`.
+**Process environment:** Whatever starts `ast-mcp` (foreground terminal, the `ast-mcp` shell function from `make install`, systemd, or another supervisor) must have the embedding variables from the table above exported for non-default backends—for example set `EMBED_BACKEND=ollama` and `OLLAMA_HOST`, or `EMBED_BACKEND=openai`, `EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_API_KEY`, and `EMBED_OPENAI_MODEL`, in the same environment as the process that execs `./ast-mcp`.
+
+**Dashboard (easier):** On **Settings** (port 7830), use **Embedding backend** to save the same keys into local SQLite (`~/.astcache/usage.db`). **Non-empty environment variables always override** the saved values. **Restart ast-mcp** after changing embedding settings so `NewForMain` runs again.
 
 `GET /health` and `GET /embed/health` include `embed_mode`, `embed_model`, and `backend` so you can confirm which path is active.
 
@@ -83,7 +88,58 @@ To uninstall: `make uninstall`
 
 ## Optional: mcp-local launcher
 
-This repository ships only the **`ast-mcp`** binary. If you prefer a separate Go CLI to start it, merge editor MCP JSON with other servers, or similar workflows, use **[mcp-local](https://github.com/coma-toast/mcp-local)** (its own repository). Clone and build from that project, then follow **its** README for `config.json`, environment variables, and commands such as `start`, `sync`, and `json`—details are not duplicated here so they stay in sync with that tool.
+This repository ships only the **`ast-mcp`** binary. If you prefer a separate Go CLI to start it, merge editor MCP JSON with other servers, and manage tool tiers, use **[mcp-local](https://github.com/coma-toast/mcp-local)** (its own repository). Clone and build from that project, then follow **[AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md)** (agents) and **README** for `~/.mcp-local/config.yaml`, `tools sync` / `tools apply`, and `json tools`—details are not duplicated here so they stay in sync with that tool.
+
+To manage per-tool enable/tier overrides from a launcher, use mcp-local (or any tool) to write `~/.astcache/tools.json` via the same schema as below, then **restart ast-mcp**.
+
+## Tool tiers and per-tool overrides
+
+The MCP server can expose a **subset** of tools. Tiers are cumulative: `complete` includes `extended` and `core`; `extended` includes `core`.
+
+| Tier | Typical tools |
+|------|----------------|
+| **core** | Search, status, maps, docs, `retrieve` (read-only) |
+| **extended** | core + `index_files`, `cache_summary`, bundles, doc sources, analysis |
+| **complete** | extended + `execute_code` (requires code mode) |
+
+**Global controls (environment):**
+
+| Variable | Values | Default |
+|----------|--------|---------|
+| `AST_MCP_TIER` | `core`, `extended`, `complete` | `complete` |
+| `AST_MCP_CODE_MODE` | `false` / `0` disables `execute_code` | enabled |
+| `AST_MCP_TOOLS_CONFIG` | Path to JSON overrides file | `~/.astcache/tools.json` |
+
+Example — read-only agent profile:
+
+```bash
+AST_MCP_TIER=core make run
+```
+
+Example — indexing without sandbox execution:
+
+```bash
+AST_MCP_TIER=extended AST_MCP_CODE_MODE=false make run
+```
+
+**Per-tool overrides** (`~/.astcache/tools.json`, or path from `AST_MCP_TOOLS_CONFIG`):
+
+```json
+{
+  "execute_code": { "enabled": false, "tier": "complete" },
+  "index_files": { "enabled": true, "tier": "core", "description": "Indexing allowed in core profile" }
+}
+```
+
+- **`enabled`**: `false` removes the tool from `tools/list` and rejects calls.
+- **`tier`**: Effective minimum tier for that tool (can promote an extended tool to `core`, or keep defaults when omitted).
+- **`description`**: Optional replacement text in `tools/list` when set.
+
+Overrides are loaded **at process start**; restart `ast-mcp` after editing the file. See [`skills/tools.json.example`](skills/tools.json.example).
+
+**With [mcp-local](https://github.com/coma-toast/mcp-local):** `mcp-local tools sync ast-context-cache` (server must be running) → `mcp-local tools` TUI to enable/disable tools and set tiers → `mcp-local restart ast-context-cache` (writes `tools.json`, sets `AST_MCP_TIER` / `AST_MCP_CODE_MODE` / `AST_MCP_TOOLS_CONFIG`). Or `mcp-local tools apply ast-context-cache` then restart. In Go, `mcp.SaveToolConfigs` writes the same file schema.
+
+Agents **cannot** request a tier over MCP; they only see tools the server exposes. If a call fails, the response explains disabled vs tier vs code mode.
 
 ## Configure Your Editor
 
@@ -95,7 +151,11 @@ Add to your MCP settings (`.cursor/mcp.json`):
 {
   "mcpServers": {
     "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
+      "url": "http://localhost:7821/mcp",
+      "env": {
+        "AST_MCP_TIER": "extended",
+        "AST_MCP_CODE_MODE": "false"
+      }
     }
   }
 }
