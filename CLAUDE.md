@@ -10,28 +10,25 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 
 **Optional launcher:** For a unified local MCP supervisor (start `ast-mcp`, merge MCP config, etc.), see the standalone [mcp-local](https://github.com/coma-toast/mcp-local) repository and its README. This repo does not include that binary.
 
+**Tool tiers:** The host sets `AST_MCP_TIER` (`core` / `extended` / `complete`) and optional `~/.astcache/tools.json` per-tool overrides. Agents only see tools from `tools/list`; they cannot request a tier. See [README — Tool tiers](README.md#tool-tiers-and-per-tool-overrides).
+
 ## Skills (Ready-Made Instruction Blocks)
 
-The `skills/` directory contains copy-paste-ready agent instruction blocks:
+**Cursor:** discoverable project skills in [`.cursor/skills/`](.cursor/skills/) (`ast-usage`, `ast-install`, `ast-rebuild`, `ast-operator`). See [skills/README.md](skills/README.md).
 
-| Skill | Contents |
-|-------|----------|
-| `skills/agents/SKILL.md` | MCP config for OpenCode, Cursor, Claude, VS Code, JetBrains + full AGENTS.md/CLAUDE.md block |
-| `skills/install/SKILL.md` | Step-by-step install guide for agents helping users set up ast-context-cache |
-| `skills/usage/SKILL.md` | Tool selection guide, RAG retrieval examples, token optimization tips |
-
-To import a skill: read `skills/<name>/SKILL.md` and follow the instructions inside.
+**Other editors:** portable copy-paste in `skills/` — [agents](skills/agents/SKILL.md), [install](skills/install/SKILL.md), [usage](skills/usage/SKILL.md), [operator](skills/operator/SKILL.md).
 
 # Available Tools
 
 ## Core
 - **get_context_capsule** - BM25+vector hybrid search with modes: full, skeleton, summary, auto
-- **search_semantic** - Natural language search: "function that handles auth"
+- **search_semantic** - Natural language search; optional `doc_type` filter (`code`, `doc`, etc.)
 - **get_file_context** - All symbols in a file with mode-aware output (use instead of reading files)
 - **get_project_map** - Project structure overview (~200 tokens at depth=2)
 - **get_impact_graph** - Blast radius of a symbol before making changes
 - **index_status** - Check if a project is indexed
 - **search_docs** - Search cached library/framework documentation
+- **list_doc_sources** - List tracked documentation sources (core, read-only)
 - **retrieve** - RAG-style retrieval: hybrid search + reranking + context assembly (code + docs)
 
 ## Extended
@@ -40,7 +37,7 @@ To import a skill: read `skills/<name>/SKILL.md` and follow the instructions ins
 - **analyze_dead_code** - Find unused functions, classes, imports
 - **analyze_complexity** - Find hard-to-maintain code by cyclomatic complexity
 - **export_bundle** / **import_bundle** - Portable code bundles without re-indexing
-- **add_doc_source** / **remove_doc_source** / **list_doc_sources** / **update_doc_source** - Track and cache external documentation
+- **add_doc_source** / **remove_doc_source** / **update_doc_source** - Track and cache external documentation
 
 ## Complete
 - **execute_code** - Run JS in a sandbox against search results; only output enters context
@@ -111,7 +108,8 @@ To import a skill: read `skills/<name>/SKILL.md` and follow the instructions ins
 ### Optional search filters (get_context_capsule, search_semantic, retrieve)
 
 - **path_prefix** — limit to symbols under a project-relative path (e.g. `internal/mcp`) or absolute prefix.
-- **language** — `go`, `python`, `typescript`, `javascript`, `rust`, etc. (file extension filter).
+- **language** — `go`, `python`, `typescript`, `javascript`, `rust`, `yaml`, etc. (file extension filter).
+- **doc_type** — on `search_semantic` only: e.g. `code`, `doc`.
 - **kinds** / **kind** — comma-separated or single symbol kind (`function`, `method`, …).
 
 ### Pipeline observability

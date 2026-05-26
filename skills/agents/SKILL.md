@@ -6,6 +6,17 @@ Copy-paste-ready MCP config snippets and agent instruction blocks for integratin
 ast-context-cache into your editor and projects. Pick the section for your editor,
 then copy the `AGENTS.md` / `CLAUDE.md` block into your project root.
 
+### Cursor project skills (this repo)
+
+When working **in this repository**, prefer discoverable skills under [`.cursor/skills/`](../.cursor/skills/):
+
+- `ast-context-cache-usage` — MCP search and RAG
+- `ast-context-cache-install` — setup and tiers
+- `ast-context-cache-rebuild` — rebuild/restart after server changes
+- `ast-context-cache-operator` — embeddings and dashboard
+
+Portable sources live in `skills/`; sync notes in [skills/README.md](../README.md).
+
 ---
 
 ## Editor MCP Configuration
@@ -33,6 +44,8 @@ File: `.cursor/mcp.json`
   }
 }
 ```
+
+Project skills: `.cursor/skills/ast-{usage,install,rebuild,operator}/` (see [skills/README.md](../README.md)).
 
 ### VS Code (GitHub Copilot)
 File: `.vscode/mcp.json`
@@ -73,6 +86,18 @@ File: `.idea/mcp.json`
 
 ---
 
+## Tool tiers (host configuration)
+
+The MCP server does not let agents pick a tier. The **operator** sets:
+
+- `AST_MCP_TIER=core|extended|complete` on the ast-mcp process
+- `AST_MCP_CODE_MODE=false` to hide `execute_code`
+- Optional `~/.astcache/tools.json` (or `AST_MCP_TOOLS_CONFIG`) for per-tool `enabled` / `tier` / `description`
+
+Restart ast-mcp after changing `tools.json`. Example file: [`skills/tools.json.example`](../tools.json.example). See [README tool tiers](../../README.md#tool-tiers-and-per-tool-overrides).
+
+---
+
 ## Agent Instructions Block (paste into AGENTS.md or CLAUDE.md)
 
 ```markdown
@@ -98,12 +123,13 @@ MCP server: http://localhost:7821/mcp
 | Tool | Description |
 |------|-------------|
 | `get_context_capsule` | BM25+vector hybrid search. Modes: `full`, `skeleton`, `summary`, `auto`. |
-| `search_semantic` | Semantic search by meaning using vector embeddings. |
+| `search_semantic` | Semantic search by meaning using vector embeddings. Optional `doc_type`. |
 | `get_file_context` | All symbols in a file. Use instead of reading files directly. |
 | `get_project_map` | Project structure overview (depth 1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Blast radius of a symbol — files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `list_doc_sources` | List all tracked documentation sources (read-only). |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). |
 
 ## Extended Tools
@@ -118,9 +144,13 @@ MCP server: http://localhost:7821/mcp
 | `import_bundle` | Import a previously exported bundle without re-indexing. |
 | `add_doc_source` | Add a documentation URL to track and cache (markdown, html, json). |
 | `remove_doc_source` | Remove a tracked documentation source. |
-| `list_doc_sources` | List all tracked documentation sources. |
 | `update_doc_source` | Manually refresh a documentation source. |
-| `execute_code` | Run JavaScript in a sandbox against search results. Only output enters context. |
+
+## Complete Tools
+
+| Tool | Description |
+|------|-------------|
+| `execute_code` | Run JavaScript in a sandbox against search results. Only output enters context. Requires `AST_MCP_CODE_MODE`. |
 
 ## Mode Selection
 
@@ -150,9 +180,10 @@ For `get_context_capsule`, `search_semantic`, and `retrieve`:
 | Parameter | Purpose |
 |-----------|---------|
 | `path_prefix` | Only symbols under this path (e.g. `internal/mcp`) |
-| `language` | Filter by language: `go`, `python`, `typescript`, `javascript`, etc. |
+| `language` | Filter by language: `go`, `python`, `typescript`, `javascript`, `yaml`, etc. |
 | `kinds` | Comma-separated symbol kinds (e.g. `function,method`) |
 | `kind` | Single kind filter |
+| `doc_type` | On `search_semantic` only: e.g. `code`, `doc` |
 
 ## Documentation Tools
 

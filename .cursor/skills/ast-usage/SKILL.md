@@ -1,4 +1,9 @@
-# ast-context-cache Usage Skill
+---
+name: ast-context-cache-usage
+description: Use when searching, exploring, or analyzing code with ast-context-cache MCP tools (get_context_capsule, retrieve, search_semantic, modes, filters, bundles).
+---
+
+# ast-context-cache Usage
 
 ## When to Use
 
@@ -45,12 +50,12 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | RAG retrieval (code+docs) | `retrieve` | Best single-call context |
 | Search documentation | `search_docs` | FTS over cached docs |
 | Add doc source | `add_doc_source` | markdown, html, json |
-| List doc sources | `list_doc_sources` | - |
+| List doc sources | `list_doc_sources` | core tier |
 | Refresh a doc source | `update_doc_source` | Pass doc id |
 | Remove a doc source | `remove_doc_source` | Pass doc id |
 | Share code index | `export_bundle` | Creates .astbundle |
 | Load shared index | `import_bundle` | No re-indexing needed |
-| Process search results | `execute_code` | JS sandbox, DATA var |
+| Process search results | `execute_code` | complete tier; JS sandbox |
 
 ## Modes
 
@@ -70,44 +75,19 @@ The `retrieve` tool does full RAG-style retrieval in one call:
 - Returns formatted output (markdown/xml/json)
 
 ```
-# Basic RAG retrieval
 retrieve(query="how does authentication work", project_path="/path/to/project")
-
-# With custom budget and format
-retrieve(query="database connection pooling", project_path="/path/to/project", token_budget=2000, format="xml")
-
-# Code only (skip docs)
-retrieve(query="error handling patterns", project_path="/path/to/project", include_docs=false)
-
-# Include full source code in results
-retrieve(query="middleware implementation", project_path="/path/to/project", include_source=true)
-
-# Narrow by path and language
 retrieve(query="auth handler", project_path="/path/to/project", path_prefix="internal/auth", language="go")
 ```
 
 ## Documentation Tools
 
-Track and search external documentation (like Context7):
-
 ```
-# Add a documentation source
 add_doc_source(name="React", type="markdown", url="https://...", version="18")
-
-# Search cached documentation
 search_docs(query="useState hook", limit=5)
-
-# List all tracked doc sources
 list_doc_sources()
-
-# Manually update a doc source
 update_doc_source(id=1)
-
-# Remove a doc source
 remove_doc_source(id=1)
 ```
-
-Doc sources auto-update every hour. Supports `markdown`, `html`, and `json` types.
 
 ## Optional Search Filters
 
@@ -115,54 +95,28 @@ For `get_context_capsule`, `search_semantic`, and `retrieve`:
 
 | Parameter | Purpose |
 |-----------|---------|
-| `path_prefix` | Only symbols under this path (project-relative, e.g. `internal/mcp`) |
-| `language` | Filter by language: `go`, `python`, `typescript`, `javascript`, etc. |
-| `kinds` | Comma-separated symbol kinds (e.g. `function,method`) |
+| `path_prefix` | Only symbols under this path (project-relative) |
+| `language` | `go`, `python`, `typescript`, `javascript`, `yaml`, etc. |
+| `kinds` | Comma-separated symbol kinds |
 | `kind` | Single kind filter |
 | `doc_type` | On `search_semantic` only: e.g. `code`, `doc` |
 
 ## Supported languages
 
-Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML (file-extension filter via `language`).
-
-## Code Execution Against Search Results
-
-`execute_code` runs JavaScript in a sandbox. Search results are injected as `DATA`.
-Use this to process, filter, or transform results before they enter your context window.
-
-```
-# Find all functions with 'handler' in their name from a search
-execute_code(
-  data=<search results JSON>,
-  code="return DATA.filter(r => r.name && r.name.includes('handler')).map(r => r.name)"
-)
-```
-
-## Bundle Sharing
-
-Export and import indexed code without re-indexing:
-
-```
-# Export
-export_bundle(project_path="/path/to/project", output_path="/tmp/myproject.astbundle")
-
-# Import on another machine
-import_bundle(bundle_path="/tmp/myproject.astbundle")
-```
+Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML.
 
 ## Pipeline Observability
 
-- **`get_context_capsule`** response includes a `pipeline` object:
-  - `bm25_candidates`, `vector_candidates`, `hybrid_after_fuse`
-- **`retrieve`** response `stats` includes:
-  - Hybrid stage counts: `after_dedup`, `chunks_in_budget`, `tokens_est_all_chunks`
-  - Timings: `code_retrieve_ms`, `docs_retrieve_ms`, `dedup_budget_ms`, `search_time_ms`
+- **get_context_capsule** — `pipeline`: `bm25_candidates`, `vector_candidates`, `hybrid_after_fuse`
+- **retrieve** — `stats`: hybrid counts, `after_dedup`, timings (`code_retrieve_ms`, etc.)
 
 ## Token Optimization Tips
 
-1. Always use `mode="auto"` for most searches (~80% savings)
-2. Use `session_id` to avoid re-sending symbols already seen in this session
-3. Set `token_budget` to control response size (default 4000)
-4. Cache summaries after understanding code — enables cheap `summary` mode later
-5. Use `get_project_map` first for new projects (~200 tokens for full overview)
-6. Use `path_prefix` + `language` filters to narrow searches before ranking
+1. Use `mode="auto"` for most searches
+2. Pass `session_id` on `get_context_capsule` / `search_semantic`
+3. Set `token_budget` (default 4000)
+4. `cache_summary` before `mode=summary`
+5. `get_project_map` first on new projects
+6. Narrow with `path_prefix` + `language` before ranking
+
+Canonical copy: [skills/usage/SKILL.md](../../skills/usage/SKILL.md)
