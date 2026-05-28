@@ -45,7 +45,7 @@ func ToolPerformancePanel(stats []ToolStat) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"grid grid-2 tool-perf-charts\"><div><div class=\"chart-subtitle\">Call volume</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"grid grid-2 tool-perf-charts\"><div><div class=\"chart-subtitle\">Call volume (30d)</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -53,7 +53,7 @@ func ToolPerformancePanel(stats []ToolStat) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><div><div class=\"chart-subtitle\">CPU time (total)</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><div><div class=\"chart-subtitle\">CPU time (30d)</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -61,7 +61,7 @@ func ToolPerformancePanel(stats []ToolStat) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div class=\"grid grid-2 tool-perf-charts\"><div><div class=\"chart-subtitle\">Avg latency</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div class=\"grid grid-2 tool-perf-charts\"><div><div class=\"chart-subtitle\">Avg latency (30d)</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -69,7 +69,7 @@ func ToolPerformancePanel(stats []ToolStat) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div><div><div class=\"chart-subtitle\">Tokens saved</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div><div><div class=\"chart-subtitle\">Tokens saved (30d)</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -107,7 +107,7 @@ func ToolStatsTable(stats []ToolStat) templ.Component {
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div class=\"card tool-stats-table-wrap\" style=\"padding:0;overflow-x:auto;margin-bottom:16px\"><table class=\"tool-stats-table\"><thead><tr><th>Tool</th><th>Calls</th><th>Avg ms</th><th>CPU total</th><th>CPU avg</th><th>Tokens saved</th><th>Dedup saved</th><th>vs files</th><th>Rate</th><th>Avg out tok</th><th>Avg chars</th><th>Errors</th></tr></thead> <tbody>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div class=\"card tool-stats-table-wrap\" style=\"padding:0;overflow-x:auto;margin-bottom:16px\"><table class=\"tool-stats-table\"><thead><tr><th>Tool</th><th>Calls</th><th>Avg ms</th><th>CPU 30d</th><th>CPU avg</th><th>Tokens saved</th><th>Dedup saved</th><th>vs files</th><th>Rate</th><th>Avg out tok</th><th>Avg chars</th><th>Errors</th></tr></thead> <tbody>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

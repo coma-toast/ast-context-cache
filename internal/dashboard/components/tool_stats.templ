@@ -10,21 +10,21 @@ templ ToolPerformancePanel(stats []ToolStat) {
 			@ToolStatsTable(stats)
 			<div class="grid grid-2 tool-perf-charts">
 				<div>
-					<div class="chart-subtitle">Call volume</div>
+					<div class="chart-subtitle">Call volume (30d)</div>
 					@BarChart(toolStatBars(stats, "calls"), 0)
 				</div>
 				<div>
-					<div class="chart-subtitle">CPU time (total)</div>
+					<div class="chart-subtitle">CPU time (30d)</div>
 					@FloatBarChart(toolStatFloatBars(stats, "cpu"), 2, "cpu")
 				</div>
 			</div>
 			<div class="grid grid-2 tool-perf-charts">
 				<div>
-					<div class="chart-subtitle">Avg latency</div>
+					<div class="chart-subtitle">Avg latency (30d)</div>
 					@FloatBarChart(toolStatFloatBars(stats, "latency"), 4, "ms")
 				</div>
 				<div>
-					<div class="chart-subtitle">Tokens saved</div>
+					<div class="chart-subtitle">Tokens saved (30d)</div>
 					@BarChart(toolStatBars(stats, "tokens"), 6)
 				</div>
 			</div>
@@ -40,7 +40,7 @@ templ ToolStatsTable(stats []ToolStat) {
 					<th>Tool</th>
 					<th>Calls</th>
 					<th>Avg ms</th>
-					<th>CPU total</th>
+					<th>CPU 30d</th>
 					<th>CPU avg</th>
 					<th>Tokens saved</th>
 					<th>Dedup saved</th>

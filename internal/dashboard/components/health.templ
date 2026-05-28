@@ -14,6 +14,7 @@ type Health struct {
 	CacheHitRatio   float64
 	VectorMemMB   float64
 	HeapMB       float64
+	CPUPercent   float64
 	TotalAllocMB  float64
 	Uptime      time.Duration
 	Version     string
@@ -88,11 +89,6 @@ templ HealthBar(h Health) {
 				<span class="health-mini-fill" style={ fmt.Sprintf("width:%d%%", h.CachePercent()) }></span>
 			</span>
 			<span class="health-value">{ fmt.Sprintf("%d%%", h.CachePercent()) }</span>
-		</span>
-		<span class="health-divider"></span>
-		<span class="health-item" title="Memory usage">
-			<span class="health-label">Heap:</span>
-			<span class="health-value">{ fmt.Sprintf("%.0fMB", h.HeapMB) }</span>
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item" title="Uptime">

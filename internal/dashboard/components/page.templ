@@ -48,17 +48,17 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 				</div>
 			</header>
 
-			<div class="section-title">Query activity <span class="section-hint">MCP tool calls and token savings</span></div>
+			<div class="section-title">Query activity <span class="section-hint">Rolling 30 days · MCP tool calls and token savings</span></div>
 			<div id="stats-cards">
 				<div class="grid grid-4">
-					<div class="card"><div class="card-title">Total Queries</div><div class="stat-value stat-accent">-</div></div>
-					<div class="card"><div class="card-title">Tokens Saved</div><div class="stat-value stat-green">-</div></div>
-					<div class="card"><div class="card-title">Avg Duration</div><div class="stat-value stat-orange">-</div></div>
-					<div class="card"><div class="card-title">Sessions</div><div class="stat-value stat-purple">-</div></div>
+					<div class="card"><div class="card-title">Queries (30d)</div><div class="stat-value stat-accent">-</div></div>
+					<div class="card"><div class="card-title">Tokens saved (30d)</div><div class="stat-value stat-green">-</div></div>
+					<div class="card"><div class="card-title">Avg duration (30d)</div><div class="stat-value stat-orange">-</div></div>
+					<div class="card"><div class="card-title">Sessions (30d)</div><div class="stat-value stat-purple">-</div></div>
 				</div>
 			</div>
 
-			<div class="section-title">Index &amp; runtime <span class="section-hint">Corpus size, embed queue, watchers</span></div>
+			<div class="section-title">Index &amp; runtime <span class="section-hint">Utilization, embeddings, and corpus</span></div>
 			<div id="index-health">
 				<div class="grid grid-4">
 					<div class="card"><div class="card-title">Loading...</div><div class="stat-value stat-accent">-</div></div>
@@ -93,7 +93,7 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 				</div>
 			</div>
 
-			<div class="section-title">Tool performance <span class="section-hint">Calls, CPU, latency, tokens saved per MCP tool</span></div>
+			<div class="section-title">Tool performance <span class="section-hint">Rolling 30 days · Calls, CPU, latency, tokens saved per MCP tool</span></div>
 			<div id="tool-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
 
 			<div class="section-title" style="margin-top:16px">Top Imports</div>

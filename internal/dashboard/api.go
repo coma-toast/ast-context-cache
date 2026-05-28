@@ -20,6 +20,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
@@ -92,23 +93,24 @@ type stats struct {
 	AvgDurationMs    float64 `json:"avg_duration_ms"`
 	TodayQueries     int     `json:"today_queries"`
 	TodayTokensSaved int     `json:"today_tokens_saved"`
+	WindowDays       int     `json:"window_days"`
 }
 
 func handleStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	var s stats
+	s.WindowDays = StatsWindowDays
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	// Tokens saved only from query tools (exclude file_watcher; indexing tracks baselines, savings are at query time)
 	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
+	statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + " FROM queries WHERE "
+	where, args := statsQueriesWhere(pid)
+	db.DB.QueryRow(statsSel+where, args...).
+		Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
 	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+" FROM queries WHERE project_path = ?", pid).
-			Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
 		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ? AND project_path = ?", todayStart, tomorrowStart, pid).
 			Scan(&s.TodayQueries, &s.TodayTokensSaved)
 	} else {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+" FROM queries").
-			Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
 		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
 			Scan(&s.TodayQueries, &s.TodayTokensSaved)
 	}
@@ -891,6 +893,7 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 			"sys_mb":          sysMB,
 			"vector_cache_mb": vectorMemMB,
 		},
+		"cpu_percent": sys.ProcessCPUPercent(),
 		"disk": map[string]int64{
 			"db_size_bytes": diskSize,
 		},

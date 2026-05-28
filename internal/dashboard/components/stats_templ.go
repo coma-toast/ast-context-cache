@@ -84,19 +84,19 @@ func StatsCards(s Stats) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Total Queries", fmtInt(s.TotalQueries), fmt.Sprintf("Today: %s", fmtInt(s.TodayQueries)), s.todayQueryPct(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Queries (30d)", fmtInt(s.TotalQueries), fmt.Sprintf("Today: %s", fmtInt(s.TodayQueries)), s.todayQueryPct(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Tokens Saved", fmtInt(s.TokensSaved), fmt.Sprintf("Today: %s · dedup: %s · vs files: %s", fmtInt(s.TodayTokens), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Tokens saved (30d)", fmtInt(s.TokensSaved), fmt.Sprintf("Today: %s · dedup: %s · vs files: %s", fmtInt(s.TodayTokens), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Avg Duration", fmt.Sprintf("%.1f", s.AvgDurationMs), "milliseconds", durationPct(s.AvgDurationMs), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Avg duration (30d)", fmt.Sprintf("%.1f", s.AvgDurationMs), "milliseconds", durationPct(s.AvgDurationMs), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"card\"><div class=\"card-title\">Sessions</div><div class=\"stat-value stat-purple\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"card\"><div class=\"card-title\">Sessions (30d)</div><div class=\"stat-value stat-purple\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -107,3 +107,21 @@ func pinnedPct(pinned int) float64 {
 	}
 	return p
 }
+
+func memoryPct(mb float64) float64 {
+	const softMax = 512.0
+	p := mb / softMax * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+func diskPct(mb float64) float64 {
+	const softMax = 2048.0
+	p := mb / softMax * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}

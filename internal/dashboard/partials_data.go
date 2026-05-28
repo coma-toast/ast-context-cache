@@ -10,6 +10,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
@@ -28,10 +29,12 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	h.MemoryMB = float64(memStats.Alloc) / (1024 * 1024)
+	h.CPUPercent = sys.ProcessCPUPercent()
 
 	dbPath := db.GetDBPath()
 	if fi, err := os.Stat(dbPath); err == nil {
 		diskBytes := fi.Size()
+		h.DiskMB = float64(diskBytes) / (1024 * 1024)
 		switch {
 		case diskBytes >= 1024*1024*1024:
 			h.DiskSize = fmt.Sprintf("%.2f GB", float64(diskBytes)/(1024*1024*1024))
