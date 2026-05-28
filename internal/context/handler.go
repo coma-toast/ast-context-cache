@@ -2,18 +2,31 @@ package context
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
-	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 var Emb embedder.Interface
 
+type getContextResult struct {
+	JSON     string
+	Savings  SavingsMeta
+	CacheHit bool
+}
+
 func HandleGetContext(args map[string]interface{}, projectPath string) string {
+	r := handleGetContext(args, projectPath)
+	return r.JSON
+}
+
+func HandleGetContextWithMeta(args map[string]interface{}, projectPath string) getContextResult {
+	return handleGetContext(args, projectPath)
+}
+
+func handleGetContext(args map[string]interface{}, projectPath string) getContextResult {
 	query, _ := args["query"].(string)
 	mode, _ := args["mode"].(string)
 	sessionID, _ := args["session_id"].(string)
@@ -26,122 +39,65 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		tokenBudget = int(tb)
 	}
 	if mode == "" {
-		mode = "full"
+		mode = "auto"
 	}
 	if projectPath == "" {
-		return `{"error": "project_path required"}`
+		data, _ := json.Marshal(map[string]string{"error": "project_path required"})
+		return getContextResult{JSON: string(data)}
 	}
 	if query == "" {
-		return `{"error": "query required"}`
+		data, _ := json.Marshal(map[string]string{"error": "query required"})
+		return getContextResult{JSON: string(data)}
 	}
-
 	filters := search.ParseSearchFilters(args)
 	filtersKey := ""
 	if filters != nil {
 		filtersKey = filters.CacheKey()
 	}
+	useQueryCache := sessionID == ""
 	cacheKey := cache.HashQuery(query, projectPath, mode, limit, filtersKey)
-	if cached, found := cache.GlobalCache.Get(cacheKey); found {
-		return cached
+	if useQueryCache {
+		if cached, found := cache.GlobalCache.Get(cacheKey); found {
+			var parsed map[string]interface{}
+			if json.Unmarshal([]byte(cached), &parsed) == nil {
+				savings := ParseSavingsMeta(parsed, mode, true)
+				savings.CacheHit = true
+				return getContextResult{JSON: cached, Savings: savings, CacheHit: true}
+			}
+			return getContextResult{JSON: cached, CacheHit: true}
+		}
 	}
-
 	scored, pipeMetrics := search.HybridSearch(query, projectPath, Emb, 30, filters)
-
-	returnedFiles := GetReturnedFiles(sessionID)
-
+	returnedSymbols := GetReturnedSymbolKeys(sessionID)
 	if len(scored) < limit {
 		limit = len(scored)
 	}
-
 	fileCache := map[string][]string{}
 	matchedFiles := map[string]bool{}
 	var results []map[string]interface{}
 	skipped := 0
 	tokensUsed := 0
-	fullBaselineTokens := 0
+	symbolBaseline := 0
+	dedupTokens := 0
 	fullCount := 0
+	maxScore := 0.0
+	if len(scored) > 0 {
+		maxScore = scored[0].Score
+	}
 	for i := 0; i < limit; i++ {
-		data := scored[i].Data
+		hit := hitFromScored(scored[i], projectPath)
+		data := hit.Data
 		file, _ := data["file"].(string)
 		name, _ := data["name"].(string)
-		startLine, _ := data["start_line"].(int)
-		endLine, _ := data["end_line"].(int)
-
-		if returnedFiles != nil && returnedFiles[file] {
-			data["_deduped"] = true
-			results = append(results, data)
+		startLine, endLine := hit.StartLine, hit.EndLine
+		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
 			skipped++
+			dedupTokens += WouldSendTokens(file, name, projectPath, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
 		}
-
-		var fullSrc string
-		if startLine > 0 && endLine > 0 {
-			fullSrc = indexer.ReadSourceRange(file, startLine, endLine, fileCache)
-		}
-
-		effectiveMode := mode
-		if mode == "auto" {
-			score := scored[i].Score
-			maxScore := scored[0].Score
-			if maxScore > 0 {
-				scoreRatio := score / maxScore
-				if scoreRatio >= 0.5 || fullCount < 2 {
-					effectiveMode = "full"
-				} else if scoreRatio >= 0.2 {
-					effectiveMode = "skeleton"
-				} else {
-					effectiveMode = "summary"
-				}
-			} else {
-				if fullCount < 3 {
-					effectiveMode = "full"
-				} else {
-					effectiveMode = "skeleton"
-				}
-			}
-		}
-
-		switch effectiveMode {
-		case "skeleton":
-			if startLine > 0 && endLine > 0 {
-				var skeleton string
-				db.DB.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-					file, name, projectPath, startLine).Scan(&skeleton)
-				if skeleton != "" {
-					data["skeleton"] = skeleton
-				} else if fullSrc != "" {
-					lang := indexer.GetLanguage(file)
-					kind, _ := data["kind"].(string)
-					data["skeleton"] = indexer.ExtractSkeleton(fullSrc, lang, kind)
-				}
-			}
-		case "summary":
-			var summary string
-			if name != "" {
-				db.DB.QueryRow("SELECT summary_text FROM summaries WHERE file_path = ? AND symbol_name = ? AND project_path = ?",
-					file, name, projectPath).Scan(&summary)
-			}
-			if summary == "" {
-				db.DB.QueryRow("SELECT summary_text FROM summaries WHERE file_path = ? AND (symbol_name IS NULL OR symbol_name = '') AND project_path = ?",
-					file, projectPath).Scan(&summary)
-			}
-			if summary != "" {
-				data["summary"] = summary
-			} else {
-				var skeleton string
-				db.DB.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-					file, name, projectPath, startLine).Scan(&skeleton)
-				if skeleton != "" {
-					data["skeleton"] = skeleton
-					data["_fallback"] = "skeleton"
-				}
-			}
-		default: // "full"
-			if fullSrc != "" {
-				data["source"] = fullSrc
-			}
-		}
-
+		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
+		symbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
+		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
 		if effectiveMode == "full" {
 			fullCount++
 		}
@@ -152,44 +108,85 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 			break
 		}
 		tokensUsed += resultTokens
-
 		matchedFiles[file] = true
-		if fullSrc != "" {
-			fullBaselineTokens += db.EstimateTokens(fullSrc)
-		}
 		results = append(results, data)
-		LogReturned(sessionID, file, 0, mode, resultTokens)
+		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
 	}
-
-	fileBaselineTokens := 0
-	for f := range matchedFiles {
-		if lines, ok := fileCache[f]; ok {
-			fileBaselineTokens += db.EstimateTokens(strings.Join(lines, "\n"))
-		}
-	}
-
+	fileBaseline := FileBaselineTokens(matchedFiles, fileCache)
+	savings := ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens)
+	savings.DedupedCount = skipped
+	savings.Mode = mode
 	resp := map[string]interface{}{
-		"query":                query,
-		"mode":                 mode,
-		"results":              results,
-		"tokens_used":          tokensUsed,
-		"file_baseline_tokens": fileBaselineTokens,
-		"full_baseline_tokens": fullBaselineTokens,
+		"query":   query,
+		"mode":    mode,
+		"results": results,
 		"pipeline": map[string]interface{}{
 			"bm25_candidates":   pipeMetrics.BM25Candidates,
 			"vector_candidates": pipeMetrics.VectorCandidates,
 			"hybrid_after_fuse": pipeMetrics.HybridAfterFuse,
 		},
 	}
+	savings.ApplyTo(resp)
 	if tokenBudget > 0 {
 		resp["token_budget"] = tokenBudget
 		resp["tokens_remaining"] = tokenBudget - tokensUsed
 	}
-	if skipped > 0 {
-		resp["deduped"] = skipped
-	}
 	finalData, _ := json.Marshal(resp)
 	resultStr := string(finalData)
-	cache.GlobalCache.Set(cacheKey, resultStr)
-	return resultStr
+	if useQueryCache {
+		cache.GlobalCache.Set(cacheKey, resultStr)
+	}
+	return getContextResult{JSON: resultStr, Savings: savings}
+}
+
+// PackScoredResults formats hybrid/vector search hits (used by search_semantic).
+func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mode, sessionID string, tokenBudget int) (results []map[string]interface{}, savings SavingsMeta) {
+	if mode == "" {
+		mode = "skeleton"
+	}
+	savings.Mode = mode
+	returnedSymbols := GetReturnedSymbolKeys(sessionID)
+	if len(scored) < limit {
+		limit = len(scored)
+	}
+	fileCache := map[string][]string{}
+	matchedFiles := map[string]bool{}
+	fullCount := 0
+	maxScore := 0.0
+	if len(scored) > 0 {
+		maxScore = scored[0].Score
+	}
+	for i := 0; i < limit; i++ {
+		hit := hitFromScored(scored[i], projectPath)
+		data := hit.Data
+		file, _ := data["file"].(string)
+		name, _ := data["name"].(string)
+		startLine, endLine := hit.StartLine, hit.EndLine
+		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
+			savings.DedupedCount++
+			savings.DedupTokensSaved += WouldSendTokens(file, name, projectPath, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
+			continue
+		}
+		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
+		savings.SymbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
+		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
+		if effectiveMode == "full" {
+			fullCount++
+		}
+		data["file"] = db.RelPath(file, projectPath)
+		resultJSON, _ := json.Marshal(data)
+		resultTokens := db.EstimateTokens(string(resultJSON))
+		if tokenBudget > 0 && savings.TokensUsed+resultTokens > tokenBudget {
+			break
+		}
+		savings.TokensUsed += resultTokens
+		matchedFiles[file] = true
+		results = append(results, data)
+		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
+	}
+	savings.FileBaseline = FileBaselineTokens(matchedFiles, fileCache)
+	computed := ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, savings.FileBaseline, savings.DedupTokensSaved)
+	savings.TokensSaved = computed.TokensSaved
+	savings.SavingsVsFiles = computed.SavingsVsFiles
+	return results, savings
 }

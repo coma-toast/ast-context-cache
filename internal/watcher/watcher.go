@@ -9,12 +9,15 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -84,6 +87,7 @@ func StartWatcher(projectPath string) {
 
 	go catchUp(projectPath)
 	log.Printf("File watcher started for %s", projectPath)
+	realtime.Notify(realtime.WatchersChanged)
 }
 
 func catchUp(projectPath string) {
@@ -115,7 +119,7 @@ func catchUp(projectPath string) {
 			stale++
 			log.Printf("Catch-up re-indexed %s: %d symbols", path, n)
 			// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, 0, 0, skelT, 0, fullT, fullT, 0, projectPath, "")
+			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{TokensUsed: skelT, SymbolBaseline: fullT, FileBaseline: fullT}, projectPath, "")
 			if PostIndexHook != nil {
 				go PostIndexHook(path, projectPath, false)
 			}
@@ -136,6 +140,9 @@ func catchUp(projectPath string) {
 	}
 	if stale > 0 || removed > 0 {
 		log.Printf("Catch-up complete for %s: %d re-indexed, %d removed", projectPath, stale, removed)
+	}
+	if removed > 0 {
+		realtime.Notify(realtime.IndexCommitted)
 	}
 }
 
@@ -172,19 +179,21 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 			db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", path, projectPath)
 			db.DeleteIndexedFile(path, projectPath)
 			log.Printf("Removed symbols for deleted file: %s", path)
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, 0, 0, 0, 0, 0, 0,
-				float64(time.Since(start).Milliseconds()), projectPath, "")
+			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, db.QueryLogMetrics{}, projectPath, "")
 			if PostIndexHook != nil {
 				go PostIndexHook(path, projectPath, true)
 			}
+			realtime.Notify(realtime.IndexCommitted)
 		} else {
 			n, fullT, skelT, err := indexer.IndexFile(path, projectPath)
 			if err == nil {
 				log.Printf("Re-indexed %s: %d symbols", path, n)
 				resultJSON, _ := json.Marshal(map[string]interface{}{"file": path, "symbols": n})
 				// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
-				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, len(resultJSON), 0, skelT, 0, fullT, fullT,
-					float64(time.Since(start).Milliseconds()), projectPath, "")
+				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{
+					ResultChars: len(resultJSON), TokensUsed: skelT, SymbolBaseline: fullT, FileBaseline: fullT,
+					DurationMs: float64(time.Since(start).Milliseconds()),
+				}, projectPath, "")
 				if PostIndexHook != nil {
 					go PostIndexHook(path, projectPath, false)
 				}
@@ -199,9 +208,22 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 
 func GetStatus() map[string]interface{} {
 	mu.Lock()
-	watchers := []map[string]interface{}{}
+	projects := make([]string, 0, len(knownProjects))
+	for project := range knownProjects {
+		projects = append(projects, project)
+	}
+	sort.Slice(projects, func(i, j int) bool {
+		bi := strings.ToLower(filepath.Base(projects[i]))
+		bj := strings.ToLower(filepath.Base(projects[j]))
+		if bi != bj {
+			return bi < bj
+		}
+		return projects[i] < projects[j]
+	})
+	watchers := make([]map[string]interface{}, 0, len(projects))
 	active := 0
-	for project, isActive := range knownProjects {
+	for _, project := range projects {
+		isActive := knownProjects[project]
 		entry := map[string]interface{}{
 			"project_path": project,
 			"active":       isActive,
@@ -235,6 +257,7 @@ func StopWatcher(projectPath string) error {
 	delete(activeWatchers, projectPath)
 	knownProjects[projectPath] = false
 	log.Printf("Stopped watcher for %s", projectPath)
+	realtime.Notify(realtime.WatchersChanged)
 	return nil
 }
 
@@ -248,6 +271,7 @@ func DeleteWatcher(projectPath string) {
 	delete(lastActivity, projectPath)
 	mu.Unlock()
 	log.Printf("Deleted watcher for %s", projectPath)
+	realtime.Notify(realtime.WatchersChanged)
 }
 
 // EnsureWatcher starts a watcher for the project if one isn't already running.

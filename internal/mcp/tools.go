@@ -13,6 +13,9 @@ type ToolConfig struct {
 }
 
 func getToolsConfigPath() string {
+	if p := os.Getenv("AST_MCP_TOOLS_CONFIG"); p != "" {
+		return p
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".astcache", "tools.json")
 }
@@ -26,6 +29,11 @@ func LoadToolConfigs() map[string]*ToolConfig {
 	var configs map[string]*ToolConfig
 	if err := json.Unmarshal(data, &configs); err != nil {
 		return make(map[string]*ToolConfig)
+	}
+	for _, c := range configs {
+		if c != nil && c.Tier != "" {
+			c.Tier = ParseTier(string(c.Tier))
+		}
 	}
 	return configs
 }
@@ -42,8 +50,62 @@ func SaveToolConfigs(configs map[string]*ToolConfig) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func GetTools() []Tool {
+type toolDenyReason int
 
+const (
+	denyNone toolDenyReason = iota
+	denyUnknown
+	denyDisabled
+	denyTier
+	denyCodeMode
+)
+
+func effectiveRequiredTier(t Tool, cfg ServerConfig) Tier {
+	if conf, ok := cfg.ToolConfigs[t.Name]; ok && conf.Tier != "" {
+		return conf.Tier
+	}
+	return t.Tier
+}
+
+func toolAccess(t Tool, cfg ServerConfig) (bool, toolDenyReason) {
+	if conf, ok := cfg.ToolConfigs[t.Name]; ok && !conf.Enabled {
+		return false, denyDisabled
+	}
+	if !TierIncludes(cfg.ActiveTier, effectiveRequiredTier(t, cfg)) {
+		return false, denyTier
+	}
+	if t.Name == "execute_code" && !cfg.CodeMode {
+		return false, denyCodeMode
+	}
+	return true, denyNone
+}
+
+// ToolDenyMessage explains why a tool call was rejected.
+func ToolDenyMessage(toolName string, cfg ServerConfig, reason toolDenyReason) string {
+	switch reason {
+	case denyDisabled:
+		return "tool disabled in tools config: " + toolName
+	case denyTier:
+		return "tool not available at server tier " + string(cfg.ActiveTier) + ": " + toolName
+	case denyCodeMode:
+		return "execute_code disabled (set AST_MCP_CODE_MODE or enable in policy): " + toolName
+	case denyUnknown:
+		return "unknown tool: " + toolName
+	default:
+		return "tool not allowed: " + toolName
+	}
+}
+
+func toolAccessByName(toolName string, cfg ServerConfig) (bool, toolDenyReason) {
+	for _, t := range GetTools() {
+		if t.Name == toolName {
+			return toolAccess(t, cfg)
+		}
+	}
+	return false, denyUnknown
+}
+
+func GetTools() []Tool {
 	return []Tool{
 		{
 			Name:        "get_context_capsule",
@@ -53,7 +115,7 @@ func GetTools() []Tool {
 				"properties": map[string]interface{}{
 					"query":         map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
 					"project_path":  map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":          map[string]string{"type": "string", "description": "Response mode: 'full' (default, returns source), 'skeleton' (signatures only), 'summary' (cached summaries), 'auto' (full for top 3 results, skeleton for rest — best balance of detail and token efficiency)"},
+					"mode":          map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
 					"session_id":    map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
 					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
 					"path_prefix":   map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
@@ -122,7 +184,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "search_semantic",
-			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Requires project to be indexed with embeddings. Returns ranked results with similarity scores and source code.",
+			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -164,7 +226,9 @@ func GetTools() []Tool {
 				"properties": map[string]interface{}{
 					"file":         map[string]string{"type": "string", "description": "Absolute path to the file"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":         map[string]string{"type": "string", "description": "Response mode: 'full' (default, returns source), 'skeleton' (signatures only), 'summary' (cached summaries)"},
+					"mode":         map[string]string{"type": "string", "description": "Response mode: 'skeleton' (default), 'full', 'summary' (cached summaries), 'auto'"},
+					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup — skip symbols already returned in this session"},
+					"token_budget": map[string]string{"type": "integer", "description": "Max tokens for symbol list (optional)"},
 				},
 				"required": []string{"file", "project_path"},
 			},
@@ -314,7 +378,9 @@ func GetTools() []Tool {
 					"limit":          map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
 					"token_budget":   map[string]string{"type": "integer", "description": "Max tokens for assembled context (default 4000)"},
 					"include_docs":   map[string]string{"type": "boolean", "description": "Include documentation sources (default true)"},
-					"include_source": map[string]string{"type": "boolean", "description": "Include full source code in results (default false)"},
+					"include_source": map[string]string{"type": "boolean", "description": "Include full source code in code chunks (default false — skeleton/signatures only)"},
+					"mode":           map[string]string{"type": "string", "description": "Code chunk mode when include_source is false: 'skeleton' (default), 'auto', 'full'"},
+					"session_id":     map[string]string{"type": "string", "description": "Session ID for dedup — skip symbols already returned"},
 					"format":         map[string]string{"type": "string", "description": "Output format: 'markdown', 'xml', 'json' (default 'markdown')"},
 					"path_prefix":    map[string]string{"type": "string", "description": "Optional: only code symbols under this path (project-relative or absolute prefix)."},
 					"language":       map[string]string{"type": "string", "description": "Optional: filter by language (go, typescript, ...)."},
@@ -334,55 +400,23 @@ func FilterTools(cfg ServerConfig) []Tool {
 	all := GetTools()
 	filtered := make([]Tool, 0, len(all))
 	for _, t := range all {
-		// Check config override first
-		if conf, ok := cfg.ToolConfigs[t.Name]; ok {
-			if !conf.Enabled {
-				continue
-			}
-			if !TierIncludes(cfg.ActiveTier, conf.Tier) {
-				continue
-			}
-		} else {
-			// Default behavior
-			if !TierIncludes(cfg.ActiveTier, t.Tier) {
-				continue
-			}
-		}
-
-		if t.Name == "execute_code" && !cfg.CodeMode {
+		ok, _ := toolAccess(t, cfg)
+		if !ok {
 			continue
 		}
-		filtered = append(filtered, t)
+		out := t
+		if conf, ok := cfg.ToolConfigs[t.Name]; ok && conf.Description != "" {
+			out.Description = conf.Description
+		}
+		filtered = append(filtered, out)
 	}
 	return filtered
 }
 
 // IsToolAllowed checks if a specific tool name is permitted under the given config.
 func IsToolAllowed(toolName string, cfg ServerConfig) bool {
-	for _, t := range GetTools() {
-		if t.Name == toolName {
-			// Check config override first
-			if conf, ok := cfg.ToolConfigs[toolName]; ok {
-				if !conf.Enabled {
-					return false
-				}
-				if !TierIncludes(cfg.ActiveTier, conf.Tier) {
-					return false
-				}
-			} else {
-				// Default behavior
-				if !TierIncludes(cfg.ActiveTier, t.Tier) {
-					return false
-				}
-			}
-
-			if t.Name == "execute_code" && !cfg.CodeMode {
-				return false
-			}
-			return true
-		}
-	}
-	return false
+	ok, _ := toolAccessByName(toolName, cfg)
+	return ok
 }
 
 // GetPrompts returns LLM-optimized system prompts for efficient tool usage

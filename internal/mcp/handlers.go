@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/dop251/goja"
 )
 
@@ -108,7 +108,7 @@ func handleProjectMap(projectPath string, depth int) string {
 	return string(data)
 }
 
-func handleFileContext(file, projectPath, mode string) string {
+func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget int) string {
 	rows, err := db.DB.Query(
 		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
 		file, projectPath)
@@ -117,56 +117,44 @@ func handleFileContext(file, projectPath, mode string) string {
 		return string(data)
 	}
 	defer rows.Close()
-
+	returnedSymbols := context.GetReturnedSymbolKeys(sessionID)
 	fileCache := map[string][]string{}
 	var symbols []map[string]interface{}
-	fullBaselineTokens := 0
+	symbolBaseline := 0
+	tokensUsed := 0
+	dedupTokens := 0
+	skipped := 0
+	fullCount := 0
+	maxScore := 1.0
 
 	for rows.Next() {
 		var name, kind, skeleton, code string
 		var startLine, endLine int
 		rows.Scan(&name, &kind, &startLine, &endLine, &skeleton, &code)
-
+		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
+			skipped++
+			dedupTokens += context.WouldSendTokens(file, name, projectPath, mode, startLine, endLine, maxScore, maxScore, fullCount, fileCache)
+			continue
+		}
 		sym := map[string]interface{}{
 			"name":       name,
 			"kind":       kind,
 			"start_line": startLine,
 			"end_line":   endLine,
 		}
-
-		var fullSrc string
-		if startLine > 0 && endLine > 0 {
-			fullSrc = indexer.ReadSourceRange(file, startLine, endLine, fileCache)
+		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
+		context.ApplyMode(sym, mode, file, name, projectPath, startLine, endLine, fileCache)
+		if mode == "full" {
+			fullCount++
 		}
-		if fullSrc != "" {
-			fullBaselineTokens += db.EstimateTokens(fullSrc)
+		resultJSON, _ := json.Marshal(sym)
+		resultTokens := db.EstimateTokens(string(resultJSON))
+		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
+			break
 		}
-
-		switch mode {
-		case "skeleton":
-			if skeleton != "" {
-				sym["skeleton"] = skeleton
-			} else if fullSrc != "" {
-				lang := indexer.GetLanguage(file)
-				sym["skeleton"] = indexer.ExtractSkeleton(fullSrc, lang, kind)
-			}
-		case "summary":
-			var summary string
-			db.DB.QueryRow("SELECT summary_text FROM summaries WHERE file_path = ? AND symbol_name = ? AND project_path = ?",
-				file, name, projectPath).Scan(&summary)
-			if summary != "" {
-				sym["summary"] = summary
-			} else if skeleton != "" {
-				sym["skeleton"] = skeleton
-				sym["_fallback"] = "skeleton"
-			}
-		default: // "full"
-			if fullSrc != "" {
-				sym["source"] = fullSrc
-			}
-		}
-
+		tokensUsed += resultTokens
 		symbols = append(symbols, sym)
+		context.LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
 	}
 
 	lang := ""
@@ -196,16 +184,23 @@ func handleFileContext(file, projectPath, mode string) string {
 	if lines, ok := fileCache[file]; ok {
 		fileBaselineTokens = db.EstimateTokens(strings.Join(lines, "\n"))
 	}
+	savings := context.ComputeSavings(tokensUsed, symbolBaseline, fileBaselineTokens, dedupTokens)
+	savings.DedupedCount = skipped
+	savings.Mode = mode
 
-	data, _ := json.Marshal(map[string]interface{}{
-		"file":                 db.RelPath(file, projectPath),
-		"language":             lang,
-		"mode":                 mode,
-		"symbols":              symbols,
-		"total":                len(symbols),
-		"file_baseline_tokens": fileBaselineTokens,
-		"full_baseline_tokens": fullBaselineTokens,
-	})
+	resp := map[string]interface{}{
+		"file":     db.RelPath(file, projectPath),
+		"language": lang,
+		"mode":     mode,
+		"symbols":  symbols,
+		"total":    len(symbols),
+	}
+	savings.ApplyTo(resp)
+	if tokenBudget > 0 {
+		resp["token_budget"] = tokenBudget
+		resp["tokens_remaining"] = tokenBudget - tokensUsed
+	}
+	data, _ := json.Marshal(resp)
 	return string(data)
 }
 

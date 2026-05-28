@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
@@ -121,6 +121,7 @@ func NewHandler() http.HandlerFunc {
 
 func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	start := time.Now()
+	cpuStart := sys.SampleCPU()
 	args := rpcReq.Params
 	if args == nil {
 		args = make(map[string]any)
@@ -138,10 +139,10 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		toolArgs = args
 	}
 
-	if !IsToolAllowed(toolName, srvCfg) {
+	if ok, reason := toolAccessByName(toolName, srvCfg); !ok {
 		mcpErr := map[string]interface{}{
 			"content": []map[string]interface{}{
-				{"type": "text", "text": "tool not available at tier " + string(srvCfg.ActiveTier) + ": " + toolName},
+				{"type": "text", "text": ToolDenyMessage(toolName, srvCfg, reason)},
 			},
 			"isError": true,
 		}
@@ -211,37 +212,18 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if q, ok := toolArgs["query"].(string); ok {
 			query = q
 		}
-		contextStr := context.HandleGetContext(toolArgs, projectPath)
-
+		ctxResult := context.HandleGetContextWithMeta(toolArgs, projectPath)
 		inputTokens := db.EstimateTokens(query)
-		outputTokens := db.EstimateTokens(contextStr)
-
+		outputTokens := db.EstimateTokens(ctxResult.JSON)
+		logToolQuery(toolName, args, len(ctxResult.JSON), inputTokens, outputTokens, ctxResult.Savings, start, cpuStart, projectPath, "")
 		var parsed map[string]interface{}
-		fileBaseline, fullBaseline := 0, 0
-		if err := json.Unmarshal([]byte(contextStr), &parsed); err == nil {
-			if v, ok := parsed["file_baseline_tokens"].(float64); ok {
-				fileBaseline = int(v)
-			}
-			if v, ok := parsed["full_baseline_tokens"].(float64); ok {
-				fullBaseline = int(v)
-			}
-		}
-
-		tokensSaved := fullBaseline - outputTokens
-		if tokensSaved < 0 {
-			tokensSaved = 0
-		}
-
-		db.LogQuery(toolName, args, len(contextStr), inputTokens, outputTokens, tokensSaved, fileBaseline, fullBaseline, float64(time.Since(start).Milliseconds()), projectPath, "")
-
-		if parsed != nil {
-			parsed["tokens_saved"] = tokensSaved
+		if err := json.Unmarshal([]byte(ctxResult.JSON), &parsed); err == nil {
 			parsed["input_tokens"] = inputTokens
 			parsed["output_tokens"] = outputTokens
 			resultJSON, _ := json.Marshal(parsed)
 			result = json.RawMessage(resultJSON)
 		} else {
-			result = json.RawMessage(contextStr)
+			result = json.RawMessage(ctxResult.JSON)
 		}
 	case "get_impact_graph":
 		sym := ""
@@ -294,52 +276,30 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			} else {
 				filters := search.ParseSearchFilters(toolArgs)
 				scored := search.Cache.Search(queryVec, projectPath, docType, limit, filters)
-				fileCache := map[string][]string{}
-				matchedFiles := map[string]bool{}
-				fullBaselineTokens := 0
-				results := make([]map[string]interface{}, len(scored))
-				for i, s := range scored {
-					results[i] = s.Data
-					file, _ := s.Data["file"].(string)
-					if file != "" {
-						matchedFiles[file] = true
-						rows, qErr := db.DB.Query("SELECT start_line, end_line FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
-							file, s.Data["name"], projectPath)
-						if qErr == nil {
-							if rows.Next() {
-								var sl, el int
-								rows.Scan(&sl, &el)
-								results[i]["start_line"] = sl
-								results[i]["end_line"] = el
-								if src := indexer.ReadSourceRange(file, sl, el, fileCache); src != "" {
-									results[i]["source"] = src
-									fullBaselineTokens += db.EstimateTokens(src)
-								}
-							}
-							rows.Close()
-						}
-					}
-					results[i]["file"] = db.RelPath(file, projectPath)
+				mode := "skeleton"
+				if m, ok := toolArgs["mode"].(string); ok && m != "" {
+					mode = m
 				}
-				fileBaselineTokens := 0
-				for f := range matchedFiles {
-					if lines, ok := fileCache[f]; ok {
-						fileBaselineTokens += db.EstimateTokens(strings.Join(lines, "\n"))
-					}
+				sessionID, _ := toolArgs["session_id"].(string)
+				tokenBudget := 4000
+				if tb, ok := toolArgs["token_budget"].(float64); ok && tb > 0 {
+					tokenBudget = int(tb)
 				}
-				respData, _ := json.Marshal(map[string]interface{}{
-					"query":                query,
-					"results":              results,
-					"total_vectors":        search.Cache.Count(projectPath),
-					"file_baseline_tokens": fileBaselineTokens,
-					"full_baseline_tokens": fullBaselineTokens,
-				})
+				results, packSavings := context.PackScoredResults(scored, limit, projectPath, mode, sessionID, tokenBudget)
+				resp := map[string]interface{}{
+					"query":         query,
+					"mode":          mode,
+					"results":       results,
+					"total_vectors": search.Cache.Count(projectPath),
+				}
+				packSavings.ApplyTo(resp)
+				if tokenBudget > 0 {
+					resp["token_budget"] = tokenBudget
+					resp["tokens_remaining"] = tokenBudget - packSavings.TokensUsed
+				}
+				respData, _ := json.Marshal(resp)
 				outTokens := db.EstimateTokens(string(respData))
-				saved := fullBaselineTokens - outTokens
-				if saved < 0 {
-					saved = 0
-				}
-				db.LogQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, saved, fileBaselineTokens, fullBaselineTokens, float64(time.Since(start).Milliseconds()), projectPath, "")
+				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, packSavings, start, cpuStart, projectPath, "")
 				loggedToolCall = true
 				result = json.RawMessage(respData)
 			}
@@ -356,29 +316,25 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		}
 	case "get_file_context":
 		file, _ := toolArgs["file"].(string)
-		mode := "full"
+		mode := "skeleton"
 		if m, ok := toolArgs["mode"].(string); ok && m != "" {
 			mode = m
+		}
+		sessionID, _ := toolArgs["session_id"].(string)
+		tokenBudget := 0
+		if tb, ok := toolArgs["token_budget"].(float64); ok && tb > 0 {
+			tokenBudget = int(tb)
 		}
 		if file == "" || projectPath == "" {
 			result = map[string]string{"error": "file and project_path required"}
 		} else {
-			fcStr := handleFileContext(file, projectPath, mode)
+			fcStr := handleFileContext(file, projectPath, mode, sessionID, tokenBudget)
 			result = json.RawMessage(fcStr)
 			var fcParsed map[string]interface{}
 			if err := json.Unmarshal([]byte(fcStr), &fcParsed); err == nil {
-				fileBase, fullBase, outTokens := 0, 0, db.EstimateTokens(fcStr)
-				if v, ok := fcParsed["file_baseline_tokens"].(float64); ok {
-					fileBase = int(v)
-				}
-				if v, ok := fcParsed["full_baseline_tokens"].(float64); ok {
-					fullBase = int(v)
-				}
-				saved := fullBase - outTokens
-				if saved < 0 {
-					saved = 0
-				}
-				db.LogQuery(toolName, args, len(fcStr), 0, outTokens, saved, fileBase, fullBase, float64(time.Since(start).Milliseconds()), projectPath, "")
+				savings := context.ParseSavingsMeta(fcParsed, mode, false)
+				outTokens := db.EstimateTokens(fcStr)
+				logToolQuery(toolName, args, len(fcStr), 0, outTokens, savings, start, cpuStart, projectPath, "")
 				loggedToolCall = true
 			}
 		}
@@ -509,7 +465,33 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if err := json.Unmarshal([]byte(result.(json.RawMessage)), &parsed); err == nil {
 					ctxLen := len(parsed["context"].(string))
 					outTokens := db.EstimateTokens(parsed["context"].(string))
-					db.LogQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
+					mode := "skeleton"
+					if m, ok := toolArgs["mode"].(string); ok && m != "" {
+						mode = m
+					}
+					savings := context.SavingsMeta{Mode: mode, TokensUsed: outTokens}
+					if stats, ok := parsed["stats"].(map[string]interface{}); ok {
+						if v, ok := stats["total_tokens"].(float64); ok {
+							savings.TokensUsed = int(v)
+						}
+						if v, ok := stats["symbol_baseline_tokens"].(float64); ok {
+							savings.SymbolBaseline = int(v)
+						}
+						if v, ok := stats["dedup_tokens_saved"].(float64); ok {
+							savings.DedupTokensSaved = int(v)
+						}
+						if v, ok := stats["tokens_saved"].(float64); ok {
+							savings.TokensSaved = int(v)
+						}
+						if v, ok := stats["deduped_count"].(float64); ok {
+							savings.DedupedCount = int(v)
+						}
+					}
+					if savings.TokensSaved == 0 {
+						computed := context.ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, 0, savings.DedupTokensSaved)
+						savings.TokensSaved = computed.TokensSaved
+					}
+					logToolQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, savings, start, cpuStart, projectPath, "")
 					loggedToolCall = true
 				}
 			}
@@ -520,7 +502,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 
 	if toolName != "get_context_capsule" && !loggedToolCall {
 		resultJSON, _ := json.Marshal(result)
-		db.LogQuery(toolName, args, len(resultJSON), 0, 0, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
+		logToolQuery(toolName, args, len(resultJSON), 0, db.EstimateTokens(string(resultJSON)), context.SavingsMeta{}, start, cpuStart, projectPath, "")
 	}
 	// MCP tools/call response must have result.content[].text and isError so clients pass tool output to the model.
 	resultJSON, _ := json.Marshal(result)
@@ -535,4 +517,23 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		ID:      rpcReq.ID,
 		Result:  mcpResult,
 	})
+}
+
+func logToolQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens int, savings context.SavingsMeta, start time.Time, cpuStart sys.CPUSample, projectPath, errMsg string) {
+	db.LogQuery(toolName, args, db.QueryLogMetrics{
+		ResultChars:      resultChars,
+		InputTokens:      inputTokens,
+		OutputTokens:     outputTokens,
+		TokensUsed:       savings.TokensUsed,
+		TokensSaved:      savings.TokensSaved,
+		SymbolBaseline:   savings.SymbolBaseline,
+		FileBaseline:     savings.FileBaseline,
+		DedupTokensSaved: savings.DedupTokensSaved,
+		SavingsVsFiles:   savings.SavingsVsFiles,
+		DedupedCount:     savings.DedupedCount,
+		Mode:             savings.Mode,
+		CacheHit:         savings.CacheHit,
+		DurationMs:       float64(time.Since(start).Milliseconds()),
+		CpuMs:            sys.DeltaMs(cpuStart, sys.SampleCPU()),
+	}, projectPath, errMsg)
 }

@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -19,8 +16,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
-	"github.com/coma-toast/ast-context-cache/internal/search"
-	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/gorilla/websocket"
 )
 
@@ -130,73 +125,21 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 	c := &wsClient{hub: hub, conn: conn, send: make(chan []byte, 256)}
 	c.hub.register <- c
 	go c.writePump()
+	go pushInitialDashboardSnapshot(c)
 	go c.readPump()
 }
 
 // ─── Partial rendering helpers (render into string) ──────────────────
 
 func renderIndexHealth() string {
-	pid := ""
-	h := components.IndexHealth{}
-	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&h.TotalEdges)
-	} else {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&h.TotalEdges)
-	}
-	h.TotalVectors = search.Cache.Count(pid)
-	h.VectorMemMB = search.Cache.MemoryMB()
-
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-	h.MemoryMB = float64(memStats.Alloc) / (1024 * 1024)
-
-	dbPath := db.GetDBPath()
-	if fi, err := os.Stat(dbPath); err == nil {
-		diskBytes := fi.Size()
-		switch {
-		case diskBytes >= 1024*1024*1024:
-			h.DiskSize = fmt.Sprintf("%.2f GB", float64(diskBytes)/(1024*1024*1024))
-		case diskBytes >= 1024*1024:
-			h.DiskSize = fmt.Sprintf("%.1f MB", float64(diskBytes)/(1024*1024))
-		case diskBytes >= 1024:
-			h.DiskSize = fmt.Sprintf("%d KB", diskBytes/1024)
-		default:
-			h.DiskSize = fmt.Sprintf("%d B", diskBytes)
-		}
-	} else {
-		h.DiskSize = "-"
-	}
-
-	ws := watcher.GetStatus()
-	if watchers, ok := ws["watchers"].([]map[string]interface{}); ok {
-		for _, w := range watchers {
-			pp, _ := w["project_path"].(string)
-			active, _ := w["active"].(bool)
-			name := filepath.Base(pp)
-			h.Watchers = append(h.Watchers, components.WatcherInfo{
-				ProjectPath: pp,
-				Name:        name,
-				Active:      active,
-			})
-		}
-	}
-	q, activeEmb, workers, completed, throughput := embedqueue.Stats()
-	h.EmbedQueued = q
-	h.EmbedActive = int(activeEmb)
-	h.EmbedWorkers = workers
-	h.EmbedComplete = completed
-	h.EmbedThroughput = throughput
-	h.PinnedCount = db.PinnedProjectCount()
 	var buf bytes.Buffer
-	components.IndexHealthCards(h).Render(context.Background(), &buf)
+	components.IndexHealthCards(buildIndexHealth("")).Render(context.Background(), &buf)
 	return buf.String()
 }
 
 func renderHealthBar() string {
 	state, lastUse := mcp.EmbedderState()
-	q, _, workers, _, throughput := embedqueue.Stats()
+	eq := embedqueue.Snapshot()
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	heapMB := float64(memStats.HeapAlloc) / (1024 * 1024)
@@ -204,9 +147,11 @@ func renderHealthBar() string {
 	h := components.Health{
 		EmbedderState:    state,
 		EmbedderLast:    lastUse,
-		QueueWorkers:    workers,
-		QueueThroughput: throughput,
-		QueueQueued:     q,
+		QueueWorkers:    eq.Workers,
+		QueueThroughput: eq.Throughput,
+		QueueQueued:     eq.Queued,
+		QueueHighCap:    eq.HighCap,
+		QueueLowCap:     eq.LowCap,
 		CacheHitRatio:   cacheHit,
 		HeapMB:          heapMB,
 		Uptime:          time.Since(serverStartTime),
@@ -221,9 +166,8 @@ func renderStats() string {
 	var s components.Stats
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
-	db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+" FROM queries").
-		Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved)
+	db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+", "+dedupTokensSum+", "+savingsVsFilesSum+" FROM queries").
+		Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 	db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
 		Scan(&s.TodayQueries, &s.TodayTokens)
 	var buf bytes.Buffer
@@ -232,40 +176,9 @@ func renderStats() string {
 }
 
 func renderRecent() string {
-	lim := 50
-	rows, err := db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries ORDER BY timestamp DESC LIMIT ?", lim)
-	if err != nil {
-		var buf bytes.Buffer
-		components.RecentTable(nil).Render(context.Background(), &buf)
-		return buf.String()
-	}
-	defer rows.Close()
-	var queries []components.RecentQuery
-	for rows.Next() {
-		var ts, toolName, pp, errMsg, argsJSON string
-		var rc, saved, fileBaseline int
-		var dm float64
-		rows.Scan(&ts, &toolName, &rc, &dm, &pp, &errMsg, &argsJSON, &saved, &fileBaseline)
-		q := components.RecentQuery{
-			ToolName:   toolName,
-			Project:    pp,
-			DurationMs: dm,
-			Error:      errMsg,
-			Saved:      saved,
-		}
-		t, _ := time.Parse("2006-01-02T15:04:05Z07:00", ts)
-		if t.IsZero() {
-			t, _ = time.Parse("2006-01-02 15:04:05", ts)
-		}
-		if !t.IsZero() {
-			q.Timestamp = t.Format("Jan 2 15:04:05")
-		} else {
-			q.Timestamp = ts
-		}
-		queries = append(queries, q)
-	}
+	mcp, indexing := buildRecentQueries("", 50)
 	var buf bytes.Buffer
-	components.RecentTable(queries).Render(context.Background(), &buf)
+	components.RecentPanel(mcp, indexing).Render(context.Background(), &buf)
 	return buf.String()
 }
 
@@ -316,22 +229,8 @@ func renderLanguageChart() string {
 }
 
 func renderToolChart() string {
-	rows, err := db.DB.Query("SELECT tool_name, COUNT(*) FROM queries GROUP BY tool_name ORDER BY COUNT(*) DESC")
-	if err != nil {
-		var buf bytes.Buffer
-		components.BarChart(nil, 1).Render(context.Background(), &buf)
-		return buf.String()
-	}
-	defer rows.Close()
-	var items []components.BarItem
-	for rows.Next() {
-		var name string
-		var count int
-		rows.Scan(&name, &count)
-		items = append(items, components.BarItem{Label: name, Value: count})
-	}
 	var buf bytes.Buffer
-	components.BarChart(items, 1).Render(context.Background(), &buf)
+	components.ToolPerformancePanel(queryToolStats("")).Render(context.Background(), &buf)
 	return buf.String()
 }
 
@@ -442,6 +341,7 @@ func renderSettings() string {
 		Agents:                 agents,
 		DocSources:             docSources,
 	}
+	PopulateEmbedSettings(settings, &data)
 	var buf bytes.Buffer
 	components.Settings(data).Render(context.Background(), &buf)
 	return buf.String()
@@ -453,24 +353,43 @@ func renderActivityChart() string {
 	return buf.String()
 }
 
-// ─── Background polling loops ─────────────────────────────────────────
+type dashboardPartial struct {
+	name   string
+	target string
+	render func() string
+}
 
-func (h *wsHub) pollLoop(name string, interval time.Duration, renderFn func() string, target string) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	var last string
-	for range ticker.C {
-		html := renderFn()
-		if html != last {
-			last = html
-			h.broadcast <- wsMsg{
-				Type:      "partial",
-				Timestamp: time.Now().Format(time.RFC3339),
-				Data: map[string]string{
-					"target": target,
-					"html":   html,
-				},
-			}
+// Panels refreshed via internal/realtime.Notify (no server polling).
+var dashboardPartials = []dashboardPartial{
+	{"index-health", "#index-health", renderIndexHealth},
+	{"health-bar", "#health-bar", renderHealthBar},
+	{"stats", "#stats-cards", renderStats},
+	{"recent", "#recent-queries", renderRecent},
+	{"symbol-chart", "#symbol-chart", renderSymbolChart},
+	{"language-chart", "#lang-chart", renderLanguageChart},
+	{"tool-chart", "#tool-chart", renderToolChart},
+	{"import-chart", "#import-chart", renderImportChart},
+	{"settings", "#settings-content", renderSettings},
+}
+
+func pushInitialDashboardSnapshot(c *wsClient) {
+	for _, p := range dashboardPartials {
+		html := p.render()
+		data, err := json.Marshal(wsMsg{
+			Type:      "partial",
+			Timestamp: time.Now().Format(time.RFC3339),
+			Data: map[string]string{
+				"target": p.target,
+				"html":   html,
+			},
+		})
+		if err != nil {
+			continue
+		}
+		select {
+		case c.send <- data:
+		default:
+			return
 		}
 	}
 }
@@ -482,15 +401,8 @@ var hub *wsHub
 func init() {
 	hub = newWSHub()
 	go hub.run()
-	go hub.pollLoop("index-health", 30*time.Second, renderIndexHealth, "#index-health")
-	go hub.pollLoop("health-bar", 5*time.Second, renderHealthBar, "#health-bar")
-	go hub.pollLoop("stats", 30*time.Second, renderStats, "#stats-cards")
-	go hub.pollLoop("recent", 30*time.Second, renderRecent, "#recent-queries")
-	go hub.pollLoop("symbol-chart", 30*time.Second, renderSymbolChart, "#symbol-chart")
-	go hub.pollLoop("language-chart", 30*time.Second, renderLanguageChart, "#lang-chart")
-	go hub.pollLoop("tool-chart", 30*time.Second, renderToolChart, "#tool-chart")
-	go hub.pollLoop("import-chart", 30*time.Second, renderImportChart, "#import-chart")
-	go hub.pollLoop("settings", 30*time.Second, renderSettings, "#settings-content")
+	initRealtimeBridge()
+	initQueryLogBridge()
 }
 
 func handleToastWS(w http.ResponseWriter, r *http.Request) {

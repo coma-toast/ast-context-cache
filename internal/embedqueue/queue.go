@@ -9,6 +9,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 // ring buffer for throughput (last 5 seconds, 10 slots @ 500ms)
@@ -74,7 +75,10 @@ func worker() {
 
 func run(j job) {
 	atomic.AddInt64(&inFlight, 1)
-	defer atomic.AddInt64(&inFlight, -1)
+	defer func() {
+		atomic.AddInt64(&inFlight, -1)
+		realtime.Notify(realtime.EmbedFinished)
+	}()
 	if emb == nil {
 		return
 	}
@@ -151,12 +155,38 @@ func ThroughputLast5s() int64 {
 	return total
 }
 
+// QueueSnapshot is queue depth and worker state for dashboards.
+type QueueSnapshot struct {
+	Queued      int
+	HighUsed    int
+	LowUsed     int
+	HighCap     int
+	LowCap      int
+	Workers     int
+	InFlight    int64
+	Completed   int64
+	Throughput  int64
+}
+
+// Snapshot returns current queue and worker metrics.
+func Snapshot() QueueSnapshot {
+	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: workers}
+	s.InFlight = atomic.LoadInt64(&inFlight)
+	s.Completed = atomic.LoadInt64(&completed)
+	s.Throughput = ThroughputLast5s()
+	if highCh == nil {
+		return s
+	}
+	s.HighUsed = len(highCh)
+	s.LowUsed = len(lowCh)
+	s.Queued = s.HighUsed + s.LowUsed
+	return s
+}
+
 // Stats returns queued jobs, active workers, total workers, completed, and throughput.
 func Stats() (queued int, active int64, totalWorkers int, completed int64, throughput int64) {
-	if highCh == nil {
-		return 0, atomic.LoadInt64(&inFlight), workers, atomic.LoadInt64(&completed), 0
-	}
-	return len(highCh) + len(lowCh), atomic.LoadInt64(&inFlight), workers, atomic.LoadInt64(&completed), ThroughputLast5s()
+	s := Snapshot()
+	return s.Queued, s.InFlight, s.Workers, s.Completed, s.Throughput
 }
 
 func recordActivity(file string) {

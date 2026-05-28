@@ -31,6 +31,16 @@ type SettingsData struct {
 	LogRetentionMaxTotalMB  int
 	LogRetentionDryRun      bool
 	LogRetentionLastRun     string
+	EmbedBackend            string
+	EmbedModelDir           string
+	EmbedHTTPURL            string
+	EmbedHTTPBearer         string
+	EmbedOllamaHost         string
+	EmbedOllamaModel        string
+	EmbedOpenAIBaseURL      string
+	EmbedOpenAIAPIKey       string
+	EmbedOpenAIModel        string
+	EmbedOpenAIDimensions   string
 	Projects                []Project
 	Agents                  []AgentInfo
 	DocSources              []DocSource
@@ -46,6 +56,80 @@ templ Settings(data SettingsData) {
 				hx-vals='{"key":"idle_unload_minutes"}' hx-include="this"
 				name="value"/>
 			<span class="perf-hint">Embedder model, vector cache, and file watchers are unloaded after this many minutes of inactivity. Set to 0 to keep loaded.</span>
+		</div>
+	</div>
+
+	<div class="section">
+		<div class="section-title">Embedding backend</div>
+		<p class="perf-hint" style="margin-bottom:12px">
+			Values are stored in the local database under the <span class="mono">same names as environment variables</span>.
+			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
+			<strong>Restart ast-mcp</strong> after changing anything here so the embedder reloads.
+		</p>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+			<label for="embedBackend">EMBED_BACKEND</label>
+			<input type="hidden" name="key" value="EMBED_BACKEND"/>
+			<select id="embedBackend" class="perf-input" name="value">
+				<option value="onnx" if data.EmbedBackend == "" || data.EmbedBackend == "onnx" { selected }>onnx (local default)</option>
+				<option value="ollama" if data.EmbedBackend == "ollama" { selected }>ollama</option>
+				<option value="http" if data.EmbedBackend == "http" { selected }>http (ast JSON /embed)</option>
+				<option value="openai" if data.EmbedBackend == "openai" { selected }>openai (OpenAI / LiteLLM)</option>
+				<option value="litellm" if data.EmbedBackend == "litellm" { selected }>litellm (same as openai)</option>
+			</select>
+		</form>
+		<div class="perf-setting">
+			<label for="embedModelDir">MODEL_DIR (optional)</label>
+			<input type="text" id="embedModelDir" class="perf-input" style="width:100%" name="value" value={ data.EmbedModelDir }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"MODEL_DIR"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedHttpURL">EMBED_HTTP_URL</label>
+			<input type="text" id="embedHttpURL" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedHTTPURL }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_HTTP_URL"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedHttpBearer">EMBED_HTTP_BEARER</label>
+			<input type="text" id="embedHttpBearer" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedHTTPBearer }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_HTTP_BEARER"}' hx-include="this" autocomplete="off"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedOllamaHost">OLLAMA_HOST</label>
+			<input type="text" id="embedOllamaHost" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOllamaHost }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"OLLAMA_HOST"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedOllamaModel">OLLAMA_EMBED_MODEL</label>
+			<input type="text" id="embedOllamaModel" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOllamaModel }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"OLLAMA_EMBED_MODEL"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedOpenAIBase">EMBED_OPENAI_BASE_URL</label>
+			<input type="text" id="embedOpenAIBase" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIBaseURL }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_OPENAI_BASE_URL"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedOpenAIKey">EMBED_OPENAI_API_KEY</label>
+			<input type="text" id="embedOpenAIKey" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIAPIKey }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_OPENAI_API_KEY"}' hx-include="this" autocomplete="off"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedOpenAIModel">EMBED_OPENAI_MODEL</label>
+			<input type="text" id="embedOpenAIModel" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIModel }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_OPENAI_MODEL"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting">
+			<label for="embedOpenAIDim">EMBED_OPENAI_DIMENSIONS (empty DB = 768; 0 = omit field)</label>
+			<input type="text" id="embedOpenAIDim" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIDimensions }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_OPENAI_DIMENSIONS"}' hx-include="this"/>
 		</div>
 	</div>
 

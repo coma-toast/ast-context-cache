@@ -2,19 +2,58 @@
 
 ## Running the MCP server
 
-Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that can supervise `ast-mcp` and merge MCP JSON, see [mcp-local](https://github.com/coma-toast/mcp-local) and that repository’s documentation.
+Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that supervises `ast-mcp`, registers Cursor/OpenCode/Claude, and manages `~/.astcache/tools.json`, see [mcp-local](https://github.com/coma-toast/mcp-local) — agent workflows: [mcp-local/AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
+
+## Tool tiers (server policy)
+
+The host sets which MCP tools exist via **`AST_MCP_TIER`** (`core` | `extended` | `complete`) and optional **`~/.astcache/tools.json`** per-tool `enabled` / `tier` overrides (`AST_MCP_TOOLS_CONFIG` for path). **`AST_MCP_CODE_MODE=false`** disables `execute_code`. Config is read at **ast-mcp startup** only.
+
+Agents see only `tools/list` results—they cannot negotiate tier over MCP. If `index_files` or `execute_code` is missing, ask the user to raise tier or adjust `tools.json` and restart. Full tables and examples: [README.md](README.md#tool-tiers-and-per-tool-overrides), [skills/tools.json.example](skills/tools.json.example).
 
 ## Skills / Ready-Made Agent Instructions
 
-The `skills/` directory in this repo contains copy-paste-ready agent instruction blocks and editor configs:
+### Cursor (discoverable)
+
+Project skills under [`.cursor/skills/`](.cursor/skills/) load when the task matches their description:
+
+| Skill | When it applies |
+|-------|-----------------|
+| `ast-context-cache-usage` | MCP search, RAG, modes, filters |
+| `ast-context-cache-install` | Install, MCP config, tool tiers |
+| `ast-context-cache-rebuild` | Rebuild or restart ast-mcp after code changes |
+| `ast-context-cache-operator` | Embeddings, dashboard settings, logs |
+
+See [skills/README.md](skills/README.md) for syncing from portable sources.
+
+### Other editors (portable)
+
+The `skills/` directory has copy-paste blocks and MCP JSON:
 
 | Skill | Contents |
 |-------|----------|
-| `skills/agents/SKILL.md` | MCP config snippets for OpenCode, Cursor, Claude, VS Code, JetBrains + `AGENTS.md`/`CLAUDE.md` blocks to paste into your project |
-| `skills/install/SKILL.md` | Step-by-step install guide for agents helping users set up ast-context-cache |
-| `skills/usage/SKILL.md` | Tool selection guide, RAG retrieval examples, token optimization tips |
+| `skills/agents/SKILL.md` | MCP config for OpenCode, Cursor, Claude, VS Code, JetBrains |
+| `skills/install/SKILL.md` | Install and troubleshoot |
+| `skills/usage/SKILL.md` | Tool selection, RAG, token tips |
+| `skills/operator/SKILL.md` | Embeddings, dashboard, log retention |
 
-To import a skill into your agent session, read `skills/<name>/SKILL.md` from the repo root and follow the instructions inside.
+Read `skills/<name>/SKILL.md` when not using Cursor project skills.
+
+## Standard agent workflow
+
+Use MCP in this order for unfamiliar code (generate a stable **`session_id`** per conversation):
+
+1. **`index_status`** — `project_path` must be the **absolute** repo root.
+2. **`index_files`** — if unindexed (extended tier); starts watcher + embed queue.
+3. **`get_project_map`** — `depth=2` (~200 tokens).
+4. **`get_context_capsule`** — `mode=auto` (default), `session_id`, `token_budget` (default 4000).
+5. **`get_file_context`** — **`mode=skeleton`** (default); use `full` only when implementing.
+6. **`search_semantic`** — natural-language / intent; pass `session_id`, `token_budget`.
+7. **`get_impact_graph`** — before changing exported symbols.
+8. **`retrieve`** — single-shot RAG (code ± docs); `session_id`, filters as needed.
+
+**Defaults:** `get_context_capsule` → `auto`; `get_file_context` → **`skeleton`**; `search_semantic` → `skeleton`. Do not read whole source files when MCP can return structured symbols.
+
+**Operators** (embeddings, dashboard, log retention): [skills/operator/SKILL.md](skills/operator/SKILL.md) — dashboard http://localhost:7830 (embed queue gauge; tool performance with CPU/latency).
 
 ## MCP Server Tools (Preferred)
 
@@ -35,12 +74,13 @@ When working with codebases that have an MCP server available, **always prefer M
 | Tool | Description |
 |------|-------------|
 | `get_context_capsule` | BM25+vector hybrid search. Modes: `full`, `skeleton`, `summary`, `auto`. |
-| `search_semantic` | Semantic search by meaning using vector embeddings. |
-| `get_file_context` | All symbols in a file with mode-aware output. Use instead of reading files. |
+| `search_semantic` | Semantic search by meaning using vector embeddings. Optional `doc_type` (e.g. `code`, `doc`). |
+| `get_file_context` | All symbols in a file; **default `skeleton`**. Use instead of reading files; pass `session_id`, `token_budget`. |
 | `get_project_map` | Project structure overview (depth 1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Blast radius of a symbol -- files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `list_doc_sources` | List all tracked documentation sources (read-only). |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). Supports `markdown`, `xml`, `json` output. |
 
 #### Extended
@@ -55,7 +95,6 @@ When working with codebases that have an MCP server available, **always prefer M
 | `import_bundle` | Import a previously exported bundle without re-indexing. |
 | `add_doc_source` | Add a documentation URL to track and cache (markdown, html, json). |
 | `remove_doc_source` | Remove a tracked documentation source. |
-| `list_doc_sources` | List all tracked documentation sources. |
 | `update_doc_source` | Manually refresh a documentation source. |
 
 #### Complete
@@ -68,22 +107,23 @@ When working with codebases that have an MCP server available, **always prefer M
 
 | Mode | Use Case | Token Savings |
 |------|----------|---------------|
-| `auto` (default) | Most searches - full source for top 3, skeleton for rest | ~80% |
-| `skeleton` | Exploration, understanding structure | ~90% |
+| `auto` | **`get_context_capsule` default** — full for top hits, skeleton for rest | ~80% |
+| `skeleton` | **`get_file_context` / `search_semantic` default** — exploration | ~90% |
 | `summary` | High-level overviews (requires cache_summary first) | ~94% |
 | `full` | Only when you need complete implementation details | 0% |
 
 ### Best Practices
 
-1. **Use session_id** - Prevents re-sending files you've already seen
+1. **Use session_id** - On `get_context_capsule`, `search_semantic`, `retrieve`, and `get_file_context` to skip symbols already returned
 2. **Set token_budget** - Default 4000, adjust based on need
 3. **Use get_project_map first** - ~200 tokens for full project overview
-4. **Use get_file_context over read** - Returns structured, mode-aware results
+4. **Use get_file_context over read** - Default **`skeleton`**; only use `full` when editing implementation
 5. **Cache summaries** - Call cache_summary after understanding key files
 6. **Use search_docs** - For library/framework documentation questions
-7. **Optional filters** - On `get_context_capsule`, `search_semantic`, and `retrieve`, pass `path_prefix`, `language`, and/or `kinds` / `kind` to narrow results to a subtree or language
-8. **Pipeline stats** - `get_context_capsule` returns `pipeline` counts; `retrieve` stats include hybrid-stage counts and timings (see README / CLAUDE.md)
-9. **Indexing load** - Embeddings go through a bounded **queue** with workers (dashboard: embed queue / active). **Pin** heavy projects in Settings for priority embedding, no idle watcher stop, and warmer vector unload behavior
+7. **Optional filters** - On `get_context_capsule`, `search_semantic`, and `retrieve`, pass `path_prefix`, `language`, `kinds` / `kind`, and on `search_semantic` optional `doc_type` to narrow results
+8. **Supported languages** - Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML (see README for full list)
+9. **Pipeline stats** - `get_context_capsule` returns `pipeline` counts; `retrieve` stats include hybrid-stage counts and timings (see README / CLAUDE.md)
+10. **Indexing load** - Embeddings go through a bounded **queue** with workers (dashboard: embed queue / active). **Pin** heavy projects in Settings for priority embedding, no idle watcher stop, and warmer vector unload behavior
 
 ### Documentation Tools
 

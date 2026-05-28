@@ -17,7 +17,7 @@ type yamlSymbol struct {
 	EndLine   int
 }
 
-func indexYAMLTree(root *sitter.Node, content []byte, lines []string, filePath, projectPath string) (int, int, int, error) {
+func indexYAMLTree(exec db.Execer, root *sitter.Node, content []byte, lines []string, filePath, projectPath string) (int, int, int, error) {
 	doc := findDocumentNode(root)
 	if doc == nil {
 		return 0, 0, 0, nil
@@ -42,7 +42,7 @@ func indexYAMLTree(root *sitter.Node, content []byte, lines []string, filePath, 
 
 	imports := extractYAMLImports(blockNode, content)
 	for _, imp := range imports {
-		db.DB.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
+		exec.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
 			filePath, imp, projectPath)
 	}
 
@@ -64,13 +64,15 @@ func indexYAMLTree(root *sitter.Node, content []byte, lines []string, filePath, 
 			skeleton = ExtractSkeleton(src, "yaml", sym.Kind)
 			skeletonTokens += db.EstimateTokens(skeleton)
 		}
-		_, err := db.DB.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		_, err := exec.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			sym.Name, sym.Kind, filePath, sym.StartLine, sym.EndLine, code, fqn, projectPath, skeleton)
 		if err == nil {
 			count++
 		}
 	}
-	db.UpsertIndexedFile(filePath, projectPath, time.Now())
+	if err := db.UpsertIndexedFileWith(exec, filePath, projectPath, time.Now()); err != nil {
+		return count, fullTokens, skeletonTokens, err
+	}
 	return count, fullTokens, skeletonTokens, nil
 }
 

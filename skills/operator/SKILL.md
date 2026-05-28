@@ -1,0 +1,85 @@
+# ast-context-cache Operator Skill
+
+## When to Use
+
+When configuring or operating the ast-mcp server (not day-to-day MCP search). Use when the user asks about:
+- Embedding backends (ONNX, Ollama, HTTP, OpenAI/LiteLLM)
+- Dashboard UI (port 7830)
+- Log file indexing or retention
+- Watcher ignore globs, pause/start/delete watchers
+- Health checks or server restart after config changes
+
+For MCP search workflows, point agents to [usage/SKILL.md](../usage/SKILL.md).
+
+## Embedding backends
+
+Vectors must stay **768-dimensional** L2-normalized to match the index. Changing model or dimension requires re-index or clearing vectors.
+
+| `EMBED_BACKEND` | Use case | Main env vars |
+|-----------------|----------|---------------|
+| `onnx` (default) | Local; `make setup` downloads model + tokenizer | `MODEL_DIR` |
+| `ollama` | Ollama with 768-d model (e.g. `nomic-embed-text`) | `OLLAMA_HOST`, `OLLAMA_EMBED_MODEL` |
+| `http` | Custom `POST` JSON embed service | `EMBED_HTTP_URL`, `EMBED_HTTP_BEARER` |
+| `openai` / `litellm` | OpenAI-compatible `POST /v1/embeddings` | `EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_MODEL`, `EMBED_OPENAI_API_KEY`, `EMBED_OPENAI_DIMENSIONS` |
+
+- **Process env** must export these vars for whatever starts `ast-mcp`.
+- **Dashboard → Settings:** same keys saved to `~/.astcache/usage.db`; **non-empty env always overrides** SQLite.
+- **Restart ast-mcp** after changing embedding settings.
+- Confirm: `GET http://localhost:7821/health` and `GET /embed/health`.
+
+See [README — Embedding backends](../../README.md#embedding-backends).
+
+## Dashboard (http://localhost:7830)
+
+Open after `make run` or `ast-mcp dash`. Panels update automatically when queries run or indexing changes.
+
+### Header
+
+| Element | Meaning |
+|---------|---------|
+| Health bar (center) | Embedder state, **queue** mini-gauge, throughput, cache hit %, heap, uptime |
+| Project dropdown | Filters stats, charts, index health, and recent **MCP** activity to one repo |
+| Settings (gear) | Embedding backend, ignore globs, log indexing, log retention, pin/unpin, doc sources |
+
+### Sections (top to bottom)
+
+| Section | What it shows |
+|---------|----------------|
+| **Query activity** | MCP query counts, tokens saved (today bar), avg duration, sessions |
+| **Index & runtime** | Corpus scale bars; **embed queue** ring gauge + priority/background bars + worker dots; vectors; watchers (pause/start/delete); disk/memory (server-wide) |
+| **Activity** | Time series (daily/hourly, queries vs tokens saved) |
+| **Symbol / language / tool / imports** | **Tool performance** table + charts (calls, **CPU**, avg latency, tokens saved); Top imports |
+| **Recent activity** | Collapsible **MCP tool calls** vs **Indexing activity** (fsnotify reindex/delete) |
+
+### Settings (operators)
+
+- **Pin project** — priority embedding queue, watchers stay warm longer, slower vector unload when idle
+- **Watcher ignore globs** — JSON array; applied after `IsCodeFile`
+- **Index .log / .txt** — FTS/BM25 only, no embeddings
+- **Log retention** — optional `.log` cleanup under absolute roots (dry-run first)
+- **Embedding backend** — persists env-equivalent keys (env wins on restart)
+
+### Helping users interpret gauges
+
+- **Embed queue ring** — fill vs combined capacity (priority 128 + background 2048). Green → orange → red as backlog grows.
+- **Pinned projects** — use when one repo should index faster under load.
+
+MCP coding agents normally use MCP tools only; mention the dashboard when the user asks about indexing progress, embeddings, or server health.
+
+## Shell helper
+
+After `make install`:
+
+```bash
+ast-mcp start|stop|restart|status|health|log|build|dash
+```
+
+## Rebuild after source changes
+
+```bash
+make build && ast-mcp restart
+```
+
+Cursor: skill `ast-context-cache-rebuild` in `.cursor/skills/ast-rebuild/`.
+
+Full detail: [README](../../README.md).

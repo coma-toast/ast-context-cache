@@ -1,5 +1,21 @@
+const projectFilteredTargets = new Set([
+    '#stats-cards',
+    '#index-health',
+    '#recent-queries',
+    '#symbol-chart',
+    '#lang-chart',
+    '#tool-chart',
+    '#import-chart',
+]);
+
+function projectFilterActive() {
+    const select = document.querySelector('.project-select');
+    return !!(select && select.value);
+}
+
 document.addEventListener('alpine:init', () => {
-    const ws = new WebSocket(`ws://${location.host}/ws`);
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
 
     ws.onmessage = (event) => {
         try {
@@ -34,11 +50,15 @@ document.addEventListener('alpine:init', () => {
                     }
                 }
             } else if (msg.type === 'partial') {
-                const target = document.querySelector(msg.data.target);
+                const targetSel = msg.data.target;
+                if (projectFilterActive() && projectFilteredTargets.has(targetSel)) {
+                    return;
+                }
+                const target = document.querySelector(targetSel);
                 if (target) {
                     target.innerHTML = msg.data.html;
-                    // Re-initialize Alpine.js on the updated content
                     Alpine.flushSync();
+                    window.dispatchEvent(new CustomEvent('dashboard-ws-partial'));
                 }
             }
         } catch (e) {
@@ -47,13 +67,10 @@ document.addEventListener('alpine:init', () => {
     };
 
     ws.onclose = () => {
-        console.log('WebSocket closed, reconnecting in 3s...');
         setTimeout(() => location.reload(), 3000);
     };
 
-    ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
-    };
+    ws.onerror = () => {};
 
     Alpine.store('chart', {
         interval: 'daily',
@@ -64,46 +81,43 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('dashboard', () => ({
         selectedProject: '',
         settingsOpen: false,
-        refreshing: false,
-        progressing: true,
 
-        init() {
-            this.startProgressBar();
+        projectLabel() {
+            if (!this.selectedProject) return '';
+            const parts = this.selectedProject.split('/');
+            return parts[parts.length - 1] || this.selectedProject;
         },
 
-        async refresh() {
-            this.refreshing = true;
-            htmx.trigger(document.body, 'refresh');
-            setTimeout(() => {
-                this.refreshing = false;
-                this.resetProgressBar();
-            }, 1000);
+        async openSettings() {
+            this.settingsOpen = true;
+            const el = document.getElementById('settings-content');
+            if (!el) return;
+            const needsLoad = !el.querySelector('.section') && !el.querySelector('.project-list');
+            if (needsLoad) {
+                const r = await fetch('/partials/settings');
+                if (r.ok) el.innerHTML = await r.text();
+            }
         },
 
-        startProgressBar() {
-            this.progressing = false;
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    this.progressing = true;
-                });
-            });
-            this._progressInterval = setInterval(() => {
-                this.progressing = false;
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        this.progressing = true;
-                    });
-                });
-            }, 30000);
-        },
-
-        resetProgressBar() {
-            this.progressing = false;
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    this.progressing = true;
-                });
-            });
+        async applyProjectFilter() {
+            const project = this.selectedProject;
+            const q = project ? `?project_id=${encodeURIComponent(project)}` : '';
+            const panels = [
+                ['#stats-cards', '/partials/stats'],
+                ['#index-health', '/partials/index-health'],
+                ['#recent-queries', '/partials/recent'],
+                ['#symbol-chart', '/partials/charts/symbols'],
+                ['#lang-chart', '/partials/charts/languages'],
+                ['#tool-chart', '/partials/charts/tools'],
+                ['#import-chart', '/partials/charts/imports'],
+            ];
+            await Promise.all(panels.map(async ([sel, path]) => {
+                const el = document.querySelector(sel);
+                if (!el) return;
+                const r = await fetch(path + q);
+                if (r.ok) el.innerHTML = await r.text();
+            }));
+            window.dispatchEvent(new CustomEvent('dashboard-project-change'));
         }
     }));
 
@@ -114,6 +128,15 @@ document.addEventListener('alpine:init', () => {
             this.$watch('$store.chart.interval', () => this.loadAndDraw());
             this.$watch('$store.chart.metric', () => this.loadAndDraw());
             window.addEventListener('resize', () => this.draw());
+            this._chartDebounce = null;
+            this._onWsPartial = () => {
+                if (this._chartDebounce) clearTimeout(this._chartDebounce);
+                this._chartDebounce = setTimeout(() => this.loadAndDraw(), 400);
+            };
+            window.addEventListener('dashboard-ws-partial', this._onWsPartial);
+            this._onProjectChange = () => this.loadAndDraw();
+            window.addEventListener('dashboard-project-change', this._onProjectChange);
+            this.loadAndDraw();
         },
 
         handleData(event) {
@@ -129,7 +152,11 @@ document.addEventListener('alpine:init', () => {
             try {
                 const interval = Alpine.store('chart').interval;
                 const metric = Alpine.store('chart').metric;
-                const r = await fetch(`/api/timeseries?interval=${interval}&days=30`);
+                const projectSelect = document.querySelector('.project-select');
+                const project = projectSelect && projectSelect.value ? projectSelect.value : '';
+                const sep = project ? '&' : '';
+                const projParam = project ? `project_id=${encodeURIComponent(project)}` : '';
+                const r = await fetch(`/api/timeseries?interval=${interval}&days=30${sep}${projParam}`);
                 this.chartData = await r.json();
                 this.draw();
             } catch (e) {}

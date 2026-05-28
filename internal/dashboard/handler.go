@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
@@ -17,8 +18,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
-	"github.com/coma-toast/ast-context-cache/internal/search"
-	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
 var serverStartTime = time.Now()
@@ -41,15 +40,14 @@ func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 	s := components.Stats{}
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
 	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+" FROM queries WHERE project_path = ?", pid).
-			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved)
+		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+", "+dedupTokensSum+", "+savingsVsFilesSum+" FROM queries WHERE project_path = ?", pid).
+			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ? AND project_path = ?", todayStart, tomorrowStart, pid).
 			Scan(&s.TodayQueries, &s.TodayTokens)
 	} else {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+" FROM queries").
-			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved)
+		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+", "+dedupTokensSum+", "+savingsVsFilesSum+" FROM queries").
+			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
 			Scan(&s.TodayQueries, &s.TodayTokens)
 	}
@@ -67,7 +65,7 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 
 	state, lastUse := mcp.EmbedderState()
 
-	q, _, workers, _, throughput := embedqueue.Stats()
+	eq := embedqueue.Snapshot()
 
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -78,9 +76,11 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 	h := components.Health{
 		EmbedderState:    state,
 		EmbedderLast:    lastUse,
-		QueueWorkers:   workers,
-		QueueThroughput: throughput,
-		QueueQueued:   q,
+		QueueWorkers:   eq.Workers,
+		QueueThroughput: eq.Throughput,
+		QueueQueued:     eq.Queued,
+		QueueHighCap:    eq.HighCap,
+		QueueLowCap:     eq.LowCap,
 		CacheHitRatio: cacheHit,
 		HeapMB:         heapMB,
 		Uptime:        time.Since(serverStartTime),
@@ -90,60 +90,7 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIndexHealthPartial(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
-	h := components.IndexHealth{}
-	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&h.TotalEdges)
-	} else {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&h.TotalEdges)
-	}
-	h.TotalVectors = search.Cache.Count(pid)
-	h.VectorMemMB = search.Cache.MemoryMB()
-
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-	h.MemoryMB = float64(memStats.Alloc) / (1024 * 1024)
-
-	dbPath := db.GetDBPath()
-	if fi, err := os.Stat(dbPath); err == nil {
-		diskBytes := fi.Size()
-		switch {
-		case diskBytes >= 1024*1024*1024:
-			h.DiskSize = fmt.Sprintf("%.2f GB", float64(diskBytes)/(1024*1024*1024))
-		case diskBytes >= 1024*1024:
-			h.DiskSize = fmt.Sprintf("%.1f MB", float64(diskBytes)/(1024*1024))
-		case diskBytes >= 1024:
-			h.DiskSize = fmt.Sprintf("%d KB", diskBytes/1024)
-		default:
-			h.DiskSize = fmt.Sprintf("%d B", diskBytes)
-		}
-	} else {
-		h.DiskSize = "-"
-	}
-
-	ws := watcher.GetStatus()
-	if watchers, ok := ws["watchers"].([]map[string]interface{}); ok {
-		for _, w := range watchers {
-			pp, _ := w["project_path"].(string)
-			active, _ := w["active"].(bool)
-			name := filepath.Base(pp)
-			h.Watchers = append(h.Watchers, components.WatcherInfo{
-				ProjectPath: pp,
-				Name:        name,
-				Active:      active,
-			})
-		}
-	}
-	q, activeEmb, workers, completed, throughput := embedqueue.Stats()
-	h.EmbedQueued = q
-	h.EmbedActive = int(activeEmb)
-	h.EmbedWorkers = workers
-	h.EmbedComplete = completed
-	h.EmbedThroughput = throughput
-	h.PinnedCount = db.PinnedProjectCount()
-	components.IndexHealthCards(h).Render(r.Context(), w)
+	components.IndexHealthCards(buildIndexHealth(r.URL.Query().Get("project_id"))).Render(r.Context(), w)
 }
 
 func handleActivityDataPartial(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +116,6 @@ func handleActivityDataPartial(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	var err error
-	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
 	if pid != "" {
 		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
 			FROM queries WHERE project_path = ? AND timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, pid, days)
@@ -257,26 +203,7 @@ func handleLanguageChartPartial(w http.ResponseWriter, r *http.Request) {
 
 func handleToolChartPartial(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
-	var rows *sql.Rows
-	var err error
-	if pid != "" {
-		rows, err = db.DB.Query("SELECT tool_name, COUNT(*) FROM queries WHERE project_path = ? GROUP BY tool_name ORDER BY COUNT(*) DESC", pid)
-	} else {
-		rows, err = db.DB.Query("SELECT tool_name, COUNT(*) FROM queries GROUP BY tool_name ORDER BY COUNT(*) DESC")
-	}
-	if err != nil {
-		components.BarChart(nil, 1).Render(r.Context(), w)
-		return
-	}
-	defer rows.Close()
-	var items []components.BarItem
-	for rows.Next() {
-		var name string
-		var count int
-		rows.Scan(&name, &count)
-		items = append(items, components.BarItem{Label: name, Value: count})
-	}
-	components.BarChart(items, 1).Render(r.Context(), w)
+	components.ToolPerformancePanel(queryToolStats(pid)).Render(r.Context(), w)
 }
 
 func handleImportChartPartial(w http.ResponseWriter, r *http.Request) {
@@ -311,64 +238,8 @@ func handleRecentPartial(w http.ResponseWriter, r *http.Request) {
 			lim = parsed
 		}
 	}
-	if lim > 500 {
-		lim = 500
-	}
-	var rows *sql.Rows
-	var err error
-	if pid != "" {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?", pid, lim)
-	} else {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries ORDER BY timestamp DESC LIMIT ?", lim)
-	}
-	if err != nil {
-		components.RecentTable(nil).Render(r.Context(), w)
-		return
-	}
-	defer rows.Close()
-	var queries []components.RecentQuery
-	for rows.Next() {
-		var ts, toolName, pp, errMsg, argsJSON string
-		var rc, saved, fileBaseline int
-		var dm float64
-		rows.Scan(&ts, &toolName, &rc, &dm, &pp, &errMsg, &argsJSON, &saved, &fileBaseline)
-
-		q := components.RecentQuery{
-			ToolName:   toolName,
-			Project:    pp,
-			DurationMs: dm,
-			Error:      errMsg,
-			Saved:      saved,
-		}
-
-		t, _ := time.Parse("2006-01-02T15:04:05Z07:00", ts)
-		if t.IsZero() {
-			t, _ = time.Parse("2006-01-02 15:04:05", ts)
-		}
-		if !t.IsZero() {
-			q.Timestamp = t.Format("Jan 2 15:04:05")
-		} else {
-			q.Timestamp = ts
-		}
-
-		var parsed map[string]interface{}
-		if json.Unmarshal([]byte(argsJSON), &parsed) == nil {
-			if a, ok := parsed["arguments"].(map[string]interface{}); ok {
-				parsed = a
-			}
-			if queryStr, ok := parsed["query"].(string); ok {
-				q.Query = queryStr
-			}
-			if m, ok := parsed["mode"].(string); ok && m != "" {
-				q.Mode = m
-			}
-			if tb, ok := parsed["token_budget"].(float64); ok && tb > 0 {
-				q.Budget = int(tb)
-			}
-		}
-		queries = append(queries, q)
-	}
-	components.RecentTable(queries).Render(r.Context(), w)
+	mcp, indexing := buildRecentQueries(pid, lim)
+	components.RecentPanel(mcp, indexing).Render(r.Context(), w)
 }
 
 func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
@@ -462,6 +333,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		Agents:                  agents,
 		DocSources:              docSources,
 	}
+	PopulateEmbedSettings(settings, &data)
 	components.Settings(data).Render(r.Context(), w)
 }
 
@@ -486,11 +358,13 @@ func loadProjects(pid string) []components.Project {
 		return nil
 	}
 	defer rows.Close()
+	seen := map[string]bool{}
 	var ps []components.Project
 	for rows.Next() {
 		var p string
 		var c int
 		rows.Scan(&p, &c)
+		seen[p] = true
 		sc := symCounts[p]
 		ps = append(ps, components.Project{
 			Path:        p,
@@ -501,5 +375,24 @@ func loadProjects(pid string) []components.Project {
 			Pinned:      db.IsPinnedProject(p),
 		})
 	}
+	for pp, sc := range symCounts {
+		if seen[pp] {
+			continue
+		}
+		ps = append(ps, components.Project{
+			Path:        pp,
+			Name:        filepath.Base(pp),
+			SymbolCount: sc.symbols,
+			FileCount:   sc.files,
+			Pinned:      db.IsPinnedProject(pp),
+		})
+	}
+	sort.Slice(ps, func(i, j int) bool {
+		ni, nj := strings.ToLower(ps[i].Name), strings.ToLower(ps[j].Name)
+		if ni != nj {
+			return ni < nj
+		}
+		return ps[i].Path < ps[j].Path
+	})
 	return ps
 }

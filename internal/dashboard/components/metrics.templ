@@ -1,0 +1,109 @@
+package components
+
+import "fmt"
+
+templ RingGauge(value string, caption string, used int, cap int) {
+	<div class={ "ring-gauge", "ring-" + gaugeLevel(pct(used, cap)) } style={ ringStyle(used, cap) }>
+		<div class="ring-gauge-inner">
+			<span class="ring-gauge-value">{ value }</span>
+			<span class="ring-gauge-caption">{ caption }</span>
+		</div>
+	</div>
+}
+
+templ ChannelBar(label string, used int, cap int, color string) {
+	<div class="channel-bar">
+		<div class="channel-bar-head">
+			<span class="channel-bar-label">{ label }</span>
+			<span class="channel-bar-nums">{ fmtInt(used) } / { fmtInt(cap) }</span>
+		</div>
+		<div class="channel-bar-track">
+			<div class={ "channel-bar-fill", "level-" + gaugeLevel(pct(used, cap)) } style={ fillStyle(used, cap, color) }></div>
+		</div>
+	</div>
+}
+
+templ WorkerStrip(active int, total int) {
+	<div class="worker-strip" title={ fmt.Sprintf("%d of %d workers busy", active, total) }>
+		for i := 0; i < total; i++ {
+			if i < active {
+				<span class="worker-pill busy"></span>
+			} else {
+				<span class="worker-pill idle"></span>
+			}
+		}
+	</div>
+}
+
+templ EmbedQueueCard(h IndexHealth) {
+	<div class="card metric-card metric-card-wide">
+		<div class="card-title">Embed queue</div>
+		<div class="metric-split">
+			@RingGauge(fmtInt(h.EmbedQueued), "queued", h.EmbedQueued, h.queueTotalCap())
+			<div class="metric-stack">
+				@ChannelBar("Priority", h.EmbedHighQueued, h.EmbedHighCap, "#58a6ff")
+				@ChannelBar("Background", h.EmbedLowQueued, h.EmbedLowCap, "#bc8cff")
+				<div class="metric-row">
+					<span class="metric-row-label">Workers</span>
+					@WorkerStrip(h.EmbedActive, h.EmbedWorkers)
+					<span class="metric-row-value">{ fmt.Sprintf("%d active", h.EmbedActive) }</span>
+				</div>
+				<div class="metric-row">
+					<span class="metric-row-label">Throughput</span>
+					<div class="channel-bar-track throughput-track">
+						<div class="channel-bar-fill level-ok" style={ throughputStyle(h.EmbedThroughput) }></div>
+					</div>
+					<span class="metric-row-value">{ fmt.Sprintf("%d/s", h.EmbedThroughput) }</span>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ StatMeter(title string, value string, sublabel string, fillPct float64, valueClass string) {
+	<div class="card metric-stat-card">
+		<div class="card-title">{ title }</div>
+		<div class={ "stat-value", valueClass }>{ value }</div>
+		<div class="stat-meter-track">
+			<div class={ "stat-meter-fill", "level-" + gaugeLevel(fillPct) } style={ fmt.Sprintf("width:%.1f%%", fillPct) }></div>
+		</div>
+		if sublabel != "" {
+			<div class="stat-label">{ sublabel }</div>
+		}
+	</div>
+}
+
+templ CorpusBarChart(symbols int, files int, edges int) {
+	<div class="card metric-card metric-card-wide corpus-bars">
+		<div class="card-title">Corpus scale</div>
+		<div class="corpus-bar-list">
+			@corpusBarRow("Symbols", symbols, max3(symbols, files, edges), "stat-accent")
+			@corpusBarRow("Files", files, max3(symbols, files, edges), "stat-green")
+			@corpusBarRow("Edges", edges, max3(symbols, files, edges), "stat-orange")
+		</div>
+	</div>
+}
+
+templ corpusBarRow(label string, value int, max int, colorClass string) {
+	<div class="corpus-bar-row">
+		<span class="corpus-bar-label">{ label }</span>
+		<div class="channel-bar-track">
+			<div class={ "channel-bar-fill level-ok", colorClass } style={ fmt.Sprintf("width:%.1f%%", pct(value, max)) }></div>
+		</div>
+		<span class={ "corpus-bar-value", colorClass }>{ fmtInt(value) }</span>
+	</div>
+}
+
+func max3(a, b, c int) int {
+	m := a
+	if b > m {
+		m = b
+	}
+	if c > m {
+		m = c
+	}
+	if m == 0 {
+		return 1
+	}
+	return m
+}

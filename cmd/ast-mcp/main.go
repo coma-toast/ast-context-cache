@@ -70,7 +70,7 @@ func main() {
 		db.DB.Exec("DELETE FROM " + tbl + " WHERE project_path = '.'")
 	}
 
-	modelDir := os.Getenv("MODEL_DIR")
+	modelDir := strings.TrimSpace(embedder.EffectiveEnv("MODEL_DIR"))
 	if modelDir == "" {
 		modelDir = filepath.Join(exeDir, "model")
 	}

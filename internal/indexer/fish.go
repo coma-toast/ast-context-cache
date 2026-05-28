@@ -16,8 +16,17 @@ func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 		return 0, 0, 0, err
 	}
 
-	db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
+	if _, err = tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
 
 	lines := strings.Split(string(content), "\n")
 	count := 0
@@ -27,8 +36,10 @@ func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 		if strings.HasPrefix(trimmed, "source ") {
 			parts := strings.Fields(trimmed)
 			if len(parts) >= 2 {
-				db.DB.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
-					filePath, parts[1], projectPath)
+				if _, err := tx.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
+					filePath, parts[1], projectPath); err != nil {
+					return 0, 0, 0, err
+				}
 			}
 		}
 	}
@@ -77,12 +88,20 @@ func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 				funcStack = funcStack[:len(funcStack)-1]
 				code := strings.TrimSpace(lines[fs.line])
 				fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), fs.name)
-				db.DB.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-					fs.name, "function", filePath, fs.line+1, i+1, code, fqn, projectPath)
+				if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+					fs.name, "function", filePath, fs.line+1, i+1, code, fqn, projectPath); err != nil {
+					return 0, 0, 0, err
+				}
 				count++
 			}
 		}
 	}
-	db.UpsertIndexedFile(filePath, projectPath, time.Now())
+	if err := db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now()); err != nil {
+		return 0, 0, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, 0, err
+	}
+	notifyIndexCommitted()
 	return count, 0, 0, nil
 }

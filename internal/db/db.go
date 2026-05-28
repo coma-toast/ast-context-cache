@@ -2,8 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -40,6 +38,8 @@ func Init() error {
 
 	DB.Exec(`PRAGMA journal_mode=WAL`)
 	DB.Exec(`PRAGMA busy_timeout=5000`)
+	DB.Exec(`PRAGMA synchronous=NORMAL`)
+	DB.Exec(`PRAGMA cache_size=-32000`)
 
 	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS queries (
@@ -78,6 +78,14 @@ func Init() error {
 	DB.Exec(`ALTER TABLE symbols ADD COLUMN skeleton TEXT`)
 	DB.Exec(`ALTER TABLE queries ADD COLUMN file_baseline_tokens INTEGER DEFAULT 0`)
 	DB.Exec(`ALTER TABLE queries ADD COLUMN full_baseline_tokens INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN cpu_ms REAL DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN tokens_used INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN symbol_baseline_tokens INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN dedup_tokens_saved INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN savings_vs_files INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN deduped_count INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN mode TEXT DEFAULT ''`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN cache_hit INTEGER DEFAULT 0`)
 
 	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS edges (
@@ -201,7 +209,7 @@ func Init() error {
 
 	EnsureFTSTriggers()
 	go DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-
+	StartWriteBatchers()
 	return nil
 }
 
@@ -281,11 +289,8 @@ func EnsureFTSTriggers() {
 	END`)
 }
 
-func LogQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens int, durationMs float64, projectPath, errMsg string) {
-	sessionID := fmt.Sprintf("session-%d", time.Now().Unix()/3600)
-	argsJSON, _ := json.Marshal(args)
-	DB.Exec("INSERT INTO queries (timestamp, tool_name, arguments, result_chars, input_tokens, output_tokens, tokens_saved, file_baseline_tokens, full_baseline_tokens, duration_ms, interface, session_id, error, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		time.Now().Format(time.RFC3339), toolName, string(argsJSON), resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens, durationMs, "http", sessionID, errMsg, projectPath)
+func LogQuery(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {
+	enqueueQueryLog(toolName, args, m, projectPath, errMsg)
 }
 
 func EstimateTokens(text string) int {
@@ -302,9 +307,15 @@ func RelPath(file, projectPath string) string {
 }
 
 func UpsertIndexedFile(file, projectPath string, indexedAt time.Time) {
-	DB.Exec(`INSERT INTO indexed_files (file, project_path, indexed_at) VALUES (?, ?, ?)
+	_ = UpsertIndexedFileWith(DB, file, projectPath, indexedAt)
+}
+
+// UpsertIndexedFileWith writes indexed_files using the given executor (e.g. within a transaction).
+func UpsertIndexedFileWith(e Execer, file, projectPath string, indexedAt time.Time) error {
+	_, err := e.Exec(`INSERT INTO indexed_files (file, project_path, indexed_at) VALUES (?, ?, ?)
 		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at`,
 		file, projectPath, indexedAt.Format(time.RFC3339))
+	return err
 }
 
 func GetIndexedFiles(projectPath string) map[string]time.Time {
@@ -329,12 +340,12 @@ func DeleteIndexedFile(file, projectPath string) {
 }
 
 func StartWALCheckpoint() {
-	walTicker := time.NewTicker(5 * time.Minute)
+	walTicker := time.NewTicker(10 * time.Minute)
 	vacuumTicker := time.NewTicker(24 * time.Hour)
 	for {
 		select {
 		case <-walTicker.C:
-			DB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+			DB.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
 		case <-vacuumTicker.C:
 			Compact()
 		}
