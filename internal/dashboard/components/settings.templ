@@ -87,8 +87,9 @@ templ Settings(data SettingsData) {
 		</div>
 		<p class="perf-hint" style="margin-bottom:12px">
 			Values are stored in the local database under the <span class="mono">same names as environment variables</span>.
+			<strong>Changes save automatically</strong> when you change a field (no Save button).
 			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
-			<strong>Restart ast-mcp</strong> after changing anything here so the embedder reloads.
+			<strong>Restart ast-mcp</strong> after changing anything here so the embedder reloads — the <strong>Running</strong> banner shows what this process loaded at startup, not what you just picked in the dropdown until you restart.
 		</p>
 		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none"
 			hx-on::after-request="htmx.ajax('GET', '/partials/settings', {target:'#settings-content', swap:'innerHTML'})">
@@ -104,7 +105,7 @@ templ Settings(data SettingsData) {
 			</select>
 		</form>
 		<p class="perf-hint" style="margin-top:8px">
-			<span class="mono">docker</span> backend: enable Docker Model Runner + TCP on port <span class="mono">12434</span>, then <span class="mono">docker model pull ai/qwen3-embedding</span>. See <span class="mono">docker/README.md</span>. Re-index after switching backends.
+			<span class="mono">docker</span> backend: point <span class="mono">EMBED_DOCKER_URL</span> at your Model Runner host (default <span class="mono">http://127.0.0.1:12434</span>), then <span class="mono">docker model pull ai/qwen3-embedding</span>. See <span class="mono">docker/README.md</span>. Re-index after switching backends.
 		</p>
 		<div class="perf-setting">
 			<label for="embedDockerURL">EMBED_DOCKER_URL</label>

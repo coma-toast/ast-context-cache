@@ -37,7 +37,7 @@ func ListDMRModels(rawURL string) ([]string, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("no models returned from %s (is Model Runner running on port 12434?)", host)
+	return nil, fmt.Errorf("no models returned from %s (is Model Runner running?)", host)
 }
 
 func listDMRModelsOpenAI(client *http.Client, base string) ([]string, error) {
