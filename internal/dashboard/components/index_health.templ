@@ -15,7 +15,8 @@ type IndexHealth struct {
 	DiskMB        float64
 	CPUPercent    float64
 	DiskSize      string
-	Watchers     []WatcherInfo
+	Watchers          []WatcherInfo
+	DocSources        []IndexDocSource
 	EmbedQueued      int
 	EmbedHighQueued  int
 	EmbedLowQueued   int
@@ -35,6 +36,15 @@ type WatcherInfo struct {
 	Active      bool
 }
 
+type IndexDocSource struct {
+	ID    int
+	Name  string
+	Type  string
+	URL   string
+	Age   string
+	Stale bool
+}
+
 templ IndexHealthCards(h IndexHealth) {
 	if h.FilteredProject != "" {
 		<div class="filter-banner">
@@ -46,11 +56,39 @@ templ IndexHealthCards(h IndexHealth) {
 		@EmbedPanel(h)
 		@CorpusBarChart(h.TotalSymbols, h.TotalFiles, h.TotalEdges)
 	</div>
-	@WatcherCard(h)
+	@WatchersAndDocsRow(h)
+}
+
+templ WatchersAndDocsRow(h IndexHealth) {
+	<div class="index-health-watchers-row">
+		@WatcherCard(h)
+		@DocSourcesCard(h)
+	</div>
+}
+
+templ DocSourcesCard(h IndexHealth) {
+	<div class="card watcher-card doc-sources-card">
+		<div class="card-title">Doc sources ({ fmtInt(len(h.DocSources)) })</div>
+		<div class="watcher-items doc-source-items">
+			if len(h.DocSources) == 0 {
+				<div class="watcher-empty">None cached</div>
+			} else {
+				for _, s := range h.DocSources {
+					<div class={ "doc-source-item", templ.KV("stale", s.Stale) } title={ s.URL }>
+						<span class="doc-source-name">{ s.Name }</span>
+						<span class="doc-source-meta">
+							<span class="badge badge-blue doc-source-type">{ s.Type }</span>
+							<span class={ "doc-source-age", templ.KV("stale", s.Stale) }>{ s.Age }</span>
+						</span>
+					</div>
+				}
+			}
+		</div>
+	</div>
 }
 
 templ WatcherCard(h IndexHealth) {
-	<div class="card watcher-card index-health-watchers">
+	<div class="card watcher-card">
 		<div class="card-title">File watchers ({ fmtInt(h.WatcherActiveCount()) }/{ fmtInt(len(h.Watchers)) } active)</div>
 		<div class="watcher-items">
 			if len(h.Watchers) == 0 {

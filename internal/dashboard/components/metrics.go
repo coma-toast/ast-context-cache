@@ -1,6 +1,9 @@
 package components
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 func pct(used, cap int) float64 {
 	if cap <= 0 {
@@ -97,6 +100,38 @@ func (h IndexHealth) WatcherActiveCount() int {
 		}
 	}
 	return n
+}
+
+// FormatDocSourceAge returns a compact age string and whether the source is stale (at or past maxAge).
+func FormatDocSourceAge(lastUpdated string, maxAge time.Duration) (age string, stale bool) {
+	if lastUpdated == "" {
+		return "never", true
+	}
+	t, err := time.Parse(time.RFC3339, lastUpdated)
+	if err != nil {
+		return "unknown", true
+	}
+	d := time.Since(t)
+	stale = d >= maxAge
+	return formatAgeDuration(d), stale
+}
+
+func formatAgeDuration(d time.Duration) string {
+	if d < time.Minute {
+		return "just now"
+	}
+	days := int(d.Hours() / 24)
+	hours := int(d.Hours()) % 24
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%dd %dh", days, hours)
+		}
+		return fmt.Sprintf("%dd", days)
+	}
+	if d >= time.Hour {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dm", int(d.Minutes()))
 }
 
 func pinnedPct(pinned int) float64 {

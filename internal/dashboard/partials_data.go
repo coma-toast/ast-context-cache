@@ -8,6 +8,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -61,6 +62,19 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 				ProjectPath: pp,
 				Name:        filepath.Base(pp),
 				Active:      active,
+			})
+		}
+	}
+	if sources, err := docs.ListSources(); err == nil {
+		for _, s := range sources {
+			age, stale := components.FormatDocSourceAge(s.LastUpdated, docs.DocSourceMaxAge)
+			h.DocSources = append(h.DocSources, components.IndexDocSource{
+				ID:    s.ID,
+				Name:  s.Name,
+				Type:  s.Type,
+				URL:   s.URL,
+				Age:   age,
+				Stale: stale,
 			})
 		}
 	}
