@@ -411,21 +411,40 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	}
 	defer tree.Close()
 
-	db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
+	if _, err = tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
 
 	lines := strings.Split(string(content), "\n")
 	root := tree.RootNode()
 
 	if lang == "yaml" {
-		return indexYAMLTree(root, content, lines, filePath, projectPath)
+		n, fullT, skelT, err := indexYAMLTree(tx, root, content, lines, filePath, projectPath)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, 0, 0, err
+		}
+		notifyIndexCommitted()
+		return n, fullT, skelT, nil
 	}
 
 	walkNodes := collectTopLevelNodes(root, lang)
 	for _, node := range walkNodes {
 		for _, imp := range extractImports(node, content, lang) {
-			db.DB.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
-				filePath, imp, projectPath)
+			if _, err := tx.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
+				filePath, imp, projectPath); err != nil {
+				return 0, 0, 0, err
+			}
 		}
 		sym := extractSymbol(node, content, lang)
 		if sym == nil || sym.Name == "" {
@@ -445,13 +464,20 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 			skeleton = ExtractSkeleton(src, lang, sym.Kind)
 			skeletonTokens += db.EstimateTokens(skeleton)
 		}
-		_, err := db.DB.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		_, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton)
 		if err == nil {
 			count++
 		}
 	}
-	db.UpsertIndexedFile(filePath, projectPath, time.Now())
+	if err := db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now()); err != nil {
+		return 0, 0, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, 0, err
+	}
+	db.InvalidateSummariesForFile(filePath, projectPath)
+	notifyIndexCommitted()
 	return count, fullTokens, skeletonTokens, nil
 }
 

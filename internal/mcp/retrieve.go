@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
-	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -77,12 +77,17 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	if f, ok := args["format"].(string); ok {
 		format = f
 	}
+	mode := "skeleton"
+	if m, ok := args["mode"].(string); ok && m != "" {
+		mode = m
+	}
+	sessionID, _ := args["session_id"].(string)
 
 	filters := search.ParseSearchFilters(args)
 	tStart := time.Now()
 
 	tCode := time.Now()
-	codeChunks, codeCount, hybridMetrics := retrieveCode(query, projectPath, limit, includeSource, filters)
+	codeChunks, codeCount, hybridMetrics := retrieveCode(query, projectPath, limit, includeSource, mode, sessionID, filters)
 	codeMs := float64(time.Since(tCode).Milliseconds())
 
 	var docChunks []RetrieveChunk
@@ -134,44 +139,40 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 }
 
-func retrieveCode(query, projectPath string, limit int, _ bool, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics) {
+func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics) {
 	results, metrics := search.HybridSearch(query, projectPath, emb, limit*2, filters)
 	if len(results) > limit {
 		results = results[:limit]
 	}
-
+	returnedSymbols := context.GetReturnedSymbolKeys(sessionID)
+	fileCache := map[string][]string{}
 	var chunks []RetrieveChunk
+	fullCount := 0
+	maxScore := 0.0
+	if len(results) > 0 {
+		maxScore = results[0].Score
+	}
 	for _, r := range results {
 		name, _ := r.Data["name"].(string)
 		kind, _ := r.Data["kind"].(string)
 		file, _ := r.Data["file"].(string)
-
 		if file == "" || name == "" {
 			continue
 		}
-
-		var code, skeleton string
 		var startLine, endLine int
 		db.DB.QueryRow(
-			"SELECT COALESCE(code,''), COALESCE(skeleton,''), COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
-			name, file, projectPath).Scan(&code, &skeleton, &startLine, &endLine)
-
-		content := ""
-		if startLine > 0 && endLine > 0 {
-			fileCache := map[string][]string{}
-			content = indexer.ReadSourceRange(file, startLine, endLine, fileCache)
+			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
+			name, file, projectPath).Scan(&startLine, &endLine)
+		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
+			continue
 		}
-		if content == "" && code != "" {
-			content = code
-		}
-		if content == "" && skeleton != "" {
-			content = skeleton
-		}
-
+		content := context.SymbolContentForRetrieve(file, name, projectPath, startLine, endLine, includeSource, mode, r.Score, maxScore, fullCount, fileCache)
 		if content == "" {
 			continue
 		}
-
+		if includeSource || mode == "full" || (mode == "auto" && context.EffectiveMode("auto", r.Score, maxScore, fullCount) == "full") {
+			fullCount++
+		}
 		chunks = append(chunks, RetrieveChunk{
 			Type:    "code",
 			Name:    name,
@@ -181,8 +182,8 @@ func retrieveCode(query, projectPath string, limit int, _ bool, filters *search.
 			Source:  "code",
 			Content: content,
 		})
+		context.LogReturned(sessionID, file, name, projectPath, startLine, mode, db.EstimateTokens(content))
 	}
-
 	return chunks, len(results), metrics
 }
 

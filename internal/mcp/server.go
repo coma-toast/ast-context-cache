@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
@@ -138,10 +137,10 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		toolArgs = args
 	}
 
-	if !IsToolAllowed(toolName, srvCfg) {
+	if ok, reason := toolAccessByName(toolName, srvCfg); !ok {
 		mcpErr := map[string]interface{}{
 			"content": []map[string]interface{}{
-				{"type": "text", "text": "tool not available at tier " + string(srvCfg.ActiveTier) + ": " + toolName},
+				{"type": "text", "text": ToolDenyMessage(toolName, srvCfg, reason)},
 			},
 			"isError": true,
 		}
@@ -294,46 +293,34 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			} else {
 				filters := search.ParseSearchFilters(toolArgs)
 				scored := search.Cache.Search(queryVec, projectPath, docType, limit, filters)
-				fileCache := map[string][]string{}
-				matchedFiles := map[string]bool{}
-				fullBaselineTokens := 0
-				results := make([]map[string]interface{}, len(scored))
-				for i, s := range scored {
-					results[i] = s.Data
-					file, _ := s.Data["file"].(string)
-					if file != "" {
-						matchedFiles[file] = true
-						rows, qErr := db.DB.Query("SELECT start_line, end_line FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
-							file, s.Data["name"], projectPath)
-						if qErr == nil {
-							if rows.Next() {
-								var sl, el int
-								rows.Scan(&sl, &el)
-								results[i]["start_line"] = sl
-								results[i]["end_line"] = el
-								if src := indexer.ReadSourceRange(file, sl, el, fileCache); src != "" {
-									results[i]["source"] = src
-									fullBaselineTokens += db.EstimateTokens(src)
-								}
-							}
-							rows.Close()
-						}
-					}
-					results[i]["file"] = db.RelPath(file, projectPath)
+				mode := "skeleton"
+				if m, ok := toolArgs["mode"].(string); ok && m != "" {
+					mode = m
 				}
-				fileBaselineTokens := 0
-				for f := range matchedFiles {
-					if lines, ok := fileCache[f]; ok {
-						fileBaselineTokens += db.EstimateTokens(strings.Join(lines, "\n"))
-					}
+				sessionID, _ := toolArgs["session_id"].(string)
+				tokenBudget := 4000
+				if tb, ok := toolArgs["token_budget"].(float64); ok && tb > 0 {
+					tokenBudget = int(tb)
 				}
-				respData, _ := json.Marshal(map[string]interface{}{
+				results, tokensUsed, skipped, fullBaselineTokens := context.PackScoredResults(scored, limit, projectPath, mode, sessionID, tokenBudget)
+				fileBaselineTokens := fullBaselineTokens
+				resp := map[string]interface{}{
 					"query":                query,
+					"mode":                 mode,
 					"results":              results,
 					"total_vectors":        search.Cache.Count(projectPath),
+					"tokens_used":          tokensUsed,
 					"file_baseline_tokens": fileBaselineTokens,
 					"full_baseline_tokens": fullBaselineTokens,
-				})
+				}
+				if skipped > 0 {
+					resp["deduped"] = skipped
+				}
+				if tokenBudget > 0 {
+					resp["token_budget"] = tokenBudget
+					resp["tokens_remaining"] = tokenBudget - tokensUsed
+				}
+				respData, _ := json.Marshal(resp)
 				outTokens := db.EstimateTokens(string(respData))
 				saved := fullBaselineTokens - outTokens
 				if saved < 0 {
@@ -356,14 +343,19 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		}
 	case "get_file_context":
 		file, _ := toolArgs["file"].(string)
-		mode := "full"
+		mode := "skeleton"
 		if m, ok := toolArgs["mode"].(string); ok && m != "" {
 			mode = m
+		}
+		sessionID, _ := toolArgs["session_id"].(string)
+		tokenBudget := 0
+		if tb, ok := toolArgs["token_budget"].(float64); ok && tb > 0 {
+			tokenBudget = int(tb)
 		}
 		if file == "" || projectPath == "" {
 			result = map[string]string{"error": "file and project_path required"}
 		} else {
-			fcStr := handleFileContext(file, projectPath, mode)
+			fcStr := handleFileContext(file, projectPath, mode, sessionID, tokenBudget)
 			result = json.RawMessage(fcStr)
 			var fcParsed map[string]interface{}
 			if err := json.Unmarshal([]byte(fcStr), &fcParsed); err == nil {
