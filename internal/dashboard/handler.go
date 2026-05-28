@@ -45,13 +45,7 @@ func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 	where, args := statsQueriesWhere(pid)
 	db.DB.QueryRow(statsSel+where, args...).
 		Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
-	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ? AND project_path = ?", todayStart, tomorrowStart, pid).
-			Scan(&s.TodayQueries, &s.TodayTokens)
-	} else {
-		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
-			Scan(&s.TodayQueries, &s.TodayTokens)
-	}
+	fillTodayStats(pid, todayStart, tomorrowStart, &s)
 	components.StatsCards(s).Render(r.Context(), w)
 }
 
@@ -336,6 +330,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		DocSources:              docSources,
 	}
 	PopulateEmbedSettings(settings, &data)
+	loadDockerModels(&data)
 	components.Settings(data).Render(r.Context(), w)
 }
 

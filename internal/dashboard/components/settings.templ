@@ -44,6 +44,8 @@ type SettingsData struct {
 	EmbedDockerURL          string
 	EmbedDockerModel        string
 	EmbedDockerDimensions   string
+	EmbedDockerModels       []string
+	EmbedDockerModelsErr    string
 	Projects                []Project
 	Agents                  []AgentInfo
 	DocSources              []DocSource
@@ -69,7 +71,8 @@ templ Settings(data SettingsData) {
 			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
 			<strong>Restart ast-mcp</strong> after changing anything here so the embedder reloads.
 		</p>
-		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none"
+			hx-on::after-request="htmx.ajax('GET', '/partials/settings', {target:'#settings-content', swap:'innerHTML'})">
 			<label for="embedBackend">EMBED_BACKEND</label>
 			<input type="hidden" name="key" value="EMBED_BACKEND"/>
 			<select id="embedBackend" class="perf-input" name="value">
@@ -88,14 +91,41 @@ templ Settings(data SettingsData) {
 			<label for="embedDockerURL">EMBED_DOCKER_URL</label>
 			<input type="text" id="embedDockerURL" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" placeholder="http://127.0.0.1:12434" name="value" value={ data.EmbedDockerURL }
 				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_DOCKER_URL"}' hx-include="this"/>
+				hx-vals='{"key":"EMBED_DOCKER_URL"}' hx-include="this"
+				hx-on::after-request="refreshDockerModels()"/>
 			<span class="perf-hint"><span class="mono">/engines/v1</span> is appended automatically when omitted.</span>
 		</div>
 		<div class="perf-setting">
 			<label for="embedDockerModel">EMBED_DOCKER_MODEL</label>
-			<input type="text" id="embedDockerModel" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" placeholder="ai/qwen3-embedding" name="value" value={ data.EmbedDockerModel }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_DOCKER_MODEL"}' hx-include="this"/>
+			<div class="embed-model-row">
+				<select id="embedDockerModel" class="perf-input embed-model-select" name="value"
+					hx-post="/api/settings" hx-trigger="change" hx-swap="none"
+					hx-vals='{"key":"EMBED_DOCKER_MODEL"}' hx-include="this">
+					if len(data.EmbedDockerModels) == 0 {
+						if data.EmbedDockerModel != "" {
+							<option value={ data.EmbedDockerModel } selected>{ data.EmbedDockerModel }</option>
+						} else {
+							<option value="" selected disabled>Select a model…</option>
+						}
+					} else {
+						for _, m := range data.EmbedDockerModels {
+							if m == data.EmbedDockerModel {
+								<option value={ m } selected>{ m }</option>
+							} else {
+								<option value={ m }>{ m }</option>
+							}
+						}
+					}
+				</select>
+				<button type="button" class="action-btn" id="embedDockerModelsRefresh" title="Reload models from Docker Model Runner">Refresh</button>
+			</div>
+			if data.EmbedDockerModelsErr != "" {
+				<span id="embedDockerModelsHint" class="perf-hint embed-test-result err">{ data.EmbedDockerModelsErr }</span>
+			} else if len(data.EmbedDockerModels) > 0 {
+				<span id="embedDockerModelsHint" class="perf-hint">{ fmt.Sprintf("%d model(s) from Model Runner", len(data.EmbedDockerModels)) }</span>
+			} else {
+				<span id="embedDockerModelsHint" class="perf-hint">Click Refresh after pulling models with <span class="mono">docker model pull …</span></span>
+			}
 		</div>
 		<div class="perf-setting">
 			<label for="embedDockerDimensions">EMBED_DOCKER_DIMENSIONS</label>
@@ -157,6 +187,10 @@ templ Settings(data SettingsData) {
 			<input type="text" id="embedOpenAIDim" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIDimensions }
 				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
 				hx-vals='{"key":"EMBED_OPENAI_DIMENSIONS"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting embed-test-row">
+			<button type="button" class="action-btn" id="embedTestBtn">Test embedder</button>
+			<span id="embedTestResult" class="perf-hint embed-test-result">Runs a probe embedding with the values above (ignores saved env overrides).</span>
 		</div>
 	</div>
 

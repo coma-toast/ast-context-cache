@@ -172,8 +172,7 @@ func renderStats() string {
 	where, args := statsQueriesWhere("")
 	db.DB.QueryRow(statsSel+where, args...).
 		Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
-	db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
-		Scan(&s.TodayQueries, &s.TodayTokens)
+	fillTodayStats("", todayStart, tomorrowStart, &s)
 	var buf bytes.Buffer
 	components.StatsCards(s).Render(context.Background(), &buf)
 	return buf.String()

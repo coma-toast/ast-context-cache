@@ -83,6 +83,13 @@ func (s Stats) todayTokenPct() float64 {
 	return float64(s.TodayTokens) / float64(s.TokensSaved) * 100
 }
 
+func (s Stats) todaySessionPct() float64 {
+	if s.Sessions <= 0 {
+		return 0
+	}
+	return float64(s.TodaySessions) / float64(s.Sessions) * 100
+}
+
 func durationPct(ms float64) float64 {
 	const softMax = 500.0
 	p := ms / softMax * 100

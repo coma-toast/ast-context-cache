@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
+	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
@@ -50,6 +51,8 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/watcher-status", handleWatcherStatus)
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
 	mux.HandleFunc("/api/settings", handleSettings)
+	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
+	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
 	mux.HandleFunc("/api/agent-install", handleAgentInstall)
@@ -86,14 +89,16 @@ func NewHandler(_ string) http.Handler {
 }
 
 type stats struct {
-	TotalQueries     int     `json:"total_queries"`
-	TotalSessions    int     `json:"total_sessions"`
-	TotalChars       int     `json:"total_chars"`
-	TotalTokensSaved int     `json:"total_tokens_saved"`
-	AvgDurationMs    float64 `json:"avg_duration_ms"`
-	TodayQueries     int     `json:"today_queries"`
-	TodayTokensSaved int     `json:"today_tokens_saved"`
-	WindowDays       int     `json:"window_days"`
+	TotalQueries       int     `json:"total_queries"`
+	TotalSessions      int     `json:"total_sessions"`
+	TotalChars         int     `json:"total_chars"`
+	TotalTokensSaved   int     `json:"total_tokens_saved"`
+	AvgDurationMs      float64 `json:"avg_duration_ms"`
+	TodayQueries       int     `json:"today_queries"`
+	TodayTokensSaved   int     `json:"today_tokens_saved"`
+	TodaySessions      int     `json:"today_sessions"`
+	TodayAvgDurationMs float64 `json:"today_avg_duration_ms"`
+	WindowDays         int     `json:"window_days"`
 }
 
 func handleStats(w http.ResponseWriter, r *http.Request) {
@@ -107,13 +112,12 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	where, args := statsQueriesWhere(pid)
 	db.DB.QueryRow(statsSel+where, args...).
 		Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
-	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ? AND project_path = ?", todayStart, tomorrowStart, pid).
-			Scan(&s.TodayQueries, &s.TodayTokensSaved)
-	} else {
-		db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
-			Scan(&s.TodayQueries, &s.TodayTokensSaved)
-	}
+	var today components.Stats
+	fillTodayStats(pid, todayStart, tomorrowStart, &today)
+	s.TodayQueries = today.TodayQueries
+	s.TodayTokensSaved = today.TodayTokens
+	s.TodaySessions = today.TodaySessions
+	s.TodayAvgDurationMs = today.TodayAvgDurationMs
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s)
 }
@@ -522,6 +526,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if err := db.SetSetting(key, value); err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
+		}
+		if key == "EMBED_BACKEND" && strings.EqualFold(strings.TrimSpace(value), "docker") {
+			ApplyDockerDefaultsIfEmpty()
 		}
 		mask := realtime.SettingsChanged
 		if key == "idle_unload_minutes" {

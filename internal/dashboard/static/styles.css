@@ -664,6 +664,30 @@ tr:hover td { background: var(--surface-hover); }
   color: var(--text-dim);
   line-height: 1.4;
 }
+.embed-test-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.embed-model-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.embed-model-select {
+  flex: 1;
+  min-width: 200px;
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.embed-test-result.ok { color: var(--green); }
+.embed-test-result.err { color: var(--red); }
 .filter-pill {
   font-size: 11px;
   font-family: var(--mono);

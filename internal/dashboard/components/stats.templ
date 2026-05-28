@@ -3,16 +3,18 @@ package components
 import "fmt"
 
 type Stats struct {
-	TotalQueries     int
-	TodayQueries     int
-	TokensSaved      int
-	TodayTokens      int
-	DedupTokensSaved int
-	SavingsVsFiles   int
-	SymbolBaseline   int
-	AvgDurationMs    float64
-	Sessions         int
-	TotalChars       int
+	TotalQueries      int
+	TodayQueries      int
+	TokensSaved       int
+	TodayTokens       int
+	DedupTokensSaved  int
+	SavingsVsFiles    int
+	SymbolBaseline    int
+	AvgDurationMs     float64
+	TodayAvgDurationMs float64
+	Sessions          int
+	TodaySessions     int
+	TotalChars        int
 }
 
 func fmtInt(n int) string {
@@ -53,13 +55,9 @@ func fmtInt64(n int64) string {
 
 templ StatsCards(s Stats) {
 	<div class="grid grid-4">
-		@StatMeter("Queries (30d)", fmtInt(s.TotalQueries), fmt.Sprintf("Today: %s", fmtInt(s.TodayQueries)), s.todayQueryPct(), "stat-accent")
-		@StatMeter("Tokens saved (30d)", fmtInt(s.TokensSaved), fmt.Sprintf("Today: %s · dedup: %s · vs files: %s", fmtInt(s.TodayTokens), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green")
-		@StatMeter("Avg duration (30d)", fmt.Sprintf("%.1f", s.AvgDurationMs), "milliseconds", durationPct(s.AvgDurationMs), "stat-orange")
-		<div class="card">
-			<div class="card-title">Sessions (30d)</div>
-			<div class="stat-value stat-purple">{ fmtInt(s.Sessions) }</div>
-			<div class="stat-label">Result chars: { fmtInt(s.TotalChars) }</div>
-		</div>
+		@StatMeter("Queries", fmtInt(s.TodayQueries), fmt.Sprintf("30d: %s", fmtInt(s.TotalQueries)), s.todayQueryPct(), "stat-accent")
+		@StatMeter("Tokens saved", fmtInt(s.TodayTokens), fmt.Sprintf("30d: %s · dedup: %s · vs files: %s", fmtInt(s.TokensSaved), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green")
+		@StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), durationPct(s.TodayAvgDurationMs), "stat-orange")
+		@StatMeter("Sessions", fmtInt(s.TodaySessions), fmt.Sprintf("30d: %s · chars: %s", fmtInt(s.Sessions), fmtInt(s.TotalChars)), s.todaySessionPct(), "stat-purple")
 	</div>
 }
