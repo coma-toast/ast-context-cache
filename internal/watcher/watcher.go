@@ -119,7 +119,7 @@ func catchUp(projectPath string) {
 			stale++
 			log.Printf("Catch-up re-indexed %s: %d symbols", path, n)
 			// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, 0, 0, skelT, 0, fullT, fullT, 0, 0, projectPath, "")
+			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{TokensUsed: skelT, SymbolBaseline: fullT, FileBaseline: fullT}, projectPath, "")
 			if PostIndexHook != nil {
 				go PostIndexHook(path, projectPath, false)
 			}
@@ -179,8 +179,7 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 			db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", path, projectPath)
 			db.DeleteIndexedFile(path, projectPath)
 			log.Printf("Removed symbols for deleted file: %s", path)
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, 0, 0, 0, 0, 0, 0,
-				float64(time.Since(start).Milliseconds()), 0, projectPath, "")
+			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, db.QueryLogMetrics{}, projectPath, "")
 			if PostIndexHook != nil {
 				go PostIndexHook(path, projectPath, true)
 			}
@@ -191,8 +190,10 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 				log.Printf("Re-indexed %s: %d symbols", path, n)
 				resultJSON, _ := json.Marshal(map[string]interface{}{"file": path, "symbols": n})
 				// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
-				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, len(resultJSON), 0, skelT, 0, fullT, fullT,
-					float64(time.Since(start).Milliseconds()), 0, projectPath, "")
+				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{
+					ResultChars: len(resultJSON), TokensUsed: skelT, SymbolBaseline: fullT, FileBaseline: fullT,
+					DurationMs: float64(time.Since(start).Milliseconds()),
+				}, projectPath, "")
 				if PostIndexHook != nil {
 					go PostIndexHook(path, projectPath, false)
 				}

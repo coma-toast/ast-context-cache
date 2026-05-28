@@ -21,17 +21,28 @@ const (
 	sessionFlushSize      = 200
 )
 
+// QueryLogMetrics holds analytics fields for a logged MCP tool call.
+type QueryLogMetrics struct {
+	ResultChars      int
+	InputTokens      int
+	OutputTokens     int
+	TokensUsed       int
+	TokensSaved      int
+	SymbolBaseline   int
+	FileBaseline     int
+	DedupTokensSaved int
+	SavingsVsFiles   int
+	DedupedCount     int
+	Mode             string
+	CacheHit         bool
+	DurationMs       float64
+	CpuMs            float64
+}
+
 type queryLogRow struct {
 	toolName           string
 	argsJSON           string
-	resultChars        int
-	inputTokens        int
-	outputTokens       int
-	tokensSaved        int
-	fileBaselineTokens int
-	fullBaselineTokens int
-	durationMs         float64
-	cpuMs              float64
+	metrics            QueryLogMetrics
 	sessionID          string
 	errMsg             string
 	projectPath        string
@@ -99,14 +110,31 @@ func flushQueryLogBuffer() {
 		return
 	}
 	defer tx.Rollback()
-	stmt, err := tx.Prepare(`INSERT INTO queries (timestamp, tool_name, arguments, result_chars, input_tokens, output_tokens, tokens_saved, file_baseline_tokens, full_baseline_tokens, duration_ms, cpu_ms, interface, session_id, error, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO queries (
+		timestamp, tool_name, arguments, result_chars, input_tokens, output_tokens,
+		tokens_saved, file_baseline_tokens, full_baseline_tokens,
+		tokens_used, symbol_baseline_tokens, dedup_tokens_saved, savings_vs_files,
+		deduped_count, mode, cache_hit,
+		duration_ms, cpu_ms, interface, session_id, error, project_path
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		log.Printf("query log batch: prepare: %v", err)
 		return
 	}
 	defer stmt.Close()
 	for _, r := range batch {
-		if _, err := stmt.Exec(r.timestampRFC3339, r.toolName, r.argsJSON, r.resultChars, r.inputTokens, r.outputTokens, r.tokensSaved, r.fileBaselineTokens, r.fullBaselineTokens, r.durationMs, r.cpuMs, "http", r.sessionID, r.errMsg, r.projectPath); err != nil {
+		m := r.metrics
+		cacheHit := 0
+		if m.CacheHit {
+			cacheHit = 1
+		}
+		if _, err := stmt.Exec(
+			r.timestampRFC3339, r.toolName, r.argsJSON, m.ResultChars, m.InputTokens, m.OutputTokens,
+			m.TokensSaved, m.FileBaseline, m.SymbolBaseline,
+			m.TokensUsed, m.SymbolBaseline, m.DedupTokensSaved, m.SavingsVsFiles,
+			m.DedupedCount, m.Mode, cacheHit,
+			m.DurationMs, m.CpuMs, "http", r.sessionID, r.errMsg, r.projectPath,
+		); err != nil {
 			log.Printf("query log batch: insert: %v", err)
 		}
 	}
@@ -121,9 +149,9 @@ func flushQueryLogBuffer() {
 				Timestamp:   r.timestampRFC3339,
 				ToolName:    r.toolName,
 				ArgsJSON:    r.argsJSON,
-				TokensSaved: r.tokensSaved,
-				DurationMs:  r.durationMs,
-				CpuMs:       r.cpuMs,
+				TokensSaved: r.metrics.TokensSaved,
+				DurationMs:  r.metrics.DurationMs,
+				CpuMs:       r.metrics.CpuMs,
 			}
 		}
 		AfterQueryLogFlush(snap)
@@ -175,24 +203,31 @@ func EnqueueSessionReturned(sessionID string, symbolID int, filePath, mode strin
 	}
 }
 
-func enqueueQueryLog(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens int, durationMs, cpuMs float64, projectPath, errMsg string) {
+func extractSessionID(args map[string]interface{}) string {
+	if args == nil {
+		return ""
+	}
+	if inner, ok := args["arguments"].(map[string]interface{}); ok {
+		if sid, ok := inner["session_id"].(string); ok && sid != "" {
+			return sid
+		}
+	}
+	if sid, ok := args["session_id"].(string); ok && sid != "" {
+		return sid
+	}
+	return fmt.Sprintf("session-%d", time.Now().Unix()/3600)
+}
+
+func enqueueQueryLog(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {
 	argsJSON, _ := json.Marshal(args)
-	sessionID := fmt.Sprintf("session-%d", time.Now().Unix()/3600)
 	r := queryLogRow{
-		toolName:           toolName,
-		argsJSON:           string(argsJSON),
-		resultChars:        resultChars,
-		inputTokens:        inputTokens,
-		outputTokens:       outputTokens,
-		tokensSaved:        tokensSaved,
-		fileBaselineTokens: fileBaselineTokens,
-		fullBaselineTokens: fullBaselineTokens,
-		durationMs:         durationMs,
-		cpuMs:              cpuMs,
-		sessionID:          sessionID,
-		errMsg:             errMsg,
-		projectPath:        projectPath,
-		timestampRFC3339:   time.Now().Format(time.RFC3339),
+		toolName:         toolName,
+		argsJSON:         string(argsJSON),
+		metrics:          m,
+		sessionID:        extractSessionID(args),
+		errMsg:           errMsg,
+		projectPath:      projectPath,
+		timestampRFC3339: time.Now().Format(time.RFC3339),
 	}
 	queryBufMu.Lock()
 	queryBuf = append(queryBuf, r)

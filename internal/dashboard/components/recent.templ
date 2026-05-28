@@ -9,7 +9,8 @@ type RecentQuery struct {
 	Query          string
 	Mode           string
 	Budget         int
-	Saved          int
+	Saved            int
+	DedupTokensSaved int
 	Project        string
 	DurationMs     float64
 	CpuMs          float64
@@ -183,8 +184,12 @@ templ RecentTable(queries []RecentQuery) {
 								}
 							</td>
 							<td class="mono">
-								if q.ToolName != "file_watcher" && q.Saved > 0 {
-									{ fmtInt(q.Saved) }
+								if q.ToolName != "file_watcher" && (q.Saved > 0 || q.DedupTokensSaved > 0) {
+									if q.DedupTokensSaved > 0 {
+										{ fmt.Sprintf("%s (+%s dedup)", fmtInt(q.Saved), fmtInt(q.DedupTokensSaved)) }
+									} else {
+										{ fmtInt(q.Saved) }
+									}
 								} else {
 									-
 								}

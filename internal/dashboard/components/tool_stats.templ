@@ -1,5 +1,7 @@
 package components
 
+import "fmt"
+
 templ ToolPerformancePanel(stats []ToolStat) {
 	if len(stats) == 0 {
 		<div class="card"><div class="empty-state">No MCP tool calls yet — performance metrics appear here</div></div>
@@ -41,6 +43,9 @@ templ ToolStatsTable(stats []ToolStat) {
 					<th>CPU total</th>
 					<th>CPU avg</th>
 					<th>Tokens saved</th>
+					<th>Dedup saved</th>
+					<th>vs files</th>
+					<th>Rate</th>
 					<th>Avg out tok</th>
 					<th>Avg chars</th>
 					<th>Errors</th>
@@ -55,6 +60,15 @@ templ ToolStatsTable(stats []ToolStat) {
 						<td class="mono">{ fmtToolCpu(s.TotalCpuMs) }</td>
 						<td class="mono">{ fmtToolCpu(s.AvgCpuMs) }</td>
 						<td class="mono">{ fmtInt(s.TokensSaved) }</td>
+						<td class="mono">{ fmtInt(s.DedupTokensSaved) }</td>
+						<td class="mono">{ fmtInt(s.SavingsVsFiles) }</td>
+						<td class="mono">
+							if s.SavingsRatePct > 0 {
+								{ fmt.Sprintf("%.0f%%", s.SavingsRatePct) }
+							} else {
+								-
+							}
+						</td>
 						<td class="mono">{ fmtToolFloat(s.AvgOutputTokens) }</td>
 						<td class="mono">{ fmtToolFloat(s.AvgResultChars) }</td>
 						<td class="mono">

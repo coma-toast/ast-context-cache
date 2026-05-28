@@ -79,6 +79,13 @@ func Init() error {
 	DB.Exec(`ALTER TABLE queries ADD COLUMN file_baseline_tokens INTEGER DEFAULT 0`)
 	DB.Exec(`ALTER TABLE queries ADD COLUMN full_baseline_tokens INTEGER DEFAULT 0`)
 	DB.Exec(`ALTER TABLE queries ADD COLUMN cpu_ms REAL DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN tokens_used INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN symbol_baseline_tokens INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN dedup_tokens_saved INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN savings_vs_files INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN deduped_count INTEGER DEFAULT 0`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN mode TEXT DEFAULT ''`)
+	DB.Exec(`ALTER TABLE queries ADD COLUMN cache_hit INTEGER DEFAULT 0`)
 
 	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS edges (
@@ -282,8 +289,8 @@ func EnsureFTSTriggers() {
 	END`)
 }
 
-func LogQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens int, durationMs, cpuMs float64, projectPath, errMsg string) {
-	enqueueQueryLog(toolName, args, resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens, durationMs, cpuMs, projectPath, errMsg)
+func LogQuery(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {
+	enqueueQueryLog(toolName, args, m, projectPath, errMsg)
 }
 
 func EstimateTokens(text string) int {

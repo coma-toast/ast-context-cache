@@ -2,18 +2,31 @@ package context
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
-	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 var Emb embedder.Interface
 
+type getContextResult struct {
+	JSON     string
+	Savings  SavingsMeta
+	CacheHit bool
+}
+
 func HandleGetContext(args map[string]interface{}, projectPath string) string {
+	r := handleGetContext(args, projectPath)
+	return r.JSON
+}
+
+func HandleGetContextWithMeta(args map[string]interface{}, projectPath string) getContextResult {
+	return handleGetContext(args, projectPath)
+}
+
+func handleGetContext(args map[string]interface{}, projectPath string) getContextResult {
 	query, _ := args["query"].(string)
 	mode, _ := args["mode"].(string)
 	sessionID, _ := args["session_id"].(string)
@@ -29,10 +42,12 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		mode = "auto"
 	}
 	if projectPath == "" {
-		return `{"error": "project_path required"}`
+		data, _ := json.Marshal(map[string]string{"error": "project_path required"})
+		return getContextResult{JSON: string(data)}
 	}
 	if query == "" {
-		return `{"error": "query required"}`
+		data, _ := json.Marshal(map[string]string{"error": "query required"})
+		return getContextResult{JSON: string(data)}
 	}
 	filters := search.ParseSearchFilters(args)
 	filtersKey := ""
@@ -43,7 +58,13 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 	cacheKey := cache.HashQuery(query, projectPath, mode, limit, filtersKey)
 	if useQueryCache {
 		if cached, found := cache.GlobalCache.Get(cacheKey); found {
-			return cached
+			var parsed map[string]interface{}
+			if json.Unmarshal([]byte(cached), &parsed) == nil {
+				savings := ParseSavingsMeta(parsed, mode, true)
+				savings.CacheHit = true
+				return getContextResult{JSON: cached, Savings: savings, CacheHit: true}
+			}
+			return getContextResult{JSON: cached, CacheHit: true}
 		}
 	}
 	scored, pipeMetrics := search.HybridSearch(query, projectPath, Emb, 30, filters)
@@ -56,27 +77,26 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 	var results []map[string]interface{}
 	skipped := 0
 	tokensUsed := 0
-	fullBaselineTokens := 0
+	symbolBaseline := 0
+	dedupTokens := 0
 	fullCount := 0
 	maxScore := 0.0
 	if len(scored) > 0 {
 		maxScore = scored[0].Score
 	}
 	for i := 0; i < limit; i++ {
-		data := scored[i].Data
+		hit := hitFromScored(scored[i], projectPath)
+		data := hit.Data
 		file, _ := data["file"].(string)
 		name, _ := data["name"].(string)
-		startLine, _ := data["start_line"].(int)
-		endLine, _ := data["end_line"].(int)
-		if startLine == 0 {
-			db.DB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
-				file, name, projectPath).Scan(&startLine, &endLine)
-		}
+		startLine, endLine := hit.StartLine, hit.EndLine
 		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
 			skipped++
+			dedupTokens += WouldSendTokens(file, name, projectPath, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
 		}
-		effectiveMode := EffectiveMode(mode, scored[i].Score, maxScore, fullCount)
+		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
+		symbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
 		if effectiveMode == "full" {
 			fullCount++
@@ -89,95 +109,84 @@ func HandleGetContext(args map[string]interface{}, projectPath string) string {
 		}
 		tokensUsed += resultTokens
 		matchedFiles[file] = true
-		if effectiveMode == "full" && startLine > 0 && endLine > 0 {
-			src := indexer.ReadSourceRange(file, startLine, endLine, fileCache)
-			fullBaselineTokens += db.EstimateTokens(src)
-		}
 		results = append(results, data)
 		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
 	}
-	fileBaselineTokens := 0
-	for f := range matchedFiles {
-		if lines, ok := fileCache[f]; ok {
-			fileBaselineTokens += db.EstimateTokens(strings.Join(lines, "\n"))
-		}
-	}
+	fileBaseline := FileBaselineTokens(matchedFiles, fileCache)
+	savings := ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens)
+	savings.DedupedCount = skipped
+	savings.Mode = mode
 	resp := map[string]interface{}{
-		"query":                query,
-		"mode":                 mode,
-		"results":              results,
-		"tokens_used":          tokensUsed,
-		"file_baseline_tokens": fileBaselineTokens,
-		"full_baseline_tokens": fullBaselineTokens,
+		"query":   query,
+		"mode":    mode,
+		"results": results,
 		"pipeline": map[string]interface{}{
 			"bm25_candidates":   pipeMetrics.BM25Candidates,
 			"vector_candidates": pipeMetrics.VectorCandidates,
 			"hybrid_after_fuse": pipeMetrics.HybridAfterFuse,
 		},
 	}
+	savings.ApplyTo(resp)
 	if tokenBudget > 0 {
 		resp["token_budget"] = tokenBudget
 		resp["tokens_remaining"] = tokenBudget - tokensUsed
-	}
-	if skipped > 0 {
-		resp["deduped"] = skipped
 	}
 	finalData, _ := json.Marshal(resp)
 	resultStr := string(finalData)
 	if useQueryCache {
 		cache.GlobalCache.Set(cacheKey, resultStr)
 	}
-	return resultStr
+	return getContextResult{JSON: resultStr, Savings: savings}
 }
 
 // PackScoredResults formats hybrid/vector search hits (used by search_semantic).
-func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mode, sessionID string, tokenBudget int) (results []map[string]interface{}, tokensUsed, skipped, fullBaseline int) {
+func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mode, sessionID string, tokenBudget int) (results []map[string]interface{}, savings SavingsMeta) {
 	if mode == "" {
 		mode = "skeleton"
 	}
+	savings.Mode = mode
 	returnedSymbols := GetReturnedSymbolKeys(sessionID)
 	if len(scored) < limit {
 		limit = len(scored)
 	}
 	fileCache := map[string][]string{}
+	matchedFiles := map[string]bool{}
 	fullCount := 0
 	maxScore := 0.0
 	if len(scored) > 0 {
 		maxScore = scored[0].Score
 	}
 	for i := 0; i < limit; i++ {
-		data := scored[i].Data
+		hit := hitFromScored(scored[i], projectPath)
+		data := hit.Data
 		file, _ := data["file"].(string)
 		name, _ := data["name"].(string)
-		startLine, _ := data["start_line"].(int)
-		endLine, _ := data["end_line"].(int)
-		if startLine == 0 {
-			db.DB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
-				file, name, projectPath).Scan(&startLine, &endLine)
-			data["start_line"] = startLine
-			data["end_line"] = endLine
-		}
+		startLine, endLine := hit.StartLine, hit.EndLine
 		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
-			skipped++
+			savings.DedupedCount++
+			savings.DedupTokensSaved += WouldSendTokens(file, name, projectPath, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
 		}
-		effectiveMode := EffectiveMode(mode, scored[i].Score, maxScore, fullCount)
+		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
+		savings.SymbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
 		if effectiveMode == "full" {
 			fullCount++
-			if src, ok := data["source"].(string); ok {
-				fullBaseline += db.EstimateTokens(src)
-			}
 		}
 		data["file"] = db.RelPath(file, projectPath)
 		resultJSON, _ := json.Marshal(data)
 		resultTokens := db.EstimateTokens(string(resultJSON))
-		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
+		if tokenBudget > 0 && savings.TokensUsed+resultTokens > tokenBudget {
 			break
 		}
-		tokensUsed += resultTokens
+		savings.TokensUsed += resultTokens
+		matchedFiles[file] = true
 		results = append(results, data)
 		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
 	}
-	return results, tokensUsed, skipped, fullBaseline
+	savings.FileBaseline = FileBaselineTokens(matchedFiles, fileCache)
+	computed := ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, savings.FileBaseline, savings.DedupTokensSaved)
+	savings.TokensSaved = computed.TokensSaved
+	savings.SavingsVsFiles = computed.SavingsVsFiles
+	return results, savings
 }

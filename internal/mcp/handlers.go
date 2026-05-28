@@ -12,7 +12,6 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/dop251/goja"
 )
 
@@ -121,9 +120,12 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 	returnedSymbols := context.GetReturnedSymbolKeys(sessionID)
 	fileCache := map[string][]string{}
 	var symbols []map[string]interface{}
-	fullBaselineTokens := 0
+	symbolBaseline := 0
 	tokensUsed := 0
+	dedupTokens := 0
 	skipped := 0
+	fullCount := 0
+	maxScore := 1.0
 
 	for rows.Next() {
 		var name, kind, skeleton, code string
@@ -131,6 +133,7 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 		rows.Scan(&name, &kind, &startLine, &endLine, &skeleton, &code)
 		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
 			skipped++
+			dedupTokens += context.WouldSendTokens(file, name, projectPath, mode, startLine, endLine, maxScore, maxScore, fullCount, fileCache)
 			continue
 		}
 		sym := map[string]interface{}{
@@ -139,14 +142,11 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 			"start_line": startLine,
 			"end_line":   endLine,
 		}
-		var fullSrc string
-		if startLine > 0 && endLine > 0 {
-			fullSrc = indexer.ReadSourceRange(file, startLine, endLine, fileCache)
-		}
-		if fullSrc != "" {
-			fullBaselineTokens += db.EstimateTokens(fullSrc)
-		}
+		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		context.ApplyMode(sym, mode, file, name, projectPath, startLine, endLine, fileCache)
+		if mode == "full" {
+			fullCount++
+		}
 		resultJSON, _ := json.Marshal(sym)
 		resultTokens := db.EstimateTokens(string(resultJSON))
 		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
@@ -184,20 +184,18 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 	if lines, ok := fileCache[file]; ok {
 		fileBaselineTokens = db.EstimateTokens(strings.Join(lines, "\n"))
 	}
+	savings := context.ComputeSavings(tokensUsed, symbolBaseline, fileBaselineTokens, dedupTokens)
+	savings.DedupedCount = skipped
+	savings.Mode = mode
 
 	resp := map[string]interface{}{
-		"file":                 db.RelPath(file, projectPath),
-		"language":             lang,
-		"mode":                 mode,
-		"symbols":              symbols,
-		"total":                len(symbols),
-		"tokens_used":          tokensUsed,
-		"file_baseline_tokens": fileBaselineTokens,
-		"full_baseline_tokens": fullBaselineTokens,
+		"file":     db.RelPath(file, projectPath),
+		"language": lang,
+		"mode":     mode,
+		"symbols":  symbols,
+		"total":    len(symbols),
 	}
-	if skipped > 0 {
-		resp["deduped"] = skipped
-	}
+	savings.ApplyTo(resp)
 	if tokenBudget > 0 {
 		resp["token_budget"] = tokenBudget
 		resp["tokens_remaining"] = tokenBudget - tokensUsed

@@ -11,7 +11,7 @@ import (
 )
 
 const recentSelect = `SELECT timestamp, tool_name, result_chars, duration_ms, COALESCE(cpu_ms,0), project_path,
-	COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0) FROM queries`
+	COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(dedup_tokens_saved,0) FROM queries`
 
 func buildRecentQueries(projectID string, limit int) (mcp, indexing []components.RecentQuery) {
 	mcpLim, idxLim := 40, 25
@@ -49,24 +49,25 @@ func queryRecent(projectID string, limit int, toolFilter string) []components.Re
 	var out []components.RecentQuery
 	for rows.Next() {
 		var ts, toolName, pp, errMsg, argsJSON string
-		var saved, rc int
+		var saved, dedupSaved, rc int
 		var dm, cpuMs float64
-		if err := rows.Scan(&ts, &toolName, &rc, &dm, &cpuMs, &pp, &errMsg, &argsJSON, &saved); err != nil {
+		if err := rows.Scan(&ts, &toolName, &rc, &dm, &cpuMs, &pp, &errMsg, &argsJSON, &saved, &dedupSaved); err != nil {
 			continue
 		}
-		out = append(out, parseRecentRow(ts, toolName, pp, errMsg, argsJSON, saved, dm, cpuMs))
+		out = append(out, parseRecentRow(ts, toolName, pp, errMsg, argsJSON, saved, dedupSaved, dm, cpuMs))
 	}
 	return out
 }
 
-func parseRecentRow(ts, toolName, pp, errMsg, argsJSON string, saved int, dm, cpuMs float64) components.RecentQuery {
+func parseRecentRow(ts, toolName, pp, errMsg, argsJSON string, saved, dedupSaved int, dm, cpuMs float64) components.RecentQuery {
 	q := components.RecentQuery{
-		ToolName:   toolName,
-		Project:    pp,
-		DurationMs: dm,
-		CpuMs:      cpuMs,
-		Error:      errMsg,
-		Saved:      saved,
+		ToolName:       toolName,
+		Project:        pp,
+		DurationMs:     dm,
+		CpuMs:          cpuMs,
+		Error:          errMsg,
+		Saved:          saved,
+		DedupTokensSaved: dedupSaved,
 	}
 	if t := parseQueryTime(ts); !t.IsZero() {
 		q.Timestamp = formatRelativeTime(t)

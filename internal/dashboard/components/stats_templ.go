@@ -11,13 +11,16 @@ import templruntime "github.com/a-h/templ/runtime"
 import "fmt"
 
 type Stats struct {
-	TotalQueries  int
-	TodayQueries  int
-	TokensSaved   int
-	TodayTokens   int
-	AvgDurationMs float64
-	Sessions      int
-	TotalChars    int
+	TotalQueries     int
+	TodayQueries     int
+	TokensSaved      int
+	TodayTokens      int
+	DedupTokensSaved int
+	SavingsVsFiles   int
+	SymbolBaseline   int
+	AvgDurationMs    float64
+	Sessions         int
+	TotalChars       int
 }
 
 func fmtInt(n int) string {
@@ -85,7 +88,7 @@ func StatsCards(s Stats) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Tokens Saved", fmtInt(s.TokensSaved), fmt.Sprintf("Today: %s", fmtInt(s.TodayTokens)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Tokens Saved", fmtInt(s.TokensSaved), fmt.Sprintf("Today: %s · dedup: %s · vs files: %s", fmtInt(s.TodayTokens), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -100,7 +103,7 @@ func StatsCards(s Stats) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(s.Sessions))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/stats.templ`, Line: 58, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/stats.templ`, Line: 61, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -113,7 +116,7 @@ func StatsCards(s Stats) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(s.TotalChars))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/stats.templ`, Line: 59, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/stats.templ`, Line: 62, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
