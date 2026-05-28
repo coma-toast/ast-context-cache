@@ -394,6 +394,30 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				}
 			}
 		}
+	case "fetch_doc":
+		name, _ := toolArgs["name"].(string)
+		docType, _ := toolArgs["type"].(string)
+		docURL, _ := toolArgs["url"].(string)
+		version, _ := toolArgs["version"].(string)
+		force, _ := toolArgs["force_refresh"].(bool)
+		if name == "" || docType == "" || docURL == "" {
+			result = map[string]string{"error": "name, type, and url are required"}
+		} else {
+			id, entries, refreshed, err := docs.FetchAndCache(name, docType, docURL, version, force)
+			if err != nil {
+				result = map[string]string{"error": err.Error()}
+			} else {
+				result = map[string]interface{}{
+					"id":        id,
+					"name":      name,
+					"url":       docURL,
+					"cached":    true,
+					"refreshed": refreshed,
+					"entries":   entries,
+					"total":     len(entries),
+				}
+			}
+		}
 	case "add_doc_source":
 		name, _ := toolArgs["name"].(string)
 		docType, _ := toolArgs["type"].(string)

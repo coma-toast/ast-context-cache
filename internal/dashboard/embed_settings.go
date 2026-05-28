@@ -14,4 +14,7 @@ func PopulateEmbedSettings(settings map[string]string, data *components.Settings
 	data.EmbedOpenAIAPIKey = settings["EMBED_OPENAI_API_KEY"]
 	data.EmbedOpenAIModel = settings["EMBED_OPENAI_MODEL"]
 	data.EmbedOpenAIDimensions = settings["EMBED_OPENAI_DIMENSIONS"]
+	data.EmbedDockerURL = settings["EMBED_DOCKER_URL"]
+	data.EmbedDockerModel = settings["EMBED_DOCKER_MODEL"]
+	data.EmbedDockerDimensions = settings["EMBED_DOCKER_DIMENSIONS"]
 }

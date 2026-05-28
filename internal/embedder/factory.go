@@ -16,11 +16,14 @@ import (
 //
 // Env:
 //
-//	EMBED_BACKEND: onnx (default) | http | ollama | openai (alias: litellm)
+//	EMBED_BACKEND: onnx (default) | http | ollama | openai (alias: litellm) | docker
 //	EMBED_HTTP_URL: default http://127.0.0.1:8080/embed (http backend)
 //	EMBED_HTTP_BEARER: optional Bearer token
 //	OLLAMA_HOST: default http://127.0.0.1:11434 (ollama backend; same as ollama CLI)
 //	OLLAMA_EMBED_MODEL: default nomic-embed-text
+//	EMBED_DOCKER_URL: optional DMR OpenAI API root (default http://127.0.0.1:12434/engines/v1)
+//	EMBED_DOCKER_MODEL: default ai/qwen3-embedding
+//	EMBED_DOCKER_DIMENSIONS: optional; unset sends 768 in JSON; "0" omits the field
 //	EMBED_OPENAI_BASE_URL: OpenAI-compatible API root including /v1 (default https://api.openai.com/v1)
 //	EMBED_OPENAI_API_KEY: Bearer token (optional for open local gateways)
 //	EMBED_OPENAI_MODEL: required for openai backend (e.g. openai/text-embedding-3-small)
@@ -92,8 +95,11 @@ func NewForMain(modelDir string) (e Interface, isLoaded func() bool, err error) 
 		SetActive("openai", model, Dimensions, "openai", ep)
 		return openEmb, func() bool { return true }, nil
 
+	case "docker":
+		return newDockerEmbedder()
+
 	default:
-		return nil, nil, fmt.Errorf("EMBED_BACKEND: unknown %q (use onnx, http, ollama, or openai)", backend)
+		return nil, nil, fmt.Errorf("EMBED_BACKEND: unknown %q (use onnx, http, ollama, openai, or docker)", backend)
 	}
 }
 

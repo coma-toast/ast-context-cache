@@ -91,6 +91,8 @@ func formatToolLabel(name string) string {
 		return "complexity"
 	case "search_docs":
 		return "search docs"
+	case "fetch_doc":
+		return "fetch doc"
 	case "list_doc_sources":
 		return "list docs"
 	case "add_doc_source":

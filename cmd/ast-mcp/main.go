@@ -109,8 +109,15 @@ func main() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			docs.UpdateAllSources()
 			logretention.RunOnce()
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			docs.UpdateAllSources()
 		}
 	}()
 

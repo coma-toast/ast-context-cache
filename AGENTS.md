@@ -79,7 +79,7 @@ When working with codebases that have an MCP server available, **always prefer M
 | `get_project_map` | Project structure overview (depth 1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Blast radius of a symbol -- files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
-| `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `search_docs` | Search locally cached documentation (FTS). Try before WebFetch for library/framework docs. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). Supports `markdown`, `xml`, `json` output. |
 
@@ -93,7 +93,8 @@ When working with codebases that have an MCP server available, **always prefer M
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
 | `import_bundle` | Import a previously exported bundle without re-indexing. |
-| `add_doc_source` | Add a documentation URL to track and cache (markdown, html, json). |
+| `fetch_doc` | Fetch a documentation URL, store it in the local cache, and return entries (prefer over WebFetch). |
+| `add_doc_source` | Track a documentation URL for async background caching (markdown, html, json). |
 | `remove_doc_source` | Remove a tracked documentation source. |
 | `update_doc_source` | Manually refresh a documentation source. |
 
@@ -119,7 +120,7 @@ When working with codebases that have an MCP server available, **always prefer M
 3. **Use get_project_map first** - ~200 tokens for full project overview
 4. **Use get_file_context over read** - Default **`skeleton`**; only use `full` when editing implementation
 5. **Cache summaries** - Call cache_summary after understanding key files
-6. **Use search_docs** - For library/framework documentation questions
+6. **Use search_docs** - For library/framework documentation; use **`fetch_doc`** (not WebFetch) when the cache misses
 7. **Optional filters** - On `get_context_capsule`, `search_semantic`, and `retrieve`, pass `path_prefix`, `language`, `kinds` / `kind`, and on `search_semantic` optional `doc_type` to narrow results
 8. **Supported languages** - Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML (see README for full list)
 9. **Pipeline stats** - `get_context_capsule` returns `pipeline` counts; `retrieve` stats include hybrid-stage counts and timings (see README / CLAUDE.md)
@@ -130,14 +131,17 @@ When working with codebases that have an MCP server available, **always prefer M
 Track and search external documentation (similar to Context7):
 
 ```
-add_doc_source(name="React", type="markdown", url="https://...", version="18")
 search_docs(query="useState hook", limit=5)
+fetch_doc(name="React", type="markdown", url="https://...", version="18")
+add_doc_source(name="React", type="markdown", url="https://...", version="18")  # async track only
 list_doc_sources()
 update_doc_source(id=1)
 remove_doc_source(id=1)
 ```
 
-Doc sources auto-update every hour. Supports `markdown`, `html`, and `json` types.
+**Workflow:** `search_docs` first → on miss, **`fetch_doc`** (registers + fetches in one call). Do not use WebFetch for library docs when MCP is available.
+
+Tracked sources re-fetch automatically when older than **7 days** (daily background check). Use `update_doc_source` or `fetch_doc` with `force_refresh=true` to refresh sooner. Types: `markdown`, `html`, `json`.
 
 ## When MCP Not Available
 

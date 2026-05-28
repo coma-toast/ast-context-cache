@@ -17,6 +17,7 @@ ast-context-cache is an MCP server that provides token-efficient code search for
 | `get_impact_graph` | Find all files depending on a symbol |
 | `index_status` | Check if a project is indexed |
 | `search_docs` | Search cached library/framework documentation |
+| `fetch_doc` | Fetch and cache an external doc URL (prefer over WebFetch) |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly |
 
 ### Extended
@@ -29,7 +30,8 @@ ast-context-cache is an MCP server that provides token-efficient code search for
 | `analyze_complexity` | Calculate cyclomatic complexity |
 | `export_bundle` | Export indexed code as portable bundle |
 | `import_bundle` | Import a previously exported bundle |
-| `add_doc_source` | Add a documentation URL to track and cache |
+| `fetch_doc` | Fetch, register, and return cached doc content |
+| `add_doc_source` | Track a doc URL for async background caching |
 | `remove_doc_source` | Remove a tracked documentation source |
 | `list_doc_sources` | List all tracked documentation sources |
 | `update_doc_source` | Manually refresh a documentation source |

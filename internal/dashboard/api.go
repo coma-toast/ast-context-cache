@@ -550,6 +550,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"EMBED_OPENAI_API_KEY":         "",
 		"EMBED_OPENAI_MODEL":           "",
 		"EMBED_OPENAI_DIMENSIONS":      "",
+		"EMBED_DOCKER_URL":             "",
+		"EMBED_DOCKER_MODEL":           "",
+		"EMBED_DOCKER_DIMENSIONS":      "",
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
