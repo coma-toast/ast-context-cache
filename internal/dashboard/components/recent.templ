@@ -3,15 +3,20 @@ package components
 import "fmt"
 
 type RecentQuery struct {
-	Timestamp  string
-	ToolName   string
-	Query      string
-	Mode       string
-	Budget     int
-	Saved      int
-	Project    string
-	DurationMs float64
-	Error      string
+	Timestamp      string
+	TimestampTitle string
+	ToolName       string
+	Query          string
+	Mode           string
+	Budget         int
+	Saved          int
+	Project        string
+	DurationMs     float64
+	CpuMs          float64
+	Error          string
+	Event          string
+	File           string
+	FileTitle      string
 }
 
 var toolBadges = map[string]string{
@@ -62,6 +67,75 @@ func shortProject(path string) string {
 	return path
 }
 
+templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery) {
+	<div class="recent-panel">
+		<details class="recent-section" open>
+			<summary class="recent-section-title">MCP tool calls <span class="recent-count">{ fmtInt(len(mcp)) }</span></summary>
+			@RecentTable(mcp)
+		</details>
+		<details class="recent-section">
+			<summary class="recent-section-title">Indexing activity <span class="recent-count">{ fmtInt(len(indexing)) }</span></summary>
+			@IndexingTable(indexing)
+		</details>
+	</div>
+}
+
+templ IndexingTable(queries []RecentQuery) {
+	<div class="card" style="padding:0;overflow-x:auto">
+		<table>
+			<thead>
+				<tr>
+					<th>Time</th>
+					<th>Event</th>
+					<th>File</th>
+					<th>Project</th>
+					<th>Duration</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(queries) == 0 {
+					<tr><td colspan="5" class="empty-state">No indexing events</td></tr>
+				} else {
+					for _, q := range queries {
+						<tr>
+							<td class="mono dim" title={ q.TimestampTitle }>{ q.Timestamp }</td>
+							<td>
+								if q.Event != "" {
+									<span class={ "badge", indexingEventBadge(q.Event) }>{ q.Event }</span>
+								} else {
+									<span class="badge badge-green">index</span>
+								}
+							</td>
+							<td class="mono" title={ q.FileTitle }>
+								if q.File != "" {
+									{ q.File }
+								} else {
+									-
+								}
+							</td>
+							<td class="mono" title={ q.Project }>{ shortProject(q.Project) }</td>
+							<td class="mono">
+								if q.DurationMs > 0 {
+									{ fmt.Sprintf("%.0fms", q.DurationMs) }
+								} else {
+									-
+								}
+							</td>
+						</tr>
+					}
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+func indexingEventBadge(event string) string {
+	if event == "delete" {
+		return "badge-red"
+	}
+	return "badge-green"
+}
+
 templ RecentTable(queries []RecentQuery) {
 	<div class="card" style="padding:0;overflow-x:auto">
 		<table>
@@ -75,17 +149,18 @@ templ RecentTable(queries []RecentQuery) {
 					<th>Saved</th>
 					<th>Project</th>
 					<th>Duration</th>
+					<th>CPU</th>
 					<th>Status</th>
 				</tr>
 			</thead>
 			<tbody>
 				if len(queries) == 0 {
-					<tr><td colspan="9" class="empty-state">No queries recorded</td></tr>
+					<tr><td colspan="10" class="empty-state">No MCP tool calls yet</td></tr>
 				} else {
 					for i, q := range queries {
 						<tr>
-							<td class="mono dim">{ q.Timestamp }</td>
-							<td><span class={ "badge", getBadgeClass(q.ToolName) }>{ q.ToolName }</span></td>
+							<td class="mono dim" title={ q.TimestampTitle }>{ q.Timestamp }</td>
+							<td><span class={ "badge", getBadgeClass(q.ToolName) } title={ q.ToolName }>{ formatToolLabel(q.ToolName) }</span></td>
 							<td class="mono" title={ q.Query }>
 								if q.Query != "" {
 									{ truncQuery(q.Query) }
@@ -118,6 +193,13 @@ templ RecentTable(queries []RecentQuery) {
 							<td class="mono">
 								if q.DurationMs > 0 {
 									{ fmt.Sprintf("%.0fms", q.DurationMs) }
+								} else {
+									-
+								}
+							</td>
+							<td class="mono">
+								if q.CpuMs > 0 {
+									{ fmtToolCpu(q.CpuMs) }
 								} else {
 									-
 								}

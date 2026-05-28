@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 type logFile struct {
@@ -148,6 +149,7 @@ func RunOnce() {
 		"dry_run":       dry,
 	})
 	_ = db.SetSetting("log_retention_last_run", string(meta))
+	realtime.Notify(realtime.SettingsChanged)
 	if deleted > 0 || dry {
 		log.Printf("log retention: done deleted=%d bytes_freed=%d dry_run=%v", deleted, deletedBytes, dry)
 	}

@@ -111,8 +111,8 @@ MCP server: http://localhost:7821/mcp
 1. `index_status` — check if project is indexed
 2. `index_files` — index if needed (starts file watcher)
 3. `get_project_map depth=2` — orient yourself (~200 tokens)
-4. `get_context_capsule mode=auto` — search code (top 3 full, rest skeleton)
-5. `get_file_context` — all symbols in a specific file
+4. `get_context_capsule mode=auto` + `session_id` — search code (top hits full, rest skeleton)
+5. `get_file_context mode=skeleton` — all symbols in a file (default skeleton, not full)
 6. `get_impact_graph` — blast radius before modifying a symbol
 7. `cache_summary` — save what you learned for future queries
 8. `retrieve` — RAG-style retrieval (code + docs in one call)
@@ -124,7 +124,7 @@ MCP server: http://localhost:7821/mcp
 |------|-------------|
 | `get_context_capsule` | BM25+vector hybrid search. Modes: `full`, `skeleton`, `summary`, `auto`. |
 | `search_semantic` | Semantic search by meaning using vector embeddings. Optional `doc_type`. |
-| `get_file_context` | All symbols in a file. Use instead of reading files directly. |
+| `get_file_context` | All symbols in a file; **default `skeleton`**. Pass `session_id`. Use instead of reading files directly. |
 | `get_project_map` | Project structure overview (depth 1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Blast radius of a symbol — files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
@@ -156,14 +156,14 @@ MCP server: http://localhost:7821/mcp
 
 | Mode | Use Case | Token Savings |
 |------|----------|---------------|
-| `auto` (default) | Most searches — full source for top 3, skeleton for rest | ~80% |
-| `skeleton` | Exploration, understanding structure | ~90% |
+| `auto` | **`get_context_capsule` default** — full for top hits, skeleton for rest | ~80% |
+| `skeleton` | **`get_file_context` / `search_semantic` default** | ~90% |
 | `summary` | High-level overviews (requires cache_summary first) | ~94% |
 | `full` | Only when you need complete implementation details | 0% |
 
 ## Best Practices
 
-1. **Use session_id** — prevents re-sending files already seen in this session
+1. **Use session_id** — on get_context_capsule, search_semantic, retrieve, get_file_context
 2. **Set token_budget** — default 4000; adjust based on need
 3. **Use get_project_map first** — ~200 tokens for full project overview
 4. **Use get_file_context over read** — structured, mode-aware output

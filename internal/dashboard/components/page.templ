@@ -35,15 +35,11 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 		<div class="container" x-data="dashboard()">
 			<header>
 				<h1><span class="icon">&#x1F9E0;</span> AST Context Cache</h1>
-				<div id="health-bar"></div>
+				<div id="health-bar" class="health-bar-inline"></div>
 				<div class="header-controls">
-					<span class="auto-badge">auto 30s</span>
-					<button class="refresh-btn" @click="refresh()" :class="{ 'spinning': refreshing }">
-						<div class="progress-bar" :class="{ 'progressing': progressing }"></div>
-						<span class="spin">&#x21bb;</span> Refresh
-					</button>
-					<button class="settings-btn" @click="settingsOpen = true" title="Settings">&#x2699;</button>
-					<select class="project-select" x-model="selectedProject" @change="refresh()">
+					<span class="filter-pill" x-show="selectedProject" x-cloak x-text="projectLabel()"></span>
+					<button class="settings-btn" @click="openSettings()" title="Settings">&#x2699;</button>
+					<select class="project-select" x-model="selectedProject" @change="applyProjectFilter()">
 						<option value="">All Projects</option>
 						for _, p := range projects {
 							<option value={ p.Path }>{ p.Name }{ fmt.Sprintf(" (%d symbols)", p.SymbolCount) }</option>
@@ -52,7 +48,7 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 				</div>
 			</header>
 
-			<div class="section-title">Search index</div>
+			<div class="section-title">Query activity <span class="section-hint">MCP tool calls and token savings</span></div>
 			<div id="stats-cards">
 				<div class="grid grid-4">
 					<div class="card"><div class="card-title">Total Queries</div><div class="stat-value stat-accent">-</div></div>
@@ -62,15 +58,15 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 				</div>
 			</div>
 
-			<div class="section-title">Index Health</div>
+			<div class="section-title">Index &amp; runtime <span class="section-hint">Corpus size, embed queue, watchers</span></div>
 			<div id="index-health">
 				<div class="grid grid-4">
 					<div class="card"><div class="card-title">Loading...</div><div class="stat-value stat-accent">-</div></div>
 				</div>
 			</div>
 
-			<div class="section-title" style="display:flex;align-items:center;gap:12px">
-				Activity
+			<div class="section-title section-title-row">
+				<span>Activity <span class="section-hint">Queries over time (last 30 days)</span></span>
 				<div class="toggle-group" x-data>
 					<button class="toggle-btn" :class="{ 'active': $store.chart.interval === 'daily' }" @click="$store.chart.interval = 'daily'; $dispatch('chart-update')">Daily</button>
 					<button class="toggle-btn" :class="{ 'active': $store.chart.interval === 'hourly' }" @click="$store.chart.interval = 'hourly'; $dispatch('chart-update')">Hourly</button>
@@ -80,7 +76,7 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 					<button class="toggle-btn" :class="{ 'active': $store.chart.metric === 'tokens_saved' }" @click="$store.chart.metric = 'tokens_saved'; $dispatch('chart-update')">Tokens</button>
 				</div>
 			</div>
-			<div id="activity-chart">
+			<div id="activity-chart" x-data="timeseriesChart()" @chart-update.window="loadAndDraw()">
 				<div class="card">
 					<div class="chart-container"><canvas x-ref="canvas"></canvas></div>
 				</div>
@@ -97,18 +93,13 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 				</div>
 			</div>
 
-			<div class="grid grid-2" style="margin-top:16px">
-				<div>
-					<div class="section-title">Tool Usage</div>
-					<div id="tool-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
-				</div>
-				<div>
-					<div class="section-title">Top Imports</div>
-					<div id="import-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
-				</div>
-			</div>
+			<div class="section-title">Tool performance <span class="section-hint">Calls, CPU, latency, tokens saved per MCP tool</span></div>
+			<div id="tool-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
 
-			<div class="section-title">Recent Queries</div>
+			<div class="section-title" style="margin-top:16px">Top Imports</div>
+			<div id="import-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
+
+			<div class="section-title">Recent activity <span class="section-hint">MCP calls vs background indexing</span></div>
 			<div id="recent-queries">
 				<div class="card" style="padding:0"><table><tbody><tr><td class="empty-state">Loading...</td></tr></tbody></table></div>
 			</div>

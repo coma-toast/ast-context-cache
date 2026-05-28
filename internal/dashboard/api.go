@@ -18,6 +18,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -73,10 +74,6 @@ func NewHandler(_ string) http.Handler {
 	// Aliases for React dashboard
 	mux.HandleFunc("/dashboard/partials/health", handleHealthPartial)
 	mux.HandleFunc("/dashboard/partials/activity", handleActivityPartial)
-	mux.HandleFunc("/dashboard/events", handleSSE)
-
-	// SSE stream for real-time toasts
-	mux.HandleFunc("/events", handleSSE)
 
 	// Static assets (CSS, JS)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
@@ -121,27 +118,13 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 
 func handleTools(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
-	var rows *sql.Rows
-	var err error
-	if pid != "" {
-		rows, err = db.DB.Query("SELECT tool_name, COUNT(*) FROM queries WHERE project_path = ? GROUP BY tool_name", pid)
-	} else {
-		rows, err = db.DB.Query("SELECT tool_name, COUNT(*) FROM queries GROUP BY tool_name")
-	}
+	stats := queryToolStats(pid)
 	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
-		json.NewEncoder(w).Encode([]map[string]interface{}{})
+	if stats == nil {
+		json.NewEncoder(w).Encode([]any{})
 		return
 	}
-	defer rows.Close()
-	tools := []map[string]interface{}{}
-	for rows.Next() {
-		var n string
-		var c int
-		rows.Scan(&n, &c)
-		tools = append(tools, map[string]interface{}{"name": n, "count": c})
-	}
-	json.NewEncoder(w).Encode(tools)
+	json.NewEncoder(w).Encode(stats)
 }
 
 func handleRecent(w http.ResponseWriter, r *http.Request) {
@@ -513,6 +496,7 @@ func handlePinProject(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	realtime.Notify(realtime.SettingsChanged | realtime.IndexHealth)
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "pinned": req.Pinned})
 }
 
@@ -537,6 +521,11 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		mask := realtime.SettingsChanged
+		if key == "idle_unload_minutes" {
+			mask |= realtime.IndexHealth | realtime.HealthBar
+		}
+		realtime.Notify(mask)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
 		return
 	}
@@ -549,6 +538,16 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"log_retention_max_age_days":   "0",
 		"log_retention_max_total_mib":  "0",
 		"log_retention_dry_run":        "false",
+		"EMBED_BACKEND":                "",
+		"MODEL_DIR":                    "",
+		"EMBED_HTTP_URL":               "",
+		"EMBED_HTTP_BEARER":            "",
+		"OLLAMA_HOST":                  "",
+		"OLLAMA_EMBED_MODEL":           "",
+		"EMBED_OPENAI_BASE_URL":        "",
+		"EMBED_OPENAI_API_KEY":         "",
+		"EMBED_OPENAI_MODEL":           "",
+		"EMBED_OPENAI_DIMENSIONS":      "",
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
@@ -791,55 +790,62 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }
 
-func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
+// parseProjectPathFromRequest reads project_path from JSON (HTMX hx-vals) or form body.
+func parseProjectPathFromRequest(r *http.Request) string {
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		var req struct {
+			ProjectPath string `json:"project_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return ""
+		}
+		return filepath.Clean(req.ProjectPath)
 	}
 	r.ParseForm()
-	projectPath := r.FormValue("project_path")
+	return filepath.Clean(r.FormValue("project_path"))
+}
 
-	if projectPath == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+func respondHTMXPartial(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.Header.Get("HX-Target"), "settings-content") {
+		handleSettingsPartial(w, r)
 		return
 	}
-
-	err := watcher.StopWatcher(projectPath)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
 	handleIndexHealthPartial(w, r)
+}
+
+func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	projectPath := parseProjectPathFromRequest(r)
+	if projectPath != "" {
+		_ = watcher.StopWatcher(projectPath)
+	}
+	respondHTMXPartial(w, r)
 }
 
 func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	r.ParseForm()
-	projectPath := r.FormValue("project_path")
-	if projectPath == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
-		return
+	projectPath := parseProjectPathFromRequest(r)
+	if projectPath != "" {
+		go watcher.EnsureWatcher(projectPath)
 	}
-	go watcher.StartWatcher(projectPath)
-	handleIndexHealthPartial(w, r)
+	respondHTMXPartial(w, r)
 }
 
 func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-	r.ParseForm()
-	projectPath := r.FormValue("project_path")
+	projectPath := parseProjectPathFromRequest(r)
 	if projectPath == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		respondHTMXPartial(w, r)
 		return
 	}
 	watcher.DeleteWatcher(projectPath)
@@ -855,7 +861,7 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
-	handleIndexHealthPartial(w, r)
+	respondHTMXPartial(w, r)
 }
 
 func handleSystemResources(w http.ResponseWriter, r *http.Request) {

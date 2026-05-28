@@ -23,4 +23,14 @@ Cursor loads skills from [`.cursor/skills/`](../.cursor/skills/) with YAML `name
 | `.cursor/skills/ast-rebuild/` | maintained in-repo (repo-relative paths) |
 | `.cursor/skills/ast-operator/` | `skills/operator/SKILL.md` |
 
-Optional later: `make sync-cursor-skills` to automate the copy.
+After editing portable skills, re-sync Cursor copies:
+
+```bash
+cd /path/to/ast-context-cache
+for pair in usage:ast-usage operator:ast-operator; do
+  IFS=: read -r src dir <<< "$pair"
+  { head -4 ".cursor/skills/$dir/SKILL.md"; echo; tail -n +2 "skills/$src/SKILL.md"; } > ".cursor/skills/$dir/SKILL.md"
+done
+```
+
+Agents should read **`AGENTS.md`** / **`CLAUDE.md`** at the repo root, or invoke the matching `.cursor/skills/` skill when the task fits its description.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 type LazyEmbedder struct {
@@ -37,6 +38,7 @@ func (le *LazyEmbedder) get() (*Embedder, error) {
 	}
 	le.inner = e
 	log.Printf("Embedder loaded: %s (%d dims)", ModelName, Dimensions)
+	realtime.Notify(realtime.HealthBar)
 	return e, nil
 }
 
@@ -69,6 +71,7 @@ func (le *LazyEmbedder) Close() {
 		le.inner.Close()
 		le.inner = nil
 		log.Println("Embedder unloaded (idle timeout)")
+		realtime.Notify(realtime.HealthBar)
 	}
 }
 
@@ -104,6 +107,7 @@ func (le *LazyEmbedder) idleLoop() {
 				le.inner.Close()
 				le.inner = nil
 				log.Printf("Embedder unloaded after %v idle", timeout)
+				realtime.Notify(realtime.HealthBar)
 			}
 			le.mu.Unlock()
 		case <-le.stopIdle:

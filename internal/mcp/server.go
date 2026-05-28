@@ -9,6 +9,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
@@ -120,6 +121,7 @@ func NewHandler() http.HandlerFunc {
 
 func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	start := time.Now()
+	cpuStart := sys.SampleCPU()
 	args := rpcReq.Params
 	if args == nil {
 		args = make(map[string]any)
@@ -231,7 +233,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			tokensSaved = 0
 		}
 
-		db.LogQuery(toolName, args, len(contextStr), inputTokens, outputTokens, tokensSaved, fileBaseline, fullBaseline, float64(time.Since(start).Milliseconds()), projectPath, "")
+		logToolQuery(toolName, args, len(contextStr), inputTokens, outputTokens, tokensSaved, fileBaseline, fullBaseline, start, cpuStart, projectPath, "")
 
 		if parsed != nil {
 			parsed["tokens_saved"] = tokensSaved
@@ -326,7 +328,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if saved < 0 {
 					saved = 0
 				}
-				db.LogQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, saved, fileBaselineTokens, fullBaselineTokens, float64(time.Since(start).Milliseconds()), projectPath, "")
+				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, saved, fileBaselineTokens, fullBaselineTokens, start, cpuStart, projectPath, "")
 				loggedToolCall = true
 				result = json.RawMessage(respData)
 			}
@@ -370,7 +372,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if saved < 0 {
 					saved = 0
 				}
-				db.LogQuery(toolName, args, len(fcStr), 0, outTokens, saved, fileBase, fullBase, float64(time.Since(start).Milliseconds()), projectPath, "")
+				logToolQuery(toolName, args, len(fcStr), 0, outTokens, saved, fileBase, fullBase, start, cpuStart, projectPath, "")
 				loggedToolCall = true
 			}
 		}
@@ -501,7 +503,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if err := json.Unmarshal([]byte(result.(json.RawMessage)), &parsed); err == nil {
 					ctxLen := len(parsed["context"].(string))
 					outTokens := db.EstimateTokens(parsed["context"].(string))
-					db.LogQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
+					logToolQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, 0, 0, 0, start, cpuStart, projectPath, "")
 					loggedToolCall = true
 				}
 			}
@@ -512,7 +514,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 
 	if toolName != "get_context_capsule" && !loggedToolCall {
 		resultJSON, _ := json.Marshal(result)
-		db.LogQuery(toolName, args, len(resultJSON), 0, 0, 0, 0, 0, float64(time.Since(start).Milliseconds()), projectPath, "")
+		logToolQuery(toolName, args, len(resultJSON), 0, 0, 0, 0, 0, start, cpuStart, projectPath, "")
 	}
 	// MCP tools/call response must have result.content[].text and isError so clients pass tool output to the model.
 	resultJSON, _ := json.Marshal(result)
@@ -527,4 +529,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		ID:      rpcReq.ID,
 		Result:  mcpResult,
 	})
+}
+
+func logToolQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens int, start time.Time, cpuStart sys.CPUSample, projectPath, errMsg string) {
+	db.LogQuery(toolName, args, resultChars, inputTokens, outputTokens, tokensSaved, fileBaselineTokens, fullBaselineTokens, float64(time.Since(start).Milliseconds()), sys.DeltaMs(cpuStart, sys.SampleCPU()), projectPath, errMsg)
 }

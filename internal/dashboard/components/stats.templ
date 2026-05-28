@@ -50,21 +50,9 @@ func fmtInt64(n int64) string {
 
 templ StatsCards(s Stats) {
 	<div class="grid grid-4">
-		<div class="card">
-			<div class="card-title">Total Queries</div>
-			<div class="stat-value stat-accent">{ fmtInt(s.TotalQueries) }</div>
-			<div class="stat-label">Today: { fmtInt(s.TodayQueries) }</div>
-		</div>
-		<div class="card" title="Tokens saved by search queries vs reading full files">
-			<div class="card-title">Tokens Saved</div>
-			<div class="stat-value stat-green">{ fmtInt(s.TokensSaved) }</div>
-			<div class="stat-label">Today: { fmtInt(s.TodayTokens) }</div>
-		</div>
-		<div class="card">
-			<div class="card-title">Avg Duration</div>
-			<div class="stat-value stat-orange">{ fmt.Sprintf("%.1f", s.AvgDurationMs) }</div>
-			<div class="stat-label">milliseconds</div>
-		</div>
+		@StatMeter("Total Queries", fmtInt(s.TotalQueries), fmt.Sprintf("Today: %s", fmtInt(s.TodayQueries)), s.todayQueryPct(), "stat-accent")
+		@StatMeter("Tokens Saved", fmtInt(s.TokensSaved), fmt.Sprintf("Today: %s", fmtInt(s.TodayTokens)), s.todayTokenPct(), "stat-green")
+		@StatMeter("Avg Duration", fmt.Sprintf("%.1f", s.AvgDurationMs), "milliseconds", durationPct(s.AvgDurationMs), "stat-orange")
 		<div class="card">
 			<div class="card-title">Sessions</div>
 			<div class="stat-value stat-purple">{ fmtInt(s.Sessions) }</div>

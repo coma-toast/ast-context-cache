@@ -30,8 +30,17 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 	if len(content) > plaintextMaxBytes {
 		content = content[:plaintextMaxBytes]
 	}
-	db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
+	if _, err = tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
 	text := string(content)
 	lines := strings.Split(text, "\n")
 	nLines := len(lines)
@@ -43,11 +52,17 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 	fqn := fmt.Sprintf("%s#plaintext", filePath)
 	fullTokens = db.EstimateTokens(text)
 	skeletonTokens = db.EstimateTokens(first)
-	_, err = db.DB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = tx.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		name, "plaintext", filePath, 1, nLines, text, fqn, projectPath, first)
 	if err != nil {
 		return 0, fullTokens, skeletonTokens, err
 	}
-	db.UpsertIndexedFile(filePath, projectPath, time.Now())
+	if err := db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now()); err != nil {
+		return 0, fullTokens, skeletonTokens, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fullTokens, skeletonTokens, err
+	}
+	notifyIndexCommitted()
 	return 1, fullTokens, skeletonTokens, nil
 }

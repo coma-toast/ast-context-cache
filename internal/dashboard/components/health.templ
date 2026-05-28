@@ -8,8 +8,10 @@ type Health struct {
 	EmbedderLast    time.Duration
 	QueueWorkers   int
 	QueueThroughput int64
-	QueueQueued   int
-	CacheHitRatio float64
+	QueueQueued     int
+	QueueHighCap    int
+	QueueLowCap     int
+	CacheHitRatio   float64
 	VectorMemMB   float64
 	HeapMB       float64
 	TotalAllocMB  float64
@@ -67,13 +69,24 @@ templ HealthBar(h Health) {
 			<span class="health-summary">{ h.EmbedderStatus() }</span>
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item" title="Queue throughput">
-			<span class="health-label">Q:</span>
+		<span class="health-item health-gauge-item" title={ fmt.Sprintf("Queue %d / %d (priority %d + background %d)", h.QueueQueued, h.QueueHighCap+h.QueueLowCap, h.QueueHighCap, h.QueueLowCap) }>
+			<span class="health-label">Queue</span>
+			<span class={ "health-mini-track", "level-" + h.queueLevel() }>
+				<span class="health-mini-fill" style={ h.queueMiniStyle() }></span>
+			</span>
+			<span class="health-value">{ fmtInt(h.QueueQueued) }</span>
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item health-gauge-item" title="Embedding throughput (5s window)">
+			<span class="health-label">Emb</span>
 			<span class="health-value">{ fmt.Sprintf("%d/s", h.QueueThroughput) }</span>
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item" title="Cache hit ratio">
-			<span class="health-label">Cache:</span>
+		<span class="health-item health-gauge-item" title="Vector cache hit ratio">
+			<span class="health-label">Cache</span>
+			<span class={ "health-mini-track", "level-" + gaugeLevel(float64(h.CachePercent())) }>
+				<span class="health-mini-fill" style={ fmt.Sprintf("width:%d%%", h.CachePercent()) }></span>
+			</span>
 			<span class="health-value">{ fmt.Sprintf("%d%%", h.CachePercent()) }</span>
 		</span>
 		<span class="health-divider"></span>

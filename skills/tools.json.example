@@ -1,0 +1,12 @@
+{
+  "execute_code": {
+    "enabled": false,
+    "tier": "complete",
+    "description": "Disabled by policy"
+  },
+  "index_files": {
+    "enabled": true,
+    "tier": "core",
+    "description": "Allow indexing when server runs at AST_MCP_TIER=core"
+  }
+}

@@ -33,8 +33,6 @@ help:
 	@echo "  make setup    — install everything and build (start here)"
 	@echo "  make build    — download deps + build binary"
 	@echo "  make run      — build + run the server"
-	@echo "  make tool-mgr  — build the tool manager TUI"
-	@echo "  make mcp-local  — build the unified local manager CLI"
 	@echo "  make install  — copy shell functions to your shell config"
 	@echo "  make clean    — remove binary"
 	@echo ""
@@ -111,16 +109,6 @@ build: download-model download-tokenizer-lib generate
 	@echo "Building ast-mcp..."
 	$(CGO_FLAGS) go build -tags sqlite_fts5 -o $(BINARY) ./cmd/ast-mcp/
 	@echo "Built: ./$(BINARY)"
-
-tool-mgr:
-	@echo "Building tool-mgr TUI..."
-	go build -o tool-mgr ./cmd/tool-mgr/main.go
-	@echo "Built: ./tool-mgr"
-
-mcp-local:
-	@echo "Building mcp-local Unified Manager..."
-	go build -o mcp-local ./cmd/mcp-local/main.go
-	@echo "Built: ./mcp-local"
 
 run: build
 	ONNXRUNTIME_LIB=$(ORT_DYLIB) ./$(BINARY)

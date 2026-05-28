@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 const VectorDims = 768
@@ -94,6 +95,7 @@ func (vc *VectorCache) Unload() {
 	vc.entries = nil
 	vc.loaded = false
 	log.Printf("Vector cache unloaded (%d entries freed)", n)
+	realtime.Notify(realtime.IndexHealth)
 }
 
 func (vc *VectorCache) idleTimeout() time.Duration {
@@ -129,6 +131,9 @@ func (vc *VectorCache) idleLoop() {
 				vc.entries = nil
 				vc.loaded = false
 				log.Printf("Vector cache unloaded after %v idle (%d entries freed)", timeout, n)
+				vc.mu.Unlock()
+				realtime.Notify(realtime.IndexHealth)
+				continue
 			}
 			vc.mu.Unlock()
 		case <-vc.stopIdle:

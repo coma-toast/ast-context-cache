@@ -15,6 +15,11 @@ type BarItem struct {
 	Value int
 }
 
+type FloatBarItem struct {
+	Label string
+	Value float64
+}
+
 var chartColors = []string{"#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#f778ba", "#79c0ff", "#56d364", "#e3b341", "#d2a8ff", "#ff9bce"}
 
 func BarChart(items []BarItem, colorOffset int) templ.Component {
@@ -39,7 +44,7 @@ func BarChart(items []BarItem, colorOffset int) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(items) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"card\"><div class=\"empty-state\">No data</div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"card\"><div class=\"empty-state\">No data yet</div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -57,7 +62,7 @@ func BarChart(items []BarItem, colorOffset int) templ.Component {
 					var templ_7745c5c3_Var2 string
 					templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue(item.Label)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 21, Col: 49}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 26, Col: 49}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 					if templ_7745c5c3_Err != nil {
@@ -68,9 +73,9 @@ func BarChart(items []BarItem, colorOffset int) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var3 string
-					templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(truncLabel(item.Label))
+					templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(truncLabel(formatToolLabel(item.Label)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 21, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 26, Col: 93}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 					if templ_7745c5c3_Err != nil {
@@ -83,7 +88,7 @@ func BarChart(items []BarItem, colorOffset int) templ.Component {
 					var templ_7745c5c3_Var4 string
 					templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(barStyle(item.Value, maxVal(items), colorOffset+i))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 23, Col: 88}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 28, Col: 88}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -94,9 +99,9 @@ func BarChart(items []BarItem, colorOffset int) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var5 string
-					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(item.Value))
+					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(barValueLabel(item.Value, chartTotal(items)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 25, Col: 51}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 30, Col: 77}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -109,6 +114,106 @@ func BarChart(items []BarItem, colorOffset int) templ.Component {
 				}
 			}
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		return nil
+	})
+}
+
+func FloatBarChart(items []FloatBarItem, colorOffset int, unit string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var6 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var6 == nil {
+			templ_7745c5c3_Var6 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		if len(items) == 0 {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div class=\"card\"><div class=\"empty-state\">No data yet</div></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div class=\"card\"><div class=\"bar-chart\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			for i, item := range items {
+				if i < 10 {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div class=\"bar-row\"><span class=\"bar-label\" title=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var7 string
+					templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(item.Label)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 48, Col: 49}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var8 string
+					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(truncLabel(formatToolLabel(item.Label)))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 48, Col: 93}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</span><div class=\"bar-track\"><div class=\"bar-fill\" style=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var9 string
+					templ_7745c5c3_Var9, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(floatBarStyle(item.Value, maxFloatVal(items), colorOffset+i))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 50, Col: 98}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\"></div></div><span class=\"bar-value\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var10 string
+					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(floatBarValueLabel(item.Value, floatChartTotal(items), unit))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/charts.templ`, Line: 52, Col: 93}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</span></div>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -134,10 +239,29 @@ func maxVal(items []BarItem) int {
 	return m
 }
 
+func maxFloatVal(items []FloatBarItem) float64 {
+	m := 0.0
+	for _, item := range items {
+		if item.Value > m {
+			m = item.Value
+		}
+	}
+	return m
+}
+
 func barStyle(val, max, colorIdx int) string {
 	pct := 0.0
 	if max > 0 {
 		pct = float64(val) / float64(max) * 100
+	}
+	color := chartColors[colorIdx%len(chartColors)]
+	return fmt.Sprintf("width:%.1f%%;background:%s", pct, color)
+}
+
+func floatBarStyle(val, max float64, colorIdx int) string {
+	pct := 0.0
+	if max > 0 {
+		pct = val / max * 100
 	}
 	color := chartColors[colorIdx%len(chartColors)]
 	return fmt.Sprintf("width:%.1f%%;background:%s", pct, color)

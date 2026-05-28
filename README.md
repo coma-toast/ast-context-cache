@@ -11,7 +11,7 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 - **Source code in results** -- Search results include the actual source, not just file pointers
 - **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
 - **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
-- **Dashboard** -- Web UI on port 7830 with stats, charts, and recent query history
+- **Dashboard** -- Web UI on port 7830: real-time stats, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool
 - **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency; **synchronous=NORMAL** and a **32 MiB page cache** reduce fsync pressure; **PASSIVE WAL checkpoints** every 10 minutes (less write amplification than aggressive truncate). Per-file indexing uses **one transaction** per file; MCP **query** and **session** dedup rows are **batched** before insert.
 
 ## Quick Start

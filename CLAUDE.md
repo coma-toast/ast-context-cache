@@ -14,7 +14,7 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 
 ## Skills (Ready-Made Instruction Blocks)
 
-**Cursor:** discoverable project skills in [`.cursor/skills/`](.cursor/skills/) (`ast-usage`, `ast-install`, `ast-rebuild`, `ast-operator`). See [skills/README.md](skills/README.md).
+**Cursor:** discoverable project skills in [`.cursor/skills/`](.cursor/skills/) (`ast-context-cache-usage`, `ast-context-cache-install`, `ast-context-cache-rebuild`, `ast-context-cache-operator`). See [skills/README.md](skills/README.md).
 
 **Other editors:** portable copy-paste in `skills/` — [agents](skills/agents/SKILL.md), [install](skills/install/SKILL.md), [usage](skills/usage/SKILL.md), [operator](skills/operator/SKILL.md).
 
@@ -23,7 +23,7 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 ## Core
 - **get_context_capsule** - BM25+vector hybrid search with modes: full, skeleton, summary, auto
 - **search_semantic** - Natural language search; optional `doc_type` filter (`code`, `doc`, etc.)
-- **get_file_context** - All symbols in a file with mode-aware output (use instead of reading files)
+- **get_file_context** - All symbols in a file; **default mode `skeleton`** (use instead of reading files)
 - **get_project_map** - Project structure overview (~200 tokens at depth=2)
 - **get_impact_graph** - Blast radius of a symbol before making changes
 - **index_status** - Check if a project is indexed
@@ -62,9 +62,8 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - Provides ~94% token reduction
 
 ### 4. Leverage Session Deduplication
-- Always pass session_id to get_context_capsule
-- This prevents re-sending files you've already seen in this conversation
-- The tool tracks what's been returned and auto-skips duplicates
+- Pass the same `session_id` on **get_context_capsule**, **search_semantic**, **retrieve**, and **get_file_context**
+- Prevents re-sending symbols already returned in this conversation
 
 ### 5. Use Token Budget Wisely
 - Set token_budget to control response size
@@ -97,13 +96,16 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - Doc sources auto-refresh every hour
 
 ### Recommended Workflow
-1. get_project_map to understand structure
-2. get_context_capsule with mode='auto' for initial search
-3. get_file_context for all symbols in a specific file
-4. Use skeleton mode for broad exploration
-5. Cache summaries of key files
-6. Use impact graph before making changes
-7. Use search_docs for library/framework questions
+1. index_status → index_files if needed
+2. get_project_map (depth=2)
+3. get_context_capsule with mode='auto' and session_id
+4. get_file_context with default mode='skeleton' (not full) unless implementing
+5. search_semantic for intent; retrieve for RAG bundles
+6. cache_summary on key symbols; use mode='summary' later
+7. get_impact_graph before changing exports
+8. search_docs for library/framework questions
+
+**Dashboard (operators):** http://localhost:7830 — embed queue gauge, project filter, MCP vs indexing in Recent, tool performance (CPU/latency). See [skills/operator/SKILL.md](skills/operator/SKILL.md).
 
 ### Optional search filters (get_context_capsule, search_semantic, retrieve)
 
