@@ -28,6 +28,12 @@ type IndexHealth struct {
 	EmbedThroughput  int64
 	PinnedCount       int
 	FilteredProject   string
+	EmbedBackend      string
+	EmbedModel        string
+	EmbedRuntime      string
+	EmbedEndpoint     string
+	EmbedDim          int
+	EmbedLoaded       bool
 }
 
 type WatcherInfo struct {

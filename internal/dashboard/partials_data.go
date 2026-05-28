@@ -90,5 +90,6 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 	h.EmbedThroughput = eq.Throughput
 	h.PinnedCount = db.PinnedProjectCount()
 	h.FilteredProject = projectID
+	applyActiveEmbedder(&h)
 	return h
 }

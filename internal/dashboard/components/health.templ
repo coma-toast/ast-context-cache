@@ -6,6 +6,10 @@ import "time"
 type Health struct {
 	EmbedderState    string
 	EmbedderLast    time.Duration
+	EmbedBackend    string
+	EmbedModel      string
+	EmbedRuntime    string
+	EmbedDim        int
 	QueueWorkers   int
 	QueueThroughput int64
 	QueueQueued     int
@@ -63,11 +67,38 @@ func (h Health) FormatUptime() string {
 	return fmt.Sprintf("%.0fd", h.Uptime.Hours()/24)
 }
 
+func truncateEmbedLabel(s string, max int) string {
+	if max <= 3 || len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
+}
+
+func (h IndexHealth) ActiveEmbedTitle() string {
+	if h.EmbedEndpoint != "" {
+		return fmt.Sprintf("%s · %s · %s", h.EmbedBackend, h.EmbedModel, h.EmbedEndpoint)
+	}
+	return fmt.Sprintf("%s · %s · %s (%d dims)", h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, h.EmbedDim)
+}
+
+func (h IndexHealth) ActiveEmbedModelShort() string {
+	return truncateEmbedLabel(h.EmbedModel, 42)
+}
+
+func (h Health) ActiveEmbedModelShort() string {
+	return truncateEmbedLabel(h.EmbedModel, 28)
+}
+
+func (h Health) ActiveEmbedTitle() string {
+	return fmt.Sprintf("%s · %s · %s (%d dims)", h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, h.EmbedDim)
+}
+
 templ HealthBar(h Health) {
 	<div class="health-bar">
-		<span class="health-item" title="Embedder state">
+		<span class="health-item" title={ h.ActiveEmbedTitle() }>
 			<span class="health-emoji">{ h.EmbedderEmoji() }</span>
-			<span class="health-summary">{ h.EmbedderStatus() }</span>
+			<span class="health-summary">{ h.EmbedBackend }</span>
+			<span class="health-value mono embed-health-model">{ h.ActiveEmbedModelShort() }</span>
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item health-gauge-item" title={ fmt.Sprintf("Queue %d / %d (priority %d + background %d)", h.QueueQueued, h.QueueHighCap+h.QueueLowCap, h.QueueHighCap, h.QueueLowCap) }>

@@ -9,6 +9,11 @@ var (
 	ActiveEndpoint = ""
 )
 
+// ActiveSnapshot returns metadata for the embedder wired at process start.
+func ActiveSnapshot() (backend, model, runtime, endpoint string, dim int) {
+	return ActiveBackend, ActiveModel, ActiveRuntime, ActiveEndpoint, ActiveDim
+}
+
 // SetActive updates metadata for /embed/health and logging. Call from main when wiring a backend.
 func SetActive(backend, model string, dim int, runtime, endpoint string) {
 	ActiveBackend = backend

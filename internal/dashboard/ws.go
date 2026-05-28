@@ -159,6 +159,7 @@ func renderHealthBar() string {
 		Uptime:          time.Since(serverStartTime),
 		Version:         "2.0.0",
 	}
+	applyActiveEmbedderHealth(&h)
 	var buf bytes.Buffer
 	components.HealthBar(h).Render(context.Background(), &buf)
 	return buf.String()

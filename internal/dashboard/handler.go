@@ -82,6 +82,7 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 		Uptime:        time.Since(serverStartTime),
 		Version:       "2.0.0",
 	}
+	applyActiveEmbedderHealth(&h)
 	components.HealthBar(h).Render(r.Context(), w)
 }
 
@@ -330,6 +331,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		DocSources:              docSources,
 	}
 	PopulateEmbedSettings(settings, &data)
+	applyActiveEmbedderSettings(&data)
 	loadDockerModels(&data)
 	components.Settings(data).Render(r.Context(), w)
 }

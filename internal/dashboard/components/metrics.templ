@@ -63,6 +63,16 @@ templ WorkerStrip(active int, total int) {
 templ EmbedPanel(h IndexHealth) {
 	<div class="card metric-card embed-panel">
 		<div class="card-title">Embeddings</div>
+		<div class="embed-active-row" title={ h.ActiveEmbedTitle() }>
+			<span class="embed-active-label">Active</span>
+			<span class="badge badge-blue">{ h.EmbedBackend }</span>
+			<span class="mono embed-active-model">{ h.ActiveEmbedModelShort() }</span>
+			if h.EmbedLoaded {
+				<span class="embed-active-pill loaded">loaded</span>
+			} else {
+				<span class="embed-active-pill">idle</span>
+			}
+		</div>
 		<div class="metric-split">
 			@RingGauge(fmtInt(h.EmbedQueued), "queued", h.EmbedQueued, h.queueTotalCap())
 			<div class="metric-stack">

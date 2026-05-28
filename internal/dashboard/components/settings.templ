@@ -46,6 +46,12 @@ type SettingsData struct {
 	EmbedDockerDimensions   string
 	EmbedDockerModels       []string
 	EmbedDockerModelsErr    string
+	EmbedActiveBackend      string
+	EmbedActiveModel        string
+	EmbedActiveRuntime      string
+	EmbedActiveEndpoint     string
+	EmbedActiveDim          int
+	EmbedActiveLoaded       bool
 	Projects                []Project
 	Agents                  []AgentInfo
 	DocSources              []DocSource
@@ -66,6 +72,19 @@ templ Settings(data SettingsData) {
 
 	<div class="section">
 		<div class="section-title">Embedding backend</div>
+		<div class="embed-active-banner" title={ data.EmbedActiveEndpoint }>
+			<span class="embed-active-label">Running</span>
+			<span class="badge badge-blue">{ data.EmbedActiveBackend }</span>
+			<span class="mono">{ data.EmbedActiveModel }</span>
+			<span class="perf-hint embed-active-meta">
+				{ data.EmbedActiveRuntime } · { fmt.Sprint(data.EmbedActiveDim) } dims
+				if data.EmbedActiveLoaded {
+					· loaded
+				} else {
+					· idle (lazy)
+				}
+			</span>
+		</div>
 		<p class="perf-hint" style="margin-bottom:12px">
 			Values are stored in the local database under the <span class="mono">same names as environment variables</span>.
 			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
