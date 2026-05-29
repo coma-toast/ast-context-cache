@@ -52,6 +52,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
 	mux.HandleFunc("/api/settings", handleSettings)
 	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
+	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
@@ -522,6 +523,12 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "" {
 			json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
 			return
+		}
+		if key == "EMBED_BACKEND" {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "litellm":
+				value = "openai"
+			}
 		}
 		if err := db.SetSetting(key, value); err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

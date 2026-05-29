@@ -26,13 +26,13 @@ type ollamaTagsResponse struct {
 func ListDMRModels(rawURL string) ([]string, error) {
 	base := normalizeDMRBase(strings.TrimSpace(rawURL))
 	client := &http.Client{Timeout: 15 * time.Second}
-	if ids, err := listDMRModelsOpenAI(client, base); err == nil && len(ids) > 0 {
+	if ids, err := ListOpenAIModelsWithClient(client, base, ""); err == nil && len(ids) > 0 {
 		return ids, nil
 	} else if err != nil && !isHTTPReachableErr(err) {
 		return nil, err
 	}
 	host := dmrHostRoot(base)
-	if ids, err := listDMRModelsOllama(client, host); err == nil && len(ids) > 0 {
+	if ids, err := ListOllamaModelsWithClient(client, host); err == nil && len(ids) > 0 {
 		return ids, nil
 	} else if err != nil {
 		return nil, err
@@ -40,15 +40,32 @@ func ListDMRModels(rawURL string) ([]string, error) {
 	return nil, fmt.Errorf("no models returned from %s (is Model Runner running?)", host)
 }
 
-func listDMRModelsOpenAI(client *http.Client, base string) ([]string, error) {
-	resp, err := client.Get(strings.TrimRight(base, "/") + "/models")
+// ListOpenAIModels lists models from an OpenAI-compatible GET {base}/models endpoint.
+func ListOpenAIModels(baseURL, apiKey string) ([]string, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	return ListOpenAIModelsWithClient(client, baseURL, apiKey)
+}
+
+func ListOpenAIModelsWithClient(client *http.Client, baseURL, apiKey string) ([]string, error) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+	req, err := http.NewRequest(http.MethodGet, base+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	if k := strings.TrimSpace(apiKey); k != "" {
+		req.Header.Set("Authorization", "Bearer "+k)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("DMR models: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("models: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var list openAIModelsListResponse
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
@@ -67,15 +84,28 @@ func collectOpenAIModelIDs(list openAIModelsListResponse) []string {
 	return ids
 }
 
-func listDMRModelsOllama(client *http.Client, host string) ([]string, error) {
-	resp, err := client.Get(strings.TrimRight(host, "/") + "/api/tags")
+// ListOllamaModels lists models from Ollama GET /api/tags.
+func ListOllamaModels(host string) ([]string, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	return ListOllamaModelsWithClient(client, host)
+}
+
+func ListOllamaModelsWithClient(client *http.Client, host string) ([]string, error) {
+	host = strings.TrimRight(strings.TrimSpace(host), "/")
+	if host == "" {
+		host = "http://127.0.0.1:11434"
+	}
+	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+		host = "http://" + host
+	}
+	resp, err := client.Get(host + "/api/tags")
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("DMR /api/tags: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("ollama /api/tags: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var tags ollamaTagsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {

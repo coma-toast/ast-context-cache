@@ -332,7 +332,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 	}
 	PopulateEmbedSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)
-	loadDockerModels(&data)
+	loadEmbedModels(&data)
 	components.Settings(data).Render(r.Context(), w)
 }
 

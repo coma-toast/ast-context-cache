@@ -346,6 +346,8 @@ func renderSettings() string {
 		DocSources:             docSources,
 	}
 	PopulateEmbedSettings(settings, &data)
+	applyActiveEmbedderSettings(&data)
+	loadEmbedModels(&data)
 	var buf bytes.Buffer
 	components.Settings(data).Render(context.Background(), &buf)
 	return buf.String()
