@@ -330,6 +330,7 @@ func renderSettings() string {
 				URL:         s.URL,
 				Version:     s.Version,
 				LastUpdated: updated,
+				Refreshing:  docs.IsRefreshing(s.ID),
 			})
 		}
 	}

@@ -69,12 +69,13 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 		for _, s := range sources {
 			age, stale := components.FormatDocSourceAge(s.LastUpdated, docs.DocSourceMaxAge)
 			h.DocSources = append(h.DocSources, components.IndexDocSource{
-				ID:    s.ID,
-				Name:  s.Name,
-				Type:  s.Type,
-				URL:   s.URL,
-				Age:   age,
-				Stale: stale,
+				ID:         s.ID,
+				Name:       s.Name,
+				Type:       s.Type,
+				URL:        s.URL,
+				Age:        age,
+				Stale:      stale,
+				Refreshing: docs.IsRefreshing(s.ID),
 			})
 		}
 	}

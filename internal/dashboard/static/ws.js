@@ -58,6 +58,7 @@ document.addEventListener('alpine:init', () => {
                 if (target) {
                     target.innerHTML = msg.data.html;
                     Alpine.flushSync();
+                    mountHTMXContent(target);
                     if (target.id === 'settings-content') {
                         mountSettingsContent(target);
                     }
@@ -119,7 +120,10 @@ document.addEventListener('alpine:init', () => {
                 const el = document.querySelector(sel);
                 if (!el) return;
                 const r = await fetch(path + q);
-                if (r.ok) el.innerHTML = await r.text();
+                if (r.ok) {
+                    el.innerHTML = await r.text();
+                    mountHTMXContent(el);
+                }
             }));
             window.dispatchEvent(new CustomEvent('dashboard-project-change'));
         }
@@ -279,9 +283,53 @@ document.body.addEventListener('htmx:configRequest', (event) => {
     }
 });
 
-function mountSettingsContent(el) {
+function mountHTMXContent(el) {
     if (!el || typeof htmx === 'undefined') return;
     htmx.process(el);
+}
+
+function mountSettingsContent(el) {
+    mountHTMXContent(el);
+}
+
+async function refreshDocSource(btn) {
+    const id = parseInt(btn.dataset.docId, 10);
+    if (!id) return;
+    const targetSel = btn.dataset.refreshTarget || '#index-health';
+    const projectSelect = document.querySelector('.project-select');
+    let url = '/api/doc-sources';
+    if (projectSelect && projectSelect.value) {
+        url += '?project_id=' + encodeURIComponent(projectSelect.value);
+    }
+    btn.classList.add('htmx-request');
+    btn.disabled = true;
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'HX-Request': 'true',
+                'HX-Target': targetSel.replace(/^#/, ''),
+            },
+            body: JSON.stringify({ action: 'refresh', id }),
+        });
+        const target = document.querySelector(targetSel);
+        if (!target) return;
+        if (r.ok) {
+            target.innerHTML = await r.text();
+            mountHTMXContent(target);
+            if (target.id === 'settings-content') {
+                mountSettingsContent(target);
+            }
+        } else {
+            console.error('doc source refresh:', r.status, await r.text());
+        }
+    } catch (err) {
+        console.error('doc source refresh:', err);
+    } finally {
+        btn.classList.remove('htmx-request');
+        btn.disabled = false;
+    }
 }
 
 const EMBED_MODEL_REFRESH_KEYS = new Set([
@@ -482,9 +530,16 @@ async function saveEmbedSettings(backend) {
 }
 
 document.body.addEventListener('htmx:afterSwap', (e) => {
-    if (e.detail.target?.id === 'settings-content') {
-        mountSettingsContent(e.detail.target);
+    if (e.detail.target?.id === 'settings-content' || e.detail.target?.id === 'index-health') {
+        mountHTMXContent(e.detail.target);
     }
+});
+
+document.body.addEventListener('click', (e) => {
+    const btn = e.target.closest('.doc-source-refresh');
+    if (!btn) return;
+    e.preventDefault();
+    refreshDocSource(btn);
 });
 
 async function refreshEmbedModelsForField(el) {

@@ -942,24 +942,18 @@ func handleDocSources(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		if req.Action != "update" || req.ID <= 0 {
+		if req.Action != "refresh" && req.Action != "update" || req.ID <= 0 {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"error": "action update with id required"})
+			json.NewEncoder(w).Encode(map[string]string{"error": "action refresh (or update) with id required"})
 			return
 		}
-		if err := docs.UpdateSource(req.ID); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadGateway)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		realtime.Notify(realtime.IndexHealth)
-		if r.Header.Get("HX-Request") != "" && strings.Contains(r.Header.Get("HX-Target"), "index-health") {
+		docs.ForceRefreshSource(req.ID)
+		if r.Header.Get("HX-Request") != "" {
 			respondHTMXPartial(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "refreshing"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
