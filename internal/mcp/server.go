@@ -27,6 +27,7 @@ var srvCfg = DefaultConfig()
 
 func SetEmbedder(e embedder.Interface) {
 	emb = e
+	docs.SetEmbedder(e)
 	embState = "ready"
 	embLastUse = time.Now()
 }
@@ -257,18 +258,47 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if q, ok := toolArgs["query"].(string); ok {
 			query = q
 		}
-		if query == "" || projectPath == "" {
-			result = map[string]string{"error": "query and project_path required"}
+		docType := ""
+		if dt, ok := toolArgs["doc_type"].(string); ok {
+			docType = dt
+		}
+		if query == "" {
+			result = map[string]string{"error": "query is required"}
+		} else if docType == "doc" {
+			limit := 10
+			if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
+				limit = int(l)
+			}
+			scored, err := docs.SearchDocsHybrid(query, limit, emb)
+			if err != nil {
+				result = map[string]string{"error": err.Error()}
+			} else {
+				results := make([]map[string]interface{}, 0, len(scored))
+				for _, s := range scored {
+					results = append(results, map[string]interface{}{
+						"title":     s.Entry.Title,
+						"content":   s.Entry.Content,
+						"path":      s.Entry.Path,
+						"source_id": s.Entry.SourceID,
+						"score":     s.Score,
+						"doc_type":  "doc",
+					})
+				}
+				result = map[string]interface{}{
+					"query":   query,
+					"doc_type": "doc",
+					"results": results,
+					"total":   len(results),
+				}
+			}
+		} else if projectPath == "" {
+			result = map[string]string{"error": "project_path required unless doc_type=doc"}
 		} else if emb == nil {
 			result = map[string]string{"error": "embedder not available"}
 		} else {
 			limit := 10
 			if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
 				limit = int(l)
-			}
-			docType := ""
-			if dt, ok := toolArgs["doc_type"].(string); ok {
-				docType = dt
 			}
 			queryVec, embErr := emb.EmbedSingle(query)
 			RecordEmbed()
@@ -383,6 +413,31 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		}
 		if query == "" {
 			result = map[string]string{"error": "query is required"}
+		} else if emb != nil {
+			scored, err := docs.SearchDocsHybrid(query, limit, emb)
+			if err != nil {
+				result = map[string]string{"error": err.Error()}
+			} else {
+				results := make([]map[string]interface{}, 0, len(scored))
+				for _, s := range scored {
+					results = append(results, map[string]interface{}{
+						"id":         s.Entry.ID,
+						"source_id":  s.Entry.SourceID,
+						"title":      s.Entry.Title,
+						"content":    s.Entry.Content,
+						"path":       s.Entry.Path,
+						"content_hash": s.Entry.ContentHash,
+						"updated_at": s.Entry.UpdatedAt,
+						"score":      s.Score,
+					})
+				}
+				result = map[string]interface{}{
+					"query":   query,
+					"results": results,
+					"total":   len(results),
+					"hybrid":  true,
+				}
+			}
 		} else {
 			entries, err := docs.SearchDocs(query, limit)
 			if err != nil {

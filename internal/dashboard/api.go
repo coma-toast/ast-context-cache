@@ -942,12 +942,25 @@ func handleDocSources(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		if req.Action != "refresh" && req.Action != "update" || req.ID <= 0 {
+		if req.ID <= 0 {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"error": "action refresh (or update) with id required"})
+			json.NewEncoder(w).Encode(map[string]string{"error": "id required"})
 			return
 		}
-		docs.ForceRefreshSource(req.ID)
+		switch req.Action {
+		case "refresh", "update":
+			docs.ForceRefreshSource(req.ID)
+		case "delete":
+			if err := docs.RemoveSource(req.ID); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"error": "action refresh, update, or delete required"})
+			return
+		}
 		if r.Header.Get("HX-Request") != "" {
 			respondHTMXPartial(w, r)
 			return

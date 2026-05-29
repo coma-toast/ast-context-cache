@@ -15,7 +15,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -89,7 +88,7 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIndexHealthPartial(w http.ResponseWriter, r *http.Request) {
-	components.IndexHealthCards(buildIndexHealth(r.URL.Query().Get("project_id"))).Render(r.Context(), w)
+	components.IndexHealthCards(buildIndexHealth(r.URL.Query().Get("project_id"), parseDocSourcesPageQuery(r))).Render(r.Context(), w)
 }
 
 func handleActivityDataPartial(w http.ResponseWriter, r *http.Request) {
@@ -294,30 +293,8 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		agents = append(agents, a)
 	}
 
-	var docSources []components.DocSource
-	if sources, err := docs.ListSources(); err == nil {
-		for _, s := range sources {
-			updated := "Never"
-			if s.LastUpdated != "" {
-				if t, err := time.Parse("2006-01-02T15:04:05Z07:00", s.LastUpdated); err == nil {
-					updated = t.Format("Jan 2, 2006 15:04")
-				} else if t, err := time.Parse("2006-01-02 15:04:05", s.LastUpdated); err == nil {
-					updated = t.Format("Jan 2, 2006 15:04")
-				} else {
-					updated = s.LastUpdated
-				}
-			}
-			docSources = append(docSources, components.DocSource{
-				ID:          s.ID,
-				Name:        s.Name,
-				Type:        s.Type,
-				URL:         s.URL,
-				Version:     s.Version,
-				LastUpdated: updated,
-				Refreshing:  docs.IsRefreshing(s.ID),
-			})
-		}
-	}
+	docPage := parseDocSourcesPageQuery(r)
+	docSources, docTotal, docPage := loadSettingsDocSources(docPage)
 
 	data := components.SettingsData{
 		IdleUnloadMinutes:       idleMinutes,
@@ -332,6 +309,9 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		Projects:                projects,
 		Agents:                  agents,
 		DocSources:              docSources,
+		DocSourcesTotal:         docTotal,
+		DocSourcesPage:          docPage,
+		DocSourcesPerPage:       DefaultDocSourcesPerPage,
 	}
 	PopulateEmbedSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)

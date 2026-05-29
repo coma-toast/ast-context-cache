@@ -134,3 +134,8 @@ func BuildFTSQuery(terms []string) string {
 	}
 	return strings.Join(parts, " OR ")
 }
+
+// QueryTerms splits a user query into lowercase terms for FTS query building.
+func QueryTerms(query string) []string {
+	return strings.Fields(strings.ToLower(query))
+}

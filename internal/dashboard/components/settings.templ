@@ -63,6 +63,9 @@ type SettingsData struct {
 	Projects                []Project
 	Agents                  []AgentInfo
 	DocSources              []DocSource
+	DocSourcesTotal         int
+	DocSourcesPage          int
+	DocSourcesPerPage       int
 }
 
 templ Settings(data SettingsData) {
@@ -387,13 +390,14 @@ templ Settings(data SettingsData) {
 								</td>
 								<td class="mono dim">{ s.LastUpdated }</td>
 								<td>
-									@DocSourceRefreshControl(s.ID, s.Refreshing, "#settings-content")
+									@DocSourceActions(s.ID, s.Name, s.Refreshing, "#settings-content", data.DocSourcesPage)
 								</td>
 							</tr>
 						}
 					}
 				</tbody>
 			</table>
+			@DocSourcesPager(data.DocSourcesTotal, data.DocSourcesPage, data.DocSourcesPerPage, "#settings-content")
 		</div>
 	</div>
 }

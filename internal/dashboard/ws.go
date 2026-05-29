@@ -135,7 +135,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 
 func renderIndexHealth() string {
 	var buf bytes.Buffer
-	components.IndexHealthCards(buildIndexHealth("")).Render(context.Background(), &buf)
+	components.IndexHealthCards(buildIndexHealth("", 1)).Render(context.Background(), &buf)
 	return buf.String()
 }
 

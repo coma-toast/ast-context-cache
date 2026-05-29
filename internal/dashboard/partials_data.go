@@ -8,14 +8,13 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
-func buildIndexHealth(projectID string) components.IndexHealth {
+func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHealth {
 	h := components.IndexHealth{}
 	if projectID != "" {
 		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
@@ -65,20 +64,7 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 			})
 		}
 	}
-	if sources, err := docs.ListSources(); err == nil {
-		for _, s := range sources {
-			age, stale := components.FormatDocSourceAge(s.LastUpdated, docs.DocSourceMaxAge)
-			h.DocSources = append(h.DocSources, components.IndexDocSource{
-				ID:         s.ID,
-				Name:       s.Name,
-				Type:       s.Type,
-				URL:        s.URL,
-				Age:        age,
-				Stale:      stale,
-				Refreshing: docs.IsRefreshing(s.ID),
-			})
-		}
-	}
+	appendIndexDocSources(&h, docSourcesPage)
 	eq := embedqueue.Snapshot()
 	h.EmbedQueued = eq.Queued
 	h.EmbedHighQueued = eq.HighUsed
