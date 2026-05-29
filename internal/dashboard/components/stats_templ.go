@@ -94,7 +94,7 @@ func StatsCards(s Stats) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), durationPct(s.TodayAvgDurationMs), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationPct(), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -57,7 +57,7 @@ templ StatsCards(s Stats) {
 	<div class="grid grid-4">
 		@StatMeter("Queries", fmtInt(s.TodayQueries), fmt.Sprintf("30d: %s", fmtInt(s.TotalQueries)), s.todayQueryPct(), "stat-accent")
 		@StatMeter("Tokens saved", fmtInt(s.TodayTokens), fmt.Sprintf("30d: %s · dedup: %s · vs files: %s", fmtInt(s.TokensSaved), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green")
-		@StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), durationPct(s.TodayAvgDurationMs), "stat-orange")
+		@StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationPct(), "stat-orange")
 		@StatMeter("Sessions", fmtInt(s.TodaySessions), fmt.Sprintf("30d: %s · chars: %s", fmtInt(s.Sessions), fmtInt(s.TotalChars)), s.todaySessionPct(), "stat-purple")
 	</div>
 }

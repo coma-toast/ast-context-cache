@@ -70,29 +70,38 @@ func (h Health) queueMiniStyle() string {
 }
 
 func (s Stats) todayQueryPct() float64 {
-	if s.TotalQueries <= 0 {
-		return 0
-	}
-	return float64(s.TodayQueries) / float64(s.TotalQueries) * 100
+	return todayVsDailyAvgPct(s.TodayQueries, s.TotalQueries)
 }
 
 func (s Stats) todayTokenPct() float64 {
-	if s.TokensSaved <= 0 {
-		return 0
-	}
-	return float64(s.TodayTokens) / float64(s.TokensSaved) * 100
+	return todayVsDailyAvgPct(s.TodayTokens, s.TokensSaved)
 }
 
 func (s Stats) todaySessionPct() float64 {
-	if s.Sessions <= 0 {
-		return 0
-	}
-	return float64(s.TodaySessions) / float64(s.Sessions) * 100
+	return todayVsDailyAvgPct(s.TodaySessions, s.Sessions)
 }
 
-func durationPct(ms float64) float64 {
-	const softMax = 500.0
-	p := ms / softMax * 100
+func (s Stats) todayDurationPct() float64 {
+	if s.AvgDurationMs <= 0 {
+		return 0
+	}
+	p := s.TodayAvgDurationMs / s.AvgDurationMs * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+// todayVsDailyAvgPct fills the stat meter: 100% when today matches the rolling 30d daily average.
+func todayVsDailyAvgPct(today, total30d int) float64 {
+	if total30d <= 0 {
+		return 0
+	}
+	dailyAvg := float64(total30d) / 30.0
+	if dailyAvg <= 0 {
+		return 0
+	}
+	p := float64(today) / dailyAvg * 100
 	if p > 100 {
 		return 100
 	}
