@@ -48,12 +48,13 @@ type WatcherInfo struct {
 }
 
 type IndexDocSource struct {
-	ID    int
-	Name  string
-	Type  string
-	URL   string
-	Age   string
-	Stale bool
+	ID          int
+	Name        string
+	Type        string
+	URL         string
+	Age         string
+	Stale       bool
+	Refreshing  bool
 }
 
 templ IndexHealthCards(h IndexHealth) {
@@ -90,13 +91,21 @@ templ DocSourcesCard(h IndexHealth) {
 						<span class="doc-source-meta">
 							<span class="badge badge-blue doc-source-type">{ s.Type }</span>
 							<span class={ "doc-source-age", templ.KV("stale", s.Stale) }>{ s.Age }</span>
-							<button type="button" class="doc-source-refresh" title="Refresh documentation cache" hx-post="/api/doc-sources" hx-vals={ fmt.Sprintf(`{"action":"update","id":%d}`, s.ID) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x21BB;</button>
+							@DocSourceRefreshControl(s.ID, s.Refreshing, "#index-health")
 						</span>
 					</div>
 				}
 			}
 		</div>
 	</div>
+}
+
+templ DocSourceRefreshControl(id int, refreshing bool, hxTarget string) {
+	if refreshing {
+		<span class="doc-source-spinner" title="Fetching from URL…" aria-busy="true"></span>
+	} else {
+		<button type="button" class="doc-source-refresh" title="Force fetch from URL" data-doc-id={ fmt.Sprint(id) } data-refresh-target={ hxTarget }><span class="refresh-glyph">&#x21BB;</span></button>
+	}
 }
 
 templ WatcherCard(h IndexHealth) {

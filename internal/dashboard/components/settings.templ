@@ -22,6 +22,7 @@ type DocSource struct {
 	URL         string
 	Version     string
 	LastUpdated string
+	Refreshing  bool
 }
 
 type SettingsData struct {
@@ -386,7 +387,7 @@ templ Settings(data SettingsData) {
 								</td>
 								<td class="mono dim">{ s.LastUpdated }</td>
 								<td>
-									<button class="badge badge-green" style="cursor:pointer;border:none" hx-post="/api/doc-sources" hx-vals={ fmt.Sprintf(`{"action":"update","id":%d}`, s.ID) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Update</button>
+									@DocSourceRefreshControl(s.ID, s.Refreshing, "#settings-content")
 								</td>
 							</tr>
 						}

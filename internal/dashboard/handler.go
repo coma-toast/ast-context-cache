@@ -314,6 +314,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 				URL:         s.URL,
 				Version:     s.Version,
 				LastUpdated: updated,
+				Refreshing:  docs.IsRefreshing(s.ID),
 			})
 		}
 	}
