@@ -34,6 +34,8 @@ type IndexHealth struct {
 	EmbedEndpoint     string
 	EmbedDim          int
 	EmbedLoaded       bool
+	EmbedRecent       []string
+	EmbedInProgress   []string
 	EmbedConfiguredBackend string
 	EmbedConfiguredModel   string
 	EmbedInSync            bool
@@ -88,6 +90,7 @@ templ DocSourcesCard(h IndexHealth) {
 						<span class="doc-source-meta">
 							<span class="badge badge-blue doc-source-type">{ s.Type }</span>
 							<span class={ "doc-source-age", templ.KV("stale", s.Stale) }>{ s.Age }</span>
+							<button type="button" class="doc-source-refresh" title="Refresh documentation cache" hx-post="/api/doc-sources" hx-vals={ fmt.Sprintf(`{"action":"update","id":%d}`, s.ID) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x21BB;</button>
 						</span>
 					</div>
 				}

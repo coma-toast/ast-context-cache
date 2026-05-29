@@ -17,6 +17,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
+	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/gorilla/websocket"
 )
 
@@ -151,13 +152,14 @@ func renderHealthBar() string {
 		QueueWorkers:    eq.Workers,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
+		QueueInFlight:   eq.InFlight,
 		QueueHighCap:    eq.HighCap,
 		QueueLowCap:     eq.LowCap,
 		CacheHitRatio:   cacheHit,
 		HeapMB:          heapMB,
 		CPUPercent:      sys.ProcessCPUPercent(),
 		Uptime:          time.Since(serverStartTime),
-		Version:         "2.0.0",
+		Version:         version.Version,
 	}
 	applyActiveEmbedderHealth(&h)
 	var buf bytes.Buffer

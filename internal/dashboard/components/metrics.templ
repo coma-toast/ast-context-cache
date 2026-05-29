@@ -72,8 +72,10 @@ templ EmbedPanel(h IndexHealth) {
 			} else {
 				<span class="badge badge-orange embed-sync-badge" title={ fmt.Sprintf("Configured: %s · %s — restart ast-mcp", h.EmbedConfiguredBackend, h.EmbedConfiguredModel) }>restart needed</span>
 			}
-			if h.EmbedLoaded {
-				<span class="embed-active-pill loaded">loaded</span>
+			if h.EmbedPanelBusy() {
+				<span class="embed-active-pill loaded">active</span>
+			} else if h.EmbedLoaded {
+				<span class="embed-active-pill loaded">ready</span>
 			} else {
 				<span class="embed-active-pill">idle</span>
 			}
@@ -97,6 +99,26 @@ templ EmbedPanel(h IndexHealth) {
 				</div>
 			</div>
 		</div>
+		if len(h.EmbedInProgress) > 0 {
+			<div class="embed-activity">
+				<div class="embed-activity-title">In progress</div>
+				<ul class="embed-activity-list">
+					for _, f := range h.EmbedInProgress {
+						<li class="embed-activity-item in-progress" title={ f }>{ h.EmbedFileLabel(f) }</li>
+					}
+				</ul>
+			</div>
+		}
+		if len(h.EmbedRecent) > 0 {
+			<div class="embed-activity">
+				<div class="embed-activity-title">Recent</div>
+				<ul class="embed-activity-list">
+					for _, f := range h.EmbedRecentPreview() {
+						<li class="embed-activity-item" title={ f }>{ h.EmbedFileLabel(f) }</li>
+					}
+				</ul>
+			</div>
+		}
 		<div class="embed-panel-stats">
 			<div class="embed-stat">
 				<div class="embed-stat-value stat-accent">{ fmtInt(h.TotalVectors) }</div>

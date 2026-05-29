@@ -116,7 +116,8 @@ templ Settings(data SettingsData) {
 			Values are stored in the local database under the <span class="mono">same names as environment variables</span>.
 			<strong>Changes save automatically</strong> when you change a field (no Save button).
 			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
-			<strong>In sync</strong> means the running embedder matches effective settings; use <strong>Verify running</strong> to probe the live embedder.
+			<strong>In sync</strong> means the running embedder matches effective settings (restart ast-mcp after changes).
+			Use <strong>Test form values</strong> to probe the current form against the selected backend.
 		</p>
 		<div
 			class="embed-backend-config"
@@ -141,17 +142,14 @@ templ Settings(data SettingsData) {
 		<div class="perf-setting">
 			<label for="embedDockerURL">EMBED_DOCKER_URL</label>
 			<input type="text" id="embedDockerURL" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" placeholder="http://127.0.0.1:12434" name="value" value={ data.EmbedDockerURL }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_DOCKER_URL"}' hx-include="this"
-				hx-on::after-request="refreshEmbedModelsForField(this)"/>
+				data-setting-key="EMBED_DOCKER_URL"/>
 			<span class="perf-hint"><span class="mono">/engines/v1</span> is appended automatically when omitted.</span>
 		</div>
 		@EmbedModelSelect("EMBED_DOCKER_MODEL", "EMBED_DOCKER_MODEL", data.EmbedDockerModel, data.EmbedModels, data.EmbedModelsErr, "Click Refresh after pulling models with docker model pull …")
 		<div class="perf-setting">
 			<label for="embedDockerDimensions">EMBED_DOCKER_DIMENSIONS</label>
 			<input type="text" id="embedDockerDimensions" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" placeholder="768" name="value" value={ data.EmbedDockerDimensions }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_DOCKER_DIMENSIONS"}' hx-include="this"/>
+				data-setting-key="EMBED_DOCKER_DIMENSIONS"/>
 			<span class="perf-hint">Vector index requires 768 dimensions. Use <span class="mono">0</span> to omit the JSON field.</span>
 		</div>
 		</div>
@@ -159,31 +157,26 @@ templ Settings(data SettingsData) {
 		<div class="perf-setting">
 			<label for="embedModelDir">MODEL_DIR (optional)</label>
 			<input type="text" id="embedModelDir" class="perf-input" style="width:100%" name="value" value={ data.EmbedModelDir }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"MODEL_DIR"}' hx-include="this"/>
+				data-setting-key="MODEL_DIR"/>
 		</div>
 		</div>
 		<div x-show="backend === 'http'" x-cloak>
 		<div class="perf-setting">
 			<label for="embedHttpURL">EMBED_HTTP_URL</label>
 			<input type="text" id="embedHttpURL" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedHTTPURL }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_HTTP_URL"}' hx-include="this"/>
+				data-setting-key="EMBED_HTTP_URL"/>
 		</div>
 		<div class="perf-setting">
 			<label for="embedHttpBearer">EMBED_HTTP_BEARER</label>
 			<input type="text" id="embedHttpBearer" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedHTTPBearer }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_HTTP_BEARER"}' hx-include="this" autocomplete="off"/>
+				data-setting-key="EMBED_HTTP_BEARER" autocomplete="off"/>
 		</div>
 		</div>
 		<div x-show="backend === 'ollama'" x-cloak>
 		<div class="perf-setting">
 			<label for="embedOllamaHost">OLLAMA_HOST</label>
 			<input type="text" id="embedOllamaHost" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOllamaHost }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"OLLAMA_HOST"}' hx-include="this"
-				hx-on::after-request="refreshEmbedModelsForField(this)"/>
+				data-setting-key="OLLAMA_HOST"/>
 		</div>
 		@EmbedModelSelect("OLLAMA_EMBED_MODEL", "OLLAMA_EMBED_MODEL", data.EmbedOllamaModel, data.EmbedModels, data.EmbedModelsErr, "Click Refresh to list models from Ollama /api/tags")
 		</div>
@@ -191,31 +184,24 @@ templ Settings(data SettingsData) {
 		<div class="perf-setting">
 			<label for="embedOpenAIBase">EMBED_OPENAI_BASE_URL</label>
 			<input type="text" id="embedOpenAIBase" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" placeholder="https://api.openai.com/v1" name="value" value={ data.EmbedOpenAIBaseURL }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_OPENAI_BASE_URL"}' hx-include="this"
-				hx-on::after-request="refreshEmbedModelsForField(this)"/>
+				data-setting-key="EMBED_OPENAI_BASE_URL"/>
 			<span class="perf-hint">OpenAI-compatible API root including <span class="mono">/v1</span> (LiteLLM, local proxies, etc.).</span>
 		</div>
 		<div class="perf-setting">
 			<label for="embedOpenAIKey">EMBED_OPENAI_API_KEY</label>
 			<input type="text" id="embedOpenAIKey" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIAPIKey }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_OPENAI_API_KEY"}' hx-include="this" autocomplete="off"
-				hx-on::after-request="refreshEmbedModelsForField(this)"/>
+				data-setting-key="EMBED_OPENAI_API_KEY" autocomplete="off"/>
 		</div>
 		@EmbedModelSelect("EMBED_OPENAI_MODEL", "EMBED_OPENAI_MODEL", data.EmbedOpenAIModel, data.EmbedModels, data.EmbedModelsErr, "Click Refresh to list models from GET /v1/models")
 		<div class="perf-setting">
 			<label for="embedOpenAIDim">EMBED_OPENAI_DIMENSIONS (empty DB = 768; 0 = omit field)</label>
 			<input type="text" id="embedOpenAIDim" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIDimensions }
-				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
-				hx-vals='{"key":"EMBED_OPENAI_DIMENSIONS"}' hx-include="this"/>
+				data-setting-key="EMBED_OPENAI_DIMENSIONS"/>
 		</div>
 		</div>
 		<div class="perf-setting embed-test-row">
-			<button type="button" class="action-btn" id="embedVerifyRunningBtn">Verify running</button>
 			<button type="button" class="action-btn" id="embedTestBtn">Test form values</button>
-			<span id="embedVerifyResult" class="perf-hint embed-test-result">Verify running probes the live process embedder and checks it matches configured settings.</span>
-			<span id="embedTestResult" class="perf-hint embed-test-result" style="display:none"></span>
+			<span id="embedTestResult" class="perf-hint embed-test-result">Probes the embedder using the values in this form (not the running process).</span>
 		</div>
 		</div>
 	</div>

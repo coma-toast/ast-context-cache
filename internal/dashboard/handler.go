@@ -19,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
+	"github.com/coma-toast/ast-context-cache/internal/version"
 )
 
 var serverStartTime = time.Now()
@@ -30,7 +31,7 @@ func handleDashboardPage(w http.ResponseWriter, r *http.Request) {
 	}
 	projects := loadProjects("")
 	h := components.HealthInfo{
-		Version:    "2.0.0",
+		Version:    version.Version,
 		StartTime: serverStartTime,
 	}
 	components.PageTemplate(projects, h).Render(r.Context(), w)
@@ -74,13 +75,14 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 		QueueWorkers:   eq.Workers,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
+		QueueInFlight:   eq.InFlight,
 		QueueHighCap:    eq.HighCap,
 		QueueLowCap:     eq.LowCap,
 		CacheHitRatio: cacheHit,
 		HeapMB:         heapMB,
 		CPUPercent:     sys.ProcessCPUPercent(),
 		Uptime:        time.Since(serverStartTime),
-		Version:       "2.0.0",
+		Version:       version.Version,
 	}
 	applyActiveEmbedderHealth(&h)
 	components.HealthBar(h).Render(r.Context(), w)

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
-	"github.com/coma-toast/ast-context-cache/internal/mcp"
 )
 
 func handleEmbedderTest(w http.ResponseWriter, r *http.Request) {
@@ -29,20 +28,6 @@ func handleEmbedderTest(w http.ResponseWriter, r *http.Request) {
 		modelDir = filepath.Join(filepath.Dir(exePath), "model")
 	}
 	res := embedder.TestSettings(embedder.SettingsFromMap(req), modelDir)
-	if !res.OK {
-		w.WriteHeader(http.StatusBadGateway)
-	}
-	json.NewEncoder(w).Encode(res)
-}
-
-func handleEmbedderVerifyRunning(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-	res := embedder.VerifyRunning(mcp.GetEmbedder())
 	if !res.OK {
 		w.WriteHeader(http.StatusBadGateway)
 	}

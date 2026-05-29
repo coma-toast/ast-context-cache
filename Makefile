@@ -5,6 +5,8 @@ PROJ_DIR    := $(shell pwd)
 
 CGO_FLAGS := CGO_LDFLAGS="-L$(PROJ_DIR) -L$(ORT_LIB)" CGO_CFLAGS="-I$(ORT_INC)"
 
+VERSION     := $(shell tr -d '[:space:]' < VERSION 2>/dev/null || echo dev)
+LDFLAGS     := -X 'github.com/coma-toast/ast-context-cache/internal/version.Version=$(VERSION)'
 BINARY       := ast-mcp
 TOKENIZER_LIB := libtokenizers.a
 
@@ -105,9 +107,12 @@ download-tokenizer-lib:
 generate:
 	templ generate ./internal/dashboard/components/
 
-build: download-model download-tokenizer-lib generate
+internal/version/VERSION: VERSION
+	cp VERSION internal/version/VERSION
+
+build: download-model download-tokenizer-lib generate internal/version/VERSION
 	@echo "Building ast-mcp..."
-	$(CGO_FLAGS) go build -tags sqlite_fts5 -o $(BINARY) ./cmd/ast-mcp/
+	$(CGO_FLAGS) go build -tags sqlite_fts5 -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ast-mcp/
 	@echo "Built: ./$(BINARY)"
 
 run: build

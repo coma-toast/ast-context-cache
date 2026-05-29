@@ -143,10 +143,12 @@ func PersistEmbedSettings(m map[string]string) error {
 		restoreEmbedProfile(newBackend)
 		ApplyBackendDefaultsIfEmpty(newBackend)
 		for _, k := range profileKeysForBackend(newBackend) {
-			if v, ok := m[k]; ok {
-				if err := db.SetSetting(k, v); err != nil {
-					return err
-				}
+			v, ok := m[k]
+			if !ok || strings.TrimSpace(v) == "" {
+				continue
+			}
+			if err := db.SetSetting(k, v); err != nil {
+				return err
 			}
 		}
 	} else {

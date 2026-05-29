@@ -18,6 +18,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -53,7 +54,6 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/settings", handleSettings)
 	mux.HandleFunc("/api/settings/embed", handleEmbedSettings)
 	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
-	mux.HandleFunc("/api/embedder/verify-running", handleEmbedderVerifyRunning)
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
@@ -544,7 +544,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
-		if key == "idle_unload_minutes" {
+		if embedder.IsSettingKey(key) {
+			mask = realtime.IndexHealth | realtime.HealthBar
+		} else if key == "idle_unload_minutes" {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		}
 		realtime.Notify(mask)
@@ -930,6 +932,36 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDocSources(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var req struct {
+			Action string `json:"action"`
+			ID     int    `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if req.Action != "update" || req.ID <= 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"error": "action update with id required"})
+			return
+		}
+		if err := docs.UpdateSource(req.ID); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		realtime.Notify(realtime.IndexHealth)
+		if r.Header.Get("HX-Request") != "" && strings.Contains(r.Header.Get("HX-Target"), "index-health") {
+			respondHTMXPartial(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	sources, err := docs.ListSources()
 	if err != nil {

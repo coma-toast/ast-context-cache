@@ -3,13 +3,16 @@ package dashboard
 import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 )
 
 func applyActiveEmbedder(h *components.IndexHealth) {
 	h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, h.EmbedEndpoint, h.EmbedDim = embedder.ActiveSnapshot()
+	h.EmbedRecent = embedqueue.RecentActivity()
+	h.EmbedInProgress = embedqueue.CurrentJobs()
 	state, _ := mcp.EmbedderState()
-	h.EmbedLoaded = state == "ready"
+	h.EmbedLoaded = state == "ready" || embedder.IsNetworkBackend(h.EmbedBackend) || h.EmbedActive > 0 || h.EmbedQueued > 0
 	applyEmbedAlignmentToIndexHealth(h)
 }
 

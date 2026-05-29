@@ -45,6 +45,33 @@ func throughputStyle(rate int64) string {
 	return fmt.Sprintf("width:%.1f%%", p)
 }
 
+func (h IndexHealth) EmbedPanelBusy() bool {
+	return h.EmbedActive > 0 || h.EmbedQueued > 0
+}
+
+func (h IndexHealth) EmbedFileLabel(path string) string {
+	if path == "" {
+		return ""
+	}
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' {
+			if i+1 < len(path) {
+				return path[i+1:]
+			}
+			return path
+		}
+	}
+	return path
+}
+
+func (h IndexHealth) EmbedRecentPreview() []string {
+	const max = 6
+	if len(h.EmbedRecent) <= max {
+		return h.EmbedRecent
+	}
+	return h.EmbedRecent[:max]
+}
+
 func (h IndexHealth) queueTotalCap() int {
 	return h.EmbedHighCap + h.EmbedLowCap
 }

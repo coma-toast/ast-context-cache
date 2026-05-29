@@ -7,8 +7,7 @@ templ EmbedModelSelect(label, settingKey, currentModel string, models []string, 
 		<label for={ "embedModel-" + settingKey }>{ label }</label>
 		<div class="embed-model-row">
 			<select id={ "embedModel-" + settingKey } class="perf-input embed-model-select" name="value"
-				hx-post="/api/settings" hx-trigger="change" hx-swap="none"
-				hx-vals={ fmt.Sprintf(`{"key":"%s"}`, settingKey) } hx-include="this">
+				data-setting-key={ settingKey }>
 				if len(models) == 0 {
 					if currentModel != "" {
 						<option value={ currentModel } selected>{ currentModel }</option>
