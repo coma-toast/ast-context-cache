@@ -167,6 +167,21 @@ var embedSettingKeys = []string{
 	"EMBED_DOCKER_URL", "EMBED_DOCKER_MODEL", "EMBED_DOCKER_DIMENSIONS",
 }
 
+// SettingKeys lists dashboard/env keys for embed configuration.
+func SettingKeys() []string {
+	return append([]string(nil), embedSettingKeys...)
+}
+
+// IsSettingKey reports whether key is an embed settings field.
+func IsSettingKey(key string) bool {
+	for _, k := range embedSettingKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
 // EnvOverrides lists embed settings keys overridden by non-empty process env.
 func EnvOverrides() []string {
 	var out []string

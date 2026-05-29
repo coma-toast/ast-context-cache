@@ -1,6 +1,9 @@
 package components
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type AgentInfo struct {
 	Type            string
@@ -52,6 +55,10 @@ type SettingsData struct {
 	EmbedActiveEndpoint     string
 	EmbedActiveDim          int
 	EmbedActiveLoaded       bool
+	EmbedConfiguredBackend  string
+	EmbedConfiguredModel    string
+	EmbedInSync             bool
+	EmbedEnvOverrides       []string
 	Projects                []Project
 	Agents                  []AgentInfo
 	DocSources              []DocSource
@@ -73,23 +80,43 @@ templ Settings(data SettingsData) {
 	<div class="section">
 		<div class="section-title">Embedding backend</div>
 		<div class="embed-active-banner" title={ data.EmbedActiveEndpoint }>
-			<span class="embed-active-label">Running</span>
-			<span class="badge badge-blue">{ data.EmbedActiveBackend }</span>
-			<span class="mono">{ data.EmbedActiveModel }</span>
-			<span class="perf-hint embed-active-meta">
-				{ data.EmbedActiveRuntime } · { fmt.Sprint(data.EmbedActiveDim) } dims
-				if data.EmbedActiveLoaded {
-					· loaded
+			<div class="embed-active-main">
+				<span class="embed-active-label">Running</span>
+				<span class="badge badge-blue">{ data.EmbedActiveBackend }</span>
+				<span class="mono">{ data.EmbedActiveModel }</span>
+				<span class="perf-hint embed-active-meta">
+					{ data.EmbedActiveRuntime } · { fmt.Sprint(data.EmbedActiveDim) } dims
+					if data.EmbedActiveLoaded {
+						· loaded
+					} else {
+						· idle (lazy)
+					}
+				</span>
+				if data.EmbedInSync {
+					<span class="badge badge-green embed-sync-badge">In sync</span>
 				} else {
-					· idle (lazy)
+					<span class="badge badge-orange embed-sync-badge">Restart required</span>
 				}
-			</span>
+			</div>
+			if !data.EmbedInSync {
+				<div class="embed-configured-row perf-hint">
+					<span class="embed-active-label">Configured</span>
+					<span class="badge badge-blue">{ data.EmbedConfiguredBackend }</span>
+					<span class="mono">{ data.EmbedConfiguredModel }</span>
+					<span>— effective settings (env + DB) differ from this process until you restart ast-mcp</span>
+				</div>
+			}
+			if len(data.EmbedEnvOverrides) > 0 {
+				<div class="embed-env-overrides perf-hint">
+					Env overrides active: <span class="mono">{ strings.Join(data.EmbedEnvOverrides, ", ") }</span>
+				</div>
+			}
 		</div>
 		<p class="perf-hint" style="margin-bottom:12px">
 			Values are stored in the local database under the <span class="mono">same names as environment variables</span>.
 			<strong>Changes save automatically</strong> when you change a field (no Save button).
 			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
-			<strong>Restart ast-mcp</strong> after changing anything here so the embedder reloads — the <strong>Running</strong> banner shows what this process loaded at startup, not what you just picked in the dropdown until you restart.
+			<strong>In sync</strong> means the running embedder matches effective settings; use <strong>Verify running</strong> to probe the live embedder.
 		</p>
 		<div
 			class="embed-backend-config"
@@ -97,11 +124,9 @@ templ Settings(data SettingsData) {
 			x-data="{ backend: '' }"
 			x-init="backend = $el.dataset.backend || 'onnx'"
 		>
-		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none"
-			hx-on::after-request="htmx.ajax('GET', '/partials/settings', {target:'#settings-content', swap:'innerHTML'})">
+		<form class="perf-setting" id="embedBackendForm">
 			<label for="embedBackend">EMBED_BACKEND</label>
-			<input type="hidden" name="key" value="EMBED_BACKEND"/>
-			<select id="embedBackend" class="perf-input" name="value" @change="backend = $event.target.value">
+			<select id="embedBackend" class="perf-input" name="value" @change="backend = $event.target.value; saveEmbedSettings($event.target.value)">
 				<option value="onnx" if EmbedBackendUI(data.EmbedBackend) == "onnx" { selected }>onnx (local default)</option>
 				<option value="ollama" if EmbedBackendUI(data.EmbedBackend) == "ollama" { selected }>ollama</option>
 				<option value="http" if EmbedBackendUI(data.EmbedBackend) == "http" { selected }>http (ast JSON /embed)</option>
@@ -187,8 +212,10 @@ templ Settings(data SettingsData) {
 		</div>
 		</div>
 		<div class="perf-setting embed-test-row">
-			<button type="button" class="action-btn" id="embedTestBtn">Test embedder</button>
-			<span id="embedTestResult" class="perf-hint embed-test-result">Runs a probe embedding with the values above (ignores saved env overrides).</span>
+			<button type="button" class="action-btn" id="embedVerifyRunningBtn">Verify running</button>
+			<button type="button" class="action-btn" id="embedTestBtn">Test form values</button>
+			<span id="embedVerifyResult" class="perf-hint embed-test-result">Verify running probes the live process embedder and checks it matches configured settings.</span>
+			<span id="embedTestResult" class="perf-hint embed-test-result" style="display:none"></span>
 		</div>
 		</div>
 	</div>

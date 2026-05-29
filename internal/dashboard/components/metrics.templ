@@ -67,6 +67,11 @@ templ EmbedPanel(h IndexHealth) {
 			<span class="embed-active-label">Active</span>
 			<span class="badge badge-blue">{ h.EmbedBackend }</span>
 			<span class="mono embed-active-model">{ h.ActiveEmbedModelShort() }</span>
+			if h.EmbedInSync {
+				<span class="badge badge-green embed-sync-badge">in sync</span>
+			} else {
+				<span class="badge badge-orange embed-sync-badge" title={ fmt.Sprintf("Configured: %s · %s — restart ast-mcp", h.EmbedConfiguredBackend, h.EmbedConfiguredModel) }>restart needed</span>
+			}
 			if h.EmbedLoaded {
 				<span class="embed-active-pill loaded">loaded</span>
 			} else {

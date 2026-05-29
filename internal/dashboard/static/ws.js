@@ -365,6 +365,28 @@ async function refreshEmbedModelField(field) {
     }
 }
 
+async function saveEmbedSettings(backend) {
+    const payload = embedSettingsPayload();
+    if (backend !== undefined && backend !== null) {
+        payload.EMBED_BACKEND = backend;
+    }
+    try {
+        const r = await fetch('/api/settings/embed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (!r.ok || data.error) {
+            console.error('save embed settings:', data.error || r.status);
+            return;
+        }
+        htmx.ajax('GET', '/partials/settings', { target: '#settings-content', swap: 'innerHTML' });
+    } catch (err) {
+        console.error('save embed settings:', err);
+    }
+}
+
 async function refreshEmbedModelsForField(el) {
     const field = el?.closest?.('.embed-model-field') || visibleEmbedModelField();
     if (field) await refreshEmbedModelField(field);
@@ -376,13 +398,54 @@ document.body.addEventListener('click', async (e) => {
         if (field) await refreshEmbedModelField(field);
         return;
     }
+    if (e.target.id === 'embedVerifyRunningBtn') {
+        const btn = e.target;
+        const out = document.getElementById('embedVerifyResult');
+        const testOut = document.getElementById('embedTestResult');
+        if (!out) return;
+        btn.disabled = true;
+        out.style.display = '';
+        out.className = 'perf-hint embed-test-result';
+        out.textContent = 'Verifying…';
+        if (testOut) testOut.style.display = 'none';
+        try {
+            const r = await fetch('/api/embedder/verify-running', { method: 'POST' });
+            const data = await r.json();
+            if (data.ok) {
+                out.className = 'perf-hint embed-test-result ok';
+                let msg = `OK · running ${data.backend} · ${data.model} · ${data.dimensions} dims · ${data.latency_ms}ms`;
+                if (data.endpoint) msg += ` · ${data.endpoint}`;
+                if (data.in_sync) {
+                    msg += ' · matches configured settings';
+                } else {
+                    msg += ` · mismatch: configured ${data.configured_backend} · ${data.configured_model} (restart ast-mcp)`;
+                }
+                if (data.env_overrides && data.env_overrides.length) {
+                    msg += ` · env: ${data.env_overrides.join(', ')}`;
+                }
+                out.textContent = msg;
+            } else {
+                out.className = 'perf-hint embed-test-result err';
+                out.textContent = data.error || 'Verify failed';
+            }
+        } catch (err) {
+            out.className = 'perf-hint embed-test-result err';
+            out.textContent = String(err);
+        } finally {
+            btn.disabled = false;
+        }
+        return;
+    }
     if (e.target.id !== 'embedTestBtn') return;
     const btn = e.target;
     const out = document.getElementById('embedTestResult');
+    const verifyOut = document.getElementById('embedVerifyResult');
     if (!out) return;
     btn.disabled = true;
+    out.style.display = '';
     out.className = 'perf-hint embed-test-result';
     out.textContent = 'Testing…';
+    if (verifyOut) verifyOut.style.display = 'none';
     try {
         const r = await fetch('/api/embedder/test', {
             method: 'POST',

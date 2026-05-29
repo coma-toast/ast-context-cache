@@ -109,11 +109,33 @@ header h1 .icon { font-size: 24px; }
   font-size: 12px;
 }
 .embed-active-banner {
+  flex-direction: column;
+  align-items: flex-start;
   padding: 8px 10px;
   background: rgba(88, 166, 255, 0.08);
   border: 1px solid rgba(88, 166, 255, 0.2);
   border-radius: 6px;
   margin-bottom: 12px;
+}
+.embed-active-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.embed-configured-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.embed-env-overrides { width: 100%; }
+.embed-sync-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .embed-active-label {
   font-size: 10px;

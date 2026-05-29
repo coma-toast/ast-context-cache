@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
-	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 )
 
@@ -43,14 +42,5 @@ func applyEmbedDisplayDefaults(data *components.SettingsData) {
 
 // ApplyDockerDefaultsIfEmpty writes DMR defaults for keys not yet set in the DB.
 func ApplyDockerDefaultsIfEmpty() {
-	defaults := map[string]string{
-		"EMBED_DOCKER_URL":        embedder.DefaultDockerURL,
-		"EMBED_DOCKER_MODEL":      embedder.DefaultDockerModel,
-		"EMBED_DOCKER_DIMENSIONS": embedder.DefaultDockerDimensions,
-	}
-	for k, v := range defaults {
-		if strings.TrimSpace(db.GetSetting(k, "")) == "" {
-			db.SetSetting(k, v)
-		}
-	}
+	ApplyBackendDefaultsIfEmpty("docker")
 }

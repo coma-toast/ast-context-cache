@@ -51,7 +51,9 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/watcher-status", handleWatcherStatus)
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
 	mux.HandleFunc("/api/settings", handleSettings)
+	mux.HandleFunc("/api/settings/embed", handleEmbedSettings)
 	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
+	mux.HandleFunc("/api/embedder/verify-running", handleEmbedderVerifyRunning)
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
@@ -525,18 +527,22 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if key == "EMBED_BACKEND" {
-			switch strings.ToLower(strings.TrimSpace(value)) {
-			case "litellm":
-				value = "openai"
+			value = normalizeEmbedBackendValue(value)
+			oldBackend := components.EmbedBackendUI(db.GetSetting("EMBED_BACKEND", ""))
+			newBackend := components.EmbedBackendUI(value)
+			if err := switchEmbedBackend(oldBackend, newBackend, value); err != nil {
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
 			}
+			realtime.Notify(realtime.SettingsChanged)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
+			return
 		}
 		if err := db.SetSetting(key, value); err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		if key == "EMBED_BACKEND" && strings.EqualFold(strings.TrimSpace(value), "docker") {
-			ApplyDockerDefaultsIfEmpty()
-		}
+		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
 		if key == "idle_unload_minutes" {
 			mask |= realtime.IndexHealth | realtime.HealthBar
