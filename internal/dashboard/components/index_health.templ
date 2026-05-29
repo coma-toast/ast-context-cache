@@ -99,7 +99,9 @@ templ DocSourcesCard(h IndexHealth) {
 						<span class="doc-source-meta">
 							<span class="badge badge-blue doc-source-type">{ s.Type }</span>
 							<span class={ "doc-source-age", templ.KV("stale", s.Stale) }>{ s.Age }</span>
-							@DocSourceActions(s.ID, s.Name, s.Refreshing, "#index-health", h.DocSourcesPage)
+							<span class="doc-source-actions">
+								@DocSourceActions(s.ID, s.Name, s.Refreshing, "#index-health", h.DocSourcesPage)
+							</span>
 						</span>
 					</div>
 				}
@@ -115,7 +117,7 @@ templ DocSourceActions(id int, name string, refreshing bool, hxTarget string, pa
 }
 
 templ DocSourceDeleteControl(id int, name string, hxTarget string, page int) {
-	<button type="button" class="doc-source-delete" title="Remove source and cached content" data-doc-id={ fmt.Sprint(id) } data-doc-name={ name } data-refresh-target={ hxTarget } data-doc-page={ fmt.Sprint(page) }>&#x1F5D1;</button>
+	<button type="button" class="doc-source-action doc-source-delete" title="Remove source and cached content" data-doc-id={ fmt.Sprint(id) } data-doc-name={ name } data-refresh-target={ hxTarget } data-doc-page={ fmt.Sprint(page) }>&#x1F5D1;</button>
 }
 
 templ DocSourcesPager(total, page, perPage int, hxTarget string) {
@@ -139,7 +141,7 @@ templ DocSourceRefreshControl(id int, refreshing bool, hxTarget string, page int
 	if refreshing {
 		<span class="doc-source-spinner" title="Fetching from URL…" aria-busy="true"></span>
 	} else {
-		<button type="button" class="doc-source-refresh" title="Force fetch from URL" data-doc-id={ fmt.Sprint(id) } data-refresh-target={ hxTarget } data-doc-page={ fmt.Sprint(page) }><span class="refresh-glyph">&#x21BB;</span></button>
+		<button type="button" class="doc-source-action doc-source-refresh" title="Force fetch from URL" data-doc-id={ fmt.Sprint(id) } data-refresh-target={ hxTarget } data-doc-page={ fmt.Sprint(page) }><span class="refresh-glyph">&#x21BB;</span></button>
 	}
 }
 

@@ -86,19 +86,19 @@ func StatsCards(s Stats) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Queries", fmtInt(s.TodayQueries), fmt.Sprintf("30d: %s", fmtInt(s.TotalQueries)), s.todayQueryPct(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Queries", fmtInt(s.TodayQueries), s.queriesSublabel(), s.todayQueryMeter(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Tokens saved", fmtInt(s.TodayTokens), fmt.Sprintf("30d: %s · dedup: %s · vs files: %s", fmtInt(s.TokensSaved), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Tokens saved", fmtInt(s.TodayTokens), s.tokensSublabel(), s.todayTokenMeter(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationPct(), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationMeter(), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Sessions", fmtInt(s.TodaySessions), fmt.Sprintf("30d: %s · chars: %s", fmtInt(s.Sessions), fmtInt(s.TotalChars)), s.todaySessionPct(), "stat-purple").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Sessions", fmtInt(s.TodaySessions), s.sessionsSublabel(), s.todaySessionMeter(), "stat-purple").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

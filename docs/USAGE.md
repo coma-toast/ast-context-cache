@@ -107,6 +107,14 @@ cache_summary(
 | `summary` | ~6% | High-level overviews |
 | `full` | 100% | Complete implementation details |
 
+## Token savings tracking
+
+Measured on **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, and **`retrieve`** only:
+
+`tokens_saved = max(0, full_source_baseline − tokens_returned) + session_dedup`
+
+Each response includes **`tokens_saved`**, **`tokens_used`**, and **`symbol_baseline_tokens`**. Doc tools (`fetch_doc`, `search_docs`) and indexing calls do not increment dashboard totals. Use **`mode=auto`** or **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all context tools for dedup credit.
+
 ## Supported Languages
 
 - Python (.py)

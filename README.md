@@ -260,7 +260,24 @@ The server may crash or stop unexpectedly. Follow these steps to recover:
 | `summary` | ~6% | High-level overviews (requires `cache_summary` first) |
 | `full` | 100% | Complete implementation details |
 
-Always pass `session_id` to avoid re-sending symbols already seen in the conversation.
+Always pass `session_id` on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, and **`get_file_context`** to avoid re-sending symbols already seen in the conversation.
+
+### Token savings tracking
+
+The server estimates savings vs returning **full source** for each matched symbol:
+
+`tokens_saved = max(0, symbol_baseline − tokens_returned) + dedup_skips`
+
+| Counted toward dashboard | Not counted |
+|--------------------------|-------------|
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
+
+Context tool responses include **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, and optional **`dedup_tokens_saved`** / **`savings_vs_files`**. The dashboard **Tokens saved** card sums these MCP calls only — a day of doc fetch/search activity can legitimately show **0** even when the tools are working.
+
+- **`mode=full`** — ~0 savings by design (baseline ≈ payload).
+- **`mode=auto` / `skeleton` / `summary`** — where most savings come from.
+- **`session_id`** — required for dedup credit across repeated calls in one conversation.
+- **`retrieve` `stats`** — also includes `tokens_saved`, `symbol_baseline_tokens`, and budget/dedup fields.
 
 ### Optional search filters
 

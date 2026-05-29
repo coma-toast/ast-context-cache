@@ -48,7 +48,7 @@ Open after `make run` or `ast-mcp dash`. Panels update automatically when querie
 
 | Section | What it shows |
 |---------|----------------|
-| **Query activity** | MCP query counts, tokens saved (today bar), avg duration, sessions |
+| **Query activity** | MCP query counts, **tokens saved** (code-context tools only; sublabel: 30d total, avg/day, dedup, vs files), avg duration, sessions |
 | **Index & runtime** | Corpus scale bars; **embed queue** ring gauge + priority/background bars + worker dots; vectors; watchers (pause/start/delete); disk/memory (server-wide) |
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
 | **Symbol / language / tool / imports** | **Tool performance** table + charts (calls, **CPU**, avg latency, tokens saved); Top imports |
@@ -64,6 +64,7 @@ Open after `make run` or `ast-mcp dash`. Panels update automatically when querie
 
 ### Helping users interpret gauges
 
+- **Tokens saved (today)** — sums `tokens_saved` from **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, and **`retrieve`** only. **`fetch_doc` / `search_docs` / `index_*`** do not contribute; **0 today** with heavy doc activity is expected. Sublabel shows 30d total, **avg/day**, dedup, and vs-files. **`mode=full`** calls save ~nothing.
 - **Embed queue ring** — fill vs combined capacity (priority 128 + background 2048). Green → orange → red as backlog grows.
 - **Pinned projects** — use when one repo should index faster under load.
 

@@ -9,6 +9,29 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
+func coerceInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	default:
+		return 0
+	}
+}
+
+func coerceIntField(parsed map[string]interface{}, key string) int {
+	if parsed == nil {
+		return 0
+	}
+	return coerceInt(parsed[key])
+}
+
 // SavingsMeta holds token savings breakdown for analytics and MCP responses.
 type SavingsMeta struct {
 	TokensUsed       int
@@ -40,6 +63,20 @@ func ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens int) S
 		TokensSaved:      modeSaved + dedupTokens,
 		SavingsVsFiles:   vsFiles + dedupTokens,
 	}
+}
+
+// CacheHasSavingsMeta reports whether a cached get_context_capsule payload includes savings fields.
+func CacheHasSavingsMeta(parsed map[string]interface{}) bool {
+	if parsed == nil {
+		return false
+	}
+	if _, ok := parsed["symbol_baseline_tokens"]; ok {
+		return true
+	}
+	if _, ok := parsed["tokens_saved"]; ok {
+		return true
+	}
+	return false
 }
 
 func (m SavingsMeta) ApplyTo(resp map[string]interface{}) {
@@ -111,29 +148,17 @@ func FileBaselineTokens(matchedFiles map[string]bool, fileCache map[string][]str
 // ParseSavingsMeta reads savings fields from a tool response map.
 func ParseSavingsMeta(parsed map[string]interface{}, mode string, cacheHit bool) SavingsMeta {
 	m := SavingsMeta{Mode: mode, CacheHit: cacheHit}
-	if v, ok := parsed["tokens_used"].(float64); ok {
-		m.TokensUsed = int(v)
+	m.TokensUsed = coerceIntField(parsed, "tokens_used")
+	if v := coerceIntField(parsed, "symbol_baseline_tokens"); v > 0 {
+		m.SymbolBaseline = v
+	} else {
+		m.SymbolBaseline = coerceIntField(parsed, "full_baseline_tokens")
 	}
-	if v, ok := parsed["symbol_baseline_tokens"].(float64); ok {
-		m.SymbolBaseline = int(v)
-	} else if v, ok := parsed["full_baseline_tokens"].(float64); ok {
-		m.SymbolBaseline = int(v)
-	}
-	if v, ok := parsed["file_baseline_tokens"].(float64); ok {
-		m.FileBaseline = int(v)
-	}
-	if v, ok := parsed["dedup_tokens_saved"].(float64); ok {
-		m.DedupTokensSaved = int(v)
-	}
-	if v, ok := parsed["tokens_saved"].(float64); ok {
-		m.TokensSaved = int(v)
-	}
-	if v, ok := parsed["savings_vs_files"].(float64); ok {
-		m.SavingsVsFiles = int(v)
-	}
-	if v, ok := parsed["deduped"].(float64); ok {
-		m.DedupedCount = int(v)
-	}
+	m.FileBaseline = coerceIntField(parsed, "file_baseline_tokens")
+	m.DedupTokensSaved = coerceIntField(parsed, "dedup_tokens_saved")
+	m.TokensSaved = coerceIntField(parsed, "tokens_saved")
+	m.SavingsVsFiles = coerceIntField(parsed, "savings_vs_files")
+	m.DedupedCount = coerceIntField(parsed, "deduped")
 	if m.TokensSaved == 0 && m.SymbolBaseline > 0 {
 		computed := ComputeSavings(m.TokensUsed, m.SymbolBaseline, m.FileBaseline, m.DedupTokensSaved)
 		m.TokensSaved = computed.TokensSaved
@@ -154,8 +179,8 @@ func hitFromScored(r search.ScoredResult, projectPath string) PackHit {
 	data := r.Data
 	file, _ := data["file"].(string)
 	name, _ := data["name"].(string)
-	startLine, _ := data["start_line"].(int)
-	endLine, _ := data["end_line"].(int)
+	startLine := coerceInt(data["start_line"])
+	endLine := coerceInt(data["end_line"])
 	if startLine == 0 {
 		db.DB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
 			file, name, projectPath).Scan(&startLine, &endLine)

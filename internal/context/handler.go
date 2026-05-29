@@ -59,12 +59,11 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 	if useQueryCache {
 		if cached, found := cache.GlobalCache.Get(cacheKey); found {
 			var parsed map[string]interface{}
-			if json.Unmarshal([]byte(cached), &parsed) == nil {
+			if json.Unmarshal([]byte(cached), &parsed) == nil && CacheHasSavingsMeta(parsed) {
 				savings := ParseSavingsMeta(parsed, mode, true)
 				savings.CacheHit = true
 				return getContextResult{JSON: cached, Savings: savings, CacheHit: true}
 			}
-			return getContextResult{JSON: cached, CacheHit: true}
 		}
 	}
 	scored, pipeMetrics := search.HybridSearch(query, projectPath, Emb, 30, filters)
@@ -96,7 +95,6 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 			continue
 		}
 		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
-		symbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
 		if effectiveMode == "full" {
 			fullCount++
@@ -107,6 +105,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
 			break
 		}
+		symbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		tokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
@@ -168,7 +167,6 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 			continue
 		}
 		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
-		savings.SymbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
 		if effectiveMode == "full" {
 			fullCount++
@@ -179,6 +177,7 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		if tokenBudget > 0 && savings.TokensUsed+resultTokens > tokenBudget {
 			break
 		}
+		savings.SymbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		savings.TokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)

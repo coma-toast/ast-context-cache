@@ -359,15 +359,11 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if file == "" || projectPath == "" {
 			result = map[string]string{"error": "file and project_path required"}
 		} else {
-			fcStr := handleFileContext(file, projectPath, mode, sessionID, tokenBudget)
-			result = json.RawMessage(fcStr)
-			var fcParsed map[string]interface{}
-			if err := json.Unmarshal([]byte(fcStr), &fcParsed); err == nil {
-				savings := context.ParseSavingsMeta(fcParsed, mode, false)
-				outTokens := db.EstimateTokens(fcStr)
-				logToolQuery(toolName, args, len(fcStr), 0, outTokens, savings, start, cpuStart, projectPath, "")
-				loggedToolCall = true
-			}
+			fc := handleFileContextWithMeta(file, projectPath, mode, sessionID, tokenBudget)
+			result = json.RawMessage(fc.JSON)
+			outTokens := db.EstimateTokens(fc.JSON)
+			logToolQuery(toolName, args, len(fc.JSON), 0, outTokens, fc.Savings, start, cpuStart, projectPath, "")
+			loggedToolCall = true
 		}
 	case "sync_remote":
 		result = json.RawMessage(handleSyncRemote(toolArgs, projectPath))

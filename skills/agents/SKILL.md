@@ -174,6 +174,13 @@ MCP server: http://localhost:7821/mcp
 8. **Pipeline stats** — get_context_capsule returns `pipeline` counts; retrieve `stats` includes timing + budget info
 9. **Pinned projects** — pin in Settings for priority embedding, no idle watcher stop, warmer vector cache
 
+## Token savings tracking
+
+- **Formula:** `tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips`
+- **Tracked:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` (fields in JSON: `tokens_saved`, `tokens_used`, `symbol_baseline_tokens`, `dedup_tokens_saved`)
+- **Not tracked:** `fetch_doc`, `search_docs`, `index_*`, etc. — dashboard **Tokens saved** can be 0 on doc-only days
+- Use **`auto`** / **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all four context tools.
+
 ## Optional Search Filters
 
 For `get_context_capsule`, `search_semantic`, and `retrieve`:

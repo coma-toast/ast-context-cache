@@ -199,11 +199,14 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
+		startLine, endLine := symbolLinesFromEntry(r.entry)
 		out[i] = ScoredResult{
 			Data: map[string]interface{}{
 				"name":         r.entry.Name,
 				"kind":         r.entry.Kind,
 				"file":         r.entry.SourceFile,
+				"start_line":   startLine,
+				"end_line":     endLine,
 				"similarity":   r.sim,
 				"content_hash": r.entry.ContentHash,
 			},
@@ -211,6 +214,18 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 		}
 	}
 	return out
+}
+
+func symbolLinesFromEntry(e VectorEntry) (start, end int) {
+	if e.SymbolID > 0 {
+		db.DB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
+	}
+	if start == 0 {
+		db.DB.QueryRow(
+			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
+			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end)
+	}
+	return start, end
 }
 
 func (vc *VectorCache) Upsert(entries []VectorEntry) error {

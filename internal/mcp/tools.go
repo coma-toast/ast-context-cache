@@ -461,9 +461,14 @@ func GetPrompts() []Prompt {
 - Provides ~94% token reduction
 
 ### 4. Leverage Session Deduplication
-- Always pass session_id to get_context_capsule
-- This prevents re-sending files you've already seen in this conversation
-- The tool tracks what's been returned and auto-skips duplicates
+- Pass the same session_id on get_context_capsule, search_semantic, retrieve, and get_file_context
+- Skipped symbols add to dedup_tokens_saved in the response and dashboard
+
+### Token savings tracking
+- tokens_saved = max(0, full_source_baseline - tokens_returned) + dedup_skips
+- Tracked: get_context_capsule, get_file_context, search_semantic, retrieve (see tokens_saved, tokens_used, symbol_baseline_tokens in JSON)
+- Not tracked: fetch_doc, search_docs, index_*, get_project_map — dashboard Tokens saved can be 0 on doc-only days
+- mode=full saves ~nothing; use auto or skeleton for real savings
 
 ### 5. Use Token Budget Wisely
 - Set token_budget to control response size

@@ -111,6 +111,93 @@ func (h Health) queueMiniStyle() string {
 	return fmt.Sprintf("width:%.1f%%", h.queueFillPct())
 }
 
+type TodayMeterFill struct {
+	WidthPct float64 // bar width: 100 when above avg, else today/avg×100
+	AvgPct   float64 // share of bar at daily avg when above avg (avg/today×100)
+	AboveAvg bool
+	GaugePct float64 // today/avg×100 for level coloring (uncapped)
+}
+
+func todayMeterFill(today, total30d int) TodayMeterFill {
+	if total30d <= 0 {
+		return TodayMeterFill{}
+	}
+	dailyAvg := float64(total30d) / 30.0
+	if dailyAvg <= 0 {
+		return TodayMeterFill{}
+	}
+	ratio := float64(today) / dailyAvg
+	gaugePct := ratio * 100
+	if gaugePct > 100 {
+		return TodayMeterFill{
+			WidthPct: 100,
+			AvgPct:   dailyAvg / float64(today) * 100,
+			AboveAvg: true,
+			GaugePct: gaugePct,
+		}
+	}
+	return TodayMeterFill{WidthPct: gaugePct, GaugePct: gaugePct}
+}
+
+func todayDurationMeterFill(today, avg float64) TodayMeterFill {
+	if avg <= 0 {
+		return TodayMeterFill{}
+	}
+	ratio := today / avg
+	gaugePct := ratio * 100
+	if gaugePct > 100 {
+		return TodayMeterFill{
+			WidthPct: 100,
+			AvgPct:   avg / today * 100,
+			AboveAvg: true,
+			GaugePct: gaugePct,
+		}
+	}
+	return TodayMeterFill{WidthPct: gaugePct, GaugePct: gaugePct}
+}
+
+func fmtDailyAvgInt(total30d int) string {
+	if total30d <= 0 {
+		return "0"
+	}
+	avg := float64(total30d) / 30.0
+	if avg >= 100 {
+		return fmtInt(int(avg + 0.5))
+	}
+	if avg == float64(int(avg)) {
+		return fmtInt(int(avg))
+	}
+	return fmt.Sprintf("%.1f", avg)
+}
+
+func (s Stats) queriesSublabel() string {
+	return fmt.Sprintf("30d: %s · avg/day: %s", fmtInt(s.TotalQueries), fmtDailyAvgInt(s.TotalQueries))
+}
+
+func (s Stats) tokensSublabel() string {
+	return fmt.Sprintf("30d: %s · avg/day: %s · dedup: %s · vs files: %s", fmtInt(s.TokensSaved), fmtDailyAvgInt(s.TokensSaved), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles))
+}
+
+func (s Stats) sessionsSublabel() string {
+	return fmt.Sprintf("30d: %s · avg/day: %s · chars: %s", fmtInt(s.Sessions), fmtDailyAvgInt(s.Sessions), fmtInt(s.TotalChars))
+}
+
+func (s Stats) todayQueryMeter() TodayMeterFill {
+	return todayMeterFill(s.TodayQueries, s.TotalQueries)
+}
+
+func (s Stats) todayTokenMeter() TodayMeterFill {
+	return todayMeterFill(s.TodayTokens, s.TokensSaved)
+}
+
+func (s Stats) todaySessionMeter() TodayMeterFill {
+	return todayMeterFill(s.TodaySessions, s.Sessions)
+}
+
+func (s Stats) todayDurationMeter() TodayMeterFill {
+	return todayDurationMeterFill(s.TodayAvgDurationMs, s.AvgDurationMs)
+}
+
 func (s Stats) todayQueryPct() float64 {
 	return todayVsDailyAvgPct(s.TodayQueries, s.TotalQueries)
 }

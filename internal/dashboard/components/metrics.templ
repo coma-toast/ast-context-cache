@@ -136,12 +136,19 @@ templ EmbedPanel(h IndexHealth) {
 	</div>
 }
 
-templ StatMeter(title string, value string, sublabel string, fillPct float64, valueClass string) {
+templ StatMeter(title string, value string, sublabel string, bar TodayMeterFill, valueClass string) {
 	<div class="card metric-stat-card">
 		<div class="card-title">{ title }</div>
 		<div class={ "stat-value", valueClass }>{ value }</div>
 		<div class="stat-meter-track">
-			<div class={ "stat-meter-fill", "level-" + gaugeLevel(fillPct) } style={ fmt.Sprintf("width:%.1f%%", fillPct) }></div>
+			if bar.AboveAvg {
+				<div class="stat-meter-stack">
+					<div class={ "stat-meter-over", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", bar.AvgPct) }></div>
+					<div class={ "stat-meter-bright", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", 100-bar.AvgPct) }></div>
+				</div>
+			} else {
+				<div class={ "stat-meter-fill", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", bar.WidthPct) }></div>
+			}
 		</div>
 		if sublabel != "" {
 			<div class="stat-label">{ sublabel }</div>

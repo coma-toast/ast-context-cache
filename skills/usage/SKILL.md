@@ -83,6 +83,19 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | `summary` | ~6% of full | After `cache_summary` for those symbols |
 | `full` | 100% | Implementation details only |
 
+## Token savings tracking
+
+`tokens_saved = max(0, full_source_baseline − tokens_returned) + session_dedup_skips`
+
+| Counted | Not counted |
+|---------|-------------|
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` | `fetch_doc`, `search_docs`, `index_*`, maps, impact graph, … |
+
+- Context tool JSON includes **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**
+- Dashboard **Tokens saved** = sum of those MCP calls only (doc-only days → **0** is normal)
+- **`mode=full`** ≈ no savings; **`auto`** / **`skeleton`** / **`summary`** are where savings come from
+- Same **`session_id`** on all four context tools for dedup credit
+
 ## RAG: `retrieve`
 
 ```
@@ -100,7 +113,7 @@ retrieve(
 - `mode` — `skeleton`, `auto`, or `full` when `include_source` is false  
 - Filters: `path_prefix`, `language`, `kinds` / `kind` (same as search tools)
 
-Response **`stats`**: hybrid counts (`bm25_candidates`, `vector_candidates`, …), `after_dedup`, `chunks_in_budget`, timings.
+Response **`stats`**: hybrid counts (`bm25_candidates`, `vector_candidates`, …), `after_dedup`, `chunks_in_budget`, timings, plus **`tokens_saved`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**, **`budget_tokens_saved`**.
 
 ## Optional search filters
 

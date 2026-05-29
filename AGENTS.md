@@ -126,6 +126,21 @@ When working with codebases that have an MCP server available, **always prefer M
 9. **Pipeline stats** - `get_context_capsule` returns `pipeline` counts; `retrieve` stats include hybrid-stage counts and timings (see README / CLAUDE.md)
 10. **Indexing load** - Embeddings go through a bounded **queue** with workers (dashboard: embed queue / active). **Pin** heavy projects in Settings for priority embedding, no idle watcher stop, and warmer vector unload behavior
 
+### Token savings tracking
+
+Savings are measured vs **full source** for symbols actually returned:
+
+`tokens_saved = max(0, symbol_baseline − tokens_returned) + dedup_skips`
+
+| Tools that increment dashboard **Tokens saved** | Tools that do not |
+|-------------------------------------------------|-------------------|
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
+
+- Responses include **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, optional **`dedup_tokens_saved`**
+- **`mode=full`** → ~0 savings; use **`auto`** / **`skeleton`** for real reductions
+- Pass **`session_id`** on all four context tools for dedup credit
+- Dashboard sublabel on **Tokens saved** shows 30d total, **avg/day**, **dedup**, and **vs files**
+
 ### Documentation Tools
 
 Track and search external documentation (similar to Context7):

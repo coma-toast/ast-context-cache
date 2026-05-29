@@ -64,7 +64,13 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 
 ### 4. Leverage Session Deduplication
 - Pass the same `session_id` on **get_context_capsule**, **search_semantic**, **retrieve**, and **get_file_context**
-- Prevents re-sending symbols already returned in this conversation
+- Prevents re-sending symbols already returned in this conversation; dedup adds to **`dedup_tokens_saved`** in responses and the dashboard
+
+### Token savings tracking
+- **Formula:** `tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips`
+- **Tracked tools:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` (each response includes `tokens_saved`, `tokens_used`, `symbol_baseline_tokens`)
+- **Not tracked:** doc tools (`fetch_doc`, `search_docs`), indexing (`index_*`), maps/graphs — dashboard **Tokens saved** stays 0 on doc-only days
+- **`mode=full`** saves ~nothing; prefer **`auto`** or **`skeleton`** for measurable savings
 
 ### 5. Use Token Budget Wisely
 - Set token_budget to control response size
