@@ -274,3 +274,118 @@ document.body.addEventListener('htmx:configRequest', (event) => {
         event.detail.path += separator + 'project_id=' + encodeURIComponent(projectSelect.value);
     }
 });
+
+function embedSettingsPayload() {
+    const val = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+    };
+    return {
+        EMBED_BACKEND: val('embedBackend'),
+        MODEL_DIR: val('embedModelDir'),
+        EMBED_HTTP_URL: val('embedHttpURL'),
+        EMBED_HTTP_BEARER: val('embedHttpBearer'),
+        OLLAMA_HOST: val('embedOllamaHost'),
+        OLLAMA_EMBED_MODEL: val('embedOllamaModel'),
+        EMBED_OPENAI_BASE_URL: val('embedOpenAIBase'),
+        EMBED_OPENAI_API_KEY: val('embedOpenAIKey'),
+        EMBED_OPENAI_MODEL: val('embedOpenAIModel'),
+        EMBED_OPENAI_DIMENSIONS: val('embedOpenAIDim'),
+        EMBED_DOCKER_URL: val('embedDockerURL'),
+        EMBED_DOCKER_MODEL: val('embedDockerModel'),
+        EMBED_DOCKER_DIMENSIONS: val('embedDockerDimensions'),
+    };
+}
+
+async function refreshDockerModels() {
+    const urlEl = document.getElementById('embedDockerURL');
+    const sel = document.getElementById('embedDockerModel');
+    const hint = document.getElementById('embedDockerModelsHint');
+    const btn = document.getElementById('embedDockerModelsRefresh');
+    if (!sel) return;
+    const url = urlEl ? urlEl.value : '';
+    const selected = sel.value;
+    if (btn) btn.disabled = true;
+    if (hint) {
+        hint.className = 'perf-hint';
+        hint.textContent = 'Loading models…';
+    }
+    try {
+        const q = new URLSearchParams({ url: url || 'http://127.0.0.1:12434' });
+        if (selected) q.set('selected', selected);
+        const r = await fetch('/api/embedder/docker-models?' + q.toString());
+        const data = await r.json();
+        sel.innerHTML = '';
+        const models = data.models || [];
+        if (models.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = selected || '';
+            opt.textContent = selected || 'No models found';
+            opt.selected = true;
+            if (!selected) opt.disabled = true;
+            sel.appendChild(opt);
+            if (hint) {
+                hint.className = 'perf-hint embed-test-result err';
+                hint.textContent = data.error || 'No models returned';
+            }
+            return;
+        }
+        models.forEach((m) => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            if (m === (data.selected || selected)) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        if (hint) {
+            hint.className = 'perf-hint';
+            hint.textContent = models.length + ' model(s) from Model Runner';
+        }
+    } catch (err) {
+        if (hint) {
+            hint.className = 'perf-hint embed-test-result err';
+            hint.textContent = String(err);
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+document.body.addEventListener('click', async (e) => {
+    if (e.target.id === 'embedDockerModelsRefresh') {
+        await refreshDockerModels();
+        return;
+    }
+    if (e.target.id !== 'embedTestBtn') return;
+    const btn = e.target;
+    const out = document.getElementById('embedTestResult');
+    if (!out) return;
+    btn.disabled = true;
+    out.className = 'perf-hint embed-test-result';
+    out.textContent = 'Testing…';
+    try {
+        const r = await fetch('/api/embedder/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(embedSettingsPayload()),
+        });
+        const data = await r.json();
+        if (data.ok) {
+            out.className = 'perf-hint embed-test-result ok';
+            let msg = `OK · ${data.backend} · ${data.model} · ${data.dimensions} dims · ${data.latency_ms}ms`;
+            if (data.endpoint) msg += ` · ${data.endpoint}`;
+            if (data.env_overrides && data.env_overrides.length) {
+                msg += ` (env overrides active at runtime: ${data.env_overrides.join(', ')})`;
+            }
+            out.textContent = msg;
+        } else {
+            out.className = 'perf-hint embed-test-result err';
+            out.textContent = data.error || 'Test failed';
+        }
+    } catch (err) {
+        out.className = 'perf-hint embed-test-result err';
+        out.textContent = String(err);
+    } finally {
+        btn.disabled = false;
+    }
+});

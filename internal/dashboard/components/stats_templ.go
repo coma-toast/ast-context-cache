@@ -11,16 +11,18 @@ import templruntime "github.com/a-h/templ/runtime"
 import "fmt"
 
 type Stats struct {
-	TotalQueries     int
-	TodayQueries     int
-	TokensSaved      int
-	TodayTokens      int
-	DedupTokensSaved int
-	SavingsVsFiles   int
-	SymbolBaseline   int
-	AvgDurationMs    float64
-	Sessions         int
-	TotalChars       int
+	TotalQueries       int
+	TodayQueries       int
+	TokensSaved        int
+	TodayTokens        int
+	DedupTokensSaved   int
+	SavingsVsFiles     int
+	SymbolBaseline     int
+	AvgDurationMs      float64
+	TodayAvgDurationMs float64
+	Sessions           int
+	TodaySessions      int
+	TotalChars         int
 }
 
 func fmtInt(n int) string {
@@ -84,45 +86,23 @@ func StatsCards(s Stats) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Total Queries", fmtInt(s.TotalQueries), fmt.Sprintf("Today: %s", fmtInt(s.TodayQueries)), s.todayQueryPct(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Queries", fmtInt(s.TodayQueries), fmt.Sprintf("30d: %s", fmtInt(s.TotalQueries)), s.todayQueryPct(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Tokens Saved", fmtInt(s.TokensSaved), fmt.Sprintf("Today: %s · dedup: %s · vs files: %s", fmtInt(s.TodayTokens), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Tokens saved", fmtInt(s.TodayTokens), fmt.Sprintf("30d: %s · dedup: %s · vs files: %s", fmtInt(s.TokensSaved), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Avg Duration", fmt.Sprintf("%.1f", s.AvgDurationMs), "milliseconds", durationPct(s.AvgDurationMs), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationPct(), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"card\"><div class=\"card-title\">Sessions</div><div class=\"stat-value stat-purple\">")
+		templ_7745c5c3_Err = StatMeter("Sessions", fmtInt(s.TodaySessions), fmt.Sprintf("30d: %s · chars: %s", fmtInt(s.Sessions), fmtInt(s.TotalChars)), s.todaySessionPct(), "stat-purple").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(s.Sessions))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/stats.templ`, Line: 61, Col: 59}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div><div class=\"stat-label\">Result chars: ")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var3 string
-		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(s.TotalChars))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/stats.templ`, Line: 62, Col: 63}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

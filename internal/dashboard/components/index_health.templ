@@ -12,8 +12,11 @@ type IndexHealth struct {
 	TotalVectors  int
 	VectorMemMB   float64
 	MemoryMB      float64
+	DiskMB        float64
+	CPUPercent    float64
 	DiskSize      string
-	Watchers     []WatcherInfo
+	Watchers          []WatcherInfo
+	DocSources        []IndexDocSource
 	EmbedQueued      int
 	EmbedHighQueued  int
 	EmbedLowQueued   int
@@ -25,6 +28,12 @@ type IndexHealth struct {
 	EmbedThroughput  int64
 	PinnedCount       int
 	FilteredProject   string
+	EmbedBackend      string
+	EmbedModel        string
+	EmbedRuntime      string
+	EmbedEndpoint     string
+	EmbedDim          int
+	EmbedLoaded       bool
 }
 
 type WatcherInfo struct {
@@ -33,67 +42,79 @@ type WatcherInfo struct {
 	Active      bool
 }
 
+type IndexDocSource struct {
+	ID    int
+	Name  string
+	Type  string
+	URL   string
+	Age   string
+	Stale bool
+}
+
 templ IndexHealthCards(h IndexHealth) {
 	if h.FilteredProject != "" {
 		<div class="filter-banner">
-			Stats below are for <strong>{ filepath.Base(h.FilteredProject) }</strong>. Memory and disk are server-wide.
+			Stats below are for <strong>{ filepath.Base(h.FilteredProject) }</strong>. Server utilization is always server-wide.
 		</div>
 	}
-	<div class="subsection-title">Indexed corpus</div>
-	<div class="grid grid-4 metric-grid">
+	<div class="index-health-row">
+		@ResourceUtilCard(h)
+		@EmbedPanel(h)
 		@CorpusBarChart(h.TotalSymbols, h.TotalFiles, h.TotalEdges)
-		<div class="card">
-			<div class="card-title">Memory Usage</div>
-			<div class="stat-value stat-purple">{ fmt.Sprintf("%.1f", h.MemoryMB) }</div>
-			<div class="stat-label">MB allocated · server-wide</div>
-		</div>
-		<div class="card">
-			<div class="card-title">Disk Usage</div>
-			<div class="stat-value stat-accent">{ h.DiskSize }</div>
-			<div class="stat-label">DB size · server-wide</div>
+	</div>
+	@WatchersAndDocsRow(h)
+}
+
+templ WatchersAndDocsRow(h IndexHealth) {
+	<div class="index-health-watchers-row">
+		@WatcherCard(h)
+		@DocSourcesCard(h)
+	</div>
+}
+
+templ DocSourcesCard(h IndexHealth) {
+	<div class="card watcher-card doc-sources-card">
+		<div class="card-title">Doc sources ({ fmtInt(len(h.DocSources)) })</div>
+		<div class="watcher-items doc-source-items">
+			if len(h.DocSources) == 0 {
+				<div class="watcher-empty">None cached</div>
+			} else {
+				for _, s := range h.DocSources {
+					<div class={ "doc-source-item", templ.KV("stale", s.Stale) } title={ s.URL }>
+						<span class="doc-source-name">{ s.Name }</span>
+						<span class="doc-source-meta">
+							<span class="badge badge-blue doc-source-type">{ s.Type }</span>
+							<span class={ "doc-source-age", templ.KV("stale", s.Stale) }>{ s.Age }</span>
+						</span>
+					</div>
+				}
+			}
 		</div>
 	</div>
-	<div class="subsection-title">Runtime &amp; embeddings</div>
-	<div class="grid grid-4 metric-grid">
-		@EmbedQueueCard(h)
-		<div class="card">
-			<div class="card-title">Vectors (Embeddings)</div>
-			<div class="stat-value stat-accent">{ fmtInt(h.TotalVectors) }</div>
-			<div class="stat-label">In-memory cache</div>
-		</div>
-		<div class="card">
-			<div class="card-title">Vector Memory</div>
-			<div class="stat-value stat-green">{ fmt.Sprintf("%.2f", h.VectorMemMB) }</div>
-			<div class="stat-label">MB used</div>
-		</div>
-		<div class="card watcher-card">
-			<div class="card-title">File watchers ({ fmtInt(h.WatcherActiveCount()) }/{ fmtInt(len(h.Watchers)) } active)</div>
-			<div class="watcher-items">
-				if len(h.Watchers) == 0 {
-					<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
-				} else {
-					for _, w := range h.Watchers {
-						<div class={ "watcher-item", templ.KV("stopped", !w.Active) } title={ w.ProjectPath }>
-							<span class={ "watcher-dot", templ.KV("active", w.Active), templ.KV("inactive", !w.Active) }></span>
-							{ w.Name }
-							<span class="watcher-actions">
-								if w.Active {
-									<button title="Pause" hx-post="/api/stop-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x23F8;</button>
-								} else {
-									<button title="Start" hx-post="/api/start-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x25B6;</button>
-								}
-								<button title="Delete" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", w.Name) } hx-headers='{"Content-Type":"application/json"}'>&#x1F5D1;</button>
-							</span>
-						</div>
-					}
+}
+
+templ WatcherCard(h IndexHealth) {
+	<div class="card watcher-card">
+		<div class="card-title">File watchers ({ fmtInt(h.WatcherActiveCount()) }/{ fmtInt(len(h.Watchers)) } active)</div>
+		<div class="watcher-items">
+			if len(h.Watchers) == 0 {
+				<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
+			} else {
+				for _, w := range h.Watchers {
+					<div class={ "watcher-item", templ.KV("stopped", !w.Active) } title={ w.ProjectPath }>
+						<span class={ "watcher-dot", templ.KV("active", w.Active), templ.KV("inactive", !w.Active) }></span>
+						{ w.Name }
+						<span class="watcher-actions">
+							if w.Active {
+								<button title="Pause" hx-post="/api/stop-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x23F8;</button>
+							} else {
+								<button title="Start" hx-post="/api/start-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x25B6;</button>
+							}
+							<button title="Delete" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", w.Name) } hx-headers='{"Content-Type":"application/json"}'>&#x1F5D1;</button>
+						</span>
+					</div>
 				}
-			</div>
+			}
 		</div>
-		<div class="card">
-			<div class="card-title">Total embedded</div>
-			<div class="stat-value stat-purple">{ fmtInt64(h.EmbedComplete) }</div>
-			<div class="stat-label">lifetime completions</div>
-		</div>
-		@StatMeter("Pinned projects", fmtInt(h.PinnedCount), "priority embed + warm vectors", pinnedPct(h.PinnedCount), "stat-accent")
 	</div>
 }

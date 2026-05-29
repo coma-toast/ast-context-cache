@@ -3,6 +3,8 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -15,21 +17,28 @@ func initQueryLogBridge() {
 
 func onQueryLogFlush(rows []db.QueryLogSnapshot) {
 	for _, r := range rows {
-		notifyQueryLogged(r.ToolName, r.ArgsJSON, r.Timestamp, r.TokensSaved, r.DurationMs, r.CpuMs)
+		notifyQueryLogged(r.ToolName, r.ArgsJSON, r.Timestamp, r.ProjectPath, r.TokensSaved, r.DurationMs, r.CpuMs)
 	}
 	if len(rows) > 0 {
 		realtime.Notify(realtime.QueryLogged)
 	}
 }
 
-func notifyQueryLogged(toolName, argsJSON, ts string, saved int, durationMs, cpuMs float64) {
+func notifyQueryLogged(toolName, argsJSON, ts, projectPath string, saved int, durationMs, cpuMs float64) {
 	query := toolName
+	displayName := toolName
 	var parsed map[string]interface{}
 	if json.Unmarshal([]byte(argsJSON), &parsed) == nil {
 		if a, ok := parsed["arguments"].(map[string]interface{}); ok {
 			parsed = a
 		}
-		if q, ok := parsed["query"].(string); ok && q != "" {
+		if toolName == "file_watcher" {
+			query = formatWatcherToastQuery(parsed)
+			displayName = "Indexing"
+			if projectPath != "" {
+				displayName += " · " + filepath.Base(projectPath)
+			}
+		} else if q, ok := parsed["query"].(string); ok && q != "" {
 			if len(q) > 30 {
 				query = q[:27] + "..."
 			} else {
@@ -58,5 +67,35 @@ func notifyQueryLogged(toolName, argsJSON, ts string, saved int, durationMs, cpu
 			durText = cpuPart
 		}
 	}
-	broadcastToastWS(toolName, query, timeStr, savedText, durText, "inherit")
+	toolColor := "inherit"
+	if toolName == "file_watcher" {
+		toolColor = "#3fb950"
+	}
+	broadcastToastWS(displayName, query, timeStr, savedText, durText, toolColor)
+}
+
+func formatWatcherToastQuery(parsed map[string]interface{}) string {
+	event := toastStringVal(parsed, "event")
+	file := toastStringVal(parsed, "file")
+	if file != "" {
+		file = filepath.Base(file)
+	}
+	parts := make([]string, 0, 2)
+	if event != "" {
+		parts = append(parts, event)
+	}
+	if file != "" {
+		parts = append(parts, file)
+	}
+	if len(parts) == 0 {
+		return "index update"
+	}
+	return strings.Join(parts, " · ")
+}
+
+func toastStringVal(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
 }

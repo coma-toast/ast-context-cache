@@ -128,7 +128,7 @@ MCP server: http://localhost:7821/mcp
 | `get_project_map` | Project structure overview (depth 1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Blast radius of a symbol — files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
-| `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `search_docs` | Search locally cached documentation (FTS). Try before WebFetch. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). |
 
@@ -142,7 +142,8 @@ MCP server: http://localhost:7821/mcp
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
 | `import_bundle` | Import a previously exported bundle without re-indexing. |
-| `add_doc_source` | Add a documentation URL to track and cache (markdown, html, json). |
+| `fetch_doc` | Fetch a doc URL, cache it, and return stored entries (prefer over WebFetch). |
+| `add_doc_source` | Track a doc URL for async background caching. |
 | `remove_doc_source` | Remove a tracked documentation source. |
 | `update_doc_source` | Manually refresh a documentation source. |
 
@@ -168,7 +169,7 @@ MCP server: http://localhost:7821/mcp
 3. **Use get_project_map first** — ~200 tokens for full project overview
 4. **Use get_file_context over read** — structured, mode-aware output
 5. **Cache summaries** — call cache_summary after understanding key files
-6. **Use search_docs** — for library/framework documentation questions
+6. **Use search_docs** — for library/framework docs; use **fetch_doc** (not WebFetch) when not cached
 7. **Optional filters** — `path_prefix`, `language`, `kinds`/`kind` on get_context_capsule, search_semantic, retrieve
 8. **Pipeline stats** — get_context_capsule returns `pipeline` counts; retrieve `stats` includes timing + budget info
 9. **Pinned projects** — pin in Settings for priority embedding, no idle watcher stop, warmer vector cache
@@ -188,14 +189,14 @@ For `get_context_capsule`, `search_semantic`, and `retrieve`:
 ## Documentation Tools
 
 ```
-add_doc_source(name="React", type="markdown", url="https://...", version="18")
 search_docs(query="useState hook", limit=5)
+fetch_doc(name="React", type="markdown", url="https://...", version="18")
 list_doc_sources()
 update_doc_source(id=1)
 remove_doc_source(id=1)
 ```
 
-Doc sources auto-update every hour. Supports `markdown`, `html`, and `json` types.
+Tracked sources re-fetch when older than **7 days**. Use `fetch_doc` with `force_refresh=true` or `update_doc_source` to refresh sooner. Types: `markdown`, `html`, `json`.
 
 ## When MCP Is Not Available
 

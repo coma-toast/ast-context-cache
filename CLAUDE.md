@@ -37,7 +37,8 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - **analyze_dead_code** - Find unused functions, classes, imports
 - **analyze_complexity** - Find hard-to-maintain code by cyclomatic complexity
 - **export_bundle** / **import_bundle** - Portable code bundles without re-indexing
-- **add_doc_source** / **remove_doc_source** / **update_doc_source** - Track and cache external documentation
+- **fetch_doc** - Fetch, cache, and return external documentation (prefer over WebFetch)
+- **add_doc_source** / **remove_doc_source** / **update_doc_source** - Track and manage cached doc URLs
 
 ## Complete
 - **execute_code** - Run JS in a sandbox against search results; only output enters context
@@ -90,10 +91,10 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - Shows all files that depend on a symbol
 - Helps understand blast radius of changes
 
-### 10. Use search_docs for Documentation
-- Search cached library/framework docs instead of web searches
-- Add sources with add_doc_source (supports markdown, html, json URLs)
-- Doc sources auto-refresh every hour
+### 10. Use search_docs and fetch_doc for Documentation
+- Try **search_docs** first for library/framework docs (local FTS cache)
+- On cache miss, use **fetch_doc** (not WebFetch) so URLs are stored in ast-context-cache
+- Tracked sources re-fetch when older than **7 days**; use `update_doc_source` or `fetch_doc` with `force_refresh` sooner
 
 ### Recommended Workflow
 1. index_status → index_files if needed
@@ -103,7 +104,7 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 5. search_semantic for intent; retrieve for RAG bundles
 6. cache_summary on key symbols; use mode='summary' later
 7. get_impact_graph before changing exports
-8. search_docs for library/framework questions
+8. search_docs for library/framework questions; fetch_doc when not cached
 
 **Dashboard (operators):** http://localhost:7830 — embed queue gauge, project filter, MCP vs indexing in Recent, tool performance (CPU/latency). See [skills/operator/SKILL.md](skills/operator/SKILL.md).
 

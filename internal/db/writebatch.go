@@ -62,6 +62,7 @@ type QueryLogSnapshot struct {
 	Timestamp   string
 	ToolName    string
 	ArgsJSON    string
+	ProjectPath string
 	TokensSaved int
 	DurationMs  float64
 	CpuMs       float64
@@ -149,6 +150,7 @@ func flushQueryLogBuffer() {
 				Timestamp:   r.timestampRFC3339,
 				ToolName:    r.toolName,
 				ArgsJSON:    r.argsJSON,
+				ProjectPath: r.projectPath,
 				TokensSaved: r.metrics.TokensSaved,
 				DurationMs:  r.metrics.DurationMs,
 				CpuMs:       r.metrics.CpuMs,

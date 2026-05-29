@@ -14,6 +14,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
+// DocSourceMaxAge is how long cached doc content is kept before background re-fetch.
+const DocSourceMaxAge = 7 * 24 * time.Hour
+
 type DocSource struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
@@ -35,15 +38,16 @@ type DocEntry struct {
 }
 
 func AddSource(name, docType, docURL, version string) (int, error) {
-	result, err := db.DB.Exec(
+	_, err := db.DB.Exec(
 		`INSERT INTO doc_sources (name, type, url, version) VALUES (?, ?, ?, ?)
 		 ON CONFLICT(name, type, url) DO UPDATE SET version = excluded.version`,
 		name, docType, docURL, version)
 	if err != nil {
 		return 0, err
 	}
-	id, _ := result.LastInsertId()
-	return int(id), nil
+	var id int
+	err = db.DB.QueryRow("SELECT id FROM doc_sources WHERE name = ? AND type = ? AND url = ?", name, docType, docURL).Scan(&id)
+	return id, err
 }
 
 func RemoveSource(id int) error {
@@ -126,16 +130,61 @@ func UpdateAllSources() {
 	if err != nil {
 		return
 	}
-
 	for _, s := range sources {
-		if s.LastUpdated != "" {
-			lastTime, parseErr := time.Parse(time.RFC3339, s.LastUpdated)
-			if parseErr == nil && time.Since(lastTime) < 24*time.Hour {
-				continue
-			}
+		if !SourceNeedsRefresh(s.LastUpdated) {
+			continue
 		}
 		UpdateSource(s.ID)
 	}
+}
+
+// SourceNeedsRefresh reports whether a doc source should be re-fetched from its URL.
+func SourceNeedsRefresh(lastUpdated string) bool {
+	if lastUpdated == "" {
+		return true
+	}
+	lastTime, err := time.Parse(time.RFC3339, lastUpdated)
+	if err != nil {
+		return true
+	}
+	return time.Since(lastTime) >= DocSourceMaxAge
+}
+
+// FetchAndCache registers a doc source, fetches when missing/stale/forced, and returns cached entries.
+func FetchAndCache(name, docType, docURL, version string, force bool) (id int, entries []DocEntry, refreshed bool, err error) {
+	id, err = AddSource(name, docType, docURL, version)
+	if err != nil {
+		return 0, nil, false, err
+	}
+	var lastUpdated string
+	if err = db.DB.QueryRow("SELECT COALESCE(last_updated,'') FROM doc_sources WHERE id = ?", id).Scan(&lastUpdated); err != nil {
+		return id, nil, false, err
+	}
+	if force || SourceNeedsRefresh(lastUpdated) {
+		if err = UpdateSource(id); err != nil {
+			return id, nil, false, err
+		}
+		refreshed = true
+	}
+	entries, err = ListEntriesBySource(id)
+	return id, entries, refreshed, err
+}
+
+func ListEntriesBySource(sourceID int) ([]DocEntry, error) {
+	rows, err := db.DB.Query(`
+		SELECT id, source_id, title, content, COALESCE(path,''), COALESCE(content_hash,''), updated_at
+		FROM doc_content WHERE source_id = ? ORDER BY id`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []DocEntry
+	for rows.Next() {
+		var e DocEntry
+		rows.Scan(&e.ID, &e.SourceID, &e.Title, &e.Content, &e.Path, &e.ContentHash, &e.UpdatedAt)
+		entries = append(entries, e)
+	}
+	return entries, nil
 }
 
 func fetchDocs(docURL, docType string) ([]DocEntry, error) {

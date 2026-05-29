@@ -41,6 +41,17 @@ type SettingsData struct {
 	EmbedOpenAIAPIKey       string
 	EmbedOpenAIModel        string
 	EmbedOpenAIDimensions   string
+	EmbedDockerURL          string
+	EmbedDockerModel        string
+	EmbedDockerDimensions   string
+	EmbedDockerModels       []string
+	EmbedDockerModelsErr    string
+	EmbedActiveBackend      string
+	EmbedActiveModel        string
+	EmbedActiveRuntime      string
+	EmbedActiveEndpoint     string
+	EmbedActiveDim          int
+	EmbedActiveLoaded       bool
 	Projects                []Project
 	Agents                  []AgentInfo
 	DocSources              []DocSource
@@ -61,12 +72,27 @@ templ Settings(data SettingsData) {
 
 	<div class="section">
 		<div class="section-title">Embedding backend</div>
+		<div class="embed-active-banner" title={ data.EmbedActiveEndpoint }>
+			<span class="embed-active-label">Running</span>
+			<span class="badge badge-blue">{ data.EmbedActiveBackend }</span>
+			<span class="mono">{ data.EmbedActiveModel }</span>
+			<span class="perf-hint embed-active-meta">
+				{ data.EmbedActiveRuntime } · { fmt.Sprint(data.EmbedActiveDim) } dims
+				if data.EmbedActiveLoaded {
+					· loaded
+				} else {
+					· idle (lazy)
+				}
+			</span>
+		</div>
 		<p class="perf-hint" style="margin-bottom:12px">
 			Values are stored in the local database under the <span class="mono">same names as environment variables</span>.
+			<strong>Changes save automatically</strong> when you change a field (no Save button).
 			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
-			<strong>Restart ast-mcp</strong> after changing anything here so the embedder reloads.
+			<strong>Restart ast-mcp</strong> after changing anything here so the embedder reloads — the <strong>Running</strong> banner shows what this process loaded at startup, not what you just picked in the dropdown until you restart.
 		</p>
-		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none"
+			hx-on::after-request="htmx.ajax('GET', '/partials/settings', {target:'#settings-content', swap:'innerHTML'})">
 			<label for="embedBackend">EMBED_BACKEND</label>
 			<input type="hidden" name="key" value="EMBED_BACKEND"/>
 			<select id="embedBackend" class="perf-input" name="value">
@@ -75,8 +101,59 @@ templ Settings(data SettingsData) {
 				<option value="http" if data.EmbedBackend == "http" { selected }>http (ast JSON /embed)</option>
 				<option value="openai" if data.EmbedBackend == "openai" { selected }>openai (OpenAI / LiteLLM)</option>
 				<option value="litellm" if data.EmbedBackend == "litellm" { selected }>litellm (same as openai)</option>
+				<option value="docker" if data.EmbedBackend == "docker" { selected }>docker (Docker Model Runner)</option>
 			</select>
 		</form>
+		<p class="perf-hint" style="margin-top:8px">
+			<span class="mono">docker</span> backend: point <span class="mono">EMBED_DOCKER_URL</span> at your Model Runner host (default <span class="mono">http://127.0.0.1:12434</span>), then <span class="mono">docker model pull ai/qwen3-embedding</span>. See <span class="mono">docker/README.md</span>. Re-index after switching backends.
+		</p>
+		<div class="perf-setting">
+			<label for="embedDockerURL">EMBED_DOCKER_URL</label>
+			<input type="text" id="embedDockerURL" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" placeholder="http://127.0.0.1:12434" name="value" value={ data.EmbedDockerURL }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_DOCKER_URL"}' hx-include="this"
+				hx-on::after-request="refreshDockerModels()"/>
+			<span class="perf-hint"><span class="mono">/engines/v1</span> is appended automatically when omitted.</span>
+		</div>
+		<div class="perf-setting">
+			<label for="embedDockerModel">EMBED_DOCKER_MODEL</label>
+			<div class="embed-model-row">
+				<select id="embedDockerModel" class="perf-input embed-model-select" name="value"
+					hx-post="/api/settings" hx-trigger="change" hx-swap="none"
+					hx-vals='{"key":"EMBED_DOCKER_MODEL"}' hx-include="this">
+					if len(data.EmbedDockerModels) == 0 {
+						if data.EmbedDockerModel != "" {
+							<option value={ data.EmbedDockerModel } selected>{ data.EmbedDockerModel }</option>
+						} else {
+							<option value="" selected disabled>Select a model…</option>
+						}
+					} else {
+						for _, m := range data.EmbedDockerModels {
+							if m == data.EmbedDockerModel {
+								<option value={ m } selected>{ m }</option>
+							} else {
+								<option value={ m }>{ m }</option>
+							}
+						}
+					}
+				</select>
+				<button type="button" class="action-btn" id="embedDockerModelsRefresh" title="Reload models from Docker Model Runner">Refresh</button>
+			</div>
+			if data.EmbedDockerModelsErr != "" {
+				<span id="embedDockerModelsHint" class="perf-hint embed-test-result err">{ data.EmbedDockerModelsErr }</span>
+			} else if len(data.EmbedDockerModels) > 0 {
+				<span id="embedDockerModelsHint" class="perf-hint">{ fmt.Sprintf("%d model(s) from Model Runner", len(data.EmbedDockerModels)) }</span>
+			} else {
+				<span id="embedDockerModelsHint" class="perf-hint">Click Refresh after pulling models with <span class="mono">docker model pull …</span></span>
+			}
+		</div>
+		<div class="perf-setting">
+			<label for="embedDockerDimensions">EMBED_DOCKER_DIMENSIONS</label>
+			<input type="text" id="embedDockerDimensions" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" placeholder="768" name="value" value={ data.EmbedDockerDimensions }
+				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
+				hx-vals='{"key":"EMBED_DOCKER_DIMENSIONS"}' hx-include="this"/>
+			<span class="perf-hint">Vector index requires 768 dimensions. Use <span class="mono">0</span> to omit the JSON field.</span>
+		</div>
 		<div class="perf-setting">
 			<label for="embedModelDir">MODEL_DIR (optional)</label>
 			<input type="text" id="embedModelDir" class="perf-input" style="width:100%" name="value" value={ data.EmbedModelDir }
@@ -130,6 +207,10 @@ templ Settings(data SettingsData) {
 			<input type="text" id="embedOpenAIDim" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px" name="value" value={ data.EmbedOpenAIDimensions }
 				hx-post="/api/settings" hx-trigger="change delay:400ms" hx-swap="none"
 				hx-vals='{"key":"EMBED_OPENAI_DIMENSIONS"}' hx-include="this"/>
+		</div>
+		<div class="perf-setting embed-test-row">
+			<button type="button" class="action-btn" id="embedTestBtn">Test embedder</button>
+			<span id="embedTestResult" class="perf-hint embed-test-result">Runs a probe embedding with the values above (ignores saved env overrides).</span>
 		</div>
 	</div>
 

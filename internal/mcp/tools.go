@@ -306,7 +306,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "search_docs",
-			Description: "Search locally cached documentation by title or content. Returns matching documentation entries from tracked doc sources.",
+			Description: "Search locally cached documentation by title or content (FTS). Try this before WebFetch or web search for library/framework docs.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -319,8 +319,24 @@ func GetTools() []Tool {
 			ReadOnly: true,
 		},
 		{
+			Name:        "fetch_doc",
+			Description: "Fetch a documentation URL, register it in the local doc cache, and return stored entries. Prefer this over WebFetch for external library/framework docs so future search_docs queries hit the cache.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name":           map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
+					"type":           map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'json'"},
+					"url":            map[string]string{"type": "string", "description": "URL to fetch documentation from"},
+					"version":        map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
+					"force_refresh":  map[string]string{"type": "boolean", "description": "Re-fetch from URL even if cached content is fresh (default false)"},
+				},
+				"required": []string{"name", "type", "url"},
+			},
+			Tier: TierExtended,
+		},
+		{
 			Name:        "add_doc_source",
-			Description: "Add a documentation source to track. Fetches and caches docs from the given URL. Supports markdown, html, json types.",
+			Description: "Track a documentation URL for background caching (async fetch). Use fetch_doc when you need content in the same response; use this to register URLs without waiting.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -357,7 +373,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "update_doc_source",
-			Description: "Manually update a documentation source by fetching fresh content from the URL.",
+			Description: "Manually re-fetch a tracked documentation source from its URL.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

@@ -1,6 +1,9 @@
 package components
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 func pct(used, cap int) float64 {
 	if cap <= 0 {
@@ -67,22 +70,38 @@ func (h Health) queueMiniStyle() string {
 }
 
 func (s Stats) todayQueryPct() float64 {
-	if s.TotalQueries <= 0 {
-		return 0
-	}
-	return float64(s.TodayQueries) / float64(s.TotalQueries) * 100
+	return todayVsDailyAvgPct(s.TodayQueries, s.TotalQueries)
 }
 
 func (s Stats) todayTokenPct() float64 {
-	if s.TokensSaved <= 0 {
-		return 0
-	}
-	return float64(s.TodayTokens) / float64(s.TokensSaved) * 100
+	return todayVsDailyAvgPct(s.TodayTokens, s.TokensSaved)
 }
 
-func durationPct(ms float64) float64 {
-	const softMax = 500.0
-	p := ms / softMax * 100
+func (s Stats) todaySessionPct() float64 {
+	return todayVsDailyAvgPct(s.TodaySessions, s.Sessions)
+}
+
+func (s Stats) todayDurationPct() float64 {
+	if s.AvgDurationMs <= 0 {
+		return 0
+	}
+	p := s.TodayAvgDurationMs / s.AvgDurationMs * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+// todayVsDailyAvgPct fills the stat meter: 100% when today matches the rolling 30d daily average.
+func todayVsDailyAvgPct(today, total30d int) float64 {
+	if total30d <= 0 {
+		return 0
+	}
+	dailyAvg := float64(total30d) / 30.0
+	if dailyAvg <= 0 {
+		return 0
+	}
+	p := float64(today) / dailyAvg * 100
 	if p > 100 {
 		return 100
 	}
@@ -99,9 +118,59 @@ func (h IndexHealth) WatcherActiveCount() int {
 	return n
 }
 
+// FormatDocSourceAge returns a compact age string and whether the source is stale (at or past maxAge).
+func FormatDocSourceAge(lastUpdated string, maxAge time.Duration) (age string, stale bool) {
+	if lastUpdated == "" {
+		return "never", true
+	}
+	t, err := time.Parse(time.RFC3339, lastUpdated)
+	if err != nil {
+		return "unknown", true
+	}
+	d := time.Since(t)
+	stale = d >= maxAge
+	return formatAgeDuration(d), stale
+}
+
+func formatAgeDuration(d time.Duration) string {
+	if d < time.Minute {
+		return "just now"
+	}
+	days := int(d.Hours() / 24)
+	hours := int(d.Hours()) % 24
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%dd %dh", days, hours)
+		}
+		return fmt.Sprintf("%dd", days)
+	}
+	if d >= time.Hour {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dm", int(d.Minutes()))
+}
+
 func pinnedPct(pinned int) float64 {
 	const maxShown = 8.0
 	p := float64(pinned) / maxShown * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+func memoryPct(mb float64) float64 {
+	const softMax = 512.0
+	p := mb / softMax * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+func diskPct(mb float64) float64 {
+	const softMax = 2048.0
+	p := mb / softMax * 100
 	if p > 100 {
 		return 100
 	}

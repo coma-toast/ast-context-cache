@@ -2,6 +2,31 @@ package components
 
 import "fmt"
 
+templ ResourceUtilCard(h IndexHealth) {
+	<div class="card metric-card resource-util-card">
+		<div class="card-title">Server utilization</div>
+		<div class="resource-util-rows">
+			@ResourceBar("CPU", fmt.Sprintf("%.0f%%", h.CPUPercent), h.CPUPercent, "#f0883e")
+			@ResourceBar("Heap", fmt.Sprintf("%.1f MB", h.MemoryMB), memoryPct(h.MemoryMB), "#bc8cff")
+			@ResourceBar("Vector cache", fmt.Sprintf("%.2f MB", h.VectorMemMB), memoryPct(h.VectorMemMB), "#58a6ff")
+			@ResourceBar("Database", h.DiskSize, diskPct(h.DiskMB), "#3fb950")
+		</div>
+		<div class="stat-label">Server-wide · relative load (soft caps for gauges)</div>
+	</div>
+}
+
+templ ResourceBar(label string, value string, fillPct float64, color string) {
+	<div class="resource-bar">
+		<div class="resource-bar-head">
+			<span class="resource-bar-label">{ label }</span>
+			<span class="resource-bar-value">{ value }</span>
+		</div>
+		<div class="channel-bar-track">
+			<div class={ "channel-bar-fill", "level-" + gaugeLevel(fillPct) } style={ fmt.Sprintf("width:%.1f%%;background:%s", fillPct, color) }></div>
+		</div>
+	</div>
+}
+
 templ RingGauge(value string, caption string, used int, cap int) {
 	<div class={ "ring-gauge", "ring-" + gaugeLevel(pct(used, cap)) } style={ ringStyle(used, cap) }>
 		<div class="ring-gauge-inner">
@@ -35,9 +60,19 @@ templ WorkerStrip(active int, total int) {
 	</div>
 }
 
-templ EmbedQueueCard(h IndexHealth) {
-	<div class="card metric-card metric-card-wide">
-		<div class="card-title">Embed queue</div>
+templ EmbedPanel(h IndexHealth) {
+	<div class="card metric-card embed-panel">
+		<div class="card-title">Embeddings</div>
+		<div class="embed-active-row" title={ h.ActiveEmbedTitle() }>
+			<span class="embed-active-label">Active</span>
+			<span class="badge badge-blue">{ h.EmbedBackend }</span>
+			<span class="mono embed-active-model">{ h.ActiveEmbedModelShort() }</span>
+			if h.EmbedLoaded {
+				<span class="embed-active-pill loaded">loaded</span>
+			} else {
+				<span class="embed-active-pill">idle</span>
+			}
+		</div>
 		<div class="metric-split">
 			@RingGauge(fmtInt(h.EmbedQueued), "queued", h.EmbedQueued, h.queueTotalCap())
 			<div class="metric-stack">
@@ -57,6 +92,20 @@ templ EmbedQueueCard(h IndexHealth) {
 				</div>
 			</div>
 		</div>
+		<div class="embed-panel-stats">
+			<div class="embed-stat">
+				<div class="embed-stat-value stat-accent">{ fmtInt(h.TotalVectors) }</div>
+				<div class="embed-stat-label">Vectors cached</div>
+			</div>
+			<div class="embed-stat">
+				<div class="embed-stat-value stat-purple">{ fmtInt64(h.EmbedComplete) }</div>
+				<div class="embed-stat-label">Total embedded</div>
+			</div>
+			<div class="embed-stat">
+				<div class="embed-stat-value stat-green">{ fmtInt(h.PinnedCount) }</div>
+				<div class="embed-stat-label">Pinned</div>
+			</div>
+		</div>
 	</div>
 }
 
@@ -74,8 +123,8 @@ templ StatMeter(title string, value string, sublabel string, fillPct float64, va
 }
 
 templ CorpusBarChart(symbols int, files int, edges int) {
-	<div class="card metric-card metric-card-wide corpus-bars">
-		<div class="card-title">Corpus scale</div>
+	<div class="card metric-card corpus-bars">
+		<div class="card-title">Index</div>
 		<div class="corpus-bar-list">
 			@corpusBarRow("Symbols", symbols, max3(symbols, files, edges), "stat-accent")
 			@corpusBarRow("Files", files, max3(symbols, files, edges), "stat-green")

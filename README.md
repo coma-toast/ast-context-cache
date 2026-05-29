@@ -52,12 +52,19 @@ The vector store is built for **768-dimensional** L2-normalized embeddings. The 
 | `ollama` | Local or Docker [Ollama](https://ollama.com) with a **768-d** model; default `nomic-embed-text` | `OLLAMA_HOST` (e.g. `http://127.0.0.1:11434`), `OLLAMA_EMBED_MODEL` |
 | `http` | Any service that matches the built-in JSON: `POST` body `{"texts":["..."]}` → `{"embeddings":[[float32,...]]}` (same as `http://localhost:7821/embed` on the ONNX server) | `EMBED_HTTP_URL` (default `http://127.0.0.1:8080/embed`), `EMBED_HTTP_BEARER` |
 | `openai` (alias: `litellm`) | [LiteLLM](https://docs.litellm.ai/docs/), OpenAI, or any **OpenAI-compatible** `POST /v1/embeddings` gateway; vectors must be **768-d** (native model or `dimensions` in JSON) | `EMBED_OPENAI_BASE_URL` (default `https://api.openai.com/v1`), **`EMBED_OPENAI_MODEL`** (required), `EMBED_OPENAI_API_KEY`, `EMBED_OPENAI_DIMENSIONS` (optional: unset sends `768` for v3 shortening; `0` omits the field) |
+| `docker` | [Docker Model Runner](https://docs.docker.com/ai/model-runner/) embeddings (port **12434**); no local ONNX in ast-mcp | `EMBED_DOCKER_URL` (default `http://127.0.0.1:12434`), `EMBED_DOCKER_MODEL` (default `ai/qwen3-embedding`), `EMBED_DOCKER_DIMENSIONS` (default `768`) |
 
-**OpenAI / LiteLLM:** Point `EMBED_OPENAI_BASE_URL` at your gateway root including `/v1` (e.g. `https://your-litellm/v1`). If you change embedding model or dimensionality, clear or re-index so stored vectors stay consistent with the 768-d index.
+**Docker Model Runner:** See [`docker/README.md`](docker/README.md). Quick start:
 
-**Docker (Ollama only):** from the repo root, `docker compose -f docker/compose.ollama-embed.yml up -d`, then `docker exec -it ollama-embed ollama pull nomic-embed-text`, then run ast-mcp with `EMBED_BACKEND=ollama`.
+```bash
+docker desktop enable model-runner --tcp 12434   # if needed
+docker model pull ai/qwen3-embedding
+EMBED_BACKEND=docker make run
+```
 
-**Process environment:** Whatever starts `ast-mcp` (foreground terminal, the `ast-mcp` shell function from `make install`, systemd, or another supervisor) must have the embedding variables from the table above exported for non-default backends—for example set `EMBED_BACKEND=ollama` and `OLLAMA_HOST`, or `EMBED_BACKEND=openai`, `EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_API_KEY`, and `EMBED_OPENAI_MODEL`, in the same environment as the process that execs `./ast-mcp`.
+Re-index projects after switching embed backends.
+
+**Process environment:** Whatever starts `ast-mcp` (foreground terminal, the `ast-mcp` shell function from `make install`, systemd, or another supervisor) must have the embedding variables from the table above exported for non-default backends—for example set `EMBED_BACKEND=docker` and `EMBED_DOCKER_PROVIDER=ollama`, or `EMBED_BACKEND=openai`, `EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_API_KEY`, and `EMBED_OPENAI_MODEL`, in the same environment as the process that execs `./ast-mcp`.
 
 **Dashboard (easier):** On **Settings** (port 7830), use **Embedding backend** to save the same keys into local SQLite (`~/.astcache/usage.db`). **Non-empty environment variables always override** the saved values. **Restart ast-mcp** after changing embedding settings so `NewForMain` runs again.
 
@@ -292,7 +299,7 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 | `get_project_map` | Project structure overview at configurable depth (1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Find the blast radius of a symbol -- files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
-| `search_docs` | Search locally cached documentation by title or content (FTS). |
+| `search_docs` | Search locally cached documentation by title or content (FTS). Try before WebFetch for library docs. |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly. Returns formatted context ready for LLM. |
 
 ### Extended
@@ -305,7 +312,8 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
 | `import_bundle` | Import a previously exported bundle without re-indexing. |
-| `add_doc_source` | Add a documentation URL to track and cache (markdown, html, json). |
+| `fetch_doc` | Fetch a doc URL, register it in the cache, and return stored entries (prefer over WebFetch). |
+| `add_doc_source` | Track a doc URL for async background caching. |
 | `remove_doc_source` | Remove a tracked documentation source. |
 | `list_doc_sources` | List all tracked documentation sources. |
 | `update_doc_source` | Manually refresh a documentation source. |

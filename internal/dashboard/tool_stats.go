@@ -1,8 +1,6 @@
 package dashboard
 
 import (
-	"database/sql"
-
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
@@ -22,20 +20,9 @@ const toolStatsSelect = `SELECT tool_name,
 FROM queries WHERE `
 
 func queryToolStats(projectID string) []components.ToolStat {
-	where := excludeWatcherFromToolStats
-	args := []any{}
-	if projectID != "" {
-		where += " AND project_path = ?"
-		args = append(args, projectID)
-	}
+	where, args := toolStatsWhere(projectID)
 	q := toolStatsSelect + where + " GROUP BY tool_name ORDER BY COUNT(*) DESC"
-	var rows *sql.Rows
-	var err error
-	if len(args) > 0 {
-		rows, err = db.DB.Query(q, args...)
-	} else {
-		rows, err = db.DB.Query(q)
-	}
+	rows, err := db.DB.Query(q, args...)
 	if err != nil {
 		return nil
 	}

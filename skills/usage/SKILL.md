@@ -62,7 +62,7 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | Complexity hotspots | `analyze_complexity` | Extended tier |
 | Cache findings | `cache_summary` | Enables `mode=summary` later |
 | Best single-shot context | `retrieve` | Code + optional docs, reranked |
-| External library docs | `search_docs` | After `add_doc_source` |
+| External library docs | `search_docs` then `fetch_doc` | Not WebFetch when MCP is up |
 | List doc URLs | `list_doc_sources` | Core tier |
 | Portable index | `export_bundle` / `import_bundle` | Extended tier |
 | Transform results in JS | `execute_code` | Complete tier; `DATA` variable |
@@ -121,14 +121,14 @@ On **`get_context_capsule`**, **`search_semantic`**, and **`retrieve`**:
 ## Documentation (Context7-style)
 
 ```
-add_doc_source(name="React", type="markdown", url="https://...", version="18")
 search_docs(query="useState hook", limit=5)
+fetch_doc(name="React", type="markdown", url="https://...", version="18")
 list_doc_sources()
 update_doc_source(id=1)
 remove_doc_source(id=1)
 ```
 
-Sources auto-refresh about hourly. Types: `markdown`, `html`, `json`.
+Tracked sources re-fetch when older than **7 days** (daily background check). Types: `markdown`, `html`, `json`.
 
 ## Indexing notes for agents
 

@@ -16,6 +16,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/gorilla/websocket"
 )
 
@@ -154,9 +155,11 @@ func renderHealthBar() string {
 		QueueLowCap:     eq.LowCap,
 		CacheHitRatio:   cacheHit,
 		HeapMB:          heapMB,
+		CPUPercent:      sys.ProcessCPUPercent(),
 		Uptime:          time.Since(serverStartTime),
 		Version:         "2.0.0",
 	}
+	applyActiveEmbedderHealth(&h)
 	var buf bytes.Buffer
 	components.HealthBar(h).Render(context.Background(), &buf)
 	return buf.String()
@@ -166,10 +169,11 @@ func renderStats() string {
 	var s components.Stats
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), "+tokensSavedSum+", "+dedupTokensSum+", "+savingsVsFilesSum+" FROM queries").
+	statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + ", " + dedupTokensSum + ", " + savingsVsFilesSum + " FROM queries WHERE "
+	where, args := statsQueriesWhere("")
+	db.DB.QueryRow(statsSel+where, args...).
 		Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
-	db.DB.QueryRow("SELECT COUNT(*), "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?", todayStart, tomorrowStart).
-		Scan(&s.TodayQueries, &s.TodayTokens)
+	fillTodayStats("", todayStart, tomorrowStart, &s)
 	var buf bytes.Buffer
 	components.StatsCards(s).Render(context.Background(), &buf)
 	return buf.String()
