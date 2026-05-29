@@ -81,6 +81,9 @@ func parseRecentRow(ts, toolName, pp, errMsg, argsJSON string, saved, dedupSaved
 		if a, ok := parsed["arguments"].(map[string]interface{}); ok {
 			parsed = a
 		}
+		if pp == "" {
+			pp = stringVal(parsed, "project_path")
+		}
 		if toolName == "file_watcher" {
 			q.Event = stringVal(parsed, "event")
 			if f := stringVal(parsed, "file"); f != "" {

@@ -5,6 +5,11 @@ import (
 	"path/filepath"
 )
 
+type EmbedActivityItem struct {
+	File        string
+	ProjectPath string
+}
+
 type IndexHealth struct {
 	TotalSymbols    int
 	TotalFiles     int
@@ -34,8 +39,8 @@ type IndexHealth struct {
 	EmbedEndpoint     string
 	EmbedDim          int
 	EmbedLoaded       bool
-	EmbedRecent       []string
-	EmbedInProgress   []string
+	EmbedRecent       []EmbedActivityItem
+	EmbedInProgress   []EmbedActivityItem
 	EmbedConfiguredBackend string
 	EmbedConfiguredModel   string
 	EmbedInSync            bool
@@ -121,11 +126,11 @@ templ WatcherCard(h IndexHealth) {
 						{ w.Name }
 						<span class="watcher-actions">
 							if w.Active {
-								<button title="Pause" hx-post="/api/stop-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x23F8;</button>
+								<button type="button" class="watcher-action" title="Pause" data-watcher-action="stop" data-project-path={ w.ProjectPath }>&#x23F8;</button>
 							} else {
-								<button title="Start" hx-post="/api/start-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x25B6;</button>
+								<button type="button" class="watcher-action" title="Start" data-watcher-action="start" data-project-path={ w.ProjectPath }>&#x25B6;</button>
 							}
-							<button title="Delete" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", w.Name) } hx-headers='{"Content-Type":"application/json"}'>&#x1F5D1;</button>
+							<button type="button" class="watcher-action" title="Delete" data-watcher-action="delete" data-project-path={ w.ProjectPath } data-project-name={ w.Name }>&#x1F5D1;</button>
 						</span>
 					</div>
 				}

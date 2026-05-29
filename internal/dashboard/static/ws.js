@@ -292,6 +292,38 @@ function mountSettingsContent(el) {
     mountHTMXContent(el);
 }
 
+async function watcherApiAction(action, projectPath, targetSel) {
+    const endpoints = {
+        start: '/api/start-watcher',
+        stop: '/api/stop-watcher',
+        delete: '/api/delete-watcher',
+    };
+    const url = endpoints[action];
+    if (!url || !projectPath) return;
+    const projectSelect = document.querySelector('.project-select');
+    let reqUrl = url;
+    if (projectSelect && projectSelect.value) {
+        reqUrl += '?project_id=' + encodeURIComponent(projectSelect.value);
+    }
+    const target = document.querySelector(targetSel || '#index-health');
+    if (!target) return;
+    const r = await fetch(reqUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'HX-Request': 'true',
+            'HX-Target': (targetSel || '#index-health').replace(/^#/, ''),
+        },
+        body: JSON.stringify({ project_path: projectPath }),
+    });
+    if (r.ok) {
+        target.innerHTML = await r.text();
+        mountHTMXContent(target);
+    } else {
+        console.error('watcher action:', action, r.status, await r.text());
+    }
+}
+
 async function refreshDocSource(btn) {
     const id = parseInt(btn.dataset.docId, 10);
     if (!id) return;
@@ -537,9 +569,24 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
 
 document.body.addEventListener('click', (e) => {
     const btn = e.target.closest('.doc-source-refresh');
-    if (!btn) return;
+    if (btn) {
+        e.preventDefault();
+        refreshDocSource(btn);
+        return;
+    }
+    const wbtn = e.target.closest('.watcher-action');
+    if (!wbtn) return;
     e.preventDefault();
-    refreshDocSource(btn);
+    const action = wbtn.dataset.watcherAction;
+    const projectPath = wbtn.dataset.projectPath;
+    if (action === 'delete') {
+        const name = wbtn.dataset.projectName || projectPath;
+        if (!confirm(`Delete ${name}? This removes all indexed data.`)) return;
+    }
+    wbtn.disabled = true;
+    watcherApiAction(action, projectPath, '#index-health').finally(() => {
+        wbtn.disabled = false;
+    });
 });
 
 async function refreshEmbedModelsForField(el) {

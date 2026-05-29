@@ -53,7 +53,7 @@ func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 func handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 	activity := embedqueue.RecentActivity()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string][]string{"activity": activity})
+	json.NewEncoder(w).Encode(map[string]any{"activity": activity})
 }
 
 func handleHealthPartial(w http.ResponseWriter, r *http.Request) {

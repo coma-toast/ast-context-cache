@@ -103,8 +103,8 @@ templ EmbedPanel(h IndexHealth) {
 			<div class="embed-activity">
 				<div class="embed-activity-title">In progress</div>
 				<ul class="embed-activity-list">
-					for _, f := range h.EmbedInProgress {
-						<li class="embed-activity-item in-progress" title={ f }>{ h.EmbedFileLabel(f) }</li>
+					for _, item := range h.EmbedInProgress {
+						<li class="embed-activity-item in-progress" title={ h.EmbedActivityTitle(item) }>{ h.EmbedActivityLabel(item) }</li>
 					}
 				</ul>
 			</div>
@@ -113,8 +113,8 @@ templ EmbedPanel(h IndexHealth) {
 			<div class="embed-activity">
 				<div class="embed-activity-title">Recent</div>
 				<ul class="embed-activity-list">
-					for _, f := range h.EmbedRecentPreview() {
-						<li class="embed-activity-item" title={ f }>{ h.EmbedFileLabel(f) }</li>
+					for _, item := range h.EmbedRecentPreview() {
+						<li class="embed-activity-item" title={ h.EmbedActivityTitle(item) }>{ h.EmbedActivityLabel(item) }</li>
 					}
 				</ul>
 			</div>

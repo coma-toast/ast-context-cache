@@ -163,7 +163,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	}
 	if projectPath != "" {
 		if abs, err := filepath.Abs(projectPath); err == nil {
-			projectPath = filepath.Clean(abs)
+			projectPath = watcher.NormalizeProjectPath(abs)
 		}
 	}
 
@@ -188,7 +188,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if info.IsDir() {
 					n, indexErr = indexer.IndexDirectory(path, projectPath)
 					if indexErr == nil {
-						go watcher.StartWatcher(projectPath)
+						watcher.EnsureWatcher(projectPath)
 						if emb != nil {
 							go embedqueue.EnqueueAllSymbolsFiles(projectPath)
 						}

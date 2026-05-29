@@ -95,7 +95,7 @@ func main() {
 			var pp string
 			restoreRows.Scan(&pp)
 			if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
-				go watcher.StartWatcher(pp)
+				go watcher.EnsureWatcher(pp)
 			}
 		}
 		restoreRows.Close()

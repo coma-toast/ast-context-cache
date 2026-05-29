@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -49,22 +50,36 @@ func (h IndexHealth) EmbedPanelBusy() bool {
 	return h.EmbedActive > 0 || h.EmbedQueued > 0
 }
 
-func (h IndexHealth) EmbedFileLabel(path string) string {
-	if path == "" {
-		return ""
+func (h IndexHealth) EmbedActivityLabel(item EmbedActivityItem) string {
+	file := filepath.Base(item.File)
+	if file == "" || file == "." {
+		file = item.File
 	}
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			if i+1 < len(path) {
-				return path[i+1:]
-			}
-			return path
-		}
+	proj := filepath.Base(item.ProjectPath)
+	if proj == "" || proj == "." {
+		proj = item.ProjectPath
 	}
-	return path
+	if proj == "" {
+		return file
+	}
+	if file == "" {
+		return proj
+	}
+	return proj + " · " + file
 }
 
-func (h IndexHealth) EmbedRecentPreview() []string {
+func (h IndexHealth) EmbedActivityTitle(item EmbedActivityItem) string {
+	switch {
+	case item.ProjectPath != "" && item.File != "":
+		return item.ProjectPath + "\n" + item.File
+	case item.File != "":
+		return item.File
+	default:
+		return item.ProjectPath
+	}
+}
+
+func (h IndexHealth) EmbedRecentPreview() []EmbedActivityItem {
 	const max = 6
 	if len(h.EmbedRecent) <= max {
 		return h.EmbedRecent

@@ -827,10 +827,10 @@ func parseProjectPathFromRequest(r *http.Request) string {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			return ""
 		}
-		return filepath.Clean(req.ProjectPath)
+		return watcher.NormalizeProjectPath(req.ProjectPath)
 	}
 	r.ParseForm()
-	return filepath.Clean(r.FormValue("project_path"))
+	return watcher.NormalizeProjectPath(r.FormValue("project_path"))
 }
 
 func respondHTMXPartial(w http.ResponseWriter, r *http.Request) {
@@ -860,7 +860,7 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 	projectPath := parseProjectPathFromRequest(r)
 	if projectPath != "" {
-		go watcher.EnsureWatcher(projectPath)
+		watcher.EnsureWatcher(projectPath)
 	}
 	respondHTMXPartial(w, r)
 }
