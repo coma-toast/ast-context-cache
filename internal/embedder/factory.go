@@ -32,10 +32,7 @@ import (
 // Dashboard / SQLite: when an env var is unset or empty, NewForMain reads the same key from
 // settings (see README). Non-empty env always overrides DB.
 func NewForMain(modelDir string) (e Interface, isLoaded func() bool, err error) {
-	backend := strings.ToLower(strings.TrimSpace(EffectiveEnv("EMBED_BACKEND")))
-	if backend == "" {
-		backend = "onnx"
-	}
+	backend := ResolveStartupBackend()
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 	if modelDir == "" {

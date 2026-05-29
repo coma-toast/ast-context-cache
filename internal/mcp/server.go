@@ -16,6 +16,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
@@ -83,7 +84,7 @@ func NewHandler() http.HandlerFunc {
 				},
 				"serverInfo": map[string]interface{}{
 					"name":    "ast-context-cache",
-					"version": "1.0.0",
+					"version": version.Version,
 				},
 			}
 			json.NewEncoder(w).Encode(JSONRPCResponse{

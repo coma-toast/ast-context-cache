@@ -13,6 +13,7 @@ type Health struct {
 	QueueWorkers   int
 	QueueThroughput int64
 	QueueQueued     int
+	QueueInFlight   int64
 	QueueHighCap    int
 	QueueLowCap     int
 	CacheHitRatio   float64
@@ -101,12 +102,15 @@ templ HealthBar(h Health) {
 			<span class="health-value mono embed-health-model">{ h.ActiveEmbedModelShort() }</span>
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item health-gauge-item" title={ fmt.Sprintf("Queue %d / %d (priority %d + background %d)", h.QueueQueued, h.QueueHighCap+h.QueueLowCap, h.QueueHighCap, h.QueueLowCap) }>
+		<span class="health-item health-gauge-item" title={ fmt.Sprintf("Queue %d / %d · %d workers busy (priority %d + background %d)", h.QueueQueued, h.QueueHighCap+h.QueueLowCap, h.QueueInFlight, h.QueueHighCap, h.QueueLowCap) }>
 			<span class="health-label">Queue</span>
 			<span class={ "health-mini-track", "level-" + h.queueLevel() }>
 				<span class="health-mini-fill" style={ h.queueMiniStyle() }></span>
 			</span>
 			<span class="health-value">{ fmtInt(h.QueueQueued) }</span>
+			if h.QueueInFlight > 0 {
+				<span class="health-value health-busy">· { fmtInt(int(h.QueueInFlight)) } busy</span>
+			}
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item health-gauge-item" title="Embedding throughput (5s window)">

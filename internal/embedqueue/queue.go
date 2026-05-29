@@ -2,6 +2,7 @@ package embedqueue
 
 import (
 	"log"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,6 +42,9 @@ var (
 	recentActivityIdx   int
 	recentActivityCount int
 	recentActivityMu    sync.Mutex
+
+	activeMu   sync.Mutex
+	activeJobs map[string]struct{}
 )
 
 // Start launches worker goroutines; safe to call once.
@@ -75,7 +79,10 @@ func worker() {
 
 func run(j job) {
 	atomic.AddInt64(&inFlight, 1)
+	trackJobStart(j.file)
+	realtime.Notify(realtime.EmbedFinished)
 	defer func() {
+		trackJobEnd(j.file)
 		atomic.AddInt64(&inFlight, -1)
 		realtime.Notify(realtime.EmbedFinished)
 	}()
@@ -102,7 +109,17 @@ func Submit(file, projectPath string) {
 func SubmitPriority(file, projectPath string, high bool) {
 	if highCh == nil || emb == nil {
 		if emb != nil {
-			indexer.EmbedFileSymbols(emb, file, projectPath)
+			go func() {
+				trackJobStart(file)
+				realtime.Notify(realtime.EmbedFinished)
+				defer func() {
+					trackJobEnd(file)
+					realtime.Notify(realtime.EmbedFinished)
+				}()
+				indexer.EmbedFileSymbols(emb, file, projectPath)
+				atomic.AddInt64(&completed, 1)
+				recordActivity(file)
+			}()
 		}
 		return
 	}
@@ -110,15 +127,19 @@ func SubmitPriority(file, projectPath string, high bool) {
 	if high {
 		select {
 		case highCh <- j:
+			realtime.Notify(realtime.EmbedFinished)
 		default:
 			select {
 			case highCh <- j:
+				realtime.Notify(realtime.EmbedFinished)
 			case lowCh <- j:
+				realtime.Notify(realtime.EmbedFinished)
 			}
 		}
 		return
 	}
 	lowCh <- j
+	realtime.Notify(realtime.EmbedFinished)
 }
 
 // EnqueueAllSymbolsFiles enqueues an embed job for every indexed file in the project (e.g. after full directory index).
@@ -199,6 +220,36 @@ func recordActivity(file string) {
 	}
 }
 
+func trackJobStart(file string) {
+	activeMu.Lock()
+	if activeJobs == nil {
+		activeJobs = map[string]struct{}{}
+	}
+	activeJobs[file] = struct{}{}
+	activeMu.Unlock()
+}
+
+func trackJobEnd(file string) {
+	activeMu.Lock()
+	delete(activeJobs, file)
+	activeMu.Unlock()
+}
+
+// CurrentJobs returns files currently being embedded (sorted).
+func CurrentJobs() []string {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	if len(activeJobs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(activeJobs))
+	for f := range activeJobs {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // RecentActivity returns the most recent embedding activity (newest first).
 func RecentActivity() []string {
 	recentActivityMu.Lock()
@@ -208,7 +259,7 @@ func RecentActivity() []string {
 	}
 	result := make([]string, recentActivityCount)
 	for i := 0; i < recentActivityCount; i++ {
-		idx := (recentActivityIdx - recentActivityCount + i + 20) % 20
+		idx := (recentActivityIdx - 1 - i + 20) % 20
 		result[i] = recentActivity[idx]
 	}
 	return result

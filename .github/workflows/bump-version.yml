@@ -1,0 +1,40 @@
+name: Bump version on merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          chmod +x scripts/bump-version.sh
+          new=$(./scripts/bump-version.sh VERSION)
+          cp VERSION internal/version/VERSION
+          echo "version=$new" >> "$GITHUB_OUTPUT"
+          echo "Bumped VERSION to $new"
+
+      - name: Commit and tag
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION internal/version/VERSION
+          git commit -m "chore: bump version to ${NEW_VERSION}"
+          git tag -a "v${NEW_VERSION}" -m "v${NEW_VERSION}"
+          git push origin main
+          git push origin "v${NEW_VERSION}"

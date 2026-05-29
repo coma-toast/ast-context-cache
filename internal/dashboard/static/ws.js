@@ -58,6 +58,9 @@ document.addEventListener('alpine:init', () => {
                 if (target) {
                     target.innerHTML = msg.data.html;
                     Alpine.flushSync();
+                    if (target.id === 'settings-content') {
+                        mountSettingsContent(target);
+                    }
                     window.dispatchEvent(new CustomEvent('dashboard-ws-partial'));
                 }
             }
@@ -97,6 +100,7 @@ document.addEventListener('alpine:init', () => {
                 const r = await fetch('/partials/settings');
                 if (r.ok) el.innerHTML = await r.text();
             }
+            mountSettingsContent(el);
         },
 
         async applyProjectFilter() {
@@ -275,45 +279,140 @@ document.body.addEventListener('htmx:configRequest', (event) => {
     }
 });
 
+function mountSettingsContent(el) {
+    if (!el || typeof htmx === 'undefined') return;
+    htmx.process(el);
+}
+
+const EMBED_MODEL_REFRESH_KEYS = new Set([
+    'EMBED_OPENAI_BASE_URL',
+    'EMBED_OPENAI_API_KEY',
+    'OLLAMA_HOST',
+    'EMBED_DOCKER_URL',
+]);
+
+async function saveEmbedSettingKey(key, value) {
+    const r = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value }),
+    });
+    const data = await r.json();
+    if (!r.ok || data.error) {
+        console.error('save embed setting:', key, data.error || r.status);
+        return false;
+    }
+    return true;
+}
+
+document.body.addEventListener('change', async (e) => {
+    const el = e.target;
+    if (!el.closest('.embed-backend-config')) return;
+    const key = el.dataset?.settingKey;
+    if (!key) return;
+    if (await saveEmbedSettingKey(key, el.value) && EMBED_MODEL_REFRESH_KEYS.has(key)) {
+        await refreshEmbedModelsForField(el);
+    }
+});
+
+let embedTextSaveTimer;
+document.body.addEventListener('input', (e) => {
+    const el = e.target;
+    if (!el.closest('.embed-backend-config') || !el.dataset?.settingKey) return;
+    if (el.tagName !== 'INPUT' || el.type === 'hidden') return;
+    clearTimeout(embedTextSaveTimer);
+    const key = el.dataset.settingKey;
+    const value = el.value;
+    embedTextSaveTimer = setTimeout(async () => {
+        if (await saveEmbedSettingKey(key, value) && EMBED_MODEL_REFRESH_KEYS.has(key)) {
+            await refreshEmbedModelsForField(el);
+        }
+    }, 500);
+});
+
+function embedModelValue(key) {
+    const el = document.getElementById('embedModel-' + key);
+    return el ? el.value : '';
+}
+
 function embedSettingsPayload() {
     const val = (id) => {
         const el = document.getElementById(id);
         return el ? el.value : '';
     };
-    return {
-        EMBED_BACKEND: val('embedBackend'),
-        MODEL_DIR: val('embedModelDir'),
-        EMBED_HTTP_URL: val('embedHttpURL'),
-        EMBED_HTTP_BEARER: val('embedHttpBearer'),
-        OLLAMA_HOST: val('embedOllamaHost'),
-        OLLAMA_EMBED_MODEL: val('embedOllamaModel'),
-        EMBED_OPENAI_BASE_URL: val('embedOpenAIBase'),
-        EMBED_OPENAI_API_KEY: val('embedOpenAIKey'),
-        EMBED_OPENAI_MODEL: val('embedOpenAIModel'),
-        EMBED_OPENAI_DIMENSIONS: val('embedOpenAIDim'),
-        EMBED_DOCKER_URL: val('embedDockerURL'),
-        EMBED_DOCKER_MODEL: val('embedDockerModel'),
-        EMBED_DOCKER_DIMENSIONS: val('embedDockerDimensions'),
-    };
+    const backend = val('embedBackend');
+    const payload = { EMBED_BACKEND: backend };
+    switch (backend) {
+    case 'onnx':
+        payload.MODEL_DIR = val('embedModelDir');
+        break;
+    case 'http':
+        payload.EMBED_HTTP_URL = val('embedHttpURL');
+        payload.EMBED_HTTP_BEARER = val('embedHttpBearer');
+        break;
+    case 'ollama':
+        payload.OLLAMA_HOST = val('embedOllamaHost');
+        payload.OLLAMA_EMBED_MODEL = embedModelValue('OLLAMA_EMBED_MODEL');
+        break;
+    case 'openai':
+        payload.EMBED_OPENAI_BASE_URL = val('embedOpenAIBase');
+        payload.EMBED_OPENAI_API_KEY = val('embedOpenAIKey');
+        payload.EMBED_OPENAI_MODEL = embedModelValue('EMBED_OPENAI_MODEL');
+        payload.EMBED_OPENAI_DIMENSIONS = val('embedOpenAIDim');
+        break;
+    case 'docker':
+        payload.EMBED_DOCKER_URL = val('embedDockerURL');
+        payload.EMBED_DOCKER_MODEL = embedModelValue('EMBED_DOCKER_MODEL');
+        payload.EMBED_DOCKER_DIMENSIONS = val('embedDockerDimensions');
+        break;
+    }
+    return payload;
 }
 
-async function refreshDockerModels() {
-    const urlEl = document.getElementById('embedDockerURL');
-    const sel = document.getElementById('embedDockerModel');
-    const hint = document.getElementById('embedDockerModelsHint');
-    const btn = document.getElementById('embedDockerModelsRefresh');
+function visibleEmbedModelField() {
+    const fields = document.querySelectorAll('.embed-model-field');
+    for (const f of fields) {
+        if (f.offsetParent !== null) return f;
+    }
+    return null;
+}
+
+async function clearEmbedModelField(field) {
+    const sel = field.querySelector('.embed-model-select');
     if (!sel) return;
-    const url = urlEl ? urlEl.value : '';
-    const selected = sel.value;
+    sel.innerHTML = '';
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Select a model…';
+    opt.selected = true;
+    opt.disabled = true;
+    sel.appendChild(opt);
+    const key = field.dataset.settingKey;
+    if (key) {
+        await saveEmbedSettingKey(key, '');
+    }
+}
+
+async function refreshEmbedModelField(field, clearSelection = false) {
+    const sel = field.querySelector('.embed-model-select');
+    const hint = field.querySelector('.embed-models-hint');
+    const btn = field.querySelector('.embed-models-refresh');
+    if (!sel) return;
+    if (clearSelection) {
+        await clearEmbedModelField(field);
+    }
+    const selected = clearSelection ? '' : sel.value;
     if (btn) btn.disabled = true;
     if (hint) {
-        hint.className = 'perf-hint';
+        hint.className = 'embed-models-hint perf-hint';
         hint.textContent = 'Loading models…';
     }
     try {
-        const q = new URLSearchParams({ url: url || 'http://127.0.0.1:12434' });
-        if (selected) q.set('selected', selected);
-        const r = await fetch('/api/embedder/docker-models?' + q.toString());
+        const r = await fetch('/api/embedder/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(embedSettingsPayload()),
+        });
         const data = await r.json();
         sel.innerHTML = '';
         const models = data.models || [];
@@ -325,25 +424,34 @@ async function refreshDockerModels() {
             if (!selected) opt.disabled = true;
             sel.appendChild(opt);
             if (hint) {
-                hint.className = 'perf-hint embed-test-result err';
+                hint.className = 'embed-models-hint perf-hint embed-test-result err';
                 hint.textContent = data.error || 'No models returned';
             }
             return;
+        }
+        const pick = clearSelection ? '' : (data.selected || selected);
+        if (!pick) {
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select a model…';
+            placeholder.selected = true;
+            placeholder.disabled = true;
+            sel.appendChild(placeholder);
         }
         models.forEach((m) => {
             const opt = document.createElement('option');
             opt.value = m;
             opt.textContent = m;
-            if (m === (data.selected || selected)) opt.selected = true;
+            if (m === pick) opt.selected = true;
             sel.appendChild(opt);
         });
         if (hint) {
-            hint.className = 'perf-hint';
-            hint.textContent = models.length + ' model(s) from Model Runner';
+            hint.className = 'embed-models-hint perf-hint';
+            hint.textContent = models.length + ' model(s) available';
         }
     } catch (err) {
         if (hint) {
-            hint.className = 'perf-hint embed-test-result err';
+            hint.className = 'embed-models-hint perf-hint embed-test-result err';
             hint.textContent = String(err);
         }
     } finally {
@@ -351,9 +459,43 @@ async function refreshDockerModels() {
     }
 }
 
+async function saveEmbedSettings(backend) {
+    const payload = embedSettingsPayload();
+    if (backend !== undefined && backend !== null) {
+        payload.EMBED_BACKEND = backend;
+    }
+    try {
+        const r = await fetch('/api/settings/embed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (!r.ok || data.error) {
+            console.error('save embed settings:', data.error || r.status);
+            return;
+        }
+        htmx.ajax('GET', '/partials/settings', { target: '#settings-content', swap: 'innerHTML' });
+    } catch (err) {
+        console.error('save embed settings:', err);
+    }
+}
+
+document.body.addEventListener('htmx:afterSwap', (e) => {
+    if (e.detail.target?.id === 'settings-content') {
+        mountSettingsContent(e.detail.target);
+    }
+});
+
+async function refreshEmbedModelsForField(el) {
+    const field = el?.closest?.('.embed-model-field') || visibleEmbedModelField();
+    if (field) await refreshEmbedModelField(field);
+}
+
 document.body.addEventListener('click', async (e) => {
-    if (e.target.id === 'embedDockerModelsRefresh') {
-        await refreshDockerModels();
+    if (e.target.classList.contains('embed-models-refresh')) {
+        const field = e.target.closest('.embed-model-field');
+        if (field) await refreshEmbedModelField(field, true);
         return;
     }
     if (e.target.id !== 'embedTestBtn') return;
@@ -361,6 +503,7 @@ document.body.addEventListener('click', async (e) => {
     const out = document.getElementById('embedTestResult');
     if (!out) return;
     btn.disabled = true;
+    out.style.display = '';
     out.className = 'perf-hint embed-test-result';
     out.textContent = 'Testing…';
     try {

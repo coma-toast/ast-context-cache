@@ -22,19 +22,15 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
+	"github.com/coma-toast/ast-context-cache/internal/version"
 )
 
 const (
 	mcpPort       = 7821
 	dashboardPort = 7830
-	appVersion   = "2.0.0"
 )
 
 var startTime = time.Now()
-
-func GetVersion() string {
-	return appVersion
-}
 
 func GetStartTime() time.Time {
 	return startTime
@@ -128,7 +124,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":      "healthy",
 			"service":     "ast-context-cache",
-			"version":     "2.0.0",
+			"version":     version.Version,
 			"embedder":    embedLoaded(),
 			"embed_mode":  embedder.ActiveBackend,
 			"embed_model": embedder.ActiveModel,
