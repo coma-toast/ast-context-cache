@@ -9,11 +9,22 @@ import (
 
 func applyActiveEmbedder(h *components.IndexHealth) {
 	h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, h.EmbedEndpoint, h.EmbedDim = embedder.ActiveSnapshot()
-	h.EmbedRecent = embedqueue.RecentActivity()
-	h.EmbedInProgress = embedqueue.CurrentJobs()
+	h.EmbedRecent = embedActivityItems(embedqueue.RecentActivity())
+	h.EmbedInProgress = embedActivityItems(embedqueue.CurrentJobs())
 	state, _ := mcp.EmbedderState()
 	h.EmbedLoaded = state == "ready" || embedder.IsNetworkBackend(h.EmbedBackend) || h.EmbedActive > 0 || h.EmbedQueued > 0
 	applyEmbedAlignmentToIndexHealth(h)
+}
+
+func embedActivityItems(in []embedqueue.ActivityEntry) []components.EmbedActivityItem {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]components.EmbedActivityItem, len(in))
+	for i, e := range in {
+		out[i] = components.EmbedActivityItem{File: e.File, ProjectPath: e.ProjectPath}
+	}
+	return out
 }
 
 func applyActiveEmbedderSettings(data *components.SettingsData) {

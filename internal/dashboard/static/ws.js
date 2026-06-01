@@ -292,15 +292,97 @@ function mountSettingsContent(el) {
     mountHTMXContent(el);
 }
 
-async function refreshDocSource(btn) {
-    const id = parseInt(btn.dataset.docId, 10);
-    if (!id) return;
+async function watcherApiAction(action, projectPath, targetSel) {
+    const endpoints = {
+        start: '/api/start-watcher',
+        stop: '/api/stop-watcher',
+        delete: '/api/delete-watcher',
+    };
+    const url = endpoints[action];
+    if (!url || !projectPath) return;
+    const projectSelect = document.querySelector('.project-select');
+    let reqUrl = url;
+    if (projectSelect && projectSelect.value) {
+        reqUrl += '?project_id=' + encodeURIComponent(projectSelect.value);
+    }
+    const target = document.querySelector(targetSel || '#index-health');
+    if (!target) return;
+    const r = await fetch(reqUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'HX-Request': 'true',
+            'HX-Target': (targetSel || '#index-health').replace(/^#/, ''),
+        },
+        body: JSON.stringify({ project_path: projectPath }),
+    });
+    if (r.ok) {
+        target.innerHTML = await r.text();
+        mountHTMXContent(target);
+    } else {
+        console.error('watcher action:', action, r.status, await r.text());
+    }
+}
+
+function docSourcesApiUrl(btn) {
     const targetSel = btn.dataset.refreshTarget || '#index-health';
     const projectSelect = document.querySelector('.project-select');
     let url = '/api/doc-sources';
-    if (projectSelect && projectSelect.value) {
-        url += '?project_id=' + encodeURIComponent(projectSelect.value);
+    const params = new URLSearchParams();
+    const page = parseInt(btn.dataset.docPage, 10);
+    if (page > 1) params.set('doc_sources_page', String(page));
+    if (projectSelect && projectSelect.value && targetSel !== '#settings-content') {
+        params.set('project_id', projectSelect.value);
     }
+    const qs = params.toString();
+    if (qs) url += '?' + qs;
+    return { url, targetSel };
+}
+
+async function applyDocSourcesPartial(r, targetSel) {
+    const target = document.querySelector(targetSel);
+    if (!target) return;
+    if (r.ok) {
+        target.innerHTML = await r.text();
+        mountHTMXContent(target);
+        if (targetSel === '#settings-content') {
+            mountSettingsContent(target);
+        }
+    } else {
+        console.error('doc source action:', r.status, await r.text());
+    }
+}
+
+async function loadDocSourcesPage(page, targetSel) {
+    const target = document.querySelector(targetSel);
+    if (!target || page < 1) return;
+    const projectSelect = document.querySelector('.project-select');
+    let url = targetSel === '#settings-content' ? '/partials/settings' : '/partials/index-health';
+    const params = new URLSearchParams();
+    if (page > 1) params.set('doc_sources_page', String(page));
+    if (projectSelect && projectSelect.value && targetSel !== '#settings-content') {
+        params.set('project_id', projectSelect.value);
+    }
+    const qs = params.toString();
+    if (qs) url += '?' + qs;
+    try {
+        const r = await fetch(url);
+        if (r.ok) {
+            target.innerHTML = await r.text();
+            mountHTMXContent(target);
+            if (targetSel === '#settings-content') {
+                mountSettingsContent(target);
+            }
+        }
+    } catch (err) {
+        console.error('doc sources page:', err);
+    }
+}
+
+async function refreshDocSource(btn) {
+    const id = parseInt(btn.dataset.docId, 10);
+    if (!id) return;
+    const { url, targetSel } = docSourcesApiUrl(btn);
     btn.classList.add('htmx-request');
     btn.disabled = true;
     try {
@@ -313,19 +395,36 @@ async function refreshDocSource(btn) {
             },
             body: JSON.stringify({ action: 'refresh', id }),
         });
-        const target = document.querySelector(targetSel);
-        if (!target) return;
-        if (r.ok) {
-            target.innerHTML = await r.text();
-            mountHTMXContent(target);
-            if (target.id === 'settings-content') {
-                mountSettingsContent(target);
-            }
-        } else {
-            console.error('doc source refresh:', r.status, await r.text());
-        }
+        await applyDocSourcesPartial(r, targetSel);
     } catch (err) {
         console.error('doc source refresh:', err);
+    } finally {
+        btn.classList.remove('htmx-request');
+        btn.disabled = false;
+    }
+}
+
+async function deleteDocSource(btn) {
+    const id = parseInt(btn.dataset.docId, 10);
+    if (!id) return;
+    const name = btn.dataset.docName || 'this source';
+    if (!confirm(`Delete ${name}? Cached content will be removed.`)) return;
+    const { url, targetSel } = docSourcesApiUrl(btn);
+    btn.classList.add('htmx-request');
+    btn.disabled = true;
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'HX-Request': 'true',
+                'HX-Target': targetSel.replace(/^#/, ''),
+            },
+            body: JSON.stringify({ action: 'delete', id }),
+        });
+        await applyDocSourcesPartial(r, targetSel);
+    } catch (err) {
+        console.error('doc source delete:', err);
     } finally {
         btn.classList.remove('htmx-request');
         btn.disabled = false;
@@ -536,10 +635,38 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
 });
 
 document.body.addEventListener('click', (e) => {
+    const pagerBtn = e.target.closest('.doc-sources-pager-btn');
+    if (pagerBtn && !pagerBtn.disabled) {
+        e.preventDefault();
+        const page = parseInt(pagerBtn.dataset.docPage, 10);
+        loadDocSourcesPage(page, pagerBtn.dataset.refreshTarget || '#index-health');
+        return;
+    }
+    const delBtn = e.target.closest('.doc-source-delete');
+    if (delBtn) {
+        e.preventDefault();
+        deleteDocSource(delBtn);
+        return;
+    }
     const btn = e.target.closest('.doc-source-refresh');
-    if (!btn) return;
+    if (btn) {
+        e.preventDefault();
+        refreshDocSource(btn);
+        return;
+    }
+    const wbtn = e.target.closest('.watcher-action');
+    if (!wbtn) return;
     e.preventDefault();
-    refreshDocSource(btn);
+    const action = wbtn.dataset.watcherAction;
+    const projectPath = wbtn.dataset.projectPath;
+    if (action === 'delete') {
+        const name = wbtn.dataset.projectName || projectPath;
+        if (!confirm(`Delete ${name}? This removes all indexed data.`)) return;
+    }
+    wbtn.disabled = true;
+    watcherApiAction(action, projectPath, '#index-health').finally(() => {
+        wbtn.disabled = false;
+    });
 });
 
 async function refreshEmbedModelsForField(el) {

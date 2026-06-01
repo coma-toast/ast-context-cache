@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -163,13 +164,17 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 	var results []scored
 
 	for _, e := range vc.entries {
-		if projectPath != "" && e.ProjectPath != projectPath {
+		if e.DocType == "doc" {
+			if docType != "doc" {
+				continue
+			}
+		} else if projectPath != "" && e.ProjectPath != projectPath {
 			continue
 		}
 		if docType != "" && e.DocType != docType {
 			continue
 		}
-		if filters != nil && !filters.Empty() {
+		if filters != nil && !filters.Empty() && e.DocType != "doc" {
 			if !filters.MatchesSymbol(e.SourceFile, e.Kind, projectPath) {
 				continue
 			}
@@ -194,11 +199,14 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
+		startLine, endLine := symbolLinesFromEntry(r.entry)
 		out[i] = ScoredResult{
 			Data: map[string]interface{}{
 				"name":         r.entry.Name,
 				"kind":         r.entry.Kind,
 				"file":         r.entry.SourceFile,
+				"start_line":   startLine,
+				"end_line":     endLine,
 				"similarity":   r.sim,
 				"content_hash": r.entry.ContentHash,
 			},
@@ -206,6 +214,18 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 		}
 	}
 	return out
+}
+
+func symbolLinesFromEntry(e VectorEntry) (start, end int) {
+	if e.SymbolID > 0 {
+		db.DB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
+	}
+	if start == 0 {
+		db.DB.QueryRow(
+			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
+			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end)
+	}
+	return start, end
 }
 
 func (vc *VectorCache) Upsert(entries []VectorEntry) error {
@@ -250,6 +270,149 @@ func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 		}
 	}
 	return nil
+}
+
+// SearchDoc returns top doc-section vector matches (doc_type=doc only).
+func (vc *VectorCache) SearchDoc(query []float32, limit int) []ScoredResult {
+	if len(query) != VectorDims {
+		return nil
+	}
+	vc.ensureLoaded()
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+	type scored struct {
+		entry VectorEntry
+		sim   float64
+	}
+	var results []scored
+	for _, e := range vc.entries {
+		if e.DocType != "doc" {
+			continue
+		}
+		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
+	}
+	if len(results) > limit {
+		for i := 0; i < limit; i++ {
+			maxIdx := i
+			for j := i + 1; j < len(results); j++ {
+				if results[j].sim > results[maxIdx].sim {
+					maxIdx = j
+				}
+			}
+			results[i], results[maxIdx] = results[maxIdx], results[i]
+		}
+		results = results[:limit]
+	}
+	out := make([]ScoredResult, len(results))
+	for i, r := range results {
+		out[i] = ScoredResult{
+			Data: map[string]interface{}{
+				"name":       r.entry.Name,
+				"kind":       r.entry.Kind,
+				"file":       r.entry.SourceFile,
+				"similarity": r.sim,
+				"doc_id":     docEntryIDFromSource(r.entry.SourceFile),
+				"doc_type":   "doc",
+			},
+			Score: r.sim,
+		}
+	}
+	return out
+}
+
+// SearchNote returns top note vector matches (doc_type=note only), optionally filtered by session_id in project_path.
+func (vc *VectorCache) SearchNote(query []float32, sessionID string, limit int) []ScoredResult {
+	if len(query) != VectorDims {
+		return nil
+	}
+	vc.ensureLoaded()
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+	type scored struct {
+		entry VectorEntry
+		sim   float64
+	}
+	var results []scored
+	for _, e := range vc.entries {
+		if e.DocType != "note" {
+			continue
+		}
+		if sessionID != "" && e.ProjectPath != sessionID {
+			continue
+		}
+		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
+	}
+	if len(results) > limit {
+		for i := 0; i < limit; i++ {
+			maxIdx := i
+			for j := i + 1; j < len(results); j++ {
+				if results[j].sim > results[maxIdx].sim {
+					maxIdx = j
+				}
+			}
+			results[i], results[maxIdx] = results[maxIdx], results[i]
+		}
+		results = results[:limit]
+	}
+	out := make([]ScoredResult, len(results))
+	for i, r := range results {
+		ref := strings.TrimPrefix(r.entry.SourceFile, "note:")
+		out[i] = ScoredResult{
+			Data: map[string]interface{}{
+				"ref":        ref,
+				"name":       r.entry.Name,
+				"similarity": r.sim,
+				"doc_type":   "note",
+			},
+			Score: r.sim,
+		}
+	}
+	return out
+}
+
+func (vc *VectorCache) DeleteNoteByRef(sourceFile string) {
+	db.DB.Exec("DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?", sourceFile)
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
+	n := 0
+	for _, e := range vc.entries {
+		if e.DocType == "note" && e.SourceFile == sourceFile {
+			continue
+		}
+		vc.entries[n] = e
+		n++
+	}
+	vc.entries = vc.entries[:n]
+}
+
+func docEntryIDFromSource(sourceFile string) int {
+	var sourceID, entryID int
+	if _, err := fmt.Sscanf(sourceFile, "doc:%d:%d", &sourceID, &entryID); err != nil {
+		return 0
+	}
+	return entryID
+}
+
+func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
+	p := strings.TrimSuffix(prefix, "%")
+	db.DB.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
+	n := 0
+	for _, e := range vc.entries {
+		if e.DocType == "doc" && strings.HasPrefix(e.SourceFile, p) {
+			continue
+		}
+		vc.entries[n] = e
+		n++
+	}
+	vc.entries = vc.entries[:n]
 }
 
 func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {

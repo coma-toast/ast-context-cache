@@ -76,8 +76,10 @@ func main() {
 	}
 	log.Printf("Embedder configured: backend=%s model=%s dims=%d", embedder.ActiveBackend, embedder.ActiveModel, embedder.ActiveDim)
 	mcp.SetEmbedder(emb)
+	docs.SetEmbedder(emb)
 	ctxpkg.Emb = emb
 	embedqueue.Start(emb)
+	go docs.EmbedAllSources()
 	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
 		if removed {
 			search.Cache.DeleteByFile(filePath, projectPath)
@@ -95,7 +97,7 @@ func main() {
 			var pp string
 			restoreRows.Scan(&pp)
 			if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
-				go watcher.StartWatcher(pp)
+				go watcher.EnsureWatcher(pp)
 			}
 		}
 		restoreRows.Close()

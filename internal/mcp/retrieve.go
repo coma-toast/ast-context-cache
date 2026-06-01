@@ -238,25 +238,34 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 }
 
 func retrieveDocs(query string, limit int) ([]RetrieveChunk, int) {
-	entries, err := docs.SearchDocs(query, limit)
-	if err != nil {
-		return nil, 0
+	scored, err := docs.SearchDocsHybrid(query, limit, docs.Embedder())
+	if err != nil || len(scored) == 0 {
+		entries, err2 := docs.SearchDocs(query, limit)
+		if err2 != nil {
+			return nil, 0
+		}
+		scored = make([]docs.ScoredDoc, len(entries))
+		for i, e := range entries {
+			scored[i] = docs.ScoredDoc{Entry: e, Score: 0.5}
+		}
 	}
-
 	var chunks []RetrieveChunk
-	for _, e := range entries {
+	for _, s := range scored {
+		score := s.Score
+		if score <= 0 {
+			score = 0.5
+		}
 		chunks = append(chunks, RetrieveChunk{
 			Type:    "doc",
-			Name:    e.Title,
+			Name:    s.Entry.Title,
 			Kind:    "documentation",
-			File:    e.Path,
-			Score:   0.5,
+			File:    s.Entry.Path,
+			Score:   score,
 			Source:  "docs",
-			Content: e.Content,
+			Content: s.Entry.Content,
 		})
 	}
-
-	return chunks, len(entries)
+	return chunks, len(chunks)
 }
 
 func rankAndDedup(chunks []RetrieveChunk) []RetrieveChunk {

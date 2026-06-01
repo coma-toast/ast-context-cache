@@ -26,6 +26,12 @@ type job struct {
 	file, projectPath string
 }
 
+// ActivityEntry is one embed queue activity row (file + owning project).
+type ActivityEntry struct {
+	File        string
+	ProjectPath string
+}
+
 var (
 	emb           embedder.Interface
 	highCh        chan job
@@ -38,13 +44,14 @@ var (
 	startedAt    time.Time
 
 	// Recent activity log (last 20 embeddings)
-	recentActivity      [20]string
+	recentActivity      [20]ActivityEntry
 	recentActivityIdx   int
 	recentActivityCount int
 	recentActivityMu    sync.Mutex
 
-	activeMu   sync.Mutex
-	activeJobs map[string]struct{}
+	activeMu        sync.Mutex
+	activeJobs      map[string]struct{}
+	activeProjects  map[string]string
 )
 
 // Start launches worker goroutines; safe to call once.
@@ -79,7 +86,7 @@ func worker() {
 
 func run(j job) {
 	atomic.AddInt64(&inFlight, 1)
-	trackJobStart(j.file)
+	trackJobStart(j.file, j.projectPath)
 	realtime.Notify(realtime.EmbedFinished)
 	defer func() {
 		trackJobEnd(j.file)
@@ -91,7 +98,7 @@ func run(j job) {
 	}
 	indexer.EmbedFileSymbols(emb, j.file, j.projectPath)
 	atomic.AddInt64(&completed, 1)
-	recordActivity(j.file)
+	recordActivity(j.file, j.projectPath)
 
 	slot := int(time.Since(startedAt) / throughputWindow)
 	if slot >= 0 && slot < throughputSlots {
@@ -110,7 +117,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 	if highCh == nil || emb == nil {
 		if emb != nil {
 			go func() {
-				trackJobStart(file)
+				trackJobStart(file, projectPath)
 				realtime.Notify(realtime.EmbedFinished)
 				defer func() {
 					trackJobEnd(file)
@@ -118,7 +125,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 				}()
 				indexer.EmbedFileSymbols(emb, file, projectPath)
 				atomic.AddInt64(&completed, 1)
-				recordActivity(file)
+				recordActivity(file, projectPath)
 			}()
 		}
 		return
@@ -210,54 +217,61 @@ func Stats() (queued int, active int64, totalWorkers int, completed int64, throu
 	return s.Queued, s.InFlight, s.Workers, s.Completed, s.Throughput
 }
 
-func recordActivity(file string) {
+func recordActivity(file, projectPath string) {
 	recentActivityMu.Lock()
 	defer recentActivityMu.Unlock()
-	recentActivity[recentActivityIdx] = file
+	recentActivity[recentActivityIdx] = ActivityEntry{File: file, ProjectPath: projectPath}
 	recentActivityIdx = (recentActivityIdx + 1) % 20
 	if recentActivityCount < 20 {
 		recentActivityCount++
 	}
 }
 
-func trackJobStart(file string) {
+func trackJobStart(file, projectPath string) {
 	activeMu.Lock()
 	if activeJobs == nil {
 		activeJobs = map[string]struct{}{}
 	}
+	if activeProjects == nil {
+		activeProjects = map[string]string{}
+	}
 	activeJobs[file] = struct{}{}
+	if projectPath != "" {
+		activeProjects[file] = projectPath
+	}
 	activeMu.Unlock()
 }
 
 func trackJobEnd(file string) {
 	activeMu.Lock()
 	delete(activeJobs, file)
+	delete(activeProjects, file)
 	activeMu.Unlock()
 }
 
-// CurrentJobs returns files currently being embedded (sorted).
-func CurrentJobs() []string {
+// CurrentJobs returns files currently being embedded (sorted, newest activity order undefined).
+func CurrentJobs() []ActivityEntry {
 	activeMu.Lock()
 	defer activeMu.Unlock()
 	if len(activeJobs) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(activeJobs))
+	out := make([]ActivityEntry, 0, len(activeJobs))
 	for f := range activeJobs {
-		out = append(out, f)
+		out = append(out, ActivityEntry{File: f, ProjectPath: activeProjects[f]})
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	return out
 }
 
 // RecentActivity returns the most recent embedding activity (newest first).
-func RecentActivity() []string {
+func RecentActivity() []ActivityEntry {
 	recentActivityMu.Lock()
 	defer recentActivityMu.Unlock()
 	if recentActivityCount == 0 {
 		return nil
 	}
-	result := make([]string, recentActivityCount)
+	result := make([]ActivityEntry, recentActivityCount)
 	for i := 0; i < recentActivityCount; i++ {
 		idx := (recentActivityIdx - 1 - i + 20) % 20
 		result[i] = recentActivity[idx]

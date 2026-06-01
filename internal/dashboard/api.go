@@ -62,6 +62,8 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/api/doc-sources", handleDocSources)
+	mux.HandleFunc("/api/context-stats", handleContextStats)
+	mux.HandleFunc("/api/flush-context", handleFlushContextAPI)
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
@@ -575,6 +577,11 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"EMBED_DOCKER_URL":             "",
 		"EMBED_DOCKER_MODEL":           "",
 		"EMBED_DOCKER_DIMENSIONS":      "",
+		"context_max_notes_session":     "50",
+		"context_max_tokens_session":    "32000",
+		"context_max_notes_global":      "500",
+		"context_max_tokens_global":     "200000",
+		"context_limit_policy":          "reject",
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
@@ -827,10 +834,10 @@ func parseProjectPathFromRequest(r *http.Request) string {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			return ""
 		}
-		return filepath.Clean(req.ProjectPath)
+		return watcher.NormalizeProjectPath(req.ProjectPath)
 	}
 	r.ParseForm()
-	return filepath.Clean(r.FormValue("project_path"))
+	return watcher.NormalizeProjectPath(r.FormValue("project_path"))
 }
 
 func respondHTMXPartial(w http.ResponseWriter, r *http.Request) {
@@ -860,7 +867,7 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 	projectPath := parseProjectPathFromRequest(r)
 	if projectPath != "" {
-		go watcher.EnsureWatcher(projectPath)
+		watcher.EnsureWatcher(projectPath)
 	}
 	respondHTMXPartial(w, r)
 }
@@ -942,12 +949,25 @@ func handleDocSources(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		if req.Action != "refresh" && req.Action != "update" || req.ID <= 0 {
+		if req.ID <= 0 {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"error": "action refresh (or update) with id required"})
+			json.NewEncoder(w).Encode(map[string]string{"error": "id required"})
 			return
 		}
-		docs.ForceRefreshSource(req.ID)
+		switch req.Action {
+		case "refresh", "update":
+			docs.ForceRefreshSource(req.ID)
+		case "delete":
+			if err := docs.RemoveSource(req.ID); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"error": "action refresh, update, or delete required"})
+			return
+		}
 		if r.Header.Get("HX-Request") != "" {
 			respondHTMXPartial(w, r)
 			return

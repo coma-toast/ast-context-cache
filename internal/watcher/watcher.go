@@ -38,7 +38,23 @@ func init() {
 // Set this from outside the package to add vector embedding, etc.
 var PostIndexHook func(filePath, projectPath string, removed bool)
 
+// NormalizeProjectPath returns a canonical absolute path for watcher map keys.
+func NormalizeProjectPath(projectPath string) string {
+	projectPath = strings.TrimSpace(projectPath)
+	if projectPath == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(projectPath); err == nil {
+		projectPath = abs
+	}
+	return filepath.Clean(projectPath)
+}
+
 func StartWatcher(projectPath string) {
+	projectPath = NormalizeProjectPath(projectPath)
+	if projectPath == "" {
+		return
+	}
 	mu.Lock()
 	if _, exists := activeWatchers[projectPath]; exists {
 		mu.Unlock()
@@ -245,11 +261,19 @@ func GetStatus() map[string]interface{} {
 }
 
 func StopWatcher(projectPath string) error {
+	projectPath = NormalizeProjectPath(projectPath)
+	if projectPath == "" {
+		return nil
+	}
 	mu.Lock()
 	defer mu.Unlock()
 
 	w, exists := activeWatchers[projectPath]
 	if !exists {
+		if knownProjects[projectPath] {
+			knownProjects[projectPath] = false
+			realtime.Notify(realtime.WatchersChanged)
+		}
 		return nil
 	}
 
@@ -262,6 +286,10 @@ func StopWatcher(projectPath string) error {
 }
 
 func DeleteWatcher(projectPath string) {
+	projectPath = NormalizeProjectPath(projectPath)
+	if projectPath == "" {
+		return
+	}
 	mu.Lock()
 	if w, exists := activeWatchers[projectPath]; exists {
 		w.Close()
@@ -275,21 +303,44 @@ func DeleteWatcher(projectPath string) {
 }
 
 // EnsureWatcher starts a watcher for the project if one isn't already running.
-// Works for both previously-known stopped watchers and projects that have
-// indexed data but no watcher yet.
+// Bumps lastActivity when already running so MCP/dashboard use resets idle timeout.
 func EnsureWatcher(projectPath string) {
+	projectPath = NormalizeProjectPath(projectPath)
 	if projectPath == "" {
 		return
 	}
 	mu.Lock()
-	_, active := activeWatchers[projectPath]
-	mu.Unlock()
-	if active {
+	_, running := activeWatchers[projectPath]
+	if running {
+		lastActivity[projectPath] = time.Now()
+		mu.Unlock()
 		return
 	}
-	if info, err := os.Stat(projectPath); err == nil && info.IsDir() {
-		go StartWatcher(projectPath)
+	mu.Unlock()
+	if info, err := os.Stat(projectPath); err != nil {
+		log.Printf("EnsureWatcher: %s: %v", projectPath, err)
+		return
+	} else if !info.IsDir() {
+		log.Printf("EnsureWatcher: %s is not a directory", projectPath)
+		return
 	}
+	StartWatcher(projectPath)
+}
+
+func shouldStopForIdle(project string, now time.Time, timeout time.Duration) bool {
+	if timeout == 0 {
+		return false
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !knownProjects[project] {
+		return false
+	}
+	if db.IsPinnedProject(project) {
+		return false
+	}
+	t, ok := lastActivity[project]
+	return ok && now.Sub(t) > timeout
 }
 
 func idleTimeout() time.Duration {
@@ -328,8 +379,10 @@ func idleLoop() {
 		}
 		mu.Unlock()
 		for _, p := range toStop {
-			log.Printf("Watcher idle timeout for %s", p)
-			StopWatcher(p)
+			if shouldStopForIdle(p, now, timeout) {
+				log.Printf("Watcher idle timeout for %s", p)
+				StopWatcher(p)
+			}
 		}
 	}
 }

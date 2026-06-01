@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -51,51 +50,53 @@ func AddSource(name, docType, docURL, version string) (int, error) {
 }
 
 func RemoveSource(id int) error {
+	deleteDocVectors(id)
 	db.DB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
 	_, err := db.DB.Exec("DELETE FROM doc_sources WHERE id = ?", id)
+	rebuildDocsFTS()
 	return err
 }
 
 func ListSources() ([]DocSource, error) {
-	rows, err := db.DB.Query("SELECT id, name, type, url, COALESCE(version,''), COALESCE(last_updated,''), created_at FROM doc_sources ORDER BY name")
+	sources, _, _, err := ListSourcesPaged(1, 0)
+	return sources, err
+}
+
+// ListSourcesPaged returns doc sources ordered by name. perPage <= 0 means no limit (all rows).
+// page is clamped to valid range; the returned page is the clamped value.
+func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	var total int
+	if err := db.DB.QueryRow("SELECT COUNT(*) FROM doc_sources").Scan(&total); err != nil {
+		return nil, 0, page, err
+	}
+	if total == 0 {
+		return nil, 0, 1, nil
+	}
+	if perPage <= 0 {
+		perPage = total
+	}
+	totalPages := (total + perPage - 1) / perPage
+	if page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * perPage
+	rows, err := db.DB.Query(
+		"SELECT id, name, type, url, COALESCE(version,''), COALESCE(last_updated,''), created_at FROM doc_sources ORDER BY name LIMIT ? OFFSET ?",
+		perPage, offset)
 	if err != nil {
-		return nil, err
+		return nil, total, page, err
 	}
 	defer rows.Close()
-
 	var sources []DocSource
 	for rows.Next() {
 		var s DocSource
 		rows.Scan(&s.ID, &s.Name, &s.Type, &s.URL, &s.Version, &s.LastUpdated, &s.CreatedAt)
 		sources = append(sources, s)
 	}
-	return sources, nil
-}
-
-func SearchDocs(query string, limit int) ([]DocEntry, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-	rows, err := db.DB.Query(`
-		SELECT dc.id, dc.source_id, dc.title, dc.content, COALESCE(dc.path,''), COALESCE(dc.content_hash,''), dc.updated_at
-		FROM doc_content dc
-		JOIN doc_sources ds ON dc.source_id = ds.id
-		WHERE dc.title LIKE ? OR dc.content LIKE ?
-		ORDER BY dc.updated_at DESC
-		LIMIT ?
-	`, "%"+query+"%", "%"+query+"%", limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []DocEntry
-	for rows.Next() {
-		var e DocEntry
-		rows.Scan(&e.ID, &e.SourceID, &e.Title, &e.Content, &e.Path, &e.ContentHash, &e.UpdatedAt)
-		entries = append(entries, e)
-	}
-	return entries, nil
+	return sources, total, page, nil
 }
 
 func UpdateSource(id int) error {
@@ -110,19 +111,32 @@ func UpdateSource(id int) error {
 		return fmt.Errorf("fetch failed: %w", err)
 	}
 
+	deleteDocVectors(id)
 	db.DB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
-
-	for _, entry := range content {
-		hash := contentHash(entry.Content)
-		db.DB.Exec(
-			`INSERT INTO doc_content (source_id, title, content, path, content_hash) VALUES (?, ?, ?, ?, ?)`,
-			id, entry.Title, entry.Content, entry.Path, hash)
+	if err := storeEntries(id, content); err != nil {
+		return err
 	}
-
-	db.DB.Exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`)
 	db.DB.Exec("UPDATE doc_sources SET last_updated = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
-
+	go EmbedSource(id)
 	return nil
+}
+
+func storeEntries(sourceID int, entries []DocEntry) error {
+	for _, entry := range entries {
+		hash := contentHash(entry.Content)
+		_, err := db.DB.Exec(
+			`INSERT INTO doc_content (source_id, title, content, path, content_hash) VALUES (?, ?, ?, ?, ?)`,
+			sourceID, entry.Title, entry.Content, entry.Path, hash)
+		if err != nil {
+			return err
+		}
+	}
+	rebuildDocsFTS()
+	return nil
+}
+
+func rebuildDocsFTS() {
+	db.DB.Exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`)
 }
 
 func UpdateAllSources() {
@@ -165,6 +179,8 @@ func FetchAndCache(name, docType, docURL, version string, force bool) (id int, e
 			return id, nil, false, err
 		}
 		refreshed = true
+	} else {
+		go EmbedSource(id)
 	}
 	entries, err = ListEntriesBySource(id)
 	return id, entries, refreshed, err
@@ -206,83 +222,40 @@ func fetchDocs(docURL, docType string) ([]DocEntry, error) {
 }
 
 func fetchMarkdown(u *url.URL) ([]DocEntry, error) {
-	resp, err := http.Get(u.String())
+	body, err := fetchURL(u.String())
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	content := string(body)
-	sections := splitMarkdownSections(content)
-
-	var entries []DocEntry
-	for _, section := range sections {
-		if section.Title != "" && section.Content != "" {
-			entries = append(entries, DocEntry{
-				Title:   section.Title,
-				Content: section.Content,
-				Path:    u.Path,
-			})
-		}
-	}
-
-	if len(entries) == 0 {
-		entries = append(entries, DocEntry{
-			Title:   u.Path,
-			Content: content,
-			Path:    u.Path,
-		})
-	}
-
-	return entries, nil
+	return chunkMarkdown(string(body), u.Path), nil
 }
 
 func fetchHTML(u *url.URL) ([]DocEntry, error) {
-	resp, err := http.Get(u.String())
+	body, err := fetchURL(u.String())
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	entries := chunkHTML(string(body), u.Path)
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no extractable content from %s", u.String())
 	}
-
-	content := extractTextFromHTML(string(body))
-	return []DocEntry{
-		{
-			Title:   u.Path,
-			Content: content,
-			Path:    u.Path,
-		},
-	}, nil
+	return entries, nil
 }
 
 func fetchJSONDocs(u *url.URL) ([]DocEntry, error) {
-	resp, err := http.Get(u.String())
+	body, err := fetchURL(u.String())
+	if err != nil {
+		return nil, err
+	}
+	return chunkJSON(string(body), u.Path), nil
+}
+
+func fetchURL(raw string) ([]byte, error) {
+	resp, err := http.Get(raw)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return []DocEntry{
-		{
-			Title:   u.Path,
-			Content: string(body),
-			Path:    u.Path,
-		},
-	}, nil
+	return io.ReadAll(resp.Body)
 }
 
 type markdownSection struct {
@@ -295,37 +268,37 @@ func splitMarkdownSections(content string) []markdownSection {
 	var sections []markdownSection
 	var currentTitle string
 	var currentContent strings.Builder
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "### ") {
-			if currentTitle != "" {
-				sections = append(sections, markdownSection{
-					Title:   currentTitle,
-					Content: strings.TrimSpace(currentContent.String()),
-				})
-			}
-			currentTitle = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "# "), "## "), "### ")
-			currentContent.Reset()
-		} else {
-			currentContent.WriteString(line + "\n")
+	flush := func() {
+		if currentTitle == "" {
+			return
 		}
-	}
-
-	if currentTitle != "" {
 		sections = append(sections, markdownSection{
 			Title:   currentTitle,
 			Content: strings.TrimSpace(currentContent.String()),
 		})
 	}
-
+	for _, line := range lines {
+		if level, title := markdownHeading(line); level > 0 && level <= 2 {
+			flush()
+			currentTitle = title
+			currentContent.Reset()
+			continue
+		}
+		currentContent.WriteString(line + "\n")
+	}
+	flush()
 	return sections
 }
 
-func extractTextFromHTML(html string) string {
-	re := regexp.MustCompile(`<[^>]+>`)
-	text := re.ReplaceAllString(html, " ")
-	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
-	return strings.TrimSpace(text)
+func markdownHeading(line string) (level int, title string) {
+	line = strings.TrimSpace(line)
+	for i := 6; i >= 1; i-- {
+		prefix := strings.Repeat("#", i) + " "
+		if strings.HasPrefix(line, prefix) {
+			return i, strings.TrimSpace(line[i+1:])
+		}
+	}
+	return 0, ""
 }
 
 func contentHash(text string) string {

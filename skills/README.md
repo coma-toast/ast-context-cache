@@ -6,7 +6,7 @@ Copy-paste and editor-agnostic instruction blocks live here.
 |------|----------|
 | [agents/SKILL.md](agents/SKILL.md) | MCP JSON for OpenCode, Cursor, Claude, VS Code, JetBrains + pasteable AGENTS block |
 | [install/SKILL.md](install/SKILL.md) | Install and troubleshoot ast-mcp |
-| [usage/SKILL.md](usage/SKILL.md) | MCP tool selection, RAG, token tips |
+| [usage/SKILL.md](usage/SKILL.md) | MCP tool selection, RAG, token tips, **virtual context compaction** |
 | [operator/SKILL.md](operator/SKILL.md) | Embeddings, dashboard settings, log indexing (operators) |
 | [tools.json.example](tools.json.example) | Per-tool tier overrides |
 

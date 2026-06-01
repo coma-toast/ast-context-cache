@@ -10,10 +10,10 @@ then copy the `AGENTS.md` / `CLAUDE.md` block into your project root.
 
 When working **in this repository**, prefer discoverable skills under [`.cursor/skills/`](../.cursor/skills/):
 
-- `ast-context-cache-usage` — MCP search and RAG
-- `ast-context-cache-install` — setup and tiers
+- `ast-context-cache-usage` — MCP search, RAG, modes, filters, **virtual context compaction**
+- `ast-context-cache-install` — setup, tiers (**extended** for store_context)
 - `ast-context-cache-rebuild` — rebuild/restart after server changes
-- `ast-context-cache-operator` — embeddings and dashboard
+- `ast-context-cache-operator` — embeddings, dashboard, **virtual context limits**
 
 Portable sources live in `skills/`; sync notes in [skills/README.md](../README.md).
 
@@ -117,6 +117,8 @@ MCP server: http://localhost:7821/mcp
 7. `cache_summary` — save what you learned for future queries
 8. `retrieve` — RAG-style retrieval (code + docs in one call)
 9. `search_docs` — search cached library/framework documentation
+10. `store_context` — offload bulky thread text before host compaction (extended); keep `ctx_*` stubs
+11. `fetch_context` / `search_context` — recover offloaded notes after compaction (core)
 
 ## Core Tools
 
@@ -131,6 +133,9 @@ MCP server: http://localhost:7821/mcp
 | `search_docs` | Search locally cached documentation (FTS). Try before WebFetch. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). |
+| `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). Primary recovery after compaction. |
+| `list_context` | List stored virtual context refs for a session (metadata only). |
+| `search_context` | Find stored virtual context by keyword/meaning when refs are lost. |
 
 ## Extended Tools
 
@@ -138,6 +143,8 @@ MCP server: http://localhost:7821/mcp
 |------|-------------|
 | `index_files` | Index a file or directory. Starts a file watcher for incremental re-indexing. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
+| `store_context` | Offload conversation/code notes before compaction; returns stable `ctx_*` refs. |
+| `flush_context` | Delete stored virtual context (session, refs, or all). Frees quota. |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
@@ -173,6 +180,29 @@ MCP server: http://localhost:7821/mcp
 7. **Optional filters** — `path_prefix`, `language`, `kinds`/`kind` on get_context_capsule, search_semantic, retrieve
 8. **Pipeline stats** — get_context_capsule returns `pipeline` counts; retrieve `stats` includes timing + budget info
 9. **Pinned projects** — pin in Settings for priority embedding, no idle watcher stop, warmer vector cache
+
+## Virtual context compaction
+
+**Why:** Host chat compaction drops long analysis from the model window. Store locally, keep short **`ctx_*` stubs** in chat, fetch after compaction.
+
+| Tool | Tier | When |
+|------|------|------|
+| `store_context` | extended | Before compaction; bulky plans/diffs/analysis |
+| `fetch_context` | core | Recover by ref after compaction |
+| `list_context` | core | Discover stored refs (metadata only) |
+| `search_context` | core | Refs lost from chat; search by topic |
+| `flush_context` | extended | Thread done or over quota |
+
+Use the **same `session_id`** as code search. Example stub: `[ctx_a1b2c3d4e5f6] label`.
+
+Metrics are on the dashboard **Virtual context** card (not code **Tokens saved**). Requires **`AST_MCP_TIER=extended`** for store/flush.
+
+## Token savings tracking
+
+- **Formula:** `tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips`
+- **Tracked:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` (fields in JSON: `tokens_saved`, `tokens_used`, `symbol_baseline_tokens`, `dedup_tokens_saved`)
+- **Not tracked:** `fetch_doc`, `search_docs`, `index_*`, etc. — dashboard **Tokens saved** can be 0 on doc-only days
+- Use **`auto`** / **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all four context tools.
 
 ## Optional Search Filters
 
@@ -228,4 +258,6 @@ When searching code, prefer the ast-context-cache MCP tools:
 - Use retrieve for RAG-style context assembly (code + docs in one call)
 - Always pass session_id for deduplication
 - Use search_docs for library/framework documentation
+- Before host compaction: store_context with same session_id; keep ctx_* stubs in chat
+- After compaction: fetch_context(refs) or search_context(query); flush_context when done
 ```

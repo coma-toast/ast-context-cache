@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestCacheHasSavingsMeta(t *testing.T) {
+	if CacheHasSavingsMeta(map[string]interface{}{"results": []any{}}) {
+		t.Fatal("results alone should not count")
+	}
+	if !CacheHasSavingsMeta(map[string]interface{}{"tokens_saved": float64(1)}) {
+		t.Fatal("tokens_saved should count")
+	}
+}
+
+func TestCoerceInt(t *testing.T) {
+	if coerceInt(float64(42)) != 42 {
+		t.Fatal("float64")
+	}
+	if coerceInt(json.Number("7")) != 7 {
+		t.Fatal("json.Number")
+	}
+}
+
 func TestComputeSavings(t *testing.T) {
 	m := ComputeSavings(100, 500, 800, 50)
 	if m.TokensSaved != 450 {

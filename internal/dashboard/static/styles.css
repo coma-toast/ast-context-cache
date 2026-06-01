@@ -67,6 +67,8 @@ header h1 .icon { font-size: 24px; }
 
 .grid { display: grid; gap: 16px; }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-5 { grid-template-columns: repeat(5, 1fr); }
+.stat-cyan { color: #39c5cf; }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-1 { grid-template-columns: 1fr; }
@@ -247,18 +249,27 @@ header h1 .icon { font-size: 24px; }
 }
 .doc-source-age.stale { color: var(--orange); }
 .doc-source-item.stale .doc-source-name { color: var(--orange); }
-.doc-source-refresh {
+.doc-sources-card .doc-source-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+.doc-sources-card .doc-source-item:hover .doc-source-actions { display: flex; }
+.doc-source-action {
   background: none;
   border: none;
   cursor: pointer;
   opacity: 0.55;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
-  padding: 0 2px;
+  padding: 0 3px;
   color: var(--text-dim);
 }
-.doc-source-refresh:hover { opacity: 1; color: var(--accent); }
+.doc-source-action:hover { opacity: 1; }
+.doc-source-refresh:hover { color: var(--accent); }
+.doc-source-delete:hover { color: var(--red, #e5534b); }
 .doc-source-refresh.htmx-request { opacity: 1; color: var(--accent); pointer-events: none; }
+.doc-source-delete.htmx-request { opacity: 1; pointer-events: none; }
 .doc-source-refresh.htmx-request .refresh-glyph { display: none; }
 .doc-source-refresh.htmx-request::after {
   content: "";
@@ -271,6 +282,29 @@ header h1 .icon { font-size: 24px; }
   animation: doc-source-spin 0.7s linear infinite;
   vertical-align: middle;
 }
+.doc-sources-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.doc-sources-pager-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--text);
+}
+.doc-sources-pager-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.doc-sources-pager-btn:disabled { opacity: 0.35; cursor: default; }
 .doc-source-spinner {
   display: inline-block;
   width: 14px;
@@ -337,9 +371,15 @@ header h1 .icon { font-size: 24px; }
 .worker-pill.idle { background: var(--bg); }
 .stat-meter-track { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin-top: 8px; }
 .stat-meter-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
-.stat-meter-fill.level-ok { background: var(--accent); }
-.stat-meter-fill.level-warn { background: var(--orange); }
-.stat-meter-fill.level-critical { background: var(--red); }
+.stat-meter-stack { display: flex; height: 100%; width: 100%; border-radius: 3px; overflow: hidden; }
+.stat-meter-bright { height: 100%; transition: width 0.4s ease; }
+.stat-meter-over { height: 100%; transition: width 0.4s ease; opacity: 0.38; }
+.stat-meter-fill.level-ok, .stat-meter-bright.level-ok { background: var(--accent); }
+.stat-meter-over.level-ok { background: var(--accent); }
+.stat-meter-fill.level-warn, .stat-meter-bright.level-warn { background: var(--orange); }
+.stat-meter-over.level-warn { background: var(--orange); }
+.stat-meter-fill.level-critical, .stat-meter-bright.level-critical { background: var(--red); }
+.stat-meter-over.level-critical { background: var(--red); }
 .corpus-bar-list { display: flex; flex-direction: column; gap: 10px; }
 .corpus-bar-row { display: grid; grid-template-columns: 64px 1fr 72px; align-items: center; gap: 10px; }
 .corpus-bar-label { font-size: 12px; color: var(--text-dim); }
@@ -981,6 +1021,7 @@ tr:hover td { background: var(--surface-hover); }
 
 @media (max-width: 900px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-5 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
   .index-health-row { grid-template-columns: 1fr; }
   .index-health-watchers-row { grid-template-columns: 1fr; }
@@ -990,7 +1031,7 @@ tr:hover td { background: var(--surface-hover); }
   .metric-grid > .resource-util-card { grid-column: span 2; }
 }
 @media (max-width: 600px) {
-  .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .grid-4, .grid-3, .grid-2, .grid-5 { grid-template-columns: 1fr; }
   .metric-grid > .metric-card-wide,
   .metric-grid > .watcher-card,
   .metric-grid > .corpus-bars,

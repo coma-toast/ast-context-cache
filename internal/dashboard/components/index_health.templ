@@ -5,6 +5,11 @@ import (
 	"path/filepath"
 )
 
+type EmbedActivityItem struct {
+	File        string
+	ProjectPath string
+}
+
 type IndexHealth struct {
 	TotalSymbols    int
 	TotalFiles     int
@@ -17,6 +22,9 @@ type IndexHealth struct {
 	DiskSize      string
 	Watchers          []WatcherInfo
 	DocSources        []IndexDocSource
+	DocSourcesTotal   int
+	DocSourcesPage    int
+	DocSourcesPerPage int
 	EmbedQueued      int
 	EmbedHighQueued  int
 	EmbedLowQueued   int
@@ -34,8 +42,8 @@ type IndexHealth struct {
 	EmbedEndpoint     string
 	EmbedDim          int
 	EmbedLoaded       bool
-	EmbedRecent       []string
-	EmbedInProgress   []string
+	EmbedRecent       []EmbedActivityItem
+	EmbedInProgress   []EmbedActivityItem
 	EmbedConfiguredBackend string
 	EmbedConfiguredModel   string
 	EmbedInSync            bool
@@ -80,7 +88,7 @@ templ WatchersAndDocsRow(h IndexHealth) {
 
 templ DocSourcesCard(h IndexHealth) {
 	<div class="card watcher-card doc-sources-card">
-		<div class="card-title">Doc sources ({ fmtInt(len(h.DocSources)) })</div>
+		<div class="card-title">Doc sources ({ fmtInt(h.DocSourcesTotal) })</div>
 		<div class="watcher-items doc-source-items">
 			if len(h.DocSources) == 0 {
 				<div class="watcher-empty">None cached</div>
@@ -91,20 +99,49 @@ templ DocSourcesCard(h IndexHealth) {
 						<span class="doc-source-meta">
 							<span class="badge badge-blue doc-source-type">{ s.Type }</span>
 							<span class={ "doc-source-age", templ.KV("stale", s.Stale) }>{ s.Age }</span>
-							@DocSourceRefreshControl(s.ID, s.Refreshing, "#index-health")
+							<span class="doc-source-actions">
+								@DocSourceActions(s.ID, s.Name, s.Refreshing, "#index-health", h.DocSourcesPage)
+							</span>
 						</span>
 					</div>
 				}
 			}
 		</div>
+		@DocSourcesPager(h.DocSourcesTotal, h.DocSourcesPage, h.DocSourcesPerPage, "#index-health")
 	</div>
 }
 
-templ DocSourceRefreshControl(id int, refreshing bool, hxTarget string) {
+templ DocSourceActions(id int, name string, refreshing bool, hxTarget string, page int) {
+	@DocSourceRefreshControl(id, refreshing, hxTarget, page)
+	@DocSourceDeleteControl(id, name, hxTarget, page)
+}
+
+templ DocSourceDeleteControl(id int, name string, hxTarget string, page int) {
+	<button type="button" class="doc-source-action doc-source-delete" title="Remove source and cached content" data-doc-id={ fmt.Sprint(id) } data-doc-name={ name } data-refresh-target={ hxTarget } data-doc-page={ fmt.Sprint(page) }>&#x1F5D1;</button>
+}
+
+templ DocSourcesPager(total, page, perPage int, hxTarget string) {
+	if total > perPage {
+		<div class="doc-sources-pager">
+			<button type="button" class="doc-sources-pager-btn" data-doc-page={ fmt.Sprint(page - 1) } data-refresh-target={ hxTarget } disabled?={ page <= 1 } title="Previous page">&#x2039;</button>
+			<span class="doc-sources-pager-label">Page { fmtInt(page) } / { fmtInt(docSourcesTotalPages(total, perPage)) }</span>
+			<button type="button" class="doc-sources-pager-btn" data-doc-page={ fmt.Sprint(page + 1) } data-refresh-target={ hxTarget } disabled?={ page >= docSourcesTotalPages(total, perPage) } title="Next page">&#x203A;</button>
+		</div>
+	}
+}
+
+func docSourcesTotalPages(total, perPage int) int {
+	if perPage <= 0 || total <= 0 {
+		return 1
+	}
+	return (total + perPage - 1) / perPage
+}
+
+templ DocSourceRefreshControl(id int, refreshing bool, hxTarget string, page int) {
 	if refreshing {
 		<span class="doc-source-spinner" title="Fetching from URL…" aria-busy="true"></span>
 	} else {
-		<button type="button" class="doc-source-refresh" title="Force fetch from URL" data-doc-id={ fmt.Sprint(id) } data-refresh-target={ hxTarget }><span class="refresh-glyph">&#x21BB;</span></button>
+		<button type="button" class="doc-source-action doc-source-refresh" title="Force fetch from URL" data-doc-id={ fmt.Sprint(id) } data-refresh-target={ hxTarget } data-doc-page={ fmt.Sprint(page) }><span class="refresh-glyph">&#x21BB;</span></button>
 	}
 }
 
@@ -121,11 +158,11 @@ templ WatcherCard(h IndexHealth) {
 						{ w.Name }
 						<span class="watcher-actions">
 							if w.Active {
-								<button title="Pause" hx-post="/api/stop-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x23F8;</button>
+								<button type="button" class="watcher-action" title="Pause" data-watcher-action="stop" data-project-path={ w.ProjectPath }>&#x23F8;</button>
 							} else {
-								<button title="Start" hx-post="/api/start-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>&#x25B6;</button>
+								<button type="button" class="watcher-action" title="Start" data-watcher-action="start" data-project-path={ w.ProjectPath }>&#x25B6;</button>
 							}
-							<button title="Delete" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, w.ProjectPath) } hx-target="#index-health" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", w.Name) } hx-headers='{"Content-Type":"application/json"}'>&#x1F5D1;</button>
+							<button type="button" class="watcher-action" title="Delete" data-watcher-action="delete" data-project-path={ w.ProjectPath } data-project-name={ w.Name }>&#x1F5D1;</button>
 						</span>
 					</div>
 				}

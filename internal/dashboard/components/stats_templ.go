@@ -11,18 +11,29 @@ import templruntime "github.com/a-h/templ/runtime"
 import "fmt"
 
 type Stats struct {
-	TotalQueries       int
-	TodayQueries       int
-	TokensSaved        int
-	TodayTokens        int
-	DedupTokensSaved   int
-	SavingsVsFiles     int
-	SymbolBaseline     int
-	AvgDurationMs      float64
-	TodayAvgDurationMs float64
-	Sessions           int
-	TodaySessions      int
-	TotalChars         int
+	TotalQueries           int
+	TodayQueries           int
+	TokensSaved            int
+	TodayTokens            int
+	DedupTokensSaved       int
+	SavingsVsFiles         int
+	SymbolBaseline         int
+	AvgDurationMs          float64
+	TodayAvgDurationMs     float64
+	Sessions               int
+	TodaySessions          int
+	TotalChars             int
+	VirtualInventoryTokens int
+	VirtualNotesCount      int
+	VirtualUtilPct30d      float64
+	VirtualOrphanCount     int
+	VirtualFlushed30d      int
+	VirtualStored30d       int
+	VirtualAccessed30d     int
+	VirtualTodayStored     int
+	VirtualTodayAccessed   int
+	VirtualMaxNotesGlobal  int
+	VirtualMaxTokensGlobal int
 }
 
 func fmtInt(n int) string {
@@ -82,23 +93,27 @@ func StatsCards(s Stats) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"grid grid-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"grid grid-5 stats-grid\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Queries", fmtInt(s.TodayQueries), fmt.Sprintf("30d: %s", fmtInt(s.TotalQueries)), s.todayQueryPct(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Queries", fmtInt(s.TodayQueries), s.queriesSublabel(), s.todayQueryMeter(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Tokens saved", fmtInt(s.TodayTokens), fmt.Sprintf("30d: %s · dedup: %s · vs files: %s", fmtInt(s.TokensSaved), fmtInt(s.DedupTokensSaved), fmtInt(s.SavingsVsFiles)), s.todayTokenPct(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Tokens saved", fmtInt(s.TodayTokens), s.tokensSublabel(), s.todayTokenMeter(), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationPct(), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Virtual context", fmtInt(s.VirtualInventoryTokens), s.virtualSublabel(), s.virtualInventoryMeter(), "stat-cyan").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = StatMeter("Sessions", fmtInt(s.TodaySessions), fmt.Sprintf("30d: %s · chars: %s", fmtInt(s.Sessions), fmtInt(s.TotalChars)), s.todaySessionPct(), "stat-purple").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationMeter(), "stat-orange").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = StatMeter("Sessions", fmtInt(s.TodaySessions), s.sessionsSublabel(), s.todaySessionMeter(), "stat-purple").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -108,13 +108,22 @@ func handleProjectMap(projectPath string, depth int) string {
 	return string(data)
 }
 
+type fileContextResult struct {
+	JSON    string
+	Savings context.SavingsMeta
+}
+
 func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget int) string {
+	return handleFileContextWithMeta(file, projectPath, mode, sessionID, tokenBudget).JSON
+}
+
+func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenBudget int) fileContextResult {
 	rows, err := db.DB.Query(
 		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
 		file, projectPath)
 	if err != nil {
 		data, _ := json.Marshal(map[string]string{"error": err.Error()})
-		return string(data)
+		return fileContextResult{JSON: string(data)}
 	}
 	defer rows.Close()
 	returnedSymbols := context.GetReturnedSymbolKeys(sessionID)
@@ -142,9 +151,9 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 			"start_line": startLine,
 			"end_line":   endLine,
 		}
-		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
-		context.ApplyMode(sym, mode, file, name, projectPath, startLine, endLine, fileCache)
-		if mode == "full" {
+		effectiveMode := context.EffectiveMode(mode, maxScore, maxScore, fullCount)
+		context.ApplyMode(sym, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
+		if effectiveMode == "full" {
 			fullCount++
 		}
 		resultJSON, _ := json.Marshal(sym)
@@ -152,6 +161,7 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
 			break
 		}
+		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		tokensUsed += resultTokens
 		symbols = append(symbols, sym)
 		context.LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
@@ -201,7 +211,7 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 		resp["tokens_remaining"] = tokenBudget - tokensUsed
 	}
 	data, _ := json.Marshal(resp)
-	return string(data)
+	return fileContextResult{JSON: string(data), Savings: savings}
 }
 
 func handlePromptGet(w http.ResponseWriter, rpcReq JSONRPCRequest) {

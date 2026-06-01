@@ -1,9 +1,8 @@
 ---
 name: ast-context-cache-install
-description: Use when installing, configuring, or troubleshooting ast-mcp, MCP editor config, tool tiers (AST_MCP_TIER), or tools.json overrides.
+description: Use when installing, configuring, or troubleshooting ast-mcp, MCP editor config, tool tiers (AST_MCP_TIER for store_context/flush_context), or tools.json overrides.
 ---
 
-# ast-context-cache Installation
 
 ## When to Use
 
@@ -50,13 +49,16 @@ Add to `.cursor/mcp.json` in your project:
 {
   "mcpServers": {
     "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
+      "url": "http://localhost:7821/mcp",
+      "env": {
+        "AST_MCP_TIER": "extended"
+      }
     }
   }
 }
 ```
 
-Discoverable Cursor skills in this repo: `.cursor/skills/ast-{usage,install,rebuild,operator}/`.
+**Tier note:** `store_context` and `flush_context` (virtual context compaction) require **extended** tier or higher. Read tools (`fetch_context`, `list_context`, `search_context`) are **core**. Set `AST_MCP_TIER=extended` on the ast-mcp process (or in MCP server env above) and restart after changes.
 
 #### Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -71,9 +73,30 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
+#### Claude Code
+Add `CLAUDE.md` to your project:
+```markdown
+# Code Context Instructions
+
+Use ast-context-cache MCP server (http://localhost:7821/mcp) for efficient code search.
+- get_context_capsule: Search code with token-efficient modes
+- store_context / fetch_context: Virtual context compaction (extended to store)
+- cache_summary: Cache your own summaries
+- analyze_dead_code: Find unused code
+```
+
+See [usage/SKILL.md](../usage/SKILL.md) for full workflows including virtual context compaction.
+
 ## Tool tiers
 
-Host sets `AST_MCP_TIER=core|extended|complete` and optional `~/.astcache/tools.json`. Restart ast-mcp after changes. Example: [skills/tools.json.example](../../skills/tools.json.example).
+| Tier | Virtual context |
+|------|-----------------|
+| core | `fetch_context`, `list_context`, `search_context` |
+| extended | + `store_context`, `flush_context` |
+
+Default server tier is `complete`. For read-only agents: `AST_MCP_TIER=core`. For indexing without compaction writes: `AST_MCP_TIER=extended`.
+
+Per-tool overrides: `~/.astcache/tools.json` — see [tools.json.example](../tools.json.example). Restart ast-mcp after edits.
 
 ## Troubleshooting
 
@@ -97,5 +120,3 @@ lsof -i :7821
 make install
 ```
 Adds `ast-mcp start|stop|restart|status|health` to your shell.
-
-Canonical copy: [skills/install/SKILL.md](../../skills/install/SKILL.md)
