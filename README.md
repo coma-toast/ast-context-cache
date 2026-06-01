@@ -43,6 +43,16 @@ MCP: http://localhost:7821/mcp
 Dashboard: http://localhost:7830
 ```
 
+### After `git pull`
+
+Generated files are **not** committed (avoids merge conflicts between machines). Run once after pulling changes that touch dashboard templates:
+
+```bash
+make generate   # or: make build  (runs generate automatically)
+```
+
+This creates `internal/dashboard/components/*_templ.go` and copies `VERSION` → `internal/version/VERSION` for the embed.
+
 ## Embedding backends
 
 The vector store is built for **768-dimensional** L2-normalized embeddings. The default is local **ONNX** (no extra services). Alternatives use environment variables and do not require downloading `model.onnx` for the main process (unless you switch back to `onnx`).
