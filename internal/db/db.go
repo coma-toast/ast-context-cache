@@ -207,6 +207,50 @@ func Init() error {
 		INSERT INTO docs_fts(docs_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
 	END`)
 
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS context_notes (
+			ref TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			project_path TEXT,
+			label TEXT,
+			content TEXT NOT NULL,
+			content_hash TEXT NOT NULL,
+			tags TEXT,
+			token_est INTEGER DEFAULT 0,
+			access_count INTEGER DEFAULT 0,
+			tokens_fetched INTEGER DEFAULT 0,
+			last_accessed_at TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_context_notes_session ON context_notes(session_id);
+		CREATE INDEX IF NOT EXISTS idx_context_notes_project ON context_notes(project_path);
+	`)
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS context_note_access (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			ref TEXT NOT NULL,
+			session_id TEXT,
+			project_path TEXT,
+			tool_name TEXT NOT NULL,
+			virtual_tokens INTEGER NOT NULL,
+			accessed_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_context_note_access_at ON context_note_access(accessed_at);
+		CREATE INDEX IF NOT EXISTS idx_context_note_access_ref ON context_note_access(ref);
+	`)
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS context_session_stats (
+			session_id TEXT PRIMARY KEY,
+			project_path TEXT,
+			notes_count INTEGER DEFAULT 0,
+			virtual_tokens_stored INTEGER DEFAULT 0,
+			virtual_tokens_accessed INTEGER DEFAULT 0,
+			last_store_at TEXT,
+			last_access_at TEXT
+		);
+	`)
+	DB.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`)
+
 	EnsureFTSTriggers()
 	go DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	StartWriteBatchers()

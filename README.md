@@ -11,7 +11,8 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 - **Source code in results** -- Search results include the actual source, not just file pointers
 - **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
 - **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
-- **Dashboard** -- Web UI on port 7830: real-time stats, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool
+- **Virtual context compaction** -- Offload bulky conversation notes to local SQLite with stable `ctx_*` refs; recover after host compaction via `fetch_context` / `search_context` (separate metrics from code **Tokens saved**)
+- **Dashboard** -- Web UI on port 7830: real-time stats, **Virtual context** card, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool
 - **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency; **synchronous=NORMAL** and a **32 MiB page cache** reduce fsync pressure; **PASSIVE WAL checkpoints** every 10 minutes (less write amplification than aggressive truncate). Per-file indexing uses **one transaction** per file; MCP **query** and **session** dedup rows are **batched** before insert.
 
 ## Quick Start
@@ -105,8 +106,8 @@ The MCP server can expose a **subset** of tools. Tiers are cumulative: `complete
 
 | Tier | Typical tools |
 |------|----------------|
-| **core** | Search, status, maps, docs, `retrieve` (read-only) |
-| **extended** | core + `index_files`, `cache_summary`, bundles, doc sources, analysis |
+| **core** | Search, status, maps, docs, `retrieve`, **`fetch_context` / `list_context` / `search_context`** (read-only) |
+| **extended** | core + `index_files`, `cache_summary`, **`store_context` / `flush_context`**, bundles, doc sources, analysis |
 | **complete** | extended + `execute_code` (requires code mode) |
 
 **Global controls (environment):**
@@ -249,7 +250,45 @@ The server may crash or stop unexpectedly. Follow these steps to recover:
 7. cache_summary  →  save what you learned for future queries
 8. retrieve  →  RAG-style retrieval (code + docs → formatted context)
 9. search_docs  →  search cached library/framework documentation
+10. store_context  →  offload bulky thread text before host compaction (extended tier); keep `ctx_*` stubs in chat
+11. fetch_context / search_context  →  recover offloaded notes after compaction (core tier)
+12. flush_context  →  delete stored notes when done or over quota (extended tier)
 ```
+
+### Virtual context compaction
+
+**Why:** Host editors compact or summarize chat when the context window fills. Large analysis, plans, and diffs disappear from the model window even though you still need them later. Virtual context stores that material **locally** (never leaves your machine) and gives you stable **`ctx_*` refs** to keep in chat instead of the full text.
+
+**When to store (`store_context`, extended tier):**
+
+- Long reasoning, design notes, meeting summaries, or pasted diffs you may need again
+- Before host compaction or when the thread is ~70%+ full
+- Same **`session_id`** as code search tools (one ID per conversation)
+
+**When to fetch (`fetch_context` / `list_context` / `search_context`, core tier):**
+
+- After compaction — **`fetch_context(refs=[...])`** is the primary recovery path when you kept `ctx_*` stubs
+- **`list_context(session_id=...)`** — metadata only (refs, labels, token estimates) when you forgot what you stored
+- **`search_context(query=...)`** — keyword + optional vector hybrid when refs were lost from chat
+
+**When to flush (`flush_context`, extended tier):**
+
+- Thread finished; stubs are no longer needed
+- Quota errors (`context_limit_exceeded`) — flush old sessions or raise limits in dashboard **Settings → Virtual context**
+
+**Chat pattern:**
+
+```
+store_context(content="...", session_id="...", label="auth design")
+→ in chat: [ctx_a1b2c3d4e5f6] auth design
+→ after compaction: fetch_context(refs=["ctx_a1b2c3d4e5f6"], session_id="...")
+```
+
+**Limits (defaults):** 50 notes / 32k tokens per session; 500 notes / 200k tokens globally. Session policy **`reject`** (hard stop) or **`lru_session`** (evict oldest note in session); global cap always rejects. Override via dashboard Settings or env (`AST_CONTEXT_MAX_*`, `AST_CONTEXT_LIMIT_POLICY`).
+
+**Metrics:** Tracked separately from code **Tokens saved**. Dashboard **Virtual context** card shows active inventory, 30d stored vs accessed, utilization %, orphans (never fetched), and flushed tokens. MCP responses include `virtual_tokens_stored` / `virtual_tokens_returned` and quota strings in `stats`.
+
+See [skills/usage/SKILL.md](skills/usage/SKILL.md) for agent workflows.
 
 ### Token Optimization
 
@@ -317,7 +356,11 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 | `get_impact_graph` | Find the blast radius of a symbol -- files that import or depend on it. |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation by title or content (FTS). Try before WebFetch for library docs. |
+| `list_doc_sources` | List tracked documentation URLs (read-only). |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly. Returns formatted context ready for LLM. |
+| `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). Primary path after host compaction. |
+| `list_context` | List stored virtual context refs for a session (metadata only, no full content). |
+| `search_context` | Find stored virtual context by keyword/meaning when refs are lost. |
 
 ### Extended
 
@@ -325,6 +368,8 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 |------|-------------|
 | `index_files` | Index a file or directory using tree-sitter AST parsing. Starts a file watcher. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
+| `store_context` | Offload conversation/code notes before compaction; returns stable `ctx_*` refs and quota stats. |
+| `flush_context` | Delete stored virtual context (by session, refs, or `all=true`). Frees quota; invalidates stubs. |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
@@ -371,6 +416,10 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 - **doc_sources** -- Tracked documentation URLs with type, version, content hash
 - **doc_content** -- Cached documentation entries (title, content, section)
 - **docs_fts** -- FTS5 virtual table over `doc_content` for full-text doc search
+- **context_notes** -- Offloaded virtual context (`ref`, `session_id`, `content`, `token_est`, labels, tags)
+- **context_notes_fts** -- FTS over note content for `search_context`
+- **context_note_access** -- Per-ref access log (fetch/search counts)
+- **context_session_stats** -- Per-session virtual token rollups
 
 ## Configuration
 
@@ -383,6 +432,13 @@ The database is stored at `~/.astcache/usage.db`. The dashboard frontend is serv
 | `ONNXRUNTIME_LIB` | Path to ONNX Runtime library | Auto-detected from brew/system |
 | `MODEL_DIR` | Path to model files | `./model` (next to binary) |
 | `DB_PATH` | Path to SQLite database | `~/.astcache/usage.db` |
+| `AST_CONTEXT_MAX_NOTES_SESSION` | Max virtual notes per session | `50` (or dashboard `context_max_notes_session`) |
+| `AST_CONTEXT_MAX_TOKENS_SESSION` | Max virtual tokens per session | `32000` |
+| `AST_CONTEXT_MAX_NOTES_GLOBAL` | Max virtual notes server-wide | `500` |
+| `AST_CONTEXT_MAX_TOKENS_GLOBAL` | Max virtual tokens server-wide | `200000` |
+| `AST_CONTEXT_LIMIT_POLICY` | `reject` or `lru_session` when session cap hit | `reject` |
+
+Non-empty env overrides dashboard Settings for virtual context limits. **`GET /api/context-stats`** on the dashboard returns the same rollup as the Virtual context stat card.
 
 ## Cross-platform Build
 

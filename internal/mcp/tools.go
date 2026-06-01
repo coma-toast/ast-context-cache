@@ -183,6 +183,81 @@ func GetTools() []Tool {
 			Tier: TierExtended,
 		},
 		{
+			Name:        "store_context",
+			Description: "Store arbitrary conversation or code notes as virtual context with a stable ref (ctx_*). Use before host compaction: keep refs in chat, fetch later. Returns virtual_tokens_stored and session/global quota stats.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"content":      map[string]string{"type": "string", "description": "Text to offload (markdown OK)"},
+					"session_id":   map[string]string{"type": "string", "description": "Conversation session ID (required)"},
+					"label":        map[string]string{"type": "string", "description": "Short title for the note"},
+					"project_path": map[string]string{"type": "string", "description": "Optional project association"},
+					"tags":         map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array"},
+				},
+				"required": []string{"content", "session_id"},
+			},
+			Tier: TierExtended,
+		},
+		{
+			Name:        "fetch_context",
+			Description: "Retrieve stored virtual context by ref(s). Primary recovery path after compaction. Returns virtual_tokens_returned stats.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"refs":       map[string]string{"type": "string", "description": "Single ref or array of ctx_* refs"},
+					"session_id": map[string]string{"type": "string", "description": "If set, reject refs from other sessions"},
+				},
+				"required": []string{"refs"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
+			Name:        "list_context",
+			Description: "List stored virtual context refs for a session (metadata only, no full content).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"session_id":   map[string]string{"type": "string", "description": "Session ID (required)"},
+					"project_path": map[string]string{"type": "string", "description": "Optional project filter"},
+					"limit":        map[string]string{"type": "integer", "description": "Max results (default 20)"},
+				},
+				"required": []string{"session_id"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
+			Name:        "search_context",
+			Description: "Find stored virtual context by keyword or meaning when refs are lost. Returns matching notes with access stats.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query":        map[string]string{"type": "string", "description": "Search query"},
+					"session_id":   map[string]string{"type": "string", "description": "Strongly recommended session filter"},
+					"project_path": map[string]string{"type": "string", "description": "Optional project filter"},
+					"limit":        map[string]string{"type": "integer", "description": "Max results (default 5)"},
+				},
+				"required": []string{"query"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
+			Name:        "flush_context",
+			Description: "Delete stored virtual context to free quota. Scope: session_id, refs, or all=true. Invalidates ctx_* stubs in chat.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"session_id":   map[string]string{"type": "string", "description": "Flush all notes for this session"},
+					"refs":         map[string]string{"type": "string", "description": "Delete specific ref(s)"},
+					"project_path": map[string]string{"type": "string", "description": "Narrow session flush to one project"},
+					"all":          map[string]string{"type": "boolean", "description": "Flush entire server inventory (explicit opt-in)"},
+				},
+			},
+			Tier: TierExtended,
+		},
+		{
 			Name:        "search_semantic",
 			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
 			InputSchema: map[string]interface{}{
@@ -500,7 +575,64 @@ func GetPrompts() []Prompt {
 2. get_context_capsule with mode='auto' for initial search
 3. Use skeleton mode for broad exploration
 4. Cache summaries of key files
-5. Use impact graph before making changes`,
+5. Use impact graph before making changes
+
+### Virtual context compaction
+- store_context(content, session_id) before host compaction — keep ctx_* refs in chat (extended tier)
+- fetch_context(refs) or search_context(query) after compaction (core tier)
+- list_context(session_id) to discover stored refs without full content
+- flush_context(session_id) when done or over quota (extended tier)
+- Dashboard Virtual context card: inventory, utilization, limits (separate from code tokens_saved)
+- Same session_id as get_context_capsule / retrieve for session scoping`,
+		},
+		{
+			Name:        "virtual-context-compaction",
+			Description: "When and how to offload conversation context with ctx_* refs",
+			Prompt: `# Virtual Context Compaction Guide
+
+## Problem
+
+Host editors compact chat when the context window fills. Long analysis, plans, and diffs vanish from the model window even though the task still needs them.
+
+## Solution
+
+**store_context** saves text locally (SQLite on your machine) and returns a stable **ctx_* ref**. Keep a short stub in chat instead of the full body. After compaction, **fetch_context** restores it.
+
+This is **not** cache_summary (symbol summaries) or retrieve (code RAG). It is for **conversation offload**.
+
+## Tool reference
+
+| Tool | Tier | Use when |
+|------|------|----------|
+| store_context | extended | Bulky text before compaction |
+| fetch_context | core | You have ctx_* refs |
+| list_context | core | Need refs/labels, not content |
+| search_context | core | Refs lost; search by topic |
+| flush_context | extended | Done or quota exceeded |
+
+## Workflow
+
+1. Use one **session_id** per conversation (same as code search tools).
+2. **store_context**(content, session_id, label?) → ref + virtual_tokens_stored
+3. In chat: **[ctx_…] label** instead of full text
+4. After compaction: **fetch_context**(refs=[...], session_id=...)
+5. When finished: **flush_context**(session_id=...)
+
+## When NOT to use
+
+- Indexed code → use get_context_capsule / retrieve
+- Library docs → use search_docs / fetch_doc
+- Short messages that fit in context → no store needed
+
+## Limits (defaults)
+
+- Session: 50 notes / 32k tokens
+- Global: 500 notes / 200k tokens
+- Policy: reject or lru_session (global always rejects)
+
+## Metrics
+
+Separate from code **Tokens saved**. Dashboard **Virtual context** card tracks inventory vs access.`,
 		},
 		{
 			Name:        "context-mode-decisions",

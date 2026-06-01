@@ -12,8 +12,9 @@ Use this skill when the user asks to:
 - Search documentation for libraries/frameworks
 - Share indexed code with another machine (bundles)
 - Run code analysis against search results
+- Offload bulky conversation context before host compaction (virtual context)
 
-**Not for server config** (embeddings, dashboard settings, log retention) — use [operator/SKILL.md](../operator/SKILL.md).
+**Not for server config** (embeddings, dashboard settings, log retention, virtual context limits) — use [operator/SKILL.md](../operator/SKILL.md).
 
 ## Agent workflow (follow in order)
 
@@ -28,7 +29,7 @@ Use this skill when the user asks to:
 8. retrieve(query="...", project_path="...", session_id="...")          # RAG code + docs
 ```
 
-Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, and **`get_file_context`** so symbols already returned are not sent again.
+Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, **`get_file_context`**, and **virtual context tools** (`store_context`, `fetch_context`, `list_context`, `search_context`, `flush_context`) so symbols and notes stay scoped to the thread.
 
 ## Quick Reference
 
@@ -66,6 +67,87 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | List doc URLs | `list_doc_sources` | Core tier |
 | Portable index | `export_bundle` / `import_bundle` | Extended tier |
 | Transform results in JS | `execute_code` | Complete tier; `DATA` variable |
+| Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id` |
+
+## Virtual context compaction
+
+### Why
+
+Host editors (Cursor, Claude, etc.) **compact or summarize** chat when the context window fills. Long analysis, architecture notes, and pasted diffs disappear from what the model can see—even though the task still needs them. **Virtual context** stores that material in local SQLite and gives you **`ctx_*` refs** to keep in chat instead of the full text. Nothing leaves your machine.
+
+This is **not** the same as code **`cache_summary`** (summaries of indexed symbols) or **`retrieve`** (RAG over the codebase). Virtual context is for **conversation offload**, not repo search.
+
+### When to use each tool
+
+| Situation | Tool | Tier |
+|-----------|------|------|
+| Bulky thread text you may need after compaction | **`store_context`** | extended |
+| You kept `ctx_*` stubs in chat | **`fetch_context(refs=[...])`** | core |
+| Forgot what you stored; need refs + labels | **`list_context(session_id=...)`** | core |
+| Stubs were lost; search by topic/keyword | **`search_context(query=..., session_id=...)`** | core |
+| Thread done or quota error | **`flush_context(session_id=...)`** | extended |
+
+**Store early:** Before compaction warnings or when the thread is ~70%+ full—not after content is already gone.
+
+**Fetch first:** Prefer **`fetch_context`** when refs exist; **`search_context`** is the fallback.
+
+**Flush when done:** Stubs become invalid after flush. Orphans (stored, never fetched) show on the dashboard—flush stale sessions to free quota.
+
+### Workflow
+
+```
+Before compaction:
+  store_context(
+    content="long analysis or plan...",
+    session_id="conv-uuid",
+    label="auth refactor plan",
+    project_path="/abs/path/to/repo",   # optional
+    tags="auth,design"                  # optional
+  )
+  → response: ref "ctx_a1b2c3d4e5f6", virtual_tokens_stored, stats.session_quota
+  → in chat write: [ctx_a1b2c3d4e5f6] auth refactor plan
+
+After compaction:
+  fetch_context(refs=["ctx_a1b2c3d4e5f6"], session_id="conv-uuid")
+  OR list_context(session_id="conv-uuid")
+  OR search_context(query="auth refactor", session_id="conv-uuid")
+
+When finished:
+  flush_context(session_id="conv-uuid")
+```
+
+**Session isolation:** `fetch_context` with `session_id` rejects refs owned by other sessions (returns empty notes, not an error).
+
+**Quota errors:** Response includes `context_limit_exceeded` with `limit`, `current`, `max`. Fix by flushing old notes, raising limits (dashboard Settings), or enabling **`lru_session`** policy to evict oldest note in session.
+
+### Defaults and limits
+
+| Setting | Default |
+|---------|---------|
+| Max notes per session | 50 |
+| Max tokens per session | 32,000 |
+| Max notes global | 500 |
+| Max tokens global | 200,000 |
+| Limit policy | `reject` (`lru_session` evicts oldest in session; global cap always rejects) |
+
+Operators configure via dashboard **Settings → Virtual context** or env (`AST_CONTEXT_MAX_*`, `AST_CONTEXT_LIMIT_POLICY`). See [operator/SKILL.md](../operator/SKILL.md).
+
+### Metrics (separate from code Tokens saved)
+
+| Tool | Response fields | Dashboard |
+|------|-----------------|-----------|
+| `store_context` | `virtual_tokens_stored`, `stats.session_quota` | Virtual context card: inventory ↑ |
+| `fetch_context` / `search_context` | `stats.virtual_tokens_returned` | 30d accessed, utilization % |
+| `flush_context` | `flushed_refs`, freed tokens | inventory ↓, flushed 30d ↑ |
+
+Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`** only—not virtual context stores.
+
+### Tier requirements
+
+- **`store_context`** and **`flush_context`** require **extended** tier (or `tools.json` override).
+- **`fetch_context`**, **`list_context`**, **`search_context`** are **core** — agents can recover after compaction even in read-only profiles if an operator stored notes earlier.
+
+If `store_context` is missing from `tools/list`, ask the user to set `AST_MCP_TIER=extended` and restart ast-mcp.
 
 ## Mode defaults (important)
 

@@ -5,6 +5,7 @@
 When configuring or operating the ast-mcp server (not day-to-day MCP search). Use when the user asks about:
 - Embedding backends (ONNX, Ollama, HTTP, OpenAI/LiteLLM)
 - Dashboard UI (port 7830)
+- Virtual context limits, flush, or metrics
 - Log file indexing or retention
 - Watcher ignore globs, pause/start/delete watchers
 - Health checks or server restart after config changes
@@ -48,7 +49,7 @@ Open after `make run` or `ast-mcp dash`. Panels update automatically when querie
 
 | Section | What it shows |
 |---------|----------------|
-| **Query activity** | MCP query counts, **tokens saved** (code-context tools only; sublabel: 30d total, avg/day, dedup, vs files), avg duration, sessions |
+| **Query activity** | MCP query counts, **tokens saved** (code-context tools only; sublabel: 30d total, avg/day, dedup, vs files), **Virtual context** (active inventory, 30d stored vs accessed, utilization, orphans), avg duration, sessions |
 | **Index & runtime** | Corpus scale bars; **embed queue** ring gauge + priority/background bars + worker dots; vectors; watchers (pause/start/delete); disk/memory (server-wide) |
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
 | **Symbol / language / tool / imports** | **Tool performance** table + charts (calls, **CPU**, avg latency, tokens saved); Top imports |
@@ -57,6 +58,7 @@ Open after `make run` or `ast-mcp dash`. Panels update automatically when querie
 ### Settings (operators)
 
 - **Pin project** — priority embedding queue, watchers stay warm longer, slower vector unload when idle
+- **Virtual context** — max notes/tokens per session and globally; limit policy (`reject` / `lru_session`); **Flush all virtual context** button; env `AST_CONTEXT_*` overrides non-empty values on restart
 - **Watcher ignore globs** — JSON array; applied after `IsCodeFile`
 - **Index .log / .txt** — FTS/BM25 only, no embeddings
 - **Log retention** — optional `.log` cleanup under absolute roots (dry-run first)
@@ -65,6 +67,7 @@ Open after `make run` or `ast-mcp dash`. Panels update automatically when querie
 ### Helping users interpret gauges
 
 - **Tokens saved (today)** — sums `tokens_saved` from **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, and **`retrieve`** only. **`fetch_doc` / `search_docs` / `index_*`** do not contribute; **0 today** with heavy doc activity is expected. Sublabel shows 30d total, **avg/day**, dedup, and vs-files. **`mode=full`** calls save ~nothing.
+- **Virtual context card** — separate from Tokens saved. **Active inventory** = notes still on disk; **30d stored** = `store_context` volume; **30d accessed** = `fetch_context` + `search_context`; **utilization** = accessed/stored; **orphans** = never fetched. **`GET /api/context-stats`** returns JSON for the same rollup. **`POST /api/flush-context`** with `{"all":true}` or `{"session_id":"..."}` (also in Settings).
 - **Embed queue ring** — fill vs combined capacity (priority 128 + background 2048). Green → orange → red as backlog grows.
 - **Pinned projects** — use when one repo should index faster under load.
 

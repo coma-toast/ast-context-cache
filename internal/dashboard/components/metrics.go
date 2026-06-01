@@ -182,6 +182,29 @@ func (s Stats) sessionsSublabel() string {
 	return fmt.Sprintf("30d: %s · avg/day: %s · chars: %s", fmtInt(s.Sessions), fmtDailyAvgInt(s.Sessions), fmtInt(s.TotalChars))
 }
 
+func (s Stats) virtualSublabel() string {
+	quota := ""
+	if s.VirtualMaxTokensGlobal > 0 {
+		quota = fmt.Sprintf(" · %d/%d notes", s.VirtualNotesCount, s.VirtualMaxNotesGlobal)
+	}
+	return fmt.Sprintf("%d notes · 30d util: %.0f%% · accessed: %s · orphan: %d · flushed: %s%s",
+		s.VirtualNotesCount, s.VirtualUtilPct30d, fmtInt(s.VirtualAccessed30d), s.VirtualOrphanCount, fmtInt(s.VirtualFlushed30d), quota)
+}
+
+func (s Stats) virtualInventoryMeter() TodayMeterFill {
+	if s.VirtualMaxTokensGlobal <= 0 {
+		return todayMeterFill(s.VirtualInventoryTokens, maxInt(s.VirtualStored30d, 1))
+	}
+	return todayMeterFill(s.VirtualInventoryTokens, s.VirtualMaxTokensGlobal)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (s Stats) todayQueryMeter() TodayMeterFill {
 	return todayMeterFill(s.TodayQueries, s.TotalQueries)
 }

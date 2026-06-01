@@ -67,6 +67,8 @@ header h1 .icon { font-size: 24px; }
 
 .grid { display: grid; gap: 16px; }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-5 { grid-template-columns: repeat(5, 1fr); }
+.stat-cyan { color: #39c5cf; }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-1 { grid-template-columns: 1fr; }
@@ -1019,6 +1021,7 @@ tr:hover td { background: var(--surface-hover); }
 
 @media (max-width: 900px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-5 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
   .index-health-row { grid-template-columns: 1fr; }
   .index-health-watchers-row { grid-template-columns: 1fr; }
@@ -1028,7 +1031,7 @@ tr:hover td { background: var(--surface-hover); }
   .metric-grid > .resource-util-card { grid-column: span 2; }
 }
 @media (max-width: 600px) {
-  .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .grid-4, .grid-3, .grid-2, .grid-5 { grid-template-columns: 1fr; }
   .metric-grid > .metric-card-wide,
   .metric-grid > .watcher-card,
   .metric-grid > .corpus-bars,

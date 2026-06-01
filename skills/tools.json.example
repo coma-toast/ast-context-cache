@@ -8,5 +8,15 @@
     "enabled": true,
     "tier": "core",
     "description": "Allow indexing when server runs at AST_MCP_TIER=core"
+  },
+  "store_context": {
+    "enabled": true,
+    "tier": "extended",
+    "description": "Virtual context offload before host compaction (default tier)"
+  },
+  "flush_context": {
+    "enabled": true,
+    "tier": "extended",
+    "description": "Delete stored virtual context to free quota"
   }
 }

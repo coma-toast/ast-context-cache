@@ -18,6 +18,12 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 
 **Other editors:** portable copy-paste in `skills/` — [agents](skills/agents/SKILL.md), [install](skills/install/SKILL.md), [usage](skills/usage/SKILL.md), [operator](skills/operator/SKILL.md).
 
+Read `skills/<name>/SKILL.md` when not using Cursor project skills.
+
+### Virtual context compaction (agents)
+
+Before host chat compaction, use **`store_context`** (extended tier) with the same **`session_id`** as code search; keep **`ctx_*` stubs** in chat. After compaction: **`fetch_context`**, **`list_context`**, or **`search_context`** (core). When done: **`flush_context`**. Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compaction).
+
 # Available Tools
 
 ## Core
@@ -30,10 +36,15 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - **search_docs** - Search cached library/framework documentation
 - **list_doc_sources** - List tracked documentation sources (core, read-only)
 - **retrieve** - RAG-style retrieval: hybrid search + reranking + context assembly (code + docs)
+- **fetch_context** - Retrieve offloaded virtual context by `ctx_*` ref(s) after host compaction
+- **list_context** - List stored virtual context refs for a session (metadata only)
+- **search_context** - Find stored virtual context by keyword/meaning when refs are lost
 
 ## Extended
 - **index_files** - Index a file or directory (starts file watcher)
 - **cache_summary** - Cache summaries for future queries
+- **store_context** - Offload conversation/code notes with stable `ctx_*` refs before compaction
+- **flush_context** - Delete stored virtual context to free quota
 - **analyze_dead_code** - Find unused functions, classes, imports
 - **analyze_complexity** - Find hard-to-maintain code by cyclomatic complexity
 - **export_bundle** / **import_bundle** - Portable code bundles without re-indexing
@@ -102,6 +113,18 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 - On cache miss, use **fetch_doc** (not WebFetch) so URLs are stored in ast-context-cache
 - Tracked sources re-fetch when older than **7 days**; use `update_doc_source` or `fetch_doc` with `force_refresh` sooner
 
+### 11. Virtual context compaction (conversation offload)
+
+**Why:** When the host compacts chat, long analysis and plans vanish from the model window. **store_context** saves that text locally and returns a short **`ctx_*` ref** you keep in chat instead of the full body.
+
+**When to store:** Bulky thread content you may need later; before compaction or ~70% context fill. Requires **extended** tier (`store_context`).
+
+**When to recover:** After compaction — **`fetch_context(refs=[...])`** if you kept stubs; **`list_context`** to see what's stored; **`search_context(query=...)`** if refs were lost. Read tools are **core** tier.
+
+**When to flush:** Thread done or quota exceeded — **`flush_context(session_id=...)`** (extended). Dashboard **Virtual context** card tracks inventory vs access (separate from code **Tokens saved**).
+
+Use the **same `session_id`** as code search tools. Example chat stub: `[ctx_a1b2c3d4e5f6] auth design`.
+
 ### Recommended Workflow
 1. index_status → index_files if needed
 2. get_project_map (depth=2)
@@ -111,6 +134,7 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 6. cache_summary on key symbols; use mode='summary' later
 7. get_impact_graph before changing exports
 8. search_docs for library/framework questions; fetch_doc when not cached
+9. store_context before host compaction — keep ctx_* stubs; fetch_context after compaction
 
 **Dashboard (operators):** http://localhost:7830 — embed queue gauge, project filter, MCP vs indexing in Recent, tool performance (CPU/latency). See [skills/operator/SKILL.md](skills/operator/SKILL.md).
 

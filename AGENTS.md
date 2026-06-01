@@ -18,10 +18,10 @@ Project skills under [`.cursor/skills/`](.cursor/skills/) load when the task mat
 
 | Skill | When it applies |
 |-------|-----------------|
-| `ast-context-cache-usage` | MCP search, RAG, modes, filters |
-| `ast-context-cache-install` | Install, MCP config, tool tiers |
+| `ast-context-cache-usage` | MCP search, RAG, modes, filters, **virtual context compaction** |
+| `ast-context-cache-install` | Install, MCP config, tool tiers, **virtual context tier requirements** |
 | `ast-context-cache-rebuild` | Rebuild or restart ast-mcp after code changes |
-| `ast-context-cache-operator` | Embeddings, dashboard settings, logs |
+| `ast-context-cache-operator` | Embeddings, dashboard settings, logs, **virtual context limits** |
 
 See [skills/README.md](skills/README.md) for syncing from portable sources.
 
@@ -32,8 +32,8 @@ The `skills/` directory has copy-paste blocks and MCP JSON:
 | Skill | Contents |
 |-------|----------|
 | `skills/agents/SKILL.md` | MCP config for OpenCode, Cursor, Claude, VS Code, JetBrains |
-| `skills/install/SKILL.md` | Install and troubleshoot |
-| `skills/usage/SKILL.md` | Tool selection, RAG, token tips |
+| `skills/install/SKILL.md` | Install, troubleshoot, **tool tiers for virtual context** |
+| `skills/usage/SKILL.md` | Tool selection, RAG, token tips, **virtual context compaction** |
 | `skills/operator/SKILL.md` | Embeddings, dashboard, log retention |
 
 Read `skills/<name>/SKILL.md` when not using Cursor project skills.
@@ -50,6 +50,8 @@ Use MCP in this order for unfamiliar code (generate a stable **`session_id`** pe
 6. **`search_semantic`** — natural-language / intent; pass `session_id`, `token_budget`.
 7. **`get_impact_graph`** — before changing exported symbols.
 8. **`retrieve`** — single-shot RAG (code ± docs); `session_id`, filters as needed.
+
+**Virtual context (long threads):** Before host compaction, **`store_context`** (extended) with the same `session_id`; keep `ctx_*` stubs in chat. After compaction, **`fetch_context`** or **`search_context`** (core). **`flush_context`** when done.
 
 **Defaults:** `get_context_capsule` → `auto`; `get_file_context` → **`skeleton`**; `search_semantic` → `skeleton`. Do not read whole source files when MCP can return structured symbols.
 
@@ -82,6 +84,9 @@ When working with codebases that have an MCP server available, **always prefer M
 | `search_docs` | Search locally cached documentation (FTS). Try before WebFetch for library/framework docs. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
 | `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). Supports `markdown`, `xml`, `json` output. |
+| `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). |
+| `list_context` | List stored virtual context refs for a session (metadata only). |
+| `search_context` | Find stored virtual context by keyword/meaning. |
 
 #### Extended
 
@@ -89,6 +94,8 @@ When working with codebases that have an MCP server available, **always prefer M
 |------|-------------|
 | `index_files` | Index a file or directory. Starts a file watcher for incremental re-indexing. Plain `.log` is not indexed unless enabled in dashboard settings; watcher ignore globs apply to paths that would otherwise be indexed as code. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
+| `store_context` | Offload arbitrary conversation/code notes before compaction; returns stable `ctx_*` refs. |
+| `flush_context` | Delete stored virtual context (session, refs, or all). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
@@ -125,6 +132,50 @@ When working with codebases that have an MCP server available, **always prefer M
 8. **Supported languages** - Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML (see README for full list)
 9. **Pipeline stats** - `get_context_capsule` returns `pipeline` counts; `retrieve` stats include hybrid-stage counts and timings (see README / CLAUDE.md)
 10. **Indexing load** - Embeddings go through a bounded **queue** with workers (dashboard: embed queue / active). **Pin** heavy projects in Settings for priority embedding, no idle watcher stop, and warmer vector unload behavior
+
+### Virtual context compaction
+
+Host editors drop bulky chat history when the context window fills. Virtual context keeps that material on disk with stable refs so agents can recover it without re-pasting megabytes into chat.
+
+| Tool | Tier | Role |
+|------|------|------|
+| `store_context` | extended | Offload text → `ctx_*` ref + quota stats |
+| `fetch_context` | core | Recover by ref(s); primary post-compaction path |
+| `list_context` | core | List refs/labels for a session (no full content) |
+| `search_context` | core | Keyword + hybrid search when refs lost from chat |
+| `flush_context` | extended | Delete notes; free quota; stubs become invalid |
+
+**Why:** Preserve reasoning, plans, long diffs, and summaries across compaction without burning context window on repeat content.
+
+**When to store:** Long analysis you will reference later; before compaction warnings; when the thread is getting large. Pass the same **`session_id`** as `get_context_capsule` / `retrieve`.
+
+**When to fetch vs search:** Use **`fetch_context`** when chat still has `ctx_*` stubs. Use **`list_context`** to discover refs. Use **`search_context`** when stubs were summarized away.
+
+**When to flush:** Conversation finished; `context_limit_exceeded` errors; user asks to clear stored notes. Operators can also flush all via dashboard Settings.
+
+**Parameters:**
+
+```
+store_context(content, session_id, label?, project_path?, tags?)
+fetch_context(refs, session_id?)     # session_id enforces ownership
+list_context(session_id, project_path?, limit?)
+search_context(query, session_id?, project_path?, limit?)
+flush_context(session_id? | refs? | all=true, project_path?)
+```
+
+**Limits (defaults):** 50 notes / 32k tokens per session; 500 notes / 200k tokens global. Policy `reject` or `lru_session` for session caps (global always rejects). Configure in dashboard **Settings → Virtual context** or env `AST_CONTEXT_MAX_*`.
+
+**Metrics (separate from code Tokens saved):**
+
+| Event | Tracked as |
+|-------|------------|
+| `store_context` | `virtual_tokens_stored`; query log `tokens_saved` |
+| `fetch_context` / `search_context` | `virtual_tokens_returned`; query log `tokens_used` |
+| `flush_context` | freed tokens in flush stats |
+
+Dashboard **Virtual context** card: active inventory, 30d stored vs accessed, utilization %, orphan notes (stored but never fetched), flushed tokens. API: `GET http://localhost:7830/api/context-stats`.
+
+**Chat pattern:** After store, write `[ctx_…] label` in the thread instead of the full content. After compaction, fetch by ref.
 
 ### Token savings tracking
 

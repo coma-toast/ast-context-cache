@@ -176,6 +176,7 @@ func renderStats() string {
 	db.DB.QueryRow(statsSel+where, args...).
 		Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 	fillTodayStats("", todayStart, tomorrowStart, &s)
+	fillVirtualContextStats(&s, "")
 	var buf bytes.Buffer
 	components.StatsCards(s).Render(context.Background(), &buf)
 	return buf.String()
@@ -349,6 +350,7 @@ func renderSettings() string {
 		DocSources:             docSources,
 	}
 	PopulateEmbedSettings(settings, &data)
+	populateContextSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)
 	loadEmbedModels(&data)
 	var buf bytes.Buffer

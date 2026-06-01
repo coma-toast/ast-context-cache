@@ -46,6 +46,7 @@ func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 	db.DB.QueryRow(statsSel+where, args...).
 		Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 	fillTodayStats(pid, todayStart, tomorrowStart, &s)
+	fillVirtualContextStats(&s, pid)
 	components.StatsCards(s).Render(r.Context(), w)
 }
 
@@ -314,6 +315,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		DocSourcesPerPage:       DefaultDocSourcesPerPage,
 	}
 	PopulateEmbedSettings(settings, &data)
+	populateContextSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)
 	loadEmbedModels(&data)
 	components.Settings(data).Render(r.Context(), w)

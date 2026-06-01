@@ -66,6 +66,11 @@ type SettingsData struct {
 	DocSourcesTotal         int
 	DocSourcesPage          int
 	DocSourcesPerPage       int
+	ContextMaxNotesSession  int
+	ContextMaxTokensSession int
+	ContextMaxNotesGlobal   int
+	ContextMaxTokensGlobal  int
+	ContextLimitPolicy      string
 }
 
 templ Settings(data SettingsData) {
@@ -78,6 +83,42 @@ templ Settings(data SettingsData) {
 				hx-vals='{"key":"idle_unload_minutes"}' hx-include="this"
 				name="value"/>
 			<span class="perf-hint">Embedder model, vector cache, and file watchers are unloaded after this many minutes of inactivity. Set to 0 to keep loaded.</span>
+		</div>
+	</div>
+
+	<div class="section">
+		<div class="section-title">Virtual context</div>
+		<p class="perf-hint">Offloaded conversation notes (store_context). Limits apply per session and globally.</p>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="contextMaxNotesSession">Max notes per session</label>
+			<input type="number" id="contextMaxNotesSession" min="1" class="perf-input" value={ fmt.Sprint(data.ContextMaxNotesSession) }
+				hx-vals='{"key":"context_max_notes_session"}' hx-include="this" name="value"/>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="contextMaxTokensSession">Max tokens per session</label>
+			<input type="number" id="contextMaxTokensSession" min="1000" class="perf-input" value={ fmt.Sprint(data.ContextMaxTokensSession) }
+				hx-vals='{"key":"context_max_tokens_session"}' hx-include="this" name="value"/>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="contextMaxNotesGlobal">Max notes (global)</label>
+			<input type="number" id="contextMaxNotesGlobal" min="1" class="perf-input" value={ fmt.Sprint(data.ContextMaxNotesGlobal) }
+				hx-vals='{"key":"context_max_notes_global"}' hx-include="this" name="value"/>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="contextMaxTokensGlobal">Max tokens (global)</label>
+			<input type="number" id="contextMaxTokensGlobal" min="1000" class="perf-input" value={ fmt.Sprint(data.ContextMaxTokensGlobal) }
+				hx-vals='{"key":"context_max_tokens_global"}' hx-include="this" name="value"/>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+			<label for="contextLimitPolicy">Limit policy</label>
+			<select id="contextLimitPolicy" class="perf-input" name="value"
+				hx-vals='{"key":"context_limit_policy"}' hx-include="this">
+				<option value="reject" selected?={ data.ContextLimitPolicy == "reject" }>reject (default)</option>
+				<option value="lru_session" selected?={ data.ContextLimitPolicy == "lru_session" }>lru_session</option>
+			</select>
+		</form>
+		<div class="perf-setting" style="margin-top:12px">
+			<button class="action-btn danger" hx-post="/api/flush-context" hx-vals='{"all":true}' hx-confirm="Flush ALL virtual context on this server?" hx-swap="none">Flush all virtual context</button>
 		</div>
 	</div>
 

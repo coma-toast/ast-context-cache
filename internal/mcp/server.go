@@ -573,7 +573,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			}
 		}
 	default:
-		result = map[string]string{"error": "not implemented: " + toolName}
+		if ctxResult, ok, _ := handleContextTool(toolName, toolArgs, args, emb, start, cpuStart, projectPath); ok {
+			result = ctxResult
+			loggedToolCall = true
+		} else {
+			result = map[string]string{"error": "not implemented: " + toolName}
+		}
 	}
 
 	if toolName != "get_context_capsule" && !loggedToolCall {

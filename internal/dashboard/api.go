@@ -62,6 +62,8 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/api/doc-sources", handleDocSources)
+	mux.HandleFunc("/api/context-stats", handleContextStats)
+	mux.HandleFunc("/api/flush-context", handleFlushContextAPI)
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
@@ -575,6 +577,11 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"EMBED_DOCKER_URL":             "",
 		"EMBED_DOCKER_MODEL":           "",
 		"EMBED_DOCKER_DIMENSIONS":      "",
+		"context_max_notes_session":     "50",
+		"context_max_tokens_session":    "32000",
+		"context_max_notes_global":      "500",
+		"context_max_tokens_global":     "200000",
+		"context_limit_policy":          "reject",
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
