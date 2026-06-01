@@ -20,11 +20,7 @@ From the repository root (where `Makefile` lives):
 make build
 ```
 
-Or faster dev build without model download steps:
-
-```bash
-go build -tags sqlite_fts5 -o ast-mcp ./cmd/ast-mcp/
-```
+`make build` runs **`make generate`** (templ → `*_templ.go`) and copies `VERSION` → `internal/version/VERSION`. Those files are gitignored — after `git pull`, always use `make build`, not bare `go build`.
 
 If the build fails, stop and show errors. Do not kill the running server until build succeeds.
 

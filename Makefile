@@ -38,6 +38,7 @@ help:
 	@echo "  make install  — copy shell functions to your shell config"
 	@echo "  make clean    — remove binary"
 	@echo ""
+	@echo "  make generate              — run templ (also runs automatically before build)"
 	@echo "  make deps                  — install onnxruntime + download model + tokenizer lib"
 	@echo "  make install-onnxruntime   — install onnxruntime via brew (macOS) or print instructions"
 	@echo "  make download-model        — download ONNX model + tokenizer from HuggingFace"
@@ -104,8 +105,10 @@ download-tokenizer-lib:
 
 # ── Build & Run ────────────────────────────────────────────────────
 
+TEMPL := github.com/a-h/templ/cmd/templ@v0.3.1020
+
 generate:
-	templ generate ./internal/dashboard/components/
+	go run $(TEMPL) generate ./internal/dashboard/components/
 
 internal/version/VERSION: VERSION
 	cp VERSION internal/version/VERSION
