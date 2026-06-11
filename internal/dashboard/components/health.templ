@@ -5,6 +5,7 @@ import "time"
 
 type Health struct {
 	EmbedderState    string
+	EmbedderError    string
 	EmbedderLast    time.Duration
 	EmbedBackend    string
 	EmbedModel      string
@@ -13,6 +14,7 @@ type Health struct {
 	QueueWorkers   int
 	QueueThroughput int64
 	QueueQueued     int
+	QueuePending    int
 	QueueInFlight   int64
 	QueueHighCap    int
 	QueueLowCap     int
@@ -39,6 +41,9 @@ func (h Health) EmbedderEmoji() string {
 }
 
 func (h Health) EmbedderStatus() string {
+	if h.EmbedderState == "error" {
+		return h.EmbedderErrorShort()
+	}
 	if h.EmbedderState == "idle" {
 		return "Idle"
 	}
@@ -94,15 +99,52 @@ func (h Health) ActiveEmbedTitle() string {
 	return fmt.Sprintf("%s · %s · %s (%d dims)", h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, h.EmbedDim)
 }
 
+func (h Health) ActiveEmbedTitleFull() string {
+	t := h.ActiveEmbedTitle()
+	if h.EmbedderState == "error" && h.EmbedderError != "" {
+		return t + " — " + h.EmbedderError
+	}
+	return t
+}
+
+func (h Health) EmbedderErrorShort() string {
+	return truncateEmbedLabel(h.EmbedderError, 48)
+}
+
+func (h Health) EmbedderChipLabel() string {
+	switch h.EmbedderState {
+	case "error":
+		return "error"
+	case "loading":
+		return "loading"
+	case "ready":
+		return "ok"
+	default:
+		return "idle"
+	}
+}
+
+func (h Health) EmbedderChipClass() string {
+	switch h.EmbedderState {
+	case "error":
+		return "health-status-badge error"
+	case "loading":
+		return "health-status-badge loading"
+	case "ready":
+		return "health-status-badge ok"
+	default:
+		return "health-status-badge idle"
+	}
+}
+
 templ HealthBar(h Health) {
-	<div class="health-bar">
-		<span class="health-item" title={ h.ActiveEmbedTitle() }>
-			<span class="health-emoji">{ h.EmbedderEmoji() }</span>
+	<div class={ "health-bar", templ.KV("health-embed-error", h.EmbedderState == "error") }>
+		<span class="health-item health-embed-item" title={ h.ActiveEmbedTitleFull() }>
 			<span class="health-summary">{ h.EmbedBackend }</span>
-			<span class="health-value mono embed-health-model">{ h.ActiveEmbedModelShort() }</span>
+			<span class={ h.EmbedderChipClass() }>{ h.EmbedderChipLabel() }</span>
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item health-gauge-item" title={ fmt.Sprintf("Queue %d / %d · %d workers busy (priority %d + background %d)", h.QueueQueued, h.QueueHighCap+h.QueueLowCap, h.QueueInFlight, h.QueueHighCap, h.QueueLowCap) }>
+		<span class="health-item health-gauge-item" title={ h.queueTitle() }>
 			<span class="health-label">Queue</span>
 			<span class={ "health-mini-track", "level-" + h.queueLevel() }>
 				<span class="health-mini-fill" style={ h.queueMiniStyle() }></span>
@@ -111,6 +153,14 @@ templ HealthBar(h Health) {
 			if h.QueueInFlight > 0 {
 				<span class="health-value health-busy">· { fmtInt(int(h.QueueInFlight)) } busy</span>
 			}
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item health-gauge-item" title={ h.pendingTitle() }>
+			<span class="health-label">Pending</span>
+			<span class={ "health-mini-track", "level-" + h.pendingLevel() }>
+				<span class="health-mini-fill health-pending-fill" style={ h.pendingMiniStyle() }></span>
+			</span>
+			<span class="health-value">{ fmtInt(h.QueuePending) }</span>
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item health-gauge-item" title="Embedding throughput (5s window)">

@@ -56,6 +56,8 @@ type SettingsData struct {
 	EmbedActiveEndpoint     string
 	EmbedActiveDim          int
 	EmbedActiveLoaded       bool
+	EmbedderState           string
+	EmbedderError           string
 	EmbedConfiguredBackend  string
 	EmbedConfiguredModel    string
 	EmbedInSync             bool
@@ -137,12 +139,17 @@ templ Settings(data SettingsData) {
 						· idle (lazy)
 					}
 				</span>
-				if data.EmbedInSync {
+				if data.EmbedderState == "error" {
+					<span class="badge badge-red embed-sync-badge">Connection error</span>
+				} else if data.EmbedInSync {
 					<span class="badge badge-green embed-sync-badge">In sync</span>
 				} else {
 					<span class="badge badge-orange embed-sync-badge">Restart required</span>
 				}
 			</div>
+			if data.EmbedderState == "error" && data.EmbedderError != "" {
+				<div class="embed-error-banner" title={ data.EmbedderError }>{ data.EmbedderError }</div>
+			}
 			if !data.EmbedInSync {
 				<div class="embed-configured-row perf-hint">
 					<span class="embed-active-label">Configured</span>

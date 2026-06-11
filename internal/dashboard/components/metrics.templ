@@ -72,7 +72,9 @@ templ EmbedPanel(h IndexHealth) {
 			} else {
 				<span class="badge badge-orange embed-sync-badge" title={ fmt.Sprintf("Configured: %s · %s — restart ast-mcp", h.EmbedConfiguredBackend, h.EmbedConfiguredModel) }>restart needed</span>
 			}
-			if h.EmbedPanelBusy() {
+			if h.EmbedderState == "error" {
+				<span class="embed-active-pill error" title={ h.EmbedderError }>error</span>
+			} else if h.EmbedPanelBusy() {
 				<span class="embed-active-pill loaded">active</span>
 			} else if h.EmbedLoaded {
 				<span class="embed-active-pill loaded">ready</span>
@@ -80,8 +82,14 @@ templ EmbedPanel(h IndexHealth) {
 				<span class="embed-active-pill">idle</span>
 			}
 		</div>
+		if h.EmbedderState == "error" && h.EmbedderError != "" {
+			<div class="embed-error-banner" title={ h.EmbedderError }>{ h.EmbedderErrorShort() }</div>
+		}
 		<div class="metric-split">
-			@RingGauge(fmtInt(h.EmbedQueued), "queued", h.EmbedQueued, h.queueTotalCap())
+			<div class="embed-ring-stack">
+				@RingGauge(fmtInt(h.EmbedQueued), "queued", h.EmbedQueued, h.queueTotalCap())
+				@RingGauge(fmtInt(h.EmbedPending), "pending", h.EmbedPending, h.queueTotalCap())
+			</div>
 			<div class="metric-stack">
 				@ChannelBar("Priority", h.EmbedHighQueued, h.EmbedHighCap, "#58a6ff")
 				@ChannelBar("Background", h.EmbedLowQueued, h.EmbedLowCap, "#bc8cff")
@@ -141,14 +149,11 @@ templ StatMeter(title string, value string, sublabel string, bar TodayMeterFill,
 		<div class="card-title">{ title }</div>
 		<div class={ "stat-value", valueClass }>{ value }</div>
 		<div class="stat-meter-track">
-			if bar.AboveAvg {
-				<div class="stat-meter-stack">
-					<div class={ "stat-meter-over", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", bar.AvgPct) }></div>
-					<div class={ "stat-meter-bright", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", 100-bar.AvgPct) }></div>
-				</div>
-			} else {
-				<div class={ "stat-meter-fill", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", bar.WidthPct) }></div>
-			}
+			<div class="stat-meter-stack">
+				<div class="stat-meter-overlap" style={ fmt.Sprintf("width:%.1f%%", bar.OverlapPct) }></div>
+				<div class="stat-meter-day" style={ fmt.Sprintf("width:%.1f%%", bar.DayOnlyPct) }></div>
+				<div class="stat-meter-avg" style={ fmt.Sprintf("width:%.1f%%", bar.AvgOnlyPct) }></div>
+			</div>
 		</div>
 		if sublabel != "" {
 			<div class="stat-label">{ sublabel }</div>

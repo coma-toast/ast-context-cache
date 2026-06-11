@@ -39,6 +39,7 @@ var (
 	started       sync.Once
 	inFlight     int64
 	completed    int64
+	failed       int64
 	throughput   [throughputSlots]int64
 	lastSlot     int64
 	startedAt    time.Time
@@ -52,6 +53,9 @@ var (
 	activeMu        sync.Mutex
 	activeJobs      map[string]struct{}
 	activeProjects  map[string]string
+
+	pendingMu sync.Mutex
+	pending   map[string]job
 )
 
 // Start launches worker goroutines; safe to call once.
@@ -96,7 +100,12 @@ func run(j job) {
 	if emb == nil {
 		return
 	}
-	indexer.EmbedFileSymbols(emb, j.file, j.projectPath)
+	if err := indexer.EmbedFileSymbols(emb, j.file, j.projectPath); err != nil {
+		atomic.AddInt64(&failed, 1)
+		markPending(j)
+		return
+	}
+	clearPending(j)
 	atomic.AddInt64(&completed, 1)
 	recordActivity(j.file, j.projectPath)
 
@@ -123,7 +132,12 @@ func SubmitPriority(file, projectPath string, high bool) {
 					trackJobEnd(file)
 					realtime.Notify(realtime.EmbedFinished)
 				}()
-				indexer.EmbedFileSymbols(emb, file, projectPath)
+				if err := indexer.EmbedFileSymbols(emb, file, projectPath); err != nil {
+					atomic.AddInt64(&failed, 1)
+					markPending(job{file: file, projectPath: projectPath})
+					return
+				}
+				clearPending(job{file: file, projectPath: projectPath})
 				atomic.AddInt64(&completed, 1)
 				recordActivity(file, projectPath)
 			}()
@@ -186,6 +200,7 @@ func ThroughputLast5s() int64 {
 // QueueSnapshot is queue depth and worker state for dashboards.
 type QueueSnapshot struct {
 	Queued      int
+	Pending     int
 	HighUsed    int
 	LowUsed     int
 	HighCap     int
@@ -193,6 +208,7 @@ type QueueSnapshot struct {
 	Workers     int
 	InFlight    int64
 	Completed   int64
+	Failed      int64
 	Throughput  int64
 }
 
@@ -201,6 +217,8 @@ func Snapshot() QueueSnapshot {
 	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: workers}
 	s.InFlight = atomic.LoadInt64(&inFlight)
 	s.Completed = atomic.LoadInt64(&completed)
+	s.Failed = atomic.LoadInt64(&failed)
+	s.Pending = PendingCount()
 	s.Throughput = ThroughputLast5s()
 	if highCh == nil {
 		return s
@@ -209,6 +227,48 @@ func Snapshot() QueueSnapshot {
 	s.LowUsed = len(lowCh)
 	s.Queued = s.HighUsed + s.LowUsed
 	return s
+}
+
+func jobKey(j job) string {
+	return j.file + "\x00" + j.projectPath
+}
+
+func markPending(j job) {
+	if markPendingIfNew(j) {
+		realtime.Notify(realtime.EmbedFinished)
+	}
+}
+
+func clearPending(j job) {
+	pendingMu.Lock()
+	if len(pending) > 0 {
+		delete(pending, jobKey(j))
+	}
+	pendingMu.Unlock()
+}
+
+// PendingCount is files that failed embedding and await retry.
+func PendingCount() int {
+	pendingMu.Lock()
+	defer pendingMu.Unlock()
+	return len(pending)
+}
+
+// FlushPending re-queues all pending embed jobs (e.g. after embedder recovery).
+func FlushPending() {
+	pendingMu.Lock()
+	if len(pending) == 0 {
+		pendingMu.Unlock()
+		return
+	}
+	jobs := make([]job, 0, len(pending))
+	for _, j := range pending {
+		jobs = append(jobs, j)
+	}
+	pendingMu.Unlock()
+	for _, j := range jobs {
+		SubmitPriority(j.file, j.projectPath, db.IsPinnedProject(j.projectPath))
+	}
 }
 
 // Stats returns queued jobs, active workers, total workers, completed, and throughput.

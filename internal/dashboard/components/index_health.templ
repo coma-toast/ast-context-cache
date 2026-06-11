@@ -26,6 +26,8 @@ type IndexHealth struct {
 	DocSourcesPage    int
 	DocSourcesPerPage int
 	EmbedQueued      int
+	EmbedPending     int
+	EmbedFailed      int64
 	EmbedHighQueued  int
 	EmbedLowQueued   int
 	EmbedHighCap     int
@@ -41,6 +43,8 @@ type IndexHealth struct {
 	EmbedRuntime      string
 	EmbedEndpoint     string
 	EmbedDim          int
+	EmbedderState     string
+	EmbedderError     string
 	EmbedLoaded       bool
 	EmbedRecent       []EmbedActivityItem
 	EmbedInProgress   []EmbedActivityItem

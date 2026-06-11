@@ -67,6 +67,8 @@ func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHeal
 	appendIndexDocSources(&h, docSourcesPage)
 	eq := embedqueue.Snapshot()
 	h.EmbedQueued = eq.Queued
+	h.EmbedPending = eq.Pending
+	h.EmbedFailed = eq.Failed
 	h.EmbedHighQueued = eq.HighUsed
 	h.EmbedLowQueued = eq.LowUsed
 	h.EmbedHighCap = eq.HighCap

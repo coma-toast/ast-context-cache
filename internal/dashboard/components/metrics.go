@@ -50,6 +50,13 @@ func (h IndexHealth) EmbedPanelBusy() bool {
 	return h.EmbedActive > 0 || h.EmbedQueued > 0
 }
 
+func (h IndexHealth) EmbedderErrorShort() string {
+	if len(h.EmbedderError) <= 120 {
+		return h.EmbedderError
+	}
+	return h.EmbedderError[:117] + "..."
+}
+
 func (h IndexHealth) EmbedActivityLabel(item EmbedActivityItem) string {
 	file := filepath.Base(item.File)
 	if file == "" || file == "." {
@@ -99,61 +106,87 @@ func (h IndexHealth) queueLevel() string {
 	return gaugeLevel(h.queueFillPct())
 }
 
+func (h Health) queueTotalCap() int {
+	return h.QueueHighCap + h.QueueLowCap
+}
+
+func (h Health) queueTitle() string {
+	return fmt.Sprintf("Queue %d / %d · %d workers busy (priority %d + background %d)",
+		h.QueueQueued, h.queueTotalCap(), h.QueueInFlight, h.QueueHighCap, h.QueueLowCap)
+}
+
+func (h Health) pendingTitle() string {
+	return fmt.Sprintf("Pending %d — files awaiting retry after embed failure", h.QueuePending)
+}
+
 func (h Health) queueFillPct() float64 {
-	return pct(h.QueueQueued, h.QueueHighCap+h.QueueLowCap)
+	return pct(h.QueueQueued, h.queueTotalCap())
+}
+
+func (h Health) pendingFillPct() float64 {
+	return pct(h.QueuePending, h.queueTotalCap())
 }
 
 func (h Health) queueLevel() string {
 	return gaugeLevel(h.queueFillPct())
 }
 
+func (h Health) pendingLevel() string {
+	return gaugeLevel(h.pendingFillPct())
+}
+
 func (h Health) queueMiniStyle() string {
 	return fmt.Sprintf("width:%.1f%%", h.queueFillPct())
 }
 
+func (h Health) pendingMiniStyle() string {
+	return fmt.Sprintf("width:%.1f%%", h.pendingFillPct())
+}
+
 type TodayMeterFill struct {
-	WidthPct float64 // bar width: 100 when above avg, else today/avg×100
-	AvgPct   float64 // share of bar at daily avg when above avg (avg/today×100)
-	AboveAvg bool
-	GaugePct float64 // today/avg×100 for level coloring (uncapped)
+	OverlapPct float64 // min(day, avg) as share of max(day, avg)
+	DayOnlyPct float64 // day above avg (red)
+	AvgOnlyPct float64 // avg above day (blue)
+	GaugePct   float64 // day/avg×100 (uncapped, for labels)
+}
+
+func meterFillSegments(day, avg float64) TodayMeterFill {
+	if avg <= 0 {
+		return TodayMeterFill{}
+	}
+	max := day
+	if avg > max {
+		max = avg
+	}
+	overlap := day
+	if avg < overlap {
+		overlap = avg
+	}
+	dayOnly := day - overlap
+	if dayOnly < 0 {
+		dayOnly = 0
+	}
+	avgOnly := avg - overlap
+	if avgOnly < 0 {
+		avgOnly = 0
+	}
+	return TodayMeterFill{
+		OverlapPct: overlap / max * 100,
+		DayOnlyPct: dayOnly / max * 100,
+		AvgOnlyPct: avgOnly / max * 100,
+		GaugePct:   day / avg * 100,
+	}
 }
 
 func todayMeterFill(today, total30d int) TodayMeterFill {
 	if total30d <= 0 {
 		return TodayMeterFill{}
 	}
-	dailyAvg := float64(total30d) / 30.0
-	if dailyAvg <= 0 {
-		return TodayMeterFill{}
-	}
-	ratio := float64(today) / dailyAvg
-	gaugePct := ratio * 100
-	if gaugePct > 100 {
-		return TodayMeterFill{
-			WidthPct: 100,
-			AvgPct:   dailyAvg / float64(today) * 100,
-			AboveAvg: true,
-			GaugePct: gaugePct,
-		}
-	}
-	return TodayMeterFill{WidthPct: gaugePct, GaugePct: gaugePct}
+	return meterFillSegments(float64(today), float64(total30d)/30.0)
 }
 
 func todayDurationMeterFill(today, avg float64) TodayMeterFill {
-	if avg <= 0 {
-		return TodayMeterFill{}
-	}
-	ratio := today / avg
-	gaugePct := ratio * 100
-	if gaugePct > 100 {
-		return TodayMeterFill{
-			WidthPct: 100,
-			AvgPct:   avg / today * 100,
-			AboveAvg: true,
-			GaugePct: gaugePct,
-		}
-	}
-	return TodayMeterFill{WidthPct: gaugePct, GaugePct: gaugePct}
+	return meterFillSegments(today, avg)
 }
 
 func fmtDailyAvgInt(total30d int) string {

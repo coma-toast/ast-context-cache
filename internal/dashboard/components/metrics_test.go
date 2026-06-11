@@ -7,19 +7,22 @@ import (
 
 func TestTodayMeterFill(t *testing.T) {
 	below := todayMeterFill(50, 3000) // avg 100, today 50
-	if below.AboveAvg || below.WidthPct != 50 || below.GaugePct != 50 {
+	if below.OverlapPct != 50 || below.DayOnlyPct != 0 || below.AvgOnlyPct != 50 {
 		t.Fatalf("below avg: %+v", below)
 	}
 	at := todayMeterFill(100, 3000)
-	if at.AboveAvg || at.WidthPct != 100 {
+	if at.OverlapPct != 100 || at.DayOnlyPct != 0 || at.AvgOnlyPct != 0 {
 		t.Fatalf("at avg: %+v", at)
 	}
 	above := todayMeterFill(150, 3000) // avg 100, today 150
-	if !above.AboveAvg || above.WidthPct != 100 {
-		t.Fatalf("above avg width: %+v", above)
+	if above.OverlapPct < 66.6 || above.OverlapPct > 66.7 {
+		t.Fatalf("overlap pct: got %.2f want ~66.7", above.OverlapPct)
 	}
-	if above.AvgPct < 66.6 || above.AvgPct > 66.7 {
-		t.Fatalf("avg pct: got %.2f want ~66.7", above.AvgPct)
+	if above.DayOnlyPct < 33.3 || above.DayOnlyPct > 33.4 {
+		t.Fatalf("day only pct: got %.2f want ~33.3", above.DayOnlyPct)
+	}
+	if above.AvgOnlyPct != 0 {
+		t.Fatalf("avg only pct: got %.2f want 0", above.AvgOnlyPct)
 	}
 	if above.GaugePct != 150 {
 		t.Fatalf("gauge pct: got %.0f want 150", above.GaugePct)
