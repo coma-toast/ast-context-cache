@@ -101,7 +101,7 @@ When working with codebases that have an MCP server available, **always prefer M
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
 | `import_bundle` | Import a previously exported bundle without re-indexing. |
 | `fetch_doc` | Fetch a documentation URL, store it in the local cache, and return entries (prefer over WebFetch). |
-| `add_doc_source` | Track a documentation URL for async background caching (markdown, html, json). |
+| `add_doc_source` | Track a documentation URL for async background caching (markdown, html, webpage, json). |
 | `remove_doc_source` | Remove a tracked documentation source. |
 | `update_doc_source` | Manually refresh a documentation source. |
 
@@ -207,7 +207,7 @@ remove_doc_source(id=1)
 
 **Workflow:** `search_docs` first → on miss, **`fetch_doc`** (registers + fetches in one call). Do not use WebFetch for library docs when MCP is available.
 
-Tracked sources re-fetch automatically when older than **7 days** (daily background check). Use `update_doc_source` or `fetch_doc` with `force_refresh=true` to refresh sooner. Types: `markdown`, `html`, `json`.
+Tracked sources re-fetch automatically when older than **7 days** (daily background check). Use `update_doc_source` or `fetch_doc` with `force_refresh=true` to refresh sooner. Types: `markdown`, `html`, `webpage` (JS-rendered via Playwright Firefox), `json`. On `fetch_doc`, pass `render_js=true` to store as `webpage`.
 
 ## When MCP Not Available
 

@@ -165,7 +165,9 @@ func SourceNeedsRefresh(lastUpdated string) bool {
 }
 
 // FetchAndCache registers a doc source, fetches when missing/stale/forced, and returns cached entries.
-func FetchAndCache(name, docType, docURL, version string, force bool) (id int, entries []DocEntry, refreshed bool, err error) {
+// When renderJS is true, the stored type becomes webpage so background refresh keeps using Playwright.
+func FetchAndCache(name, docType, docURL, version string, force, renderJS bool) (id int, entries []DocEntry, refreshed bool, err error) {
+	docType = NormalizeDocType(docType, renderJS)
 	id, err = AddSource(name, docType, docURL, version)
 	if err != nil {
 		return 0, nil, false, err
@@ -212,8 +214,10 @@ func fetchDocs(docURL, docType string) ([]DocEntry, error) {
 	switch docType {
 	case "markdown", "md":
 		return fetchMarkdown(parsedURL)
-	case "html", "webpage":
-		return fetchHTML(parsedURL)
+	case "html":
+		return fetchHTML(parsedURL, false)
+	case "webpage":
+		return fetchHTML(parsedURL, true)
 	case "json", "api":
 		return fetchJSONDocs(parsedURL)
 	default:
@@ -229,12 +233,34 @@ func fetchMarkdown(u *url.URL) ([]DocEntry, error) {
 	return chunkMarkdown(string(body), u.Path), nil
 }
 
-func fetchHTML(u *url.URL) ([]DocEntry, error) {
+func fetchHTML(u *url.URL, renderJS bool) ([]DocEntry, error) {
+	if renderJS {
+		body, err := fetchRenderedURL(u.String())
+		if err != nil {
+			return nil, fmt.Errorf("render fetch: %w", err)
+		}
+		return htmlEntriesFromBody(string(body), u)
+	}
 	body, err := fetchURL(u.String())
 	if err != nil {
 		return nil, err
 	}
 	entries := chunkHTML(string(body), u.Path)
+	if entriesSparse(entries) && RenderEnabled() {
+		if rendered, rerr := fetchRenderedURL(u.String()); rerr == nil {
+			if ren, rerr := htmlEntriesFromBody(string(rendered), u); rerr == nil && !entriesSparse(ren) {
+				return ren, nil
+			}
+		}
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no extractable content from %s", u.String())
+	}
+	return entries, nil
+}
+
+func htmlEntriesFromBody(body string, u *url.URL) ([]DocEntry, error) {
+	entries := chunkHTML(body, u.Path)
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("no extractable content from %s", u.String())
 	}

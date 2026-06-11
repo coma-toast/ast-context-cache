@@ -10,7 +10,39 @@ templ ResourceUtilCard(h IndexHealth) {
 			@ResourceBar("Heap", fmt.Sprintf("%.1f MB", h.MemoryMB), memoryPct(h.MemoryMB), "#bc8cff", "")
 			@ResourceBar("Vector cache", fmt.Sprintf("%.2f MB", h.VectorMemMB), memoryPct(h.VectorMemMB), "#58a6ff", "")
 			@ResourceBar("Database", h.DiskSize, diskPct(h.DiskMB), "#3fb950", "")
+			@ResourceBar("Disk read", formatDiskIO(h.DiskReadMBps), diskIOPct(h.DiskReadMBps), "#79c0ff", "Host block device read throughput")
+			@ResourceBar("Disk write", formatDiskIO(h.DiskWriteMBps), diskIOPct(h.DiskWriteMBps), "#ffa657", "Host block device write throughput")
 		</div>
+		if h.SSDAvailable {
+			<div class="ssd-health-block">
+				<div class="ssd-health-head">
+					<span class="ssd-health-title">SSD health</span>
+					<span class={ "ssd-smart-badge", ssdSmartClass(h.SSDSmartStatus) }>{ h.SSDSmartStatus }</span>
+				</div>
+				<div class="ssd-health-grid">
+					<div class="ssd-health-item">
+						<span class="ssd-health-label">Model</span>
+						<span class="ssd-health-value" title={ h.SSDModel }>{ h.SSDModelShort() }</span>
+					</div>
+					if h.SSDCapacity != "" {
+						<div class="ssd-health-item">
+							<span class="ssd-health-label">Capacity</span>
+							<span class="ssd-health-value">{ h.SSDCapacity }</span>
+						</div>
+					}
+					if h.SSDProtocol != "" {
+						<div class="ssd-health-item">
+							<span class="ssd-health-label">Protocol</span>
+							<span class="ssd-health-value">{ h.SSDProtocol }</span>
+						</div>
+					}
+					<div class="ssd-health-item">
+						<span class="ssd-health-label">TRIM</span>
+						<span class="ssd-health-value">{ h.SSDTrimLabel() }</span>
+					</div>
+				</div>
+			</div>
+		}
 		<div class="stat-label">Server-wide · relative load (soft caps for gauges)</div>
 	</div>
 }

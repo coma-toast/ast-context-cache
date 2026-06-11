@@ -86,7 +86,6 @@ func main() {
 	embedqueue.StartErrorScanLoop()
 	embedqueue.StartPendingReconciler()
 	embedder.StartConnectivityProbe(rawEmb)
-	go docs.EmbedAllSources()
 	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
 		if removed {
 			search.Cache.DeleteByFile(filePath, projectPath)
@@ -97,34 +96,6 @@ func main() {
 			embedqueue.SubmitPriority(filePath, projectPath, db.IsPinnedProject(projectPath))
 		}
 	}
-
-	restoreRows, err := db.DB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
-	if err == nil {
-		for restoreRows.Next() {
-			var pp string
-			restoreRows.Scan(&pp)
-			if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
-				go watcher.EnsureWatcher(pp)
-			}
-		}
-		restoreRows.Close()
-	}
-
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			logretention.RunOnce()
-		}
-	}()
-
-	go func() {
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			docs.UpdateAllSources()
-		}
-	}()
 
 	mcpMux := http.NewServeMux()
 	mcpMux.HandleFunc("/mcp", mcp.NewHandler())
@@ -200,7 +171,38 @@ func main() {
 		log.Fatal(http.ListenAndServe(addr, mcpMux))
 	}()
 
+	go startBackgroundServices()
+
 	addr := fmt.Sprintf(":%d", dashboardPort)
 	log.Printf("Dashboard: http://localhost%s", addr)
 	log.Fatal(http.ListenAndServe(addr, dashHandler))
+}
+
+func startBackgroundServices() {
+	go docs.EmbedAllSources()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			logretention.RunOnce()
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			docs.UpdateAllSources()
+		}
+	}()
+	restoreRows, err := db.DB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
+	if err == nil {
+		for restoreRows.Next() {
+			var pp string
+			restoreRows.Scan(&pp)
+			if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
+				go watcher.EnsureWatcher(pp)
+			}
+		}
+		restoreRows.Close()
+	}
 }

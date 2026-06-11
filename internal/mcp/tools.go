@@ -395,15 +395,16 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "fetch_doc",
-			Description: "Fetch a documentation URL, register it in the local doc cache, and return stored entries. Prefer this over WebFetch for external library/framework docs so future search_docs queries hit the cache.",
+			Description: "Fetch a documentation URL, register it in the local doc cache, and return stored entries. Prefer this over WebFetch for external library/framework docs so future search_docs queries hit the cache. Use type 'webpage' or render_js=true for JS-rendered SPAs (Playwright Firefox).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"name":           map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
-					"type":           map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'json'"},
+					"type":           map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'webpage' (JS-rendered), 'json'"},
 					"url":            map[string]string{"type": "string", "description": "URL to fetch documentation from"},
 					"version":        map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
 					"force_refresh":  map[string]string{"type": "boolean", "description": "Re-fetch from URL even if cached content is fresh (default false)"},
+					"render_js":      map[string]string{"type": "boolean", "description": "Render page with Playwright Firefox before chunking (stores as type webpage). Default false."},
 				},
 				"required": []string{"name", "type", "url"},
 			},
@@ -411,12 +412,12 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "add_doc_source",
-			Description: "Track a documentation URL for background caching (async fetch). Use fetch_doc when you need content in the same response; use this to register URLs without waiting.",
+			Description: "Track a documentation URL for background caching (async fetch). Use fetch_doc when you need content in the same response; use this to register URLs without waiting. Use type 'webpage' for JS-rendered SPAs.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"name":    map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
-					"type":    map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'json'"},
+					"type":    map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'webpage' (JS-rendered), 'json'"},
 					"url":     map[string]string{"type": "string", "description": "URL to fetch documentation from"},
 					"version": map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
 				},

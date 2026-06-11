@@ -30,6 +30,17 @@ func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHeal
 	runtime.ReadMemStats(&memStats)
 	h.MemoryMB = float64(memStats.Alloc) / (1024 * 1024)
 	h.CPUPercent = sys.ProcessCPUPercent()
+	diskIO := sys.DiskIORates()
+	h.DiskReadMBps = diskIO.ReadMBps
+	h.DiskWriteMBps = diskIO.WriteMBps
+	ssd := sys.SSDHealthInfo()
+	h.SSDAvailable = ssd.Available
+	h.SSDModel = ssd.Model
+	h.SSDSmartStatus = ssd.SmartStatus
+	h.SSDProtocol = ssd.Protocol
+	h.SSDCapacity = ssd.Capacity
+	h.SSDSolidState = ssd.SolidState
+	h.SSDTrim = ssd.TrimSupport
 
 	dbPath := db.GetDBPath()
 	if fi, err := os.Stat(dbPath); err == nil {
