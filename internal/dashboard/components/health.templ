@@ -31,6 +31,8 @@ func (h Health) EmbedderEmoji() string {
 	switch h.EmbedderState {
 	case "ready":
 		return "✅"
+	case "degraded":
+		return "⚠️"
 	case "loading":
 		return "⏳"
 	case "error":
@@ -41,7 +43,7 @@ func (h Health) EmbedderEmoji() string {
 }
 
 func (h Health) EmbedderStatus() string {
-	if h.EmbedderState == "error" {
+	if h.EmbedderState == "error" || h.EmbedderState == "degraded" {
 		return h.EmbedderErrorShort()
 	}
 	if h.EmbedderState == "idle" {
@@ -101,10 +103,14 @@ func (h Health) ActiveEmbedTitle() string {
 
 func (h Health) ActiveEmbedTitleFull() string {
 	t := h.ActiveEmbedTitle()
-	if h.EmbedderState == "error" && h.EmbedderError != "" {
+	if (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.EmbedderError != "" {
 		return t + " — " + h.EmbedderError
 	}
 	return t
+}
+
+func (h Health) ShowQueryCache() bool {
+	return h.CacheHitRatio > 0
 }
 
 func (h Health) EmbedderErrorShort() string {
@@ -115,6 +121,8 @@ func (h Health) EmbedderChipLabel() string {
 	switch h.EmbedderState {
 	case "error":
 		return "error"
+	case "degraded":
+		return "degraded"
 	case "loading":
 		return "loading"
 	case "ready":
@@ -128,6 +136,8 @@ func (h Health) EmbedderChipClass() string {
 	switch h.EmbedderState {
 	case "error":
 		return "health-status-badge error"
+	case "degraded":
+		return "health-status-badge degraded"
 	case "loading":
 		return "health-status-badge loading"
 	case "ready":
@@ -138,7 +148,7 @@ func (h Health) EmbedderChipClass() string {
 }
 
 templ HealthBar(h Health) {
-	<div class={ "health-bar", templ.KV("health-embed-error", h.EmbedderState == "error") }>
+	<div class={ "health-bar", templ.KV("health-embed-error", h.EmbedderState == "error"), templ.KV("health-embed-degraded", h.EmbedderState == "degraded") } role="status" aria-label="Server health">
 		<span class="health-item health-embed-item" title={ h.ActiveEmbedTitleFull() }>
 			<span class="health-summary">{ h.EmbedBackend }</span>
 			<span class={ h.EmbedderChipClass() }>{ h.EmbedderChipLabel() }</span>
@@ -150,8 +160,14 @@ templ HealthBar(h Health) {
 				<span class="health-mini-fill" style={ h.queueMiniStyle() }></span>
 			</span>
 			<span class="health-value">{ fmtInt(h.QueueQueued) }</span>
-			if h.QueueInFlight > 0 {
-				<span class="health-value health-busy">· { fmtInt(int(h.QueueInFlight)) } busy</span>
+		</span>
+		<span class="health-divider"></span>
+		<span class="health-item health-gauge-item" title={ h.workersTitle() }>
+			<span class="health-label">Workers</span>
+			if h.QueueWorkers > 0 {
+				@WorkerStrip(int(h.QueueInFlight), h.QueueWorkers)
+			} else {
+				<span class="health-value health-value-muted">paused</span>
 			}
 		</span>
 		<span class="health-divider"></span>
@@ -163,20 +179,25 @@ templ HealthBar(h Health) {
 			<span class="health-value">{ fmtInt(h.QueuePending) }</span>
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item health-gauge-item" title="Embedding throughput (5s window)">
+		<span class="health-item health-gauge-item health-item-secondary" title="Embedding throughput (avg/s, 5s window)">
 			<span class="health-label">Emb</span>
 			<span class="health-value">{ fmt.Sprintf("%d/s", h.QueueThroughput) }</span>
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item health-gauge-item" title="Vector cache hit ratio">
-			<span class="health-label">Cache</span>
-			<span class={ "health-mini-track", "level-" + gaugeLevel(float64(h.CachePercent())) }>
-				<span class="health-mini-fill" style={ fmt.Sprintf("width:%d%%", h.CachePercent()) }></span>
-			</span>
-			<span class="health-value">{ fmt.Sprintf("%d%%", h.CachePercent()) }</span>
+		<span class="health-item health-gauge-item health-item-secondary" title="Query cache hit ratio">
+			<span class="health-label">Query</span>
+			if h.ShowQueryCache() {
+				<span class={ "health-mini-track", "level-" + gaugeLevel(float64(h.CachePercent())) }>
+					<span class="health-mini-fill" style={ fmt.Sprintf("width:%d%%", h.CachePercent()) }></span>
+				</span>
+				<span class="health-value">{ fmt.Sprintf("%d%%", h.CachePercent()) }</span>
+			} else {
+				<span class="health-value health-value-muted">—</span>
+			}
 		</span>
-		<span class="health-divider"></span>
-		<span class="health-item" title="Uptime">
+		<span class="health-divider health-divider-secondary"></span>
+		<span class="health-item health-item-secondary" title={ "Uptime " + h.FormatUptime() }>
+			<span class="health-label">Up</span>
 			<span class="health-value">{ h.FormatUptime() }</span>
 		</span>
 		<span class="health-divider"></span>

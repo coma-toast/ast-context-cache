@@ -75,6 +75,7 @@ func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHeal
 	h.EmbedLowCap = eq.LowCap
 	h.EmbedActive = int(eq.InFlight)
 	h.EmbedWorkers = eq.Workers
+	h.EmbedWorkersLive = eq.WorkersLive
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
 	h.PinnedCount = db.PinnedProjectCount()

@@ -68,8 +68,8 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 		if len(src) > 500 {
 			src = src[:500]
 		}
+		hash := ExpectedEmbedHash(s.kind, s.name, filePath, s.startLine, s.endLine)
 		text := s.kind + " " + s.name + ": " + src
-		hash := search.ContentHash(text)
 
 		texts = append(texts, text)
 		entries = append(entries, search.VectorEntry{

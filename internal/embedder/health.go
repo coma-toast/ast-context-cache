@@ -2,6 +2,7 @@ package embedder
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,20 +10,25 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
+var probeFailed atomic.Bool
+
 const (
-	probeIntervalOK  = 10 * time.Second
-	probeIntervalErr = 5 * time.Second
+	probeIntervalOK   = 10 * time.Second
+	probeIntervalErr  = 5 * time.Second
+	recentErrorWindow = 5 * time.Minute
 )
 
 var probeTimeout = 8 * time.Second
 
 var (
-	healthMu      sync.RWMutex
-	healthState   = "idle" // idle, loading, ready, error
-	healthLastErr string
-	healthLastUse time.Time
-	onRecovery    func()
-	onError       func()
+	healthMu         sync.RWMutex
+	healthState      = "idle" // idle, loading, ready, degraded, error
+	healthLastErr    string
+	healthLastUse    time.Time
+	healthRecentErrAt time.Time
+	onRecovery       func()
+	onError          func()
+	onReady          func()
 )
 
 // SetOnRecovery registers a callback when embedder health recovers from error to ready.
@@ -33,6 +39,11 @@ func SetOnRecovery(fn func()) {
 // SetOnError registers a callback when an embedding call fails (debounced work should be used).
 func SetOnError(fn func()) {
 	onError = fn
+}
+
+// SetOnReady registers a callback after a successful embed when not recovering from error.
+func SetOnReady(fn func()) {
+	onReady = fn
 }
 
 // MarkReady sets embedder state to ready (called when the process wires an embedder).
@@ -48,19 +59,52 @@ func MarkReady() {
 	}
 }
 
-// MarkSuccess records a successful embedding call and clears any error state.
+// MarkSuccess records a successful embedding call. Recent failures within
+// recentErrorWindow leave state degraded so the dashboard does not show OK
+// while embeds are still flaky.
 func MarkSuccess() {
 	healthMu.Lock()
-	prev := healthState
-	healthState = "ready"
+	prevRaw := healthState
+	prev := effectiveStateLocked()
 	healthLastUse = time.Now()
-	healthLastErr = ""
+	if recentErrorActiveLocked() {
+		healthState = "degraded"
+	} else {
+		healthState = "ready"
+		healthLastErr = ""
+	}
+	cur := effectiveStateLocked()
 	healthMu.Unlock()
-	if prev != "ready" {
+	if prev != cur || (prevRaw == "degraded" && cur == "ready") {
 		realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
 	}
-	if prev == "error" && onRecovery != nil {
+	if (prevRaw == "error" || prevRaw == "degraded") && cur == "ready" && onRecovery != nil {
 		go onRecovery()
+	} else if cur == "ready" && onReady != nil {
+		go onReady()
+	} else if cur == "degraded" && onReady != nil {
+		go onReady()
+	}
+}
+
+// MarkProbeResult records connectivity probe outcome without overriding worker-driven error state.
+func MarkProbeResult(err error) {
+	if err != nil {
+		probeFailed.Store(true)
+		MarkError(err)
+		return
+	}
+	wasProbeFail := probeFailed.Swap(false)
+	healthMu.RLock()
+	wasError := effectiveStateLocked() == "error"
+	lastErr := healthLastErr
+	healthMu.RUnlock()
+	if wasProbeFail || (wasError && IsNetworkBackend(ActiveBackend) && isConnectivityErr(lastErr)) {
+		MarkSuccess()
+		return
+	}
+	if onReady != nil {
+		go onReady()
 	}
 }
 
@@ -72,6 +116,7 @@ func MarkError(err error) {
 	healthMu.Lock()
 	healthState = "error"
 	healthLastErr = err.Error()
+	healthRecentErrAt = time.Now()
 	healthMu.Unlock()
 	realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
 	if onError != nil {
@@ -79,11 +124,37 @@ func MarkError(err error) {
 	}
 }
 
+func recentErrorActiveLocked() bool {
+	return !healthRecentErrAt.IsZero() && time.Since(healthRecentErrAt) < recentErrorWindow
+}
+
+func effectiveStateLocked() string {
+	if healthState == "degraded" && !recentErrorActiveLocked() {
+		return "ready"
+	}
+	return healthState
+}
+
+func isConnectivityErr(msg string) bool {
+	m := strings.ToLower(msg)
+	return strings.Contains(m, "connection refused") ||
+		strings.Contains(m, "connection reset") ||
+		strings.Contains(m, "dial tcp") ||
+		strings.Contains(m, "dial http") ||
+		strings.Contains(m, "no such host") ||
+		strings.Contains(m, "connectivity probe") ||
+		strings.Contains(m, "timeout") ||
+		strings.Contains(m, "eof") ||
+		strings.Contains(m, "503") ||
+		strings.Contains(m, "502") ||
+		strings.Contains(m, "504")
+}
+
 // HealthState returns the current state and time since last successful use.
 func HealthState() (state string, lastUse time.Duration) {
 	healthMu.RLock()
 	defer healthMu.RUnlock()
-	return healthState, time.Since(healthLastUse)
+	return effectiveStateLocked(), time.Since(healthLastUse)
 }
 
 // HealthError returns the most recent embedding error message, if any.
@@ -97,7 +168,12 @@ func HealthError() string {
 func HealthSnapshot() (state string, lastUse time.Duration, lastErr string) {
 	healthMu.RLock()
 	defer healthMu.RUnlock()
-	return healthState, time.Since(healthLastUse), healthLastErr
+	state = effectiveStateLocked()
+	lastErr = healthLastErr
+	if state == "ready" {
+		lastErr = ""
+	}
+	return state, time.Since(healthLastUse), lastErr
 }
 
 var probeEpoch atomic.Uint64
@@ -136,12 +212,12 @@ func runConnectivityProbe(e Interface) {
 			return
 		}
 		if err != nil {
-			MarkError(err)
+			MarkProbeResult(err)
 		} else {
-			MarkSuccess()
+			MarkProbeResult(nil)
 		}
 	case <-time.After(probeTimeout):
 		probeEpoch.Add(1)
-		MarkError(fmt.Errorf("connectivity probe: timeout after %s", probeTimeout))
+		MarkProbeResult(fmt.Errorf("connectivity probe: timeout after %s", probeTimeout))
 	}
 }

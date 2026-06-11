@@ -76,6 +76,7 @@ func Init() error {
 
 	// Migration: add skeleton column if missing
 	DB.Exec(`ALTER TABLE symbols ADD COLUMN skeleton TEXT`)
+	DB.Exec(`ALTER TABLE symbols ADD COLUMN embed_hash TEXT`)
 	DB.Exec(`ALTER TABLE queries ADD COLUMN file_baseline_tokens INTEGER DEFAULT 0`)
 	DB.Exec(`ALTER TABLE queries ADD COLUMN full_baseline_tokens INTEGER DEFAULT 0`)
 	DB.Exec(`ALTER TABLE queries ADD COLUMN cpu_ms REAL DEFAULT 0`)
@@ -250,6 +251,16 @@ func Init() error {
 		);
 	`)
 	DB.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`)
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS embed_pending (
+			file TEXT NOT NULL,
+			project_path TEXT NOT NULL,
+			reason TEXT NOT NULL DEFAULT 'failed',
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY (file, project_path)
+		);
+		CREATE INDEX IF NOT EXISTS idx_embed_pending_project ON embed_pending(project_path);
+	`)
 
 	EnsureFTSTriggers()
 	go DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)

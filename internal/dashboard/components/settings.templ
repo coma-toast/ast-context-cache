@@ -128,7 +128,7 @@ templ Settings(data SettingsData) {
 		<div class="section-title">Embedding backend</div>
 		<div class="embed-active-banner" title={ data.EmbedActiveEndpoint }>
 			<div class="embed-active-main">
-				<span class="embed-active-label">Running</span>
+				<span class="embed-active-label">{ data.EmbedActiveStatusLabel() }</span>
 				<span class="badge badge-blue">{ data.EmbedActiveBackend }</span>
 				<span class="mono">{ data.EmbedActiveModel }</span>
 				<span class="perf-hint embed-active-meta">
@@ -141,14 +141,19 @@ templ Settings(data SettingsData) {
 				</span>
 				if data.EmbedderState == "error" {
 					<span class="badge badge-red embed-sync-badge">Connection error</span>
+				} else if data.EmbedderState == "degraded" {
+					<span class="badge badge-orange embed-sync-badge">Recent errors</span>
 				} else if data.EmbedInSync {
 					<span class="badge badge-green embed-sync-badge">In sync</span>
 				} else {
 					<span class="badge badge-orange embed-sync-badge">Restart required</span>
 				}
 			</div>
-			if data.EmbedderState == "error" && data.EmbedderError != "" {
-				<div class="embed-error-banner" title={ data.EmbedderError }>{ data.EmbedderError }</div>
+			if (data.EmbedderState == "error" || data.EmbedderState == "degraded") && data.EmbedderError != "" {
+				<div class={ "embed-error-banner", templ.KV("embed-warn-banner", data.EmbedderState == "degraded") } title={ data.EmbedderError }>
+					<strong>{ data.EmbedderErrorHeadline() }</strong>
+					<span class="embed-error-detail">{ data.EmbedderErrorShort() }</span>
+				</div>
 			}
 			if !data.EmbedInSync {
 				<div class="embed-configured-row perf-hint">

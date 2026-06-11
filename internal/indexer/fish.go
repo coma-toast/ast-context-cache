@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
@@ -21,6 +22,9 @@ func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 		return 0, 0, 0, err
 	}
 	defer tx.Rollback()
+	if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
 	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
 		return 0, 0, 0, err
 	}
@@ -88,8 +92,9 @@ func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 				funcStack = funcStack[:len(funcStack)-1]
 				code := strings.TrimSpace(lines[fs.line])
 				fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), fs.name)
-				if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-					fs.name, "function", filePath, fs.line+1, i+1, code, fqn, projectPath); err != nil {
+				embedHash := ExpectedEmbedHash("function", fs.name, filePath, fs.line+1, i+1)
+				if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					fs.name, "function", filePath, fs.line+1, i+1, code, fqn, projectPath, embedHash); err != nil {
 					return 0, 0, 0, err
 				}
 				count++
@@ -102,6 +107,7 @@ func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 	if err := tx.Commit(); err != nil {
 		return 0, 0, 0, err
 	}
+	search.Cache.DeleteByFile(filePath, projectPath)
 	notifyIndexCommitted()
 	return count, 0, 0, nil
 }

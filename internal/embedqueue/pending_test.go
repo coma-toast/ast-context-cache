@@ -8,7 +8,7 @@ func TestPendingTracksFailedJobs(t *testing.T) {
 	pendingMu.Unlock()
 	atomicStoreFailed(0)
 
-	markPending(job{file: "/tmp/a.go", projectPath: "/proj"})
+	markPendingIfNew(job{file: "/tmp/a.go", projectPath: "/proj"}, pendingReasonFailed)
 	if PendingCount() != 1 {
 		t.Fatalf("pending=%d", PendingCount())
 	}

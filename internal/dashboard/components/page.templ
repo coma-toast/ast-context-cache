@@ -1,6 +1,5 @@
 package components
 
-import "fmt"
 import "time"
 
 type Project struct {
@@ -42,7 +41,7 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 					<select class="project-select" x-model="selectedProject" @change="applyProjectFilter()">
 						<option value="">All Projects</option>
 						for _, p := range projects {
-							<option value={ p.Path }>{ p.Name }{ fmt.Sprintf(" (%d symbols)", p.SymbolCount) }</option>
+							<option value={ p.Path }>{ p.Name }</option>
 						}
 					</select>
 				</div>

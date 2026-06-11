@@ -70,19 +70,22 @@ func main() {
 	if modelDir == "" {
 		modelDir = filepath.Join(exeDir, "model")
 	}
-	emb, embedLoaded, err := embedder.NewForMain(modelDir)
+	rawEmb, embedLoaded, err := embedder.NewForMain(modelDir)
 	if err != nil {
 		log.Fatalf("embedder: %v", err)
 	}
-	emb = embedder.TrackHealth(emb)
+	emb := embedder.TrackHealth(rawEmb)
 	log.Printf("Embedder configured: backend=%s model=%s dims=%d", embedder.ActiveBackend, embedder.ActiveModel, embedder.ActiveDim)
 	mcp.SetEmbedder(emb)
 	docs.SetEmbedder(emb)
 	ctxpkg.Emb = emb
 	embedqueue.Start(emb)
 	embedder.SetOnRecovery(embedqueue.RecoverAfterEmbedder)
-	embedder.SetOnError(embedqueue.ScheduleSyncPending)
-	embedder.StartConnectivityProbe(emb)
+	embedder.SetOnReady(embedqueue.FlushPendingIfReady)
+	embedder.SetOnError(embedqueue.OnEmbedderError)
+	embedqueue.StartErrorScanLoop()
+	embedqueue.StartPendingReconciler()
+	embedder.StartConnectivityProbe(rawEmb)
 	go docs.EmbedAllSources()
 	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
 		if removed {

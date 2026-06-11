@@ -133,7 +133,7 @@ func newDockerEmbedderFromSettings(s Settings) (Interface, error) {
 		return nil, err
 	}
 	base := normalizeDMRBase(url)
-	openEmb := NewOpenAIEmbedder(base, "", model, jsonDims)
+	openEmb := NewOpenAIEmbedderWithLabel(base, "", model, jsonDims, "dmr embed")
 	ep := strings.TrimRight(base, "/") + "/embeddings"
 	SetActive("docker", model, Dimensions, "dmr", ep)
 	return openEmb, nil

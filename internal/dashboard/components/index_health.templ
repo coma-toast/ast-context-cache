@@ -34,6 +34,7 @@ type IndexHealth struct {
 	EmbedLowCap      int
 	EmbedActive      int
 	EmbedWorkers     int
+	EmbedWorkersLive int
 	EmbedComplete    int64
 	EmbedThroughput  int64
 	PinnedCount       int
@@ -161,6 +162,7 @@ templ WatcherCard(h IndexHealth) {
 						<span class={ "watcher-dot", templ.KV("active", w.Active), templ.KV("inactive", !w.Active) }></span>
 						{ w.Name }
 						<span class="watcher-actions">
+							<button type="button" class="watcher-action" title="Re-index project and queue embeddings" data-watcher-action="index" data-project-path={ w.ProjectPath }>&#x21BB;</button>
 							if w.Active {
 								<button type="button" class="watcher-action" title="Pause" data-watcher-action="stop" data-project-path={ w.ProjectPath }>&#x23F8;</button>
 							} else {
