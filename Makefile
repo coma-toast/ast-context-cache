@@ -13,8 +13,13 @@ TOKENIZER_LIB := libtokenizers.a
 GOOS   := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
 TOKENIZER_ARCH := $(GOOS)-$(GOARCH)
+# daulet/tokenizers release tarballs use x86_64, not amd64, on macOS.
+TOKENIZER_RELEASE_ARCH := $(TOKENIZER_ARCH)
+ifeq ($(TOKENIZER_ARCH),darwin-amd64)
+  TOKENIZER_RELEASE_ARCH := darwin-x86_64
+endif
 TOKENIZER_BASE := https://github.com/daulet/tokenizers/releases/latest/download
-TOKENIZER_URL  := $(TOKENIZER_BASE)/libtokenizers.$(TOKENIZER_ARCH).tar.gz
+TOKENIZER_URL  := $(TOKENIZER_BASE)/libtokenizers.$(TOKENIZER_RELEASE_ARCH).tar.gz
 
 UNAME_S := $(shell uname -s)
 
@@ -90,16 +95,50 @@ download-model:
 		echo "model files: downloaded"; \
 	fi
 
+# Native arch inside libtokenizers.a (lipo/file) vs go env GOARCH.
+tokenizer_native_arch = $(if $(filter amd64,$(GOARCH)),x86_64,$(GOARCH))
+TOKENIZER_STAMP := .libtokenizers.$(TOKENIZER_ARCH).stamp
+
 download-tokenizer-lib:
-	@if [ -f $(TOKENIZER_LIB) ]; then \
-		echo "libtokenizers.a: already exists"; \
+	@need=1; \
+	if [ -f $(TOKENIZER_LIB) ] && [ -f $(TOKENIZER_STAMP) ]; then \
+		need=0; \
+		if [ "$(UNAME_S)" = Darwin ]; then \
+			have=$$(lipo -info $(TOKENIZER_LIB) 2>/dev/null | sed -E 's/.*architecture: //'); \
+			if [ -n "$$have" ] && [ "$$have" != "$(tokenizer_native_arch)" ]; then \
+				echo "libtokenizers.a: wrong arch ($$have, want $(tokenizer_native_arch)) — re-downloading"; \
+				need=1; \
+			fi; \
+		else \
+			have=$$(file -b $(TOKENIZER_LIB)); \
+			case "$(GOARCH)" in \
+				amd64) echo "$$have" | grep -qE 'x86-64|x86_64' || need=1 ;; \
+				arm64) echo "$$have" | grep -qE 'aarch64|ARM' || need=1 ;; \
+			esac; \
+			if [ "$$need" = 1 ]; then echo "libtokenizers.a: wrong arch for $(TOKENIZER_ARCH) — re-downloading"; fi; \
+		fi; \
+	fi; \
+	if [ "$$need" = 0 ]; then \
+		echo "libtokenizers.a: already exists ($(TOKENIZER_ARCH))"; \
 	else \
-		echo "Downloading libtokenizers for $(TOKENIZER_ARCH)..."; \
-		curl -sfL -o libtokenizers.tar.gz $(TOKENIZER_URL) \
-			|| (echo "No pre-built libtokenizers for $(TOKENIZER_ARCH)."; \
-			    echo "Download manually from $(TOKENIZER_BASE)"; exit 1); \
-		tar xzf libtokenizers.tar.gz; \
+		rm -f $(TOKENIZER_LIB) $(TOKENIZER_STAMP) .libtokenizers.*.stamp libtokenizers.tar.gz; \
+		echo "Downloading libtokenizers for $(TOKENIZER_ARCH) ($(TOKENIZER_RELEASE_ARCH))..."; \
+		if ! curl -sfL -o libtokenizers.tar.gz $(TOKENIZER_URL); then \
+			echo "No pre-built libtokenizers for $(TOKENIZER_ARCH)."; \
+			echo "Download manually from $(TOKENIZER_BASE)"; \
+			exit 1; \
+		fi; \
+		if ! tar xzf libtokenizers.tar.gz; then \
+			rm -f libtokenizers.tar.gz; \
+			echo "Failed to extract libtokenizers for $(TOKENIZER_ARCH)."; \
+			exit 1; \
+		fi; \
 		rm -f libtokenizers.tar.gz; \
+		if [ ! -f $(TOKENIZER_LIB) ]; then \
+			echo "Download did not produce $(TOKENIZER_LIB)."; \
+			exit 1; \
+		fi; \
+		touch $(TOKENIZER_STAMP); \
 		echo "libtokenizers.a: downloaded"; \
 	fi
 
@@ -123,6 +162,9 @@ run: build
 
 clean:
 	rm -f $(BINARY)
+
+clean-tokenizer-lib:
+	rm -f $(TOKENIZER_LIB) libtokenizers.tar.gz .libtokenizers.*.stamp
 
 # ── Shell function install ─────────────────────────────────────────
 
