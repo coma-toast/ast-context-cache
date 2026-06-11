@@ -2,6 +2,7 @@ package embedder
 
 import (
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,10 +27,38 @@ func (s *slowEmbedder) EmbedSingle(text string) ([]float32, error) {
 	return vecs[0], nil
 }
 
+func TestProbeTimeoutIgnoredDuringRecentEmbedActivity(t *testing.T) {
+	MarkReady()
+	MarkSuccess()
+	MarkProbeResult(fmt.Errorf("connectivity probe: timeout after 8s"))
+	state, _, lastErr := HealthSnapshot()
+	if state != "ready" || lastErr != "" {
+		t.Fatalf("probe timeout during activity: state=%q err=%q", state, lastErr)
+	}
+}
+
+func TestMarkSuccessClearsProbeOnlyError(t *testing.T) {
+	MarkReady()
+	MarkError(errors.New("connectivity probe: timeout after 8s"))
+	state, _, lastErr := HealthSnapshot()
+	if state != "error" {
+		t.Fatalf("state=%q", state)
+	}
+	MarkSuccess()
+	state, _, lastErr = HealthSnapshot()
+	if state != "ready" || lastErr != "" {
+		t.Fatalf("after worker success: state=%q err=%q", state, lastErr)
+	}
+}
+
 func TestConnectivityProbeTimeoutMarksError(t *testing.T) {
 	probeTimeout = 50 * time.Millisecond
 	defer func() { probeTimeout = 8 * time.Second }()
 	MarkReady()
+	healthMu.Lock()
+	healthLastUse = time.Time{}
+	healthLastWorkerOK = time.Time{}
+	healthMu.Unlock()
 	slow := &slowEmbedder{block: 500 * time.Millisecond}
 	runConnectivityProbe(TrackHealth(slow))
 	state, _, _ := HealthSnapshot()
