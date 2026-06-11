@@ -106,9 +106,11 @@ Visit `http://localhost:7821/` to see:
 
 ## Troubleshooting
 
-### "library 'tokenizers' not found"
+### "library 'tokenizers' not found" or `Undefined symbols ... tokenizers_version`
+Usually a missing or **wrong-architecture** `libtokenizers.a` (e.g. arm64 lib on an Intel Mac). `make build` re-downloads when arch mismatches (`darwin-amd64` uses the `darwin-x86_64` release asset). To force:
 ```bash
-make download-tokenizer-lib
+make clean-tokenizer-lib download-tokenizer-lib
+make build
 ```
 
 ### Model files missing

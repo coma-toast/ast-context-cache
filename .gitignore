@@ -6,6 +6,7 @@ node_modules/
 model/
 libtokenizers.a
 libtokenizers.tar.gz
+.libtokenizers.*.stamp
 .DS_Store
 cmd/ast-mcp/dist/
 internal/dashboard/react/
