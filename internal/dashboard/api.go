@@ -1007,6 +1007,8 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 	vectorMemMB := search.Cache.MemoryMB()
 	queryCacheSize, queryCacheEntries := cache.GlobalCache.Stats()
 	cacheHitRatio := cache.GlobalCache.HitRatio()
+	diskIO := sys.DiskIORates()
+	ssd := sys.SSDHealthInfo()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"memory": map[string]float64{
@@ -1016,8 +1018,16 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 			"vector_cache_mb": vectorMemMB,
 		},
 		"cpu_percent": sys.ProcessCPUPercent(),
-		"disk": map[string]int64{
-			"db_size_bytes": diskSize,
+		"disk": map[string]interface{}{
+			"db_size_bytes":  diskSize,
+			"read_mbps":      diskIO.ReadMBps,
+			"write_mbps":     diskIO.WriteMBps,
+			"ssd_model":      ssd.Model,
+			"ssd_smart":      ssd.SmartStatus,
+			"ssd_protocol":   ssd.Protocol,
+			"ssd_capacity":   ssd.Capacity,
+			"ssd_trim":       ssd.TrimSupport,
+			"ssd_solid_state": ssd.SolidState,
 		},
 		"cache": map[string]interface{}{
 			"query_cache_size":    queryCacheSize,

@@ -452,10 +452,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		docURL, _ := toolArgs["url"].(string)
 		version, _ := toolArgs["version"].(string)
 		force, _ := toolArgs["force_refresh"].(bool)
+		renderJS, _ := toolArgs["render_js"].(bool)
 		if name == "" || docType == "" || docURL == "" {
 			result = map[string]string{"error": "name, type, and url are required"}
 		} else {
-			id, entries, refreshed, err := docs.FetchAndCache(name, docType, docURL, version, force)
+			storedType := docs.NormalizeDocType(docType, renderJS)
+			id, entries, refreshed, err := docs.FetchAndCache(name, docType, docURL, version, force, renderJS)
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
@@ -463,6 +465,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					"id":        id,
 					"name":      name,
 					"url":       docURL,
+					"type":      storedType,
+					"rendered":  storedType == "webpage",
 					"cached":    true,
 					"refreshed": refreshed,
 					"entries":   entries,

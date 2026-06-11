@@ -20,6 +20,15 @@ type IndexHealth struct {
 	DiskMB        float64
 	CPUPercent    float64
 	DiskSize      string
+	DiskReadMBps  float64
+	DiskWriteMBps float64
+	SSDModel      string
+	SSDSmartStatus string
+	SSDProtocol   string
+	SSDCapacity   string
+	SSDSolidState bool
+	SSDTrim       bool
+	SSDAvailable  bool
 	Watchers          []WatcherInfo
 	DocSources        []IndexDocSource
 	DocSourcesTotal   int

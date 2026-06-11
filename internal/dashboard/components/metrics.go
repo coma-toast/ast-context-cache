@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -473,4 +474,55 @@ func diskPct(mb float64) float64 {
 		return 100
 	}
 	return p
+}
+
+func diskIOPct(mbps float64) float64 {
+	const softMax = 200.0
+	p := mbps / softMax * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+func formatDiskIO(mbps float64) string {
+	if mbps <= 0 {
+		return "0 MB/s"
+	}
+	if mbps >= 1024 {
+		return fmt.Sprintf("%.1f GB/s", mbps/1024)
+	}
+	if mbps >= 10 {
+		return fmt.Sprintf("%.0f MB/s", mbps)
+	}
+	return fmt.Sprintf("%.1f MB/s", mbps)
+}
+
+func ssdSmartClass(status string) string {
+	s := strings.ToLower(strings.TrimSpace(status))
+	switch {
+	case strings.Contains(s, "verified"), strings.Contains(s, "ok"), strings.Contains(s, "normal"):
+		return "ssd-smart-ok"
+	case strings.Contains(s, "fail"), strings.Contains(s, "error"), strings.Contains(s, "critical"):
+		return "ssd-smart-bad"
+	default:
+		return "ssd-smart-unknown"
+	}
+}
+
+func (h IndexHealth) SSDModelShort() string {
+	if h.SSDModel == "" {
+		return "-"
+	}
+	if len(h.SSDModel) <= 28 {
+		return h.SSDModel
+	}
+	return h.SSDModel[:25] + "..."
+}
+
+func (h IndexHealth) SSDTrimLabel() string {
+	if h.SSDTrim {
+		return "Yes"
+	}
+	return "No"
 }

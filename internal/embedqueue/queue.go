@@ -79,7 +79,7 @@ func Start(e embedder.Interface) {
 		startedAt = time.Now()
 		log.Printf("embed queue: %d workers (pending=%d high=%d low=%d)", n, pendingCap, highCap, lowCap)
 		LoadPendingFromDB()
-		flushPendingIfReady()
+		go flushPendingIfReady()
 	})
 }
 
