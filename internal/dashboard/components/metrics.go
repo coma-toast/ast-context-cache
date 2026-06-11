@@ -186,6 +186,9 @@ func (h IndexHealth) ShowEmbedInSyncBadge() bool {
 }
 
 func (h IndexHealth) ShowEmbedBacklogHint() bool {
+	if h.EmbedPanelBusy() || h.EmbedThroughput > 0 {
+		return false
+	}
 	return (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.EmbedPending > 0
 }
 

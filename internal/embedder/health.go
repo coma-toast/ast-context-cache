@@ -13,9 +13,10 @@ import (
 var probeFailed atomic.Bool
 
 const (
-	probeIntervalOK   = 10 * time.Second
-	probeIntervalErr  = 5 * time.Second
-	recentErrorWindow = 5 * time.Minute
+	probeIntervalOK      = 10 * time.Second
+	probeIntervalErr     = 5 * time.Second
+	recentErrorWindow    = 5 * time.Minute
+	probeActivityGrace   = 20 * time.Second // skip probe failures while workers recently succeeded
 )
 
 var probeTimeout = 8 * time.Second
@@ -24,8 +25,9 @@ var (
 	healthMu         sync.RWMutex
 	healthState      = "idle" // idle, loading, ready, degraded, error
 	healthLastErr    string
-	healthLastUse    time.Time
-	healthRecentErrAt time.Time
+	healthLastUse       time.Time
+	healthLastWorkerOK  time.Time
+	healthRecentErrAt   time.Time
 	onRecovery       func()
 	onError          func()
 	onReady          func()
@@ -51,8 +53,11 @@ func MarkReady() {
 	healthMu.Lock()
 	prev := healthState
 	healthState = "ready"
-	healthLastUse = time.Now()
+	healthLastUse = time.Time{}
+	healthLastWorkerOK = time.Time{}
 	healthLastErr = ""
+	healthRecentErrAt = time.Time{}
+	probeFailed.Store(false)
 	healthMu.Unlock()
 	if prev != "ready" {
 		realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
@@ -66,8 +71,14 @@ func MarkSuccess() {
 	healthMu.Lock()
 	prevRaw := healthState
 	prev := effectiveStateLocked()
-	healthLastUse = time.Now()
-	if recentErrorActiveLocked() {
+	now := time.Now()
+	healthLastWorkerOK = now
+	healthLastUse = now
+	if isProbeErr(healthLastErr) {
+		healthState = "ready"
+		healthLastErr = ""
+		healthRecentErrAt = time.Time{}
+	} else if recentErrorActiveLocked() {
 		healthState = "degraded"
 	} else {
 		healthState = "ready"
@@ -90,6 +101,12 @@ func MarkSuccess() {
 // MarkProbeResult records connectivity probe outcome without overriding worker-driven error state.
 func MarkProbeResult(err error) {
 	if err != nil {
+		healthMu.RLock()
+		active := recentEmbedActivityLocked()
+		healthMu.RUnlock()
+		if active {
+			return
+		}
 		probeFailed.Store(true)
 		MarkError(err)
 		return
@@ -126,6 +143,14 @@ func MarkError(err error) {
 
 func recentErrorActiveLocked() bool {
 	return !healthRecentErrAt.IsZero() && time.Since(healthRecentErrAt) < recentErrorWindow
+}
+
+func recentEmbedActivityLocked() bool {
+	return !healthLastWorkerOK.IsZero() && time.Since(healthLastWorkerOK) < probeActivityGrace
+}
+
+func isProbeErr(msg string) bool {
+	return strings.Contains(strings.ToLower(msg), "connectivity probe")
 }
 
 func effectiveStateLocked() string {
@@ -218,6 +243,12 @@ func runConnectivityProbe(e Interface) {
 		}
 	case <-time.After(probeTimeout):
 		probeEpoch.Add(1)
+		healthMu.RLock()
+		active := recentEmbedActivityLocked()
+		healthMu.RUnlock()
+		if active {
+			return
+		}
 		MarkProbeResult(fmt.Errorf("connectivity probe: timeout after %s", probeTimeout))
 	}
 }
