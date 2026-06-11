@@ -30,16 +30,16 @@ func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) 
 	log.Printf("Finished embedding all symbols for %s (%d files)", projectPath, len(files))
 }
 
-func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) {
+func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) error {
 	if ShouldSkipEmbed(filePath) {
-		return
+		return nil
 	}
 	rows, err := db.DB.Query(
 		"SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?",
 		filePath, projectPath)
 	if err != nil {
 		log.Printf("embed: query symbols for %s: %v", filePath, err)
-		return
+		return err
 	}
 	defer rows.Close()
 
@@ -56,7 +56,7 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) {
 	}
 
 	if len(symbols) == 0 {
-		return
+		return nil
 	}
 
 	fileCache := map[string][]string{}
@@ -68,8 +68,8 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) {
 		if len(src) > 500 {
 			src = src[:500]
 		}
+		hash := ExpectedEmbedHash(s.kind, s.name, filePath, s.startLine, s.endLine)
 		text := s.kind + " " + s.name + ": " + src
-		hash := search.ContentHash(text)
 
 		texts = append(texts, text)
 		entries = append(entries, search.VectorEntry{
@@ -86,7 +86,7 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) {
 	embeddings, err := emb.Embed(texts)
 	if err != nil {
 		log.Printf("embed: generate embeddings for %s: %v", filePath, err)
-		return
+		return err
 	}
 
 	for i := range entries {
@@ -95,8 +95,9 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) {
 
 	if err := search.Cache.Upsert(entries); err != nil {
 		log.Printf("embed: upsert vectors for %s: %v", filePath, err)
-		return
+		return err
 	}
 
 	log.Printf("Embedded %d symbols from %s", len(entries), filePath)
+	return nil
 }

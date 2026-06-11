@@ -70,15 +70,22 @@ func main() {
 	if modelDir == "" {
 		modelDir = filepath.Join(exeDir, "model")
 	}
-	emb, embedLoaded, err := embedder.NewForMain(modelDir)
+	rawEmb, embedLoaded, err := embedder.NewForMain(modelDir)
 	if err != nil {
 		log.Fatalf("embedder: %v", err)
 	}
+	emb := embedder.TrackHealth(rawEmb)
 	log.Printf("Embedder configured: backend=%s model=%s dims=%d", embedder.ActiveBackend, embedder.ActiveModel, embedder.ActiveDim)
 	mcp.SetEmbedder(emb)
 	docs.SetEmbedder(emb)
 	ctxpkg.Emb = emb
 	embedqueue.Start(emb)
+	embedder.SetOnRecovery(embedqueue.RecoverAfterEmbedder)
+	embedder.SetOnReady(embedqueue.FlushPendingIfReady)
+	embedder.SetOnError(embedqueue.OnEmbedderError)
+	embedqueue.StartErrorScanLoop()
+	embedqueue.StartPendingReconciler()
+	embedder.StartConnectivityProbe(rawEmb)
 	go docs.EmbedAllSources()
 	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
 		if removed {
@@ -123,13 +130,20 @@ func main() {
 	mcpMux.HandleFunc("/mcp", mcp.NewHandler())
 	mcpMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		embedState, _, embedErr := embedder.HealthSnapshot()
+		status := "healthy"
+		if embedState == "error" {
+			status = "degraded"
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":      "healthy",
-			"service":     "ast-context-cache",
-			"version":     version.Version,
-			"embedder":    embedLoaded(),
-			"embed_mode":  embedder.ActiveBackend,
-			"embed_model": embedder.ActiveModel,
+			"status":         status,
+			"service":        "ast-context-cache",
+			"version":        version.Version,
+			"embedder":       embedLoaded(),
+			"embed_state":    embedState,
+			"embed_error":    embedErr,
+			"embed_mode":     embedder.ActiveBackend,
+			"embed_model":    embedder.ActiveModel,
 		})
 	})
 	mcpMux.HandleFunc("/embed", func(w http.ResponseWriter, r *http.Request) {
@@ -155,8 +169,15 @@ func main() {
 	})
 	mcpMux.HandleFunc("/embed/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		embedState, _, embedErr := embedder.HealthSnapshot()
+		status := "ok"
+		if embedState == "error" {
+			status = "error"
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":     "ok",
+			"status":     status,
+			"state":      embedState,
+			"error":      embedErr,
 			"model":      embedder.ActiveModel,
 			"dimensions": embedder.ActiveDim,
 			"loaded":     embedLoaded(),

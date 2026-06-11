@@ -20,6 +20,7 @@ type OpenAIEmbedder struct {
 	apiKey         string
 	model          string
 	jsonDimensions int // if > 0, include "dimensions" in request JSON; 0 = omit
+	errLabel       string
 	client         *http.Client
 }
 
@@ -27,15 +28,25 @@ type OpenAIEmbedder struct {
 // https://litellm.example.com/v1 (trailing slashes trimmed). jsonDimensions: 0 omits the
 // dimensions field; >0 sends it (e.g. 768 for text-embedding-3-small).
 func NewOpenAIEmbedder(baseURL, apiKey, model string, jsonDimensions int) *OpenAIEmbedder {
+	return NewOpenAIEmbedderWithLabel(baseURL, apiKey, model, jsonDimensions, "openai embed")
+}
+
+// NewOpenAIEmbedderWithLabel is like NewOpenAIEmbedder but uses label in error messages (e.g. "dmr embed" for Docker Model Runner).
+func NewOpenAIEmbedderWithLabel(baseURL, apiKey, model string, jsonDimensions int, label string) *OpenAIEmbedder {
 	b := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if b == "" {
 		b = "https://api.openai.com/v1"
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "openai embed"
 	}
 	return &OpenAIEmbedder{
 		embeddingsURL:  b + "/embeddings",
 		apiKey:         strings.TrimSpace(apiKey),
 		model:          strings.TrimSpace(model),
 		jsonDimensions: jsonDimensions,
+		errLabel:       label,
 		client:         &http.Client{Timeout: 120 * time.Second},
 	}
 }
@@ -95,7 +106,7 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	}
 	resp, err := o.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("openai embed: %w", err)
+		return nil, fmt.Errorf("%s: %w", o.errLabel, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
@@ -103,14 +114,14 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("openai embed %s: %s", resp.Status, truncateForErr(raw, 200))
+		return nil, fmt.Errorf("%s %s: %s", o.errLabel, resp.Status, truncateForErr(raw, 200))
 	}
 	var apiOut openAIEmbedAPIResponse
 	if err := json.Unmarshal(raw, &apiOut); err != nil {
-		return nil, fmt.Errorf("openai embed response json: %w", err)
+		return nil, fmt.Errorf("%s response json: %w", o.errLabel, err)
 	}
 	if len(apiOut.Data) != len(texts) {
-		return nil, fmt.Errorf("openai embed: got %d data rows for %d inputs", len(apiOut.Data), len(texts))
+		return nil, fmt.Errorf("%s: got %d data rows for %d inputs", o.errLabel, len(apiOut.Data), len(texts))
 	}
 	sort.Slice(apiOut.Data, func(i, j int) bool { return apiOut.Data[i].Index < apiOut.Data[j].Index })
 	vecs := make([][]float32, len(apiOut.Data))
@@ -133,7 +144,7 @@ func (o *OpenAIEmbedder) EmbedSingle(text string) ([]float32, error) {
 		return nil, err
 	}
 	if len(vecs) == 0 {
-		return nil, fmt.Errorf("openai embed: empty result")
+		return nil, fmt.Errorf("%s: empty result", o.errLabel)
 	}
 	return vecs[0], nil
 }

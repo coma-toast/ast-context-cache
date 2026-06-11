@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 const plaintextMaxBytes = 2 << 20 // 2 MiB per file for FTS
@@ -35,6 +36,9 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 		return 0, 0, 0, err
 	}
 	defer tx.Rollback()
+	if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
 	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
 		return 0, 0, 0, err
 	}
@@ -52,8 +56,9 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 	fqn := fmt.Sprintf("%s#plaintext", filePath)
 	fullTokens = db.EstimateTokens(text)
 	skeletonTokens = db.EstimateTokens(first)
-	_, err = tx.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		name, "plaintext", filePath, 1, nLines, text, fqn, projectPath, first)
+	embedHash := ExpectedEmbedHash("plaintext", name, filePath, 1, nLines)
+	_, err = tx.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		name, "plaintext", filePath, 1, nLines, text, fqn, projectPath, first, embedHash)
 	if err != nil {
 		return 0, fullTokens, skeletonTokens, err
 	}
@@ -63,6 +68,7 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 	if err := tx.Commit(); err != nil {
 		return 0, fullTokens, skeletonTokens, err
 	}
+	search.Cache.DeleteByFile(filePath, projectPath)
 	notifyIndexCommitted()
 	return 1, fullTokens, skeletonTokens, nil
 }

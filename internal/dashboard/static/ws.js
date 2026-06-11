@@ -63,6 +63,9 @@ document.addEventListener('alpine:init', () => {
                         mountSettingsContent(target);
                     }
                     window.dispatchEvent(new CustomEvent('dashboard-ws-partial'));
+                    if (targetSel === '#index-health' || targetSel === '#health-bar') {
+                        onWorkerPartialUpdated();
+                    }
                 }
             }
         } catch (e) {
@@ -296,6 +299,7 @@ async function watcherApiAction(action, projectPath, targetSel) {
     const endpoints = {
         start: '/api/start-watcher',
         stop: '/api/stop-watcher',
+        index: '/api/index-project',
         delete: '/api/delete-watcher',
     };
     const url = endpoints[action];
@@ -632,9 +636,201 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     if (e.detail.target?.id === 'settings-content' || e.detail.target?.id === 'index-health') {
         mountHTMXContent(e.detail.target);
     }
+    if (e.detail.target?.id === 'index-health') {
+        onWorkerPartialUpdated();
+    }
 });
 
+window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
+
+const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 10, perRow: 5 };
+
+function syncWorkerStateFromDOM() {
+    const el = document.querySelector('.worker-controls[data-embed-workers]');
+    if (!el) return false;
+    workerUIState.server.total = parseInt(el.dataset.embedWorkers, 10) || 0;
+    workerUIState.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
+    workerUIState.server.active = parseInt(el.dataset.embedActive, 10) || 0;
+    workerUIState.min = parseInt(el.dataset.workerMin, 10) || 0;
+    workerUIState.max = parseInt(el.dataset.workerMax, 10) || 10;
+    workerUIState.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
+    if (workerUIState.target !== null && workerUIState.server.total === workerUIState.target) {
+        workerUIState.target = null;
+    }
+    return true;
+}
+
+function getWorkerRenderPlan() {
+    const target = workerUIState.target ?? workerUIState.server.total;
+    const serverTotal = workerUIState.server.total;
+    const serverLive = workerUIState.server.live;
+    const active = workerUIState.server.active;
+    const visible = Math.min(workerUIState.max, Math.max(target, serverLive));
+    return { target, serverTotal, serverLive, active, visible, perRow: workerUIState.perRow };
+}
+
+function workerPillClass(index, plan) {
+    const busy = index < plan.active;
+    if (index >= plan.target && index < plan.serverLive) {
+        return busy ? 'worker-pill draining draining-busy' : 'worker-pill draining';
+    }
+    if (index >= plan.serverTotal && index < plan.target) {
+        if (index < plan.serverLive) {
+            return busy ? 'worker-pill busy' : 'worker-pill idle';
+        }
+        return 'worker-pill pending';
+    }
+    return busy ? 'worker-pill busy' : 'worker-pill idle';
+}
+
+function buildWorkerStrip(plan) {
+    const strip = document.createElement('div');
+    strip.className = 'worker-strip';
+    if (plan.visible > plan.perRow) {
+        strip.classList.add('worker-strip-split');
+    }
+    const busyLabel = `${Math.min(plan.active, plan.target)} of ${plan.target} workers busy`;
+    strip.title = busyLabel;
+    strip.setAttribute('role', 'img');
+    strip.setAttribute('aria-label', busyLabel);
+    for (let i = 0; i < plan.visible; i++) {
+        const pill = document.createElement('span');
+        pill.className = workerPillClass(i, plan);
+        strip.appendChild(pill);
+    }
+    return strip;
+}
+
+function workerControlsTitle(plan) {
+    if (plan.target === 0) {
+        return 'Workers paused — click + to resume';
+    }
+    const pending = Math.max(0, plan.target - plan.serverTotal);
+    const draining = Math.max(0, plan.serverLive - plan.target);
+    if (draining > 0 || pending > 0) {
+        return `Workers: ${plan.target} target · ${plan.active} busy` +
+            (draining ? ` · ${draining} draining` : '') +
+            (pending ? ` · ${pending} starting` : '');
+    }
+    return `Workers: ${plan.active} of ${plan.target} busy`;
+}
+
+function renderWorkerUI() {
+    const el = document.querySelector('.worker-controls[data-embed-workers]');
+    if (!el) return;
+    const plan = getWorkerRenderPlan();
+    el.classList.toggle('worker-controls-paused', plan.target === 0);
+    el.title = workerControlsTitle(plan);
+    const label = el.querySelector('.worker-count-label');
+    if (label) label.textContent = String(plan.target);
+    const oldStrip = el.querySelector('.worker-strip');
+    const newStrip = buildWorkerStrip(plan);
+    if (oldStrip) {
+        oldStrip.replaceWith(newStrip);
+    } else {
+        const col = el.querySelector('.worker-step-col');
+        if (col) col.insertAdjacentElement('afterend', newStrip);
+    }
+    const minus = el.querySelector('[data-worker-delta="-1"]');
+    const plus = el.querySelector('[data-worker-delta="1"]');
+    if (minus) minus.disabled = plan.target <= workerUIState.min;
+    if (plus) plus.disabled = plan.target >= workerUIState.max;
+    const row = el.closest('.worker-metric-row');
+    const status = row?.querySelector('.metric-row-value');
+    if (status) {
+        status.textContent = plan.target === 0 ? 'paused' : `${plan.active} active`;
+    }
+    updateNavbarWorkers(plan);
+}
+
+function updateNavbarWorkers(plan) {
+    if (!plan) plan = getWorkerRenderPlan();
+    const items = document.querySelectorAll('.health-item');
+    for (const item of items) {
+        const lab = item.querySelector('.health-label');
+        if (!lab || lab.textContent.trim() !== 'Workers') continue;
+        let paused = item.querySelector('.health-value-muted');
+        const oldStrip = item.querySelector('.worker-strip');
+        if (plan.target === 0) {
+            if (oldStrip) oldStrip.remove();
+            if (!paused) {
+                paused = document.createElement('span');
+                paused.className = 'health-value health-value-muted';
+                paused.textContent = 'paused';
+                item.appendChild(paused);
+            }
+            item.title = 'Workers paused (0) — use + on embeddings card to resume';
+            continue;
+        }
+        if (paused) paused.remove();
+        const newStrip = buildWorkerStrip(plan);
+        if (oldStrip) {
+            oldStrip.replaceWith(newStrip);
+        } else {
+            item.appendChild(newStrip);
+        }
+        item.title = workerControlsTitle(plan);
+    }
+}
+
+function applyWorkerDelta(delta) {
+    if (!syncWorkerStateFromDOM()) return;
+    const cur = workerUIState.target ?? workerUIState.server.total;
+    const next = cur + delta;
+    if (next < workerUIState.min || next > workerUIState.max) return;
+    workerUIState.target = next;
+    renderWorkerUI();
+}
+
+function onWorkerPartialUpdated() {
+    if (syncWorkerStateFromDOM()) {
+        renderWorkerUI();
+    }
+}
+
+async function refreshIndexHealthPartial() {
+    const target = document.querySelector('#index-health');
+    if (!target) return;
+    const projectSelect = document.querySelector('.project-select');
+    let url = '/partials/index-health';
+    if (projectSelect && projectSelect.value) {
+        url += '?project_id=' + encodeURIComponent(projectSelect.value);
+    }
+    const r = await fetch(url);
+    if (r.ok) {
+        target.innerHTML = await r.text();
+        mountHTMXContent(target);
+        onWorkerPartialUpdated();
+    }
+}
+
+async function adjustEmbedWorkers(delta) {
+    if (!Number.isFinite(delta) || delta === 0) return null;
+    const r = await fetch('/api/embed-workers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.error) {
+        console.error('embed workers:', data.error || r.status);
+        workerUIState.target = null;
+        onWorkerPartialUpdated();
+        return null;
+    }
+    return data.workers;
+}
+
 document.body.addEventListener('click', (e) => {
+    const workerBtn = e.target.closest('.worker-step-btn');
+    if (workerBtn && !workerBtn.disabled) {
+        e.preventDefault();
+        const delta = parseInt(workerBtn.dataset.workerDelta, 10);
+        if (!Number.isFinite(delta) || delta === 0) return;
+        applyWorkerDelta(delta);
+        adjustEmbedWorkers(delta);
+        return;
+    }
     const pagerBtn = e.target.closest('.doc-sources-pager-btn');
     if (pagerBtn && !pagerBtn.disabled) {
         e.preventDefault();

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/search"
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/bash"
 	"github.com/smacker/go-tree-sitter/golang"
@@ -416,6 +417,9 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 		return 0, 0, 0, err
 	}
 	defer tx.Rollback()
+	if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
+		return 0, 0, 0, err
+	}
 	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
 		return 0, 0, 0, err
 	}
@@ -434,6 +438,7 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 		if err := tx.Commit(); err != nil {
 			return 0, 0, 0, err
 		}
+		search.Cache.DeleteByFile(filePath, projectPath)
 		notifyIndexCommitted()
 		return n, fullT, skelT, nil
 	}
@@ -464,8 +469,9 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 			skeleton = ExtractSkeleton(src, lang, sym.Kind)
 			skeletonTokens += db.EstimateTokens(skeleton)
 		}
-		_, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton)
+		embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
+		_, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash)
 		if err == nil {
 			count++
 		}
@@ -476,6 +482,7 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	if err := tx.Commit(); err != nil {
 		return 0, 0, 0, err
 	}
+	search.Cache.DeleteByFile(filePath, projectPath)
 	db.InvalidateSummariesForFile(filePath, projectPath)
 	notifyIndexCommitted()
 	return count, fullTokens, skeletonTokens, nil

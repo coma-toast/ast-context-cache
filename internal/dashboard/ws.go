@@ -141,6 +141,7 @@ func renderIndexHealth() string {
 
 func renderHealthBar() string {
 	state, lastUse := mcp.EmbedderState()
+	embedErr := mcp.EmbedderError()
 	eq := embedqueue.Snapshot()
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -148,10 +149,12 @@ func renderHealthBar() string {
 	cacheHit := cache.GlobalCache.HitRatio()
 	h := components.Health{
 		EmbedderState:    state,
+		EmbedderError:    embedErr,
 		EmbedderLast:    lastUse,
 		QueueWorkers:    eq.Workers,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
+		QueuePending:    eq.Pending,
 		QueueInFlight:   eq.InFlight,
 		QueueHighCap:    eq.HighCap,
 		QueueLowCap:     eq.LowCap,

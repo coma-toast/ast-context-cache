@@ -17,6 +17,32 @@ func pct(used, cap int) float64 {
 	return p
 }
 
+func (d SettingsData) EmbedActiveStatusLabel() string {
+	switch d.EmbedderState {
+	case "error":
+		return "Unavailable"
+	case "degraded":
+		return "Degraded"
+	default:
+		return "Running"
+	}
+}
+
+func (d SettingsData) EmbedderErrorShort() string {
+	return truncateEmbedLabel(d.EmbedderError, 120)
+}
+
+func (d SettingsData) EmbedderErrorHeadline() string {
+	switch d.EmbedderState {
+	case "error":
+		return "Embedder unreachable"
+	case "degraded":
+		return "Recent embed errors"
+	default:
+		return ""
+	}
+}
+
 func gaugeLevel(p float64) string {
 	switch {
 	case p >= 85:
@@ -37,6 +63,13 @@ func ringStyle(used, cap int) string {
 	return fmt.Sprintf("--ring-pct:%.2f;--ring-level:%s", pct(used, cap), level)
 }
 
+func cpuGaugePct(p float64) float64 {
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
 func throughputStyle(rate int64) string {
 	const max = 80
 	p := float64(rate) / max * 100
@@ -48,6 +81,20 @@ func throughputStyle(rate int64) string {
 
 func (h IndexHealth) EmbedPanelBusy() bool {
 	return h.EmbedActive > 0 || h.EmbedQueued > 0
+}
+
+func (h IndexHealth) EmbedWorkersStatus() string {
+	if h.EmbedWorkers == 0 {
+		return "paused"
+	}
+	return fmt.Sprintf("%d active", h.EmbedActive)
+}
+
+func (h IndexHealth) EmbedderErrorShort() string {
+	if len(h.EmbedderError) <= 120 {
+		return h.EmbedderError
+	}
+	return h.EmbedderError[:117] + "..."
 }
 
 func (h IndexHealth) EmbedActivityLabel(item EmbedActivityItem) string {
@@ -87,73 +134,169 @@ func (h IndexHealth) EmbedRecentPreview() []EmbedActivityItem {
 	return h.EmbedRecent[:max]
 }
 
+const (
+	MinEmbedWorkers   = 0
+	MaxEmbedWorkers   = 10
+	WorkerStripPerRow = 5
+)
+
+func WorkerControlsTitle(active, total int) string {
+	if total == 0 {
+		return "Workers paused — click + to resume"
+	}
+	return fmt.Sprintf("Workers: %d of %d busy", active, total)
+}
+
+func pendingRingCap(pending int) int {
+	cap := 128
+	for cap < pending && cap < 2048 {
+		cap *= 2
+	}
+	if cap < 1 {
+		return 1
+	}
+	return cap
+}
+
+func (h IndexHealth) pendingRingCap() int {
+	return pendingRingCap(h.EmbedPending)
+}
+
+func (h IndexHealth) queueRingCap() int {
+	return h.queueTotalCap()
+}
+
 func (h IndexHealth) queueTotalCap() int {
 	return h.EmbedHighCap + h.EmbedLowCap
 }
 
+func (h IndexHealth) EmbedderErrorHeadline() string {
+	switch h.EmbedderState {
+	case "error":
+		return "Embedder unreachable"
+	case "degraded":
+		return "Recent embed errors"
+	default:
+		return ""
+	}
+}
+
+func (h IndexHealth) ShowEmbedInSyncBadge() bool {
+	return h.EmbedInSync && h.EmbedderState != "error" && h.EmbedderState != "degraded"
+}
+
+func (h IndexHealth) ShowEmbedBacklogHint() bool {
+	return (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.EmbedPending > 0
+}
+
 func (h IndexHealth) queueFillPct() float64 {
-	return pct(h.EmbedQueued, h.queueTotalCap())
+	return pct(h.EmbedQueued, h.queueRingCap())
+}
+
+func (h IndexHealth) pendingFillPct() float64 {
+	return pct(h.EmbedPending, h.pendingRingCap())
 }
 
 func (h IndexHealth) queueLevel() string {
 	return gaugeLevel(h.queueFillPct())
 }
 
+func (h Health) queueTotalCap() int {
+	return h.QueueHighCap + h.QueueLowCap
+}
+
+func (h Health) queueTitle() string {
+	return fmt.Sprintf("Queue %d / %d (priority %d + background %d)",
+		h.QueueQueued, h.queueTotalCap(), h.QueueHighCap, h.QueueLowCap)
+}
+
+func (h Health) workersTitle() string {
+	if h.QueueWorkers == 0 {
+		return "Workers paused (0) — use + on embeddings card to resume"
+	}
+	return fmt.Sprintf("Workers: %d of %d busy", h.QueueInFlight, h.QueueWorkers)
+}
+
+func (h Health) pendingTitle() string {
+	msg := fmt.Sprintf("Pending %d — files awaiting retry after embed failure", h.QueuePending)
+	if (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.QueuePending > 0 {
+		msg += " · backlog will drain when embedder is healthy"
+	}
+	return msg
+}
+
+func (h Health) pendingRingCap() int {
+	return pendingRingCap(h.QueuePending)
+}
+
 func (h Health) queueFillPct() float64 {
-	return pct(h.QueueQueued, h.QueueHighCap+h.QueueLowCap)
+	return pct(h.QueueQueued, h.queueTotalCap())
+}
+
+func (h Health) pendingFillPct() float64 {
+	return pct(h.QueuePending, h.pendingRingCap())
 }
 
 func (h Health) queueLevel() string {
 	return gaugeLevel(h.queueFillPct())
 }
 
+func (h Health) pendingLevel() string {
+	return gaugeLevel(h.pendingFillPct())
+}
+
 func (h Health) queueMiniStyle() string {
 	return fmt.Sprintf("width:%.1f%%", h.queueFillPct())
 }
 
+func (h Health) pendingMiniStyle() string {
+	return fmt.Sprintf("width:%.1f%%", h.pendingFillPct())
+}
+
 type TodayMeterFill struct {
-	WidthPct float64 // bar width: 100 when above avg, else today/avg×100
-	AvgPct   float64 // share of bar at daily avg when above avg (avg/today×100)
-	AboveAvg bool
-	GaugePct float64 // today/avg×100 for level coloring (uncapped)
+	OverlapPct float64 // min(day, avg) as share of max(day, avg)
+	DayOnlyPct float64 // day above avg (red)
+	AvgOnlyPct float64 // avg above day (blue)
+	GaugePct   float64 // day/avg×100 (uncapped, for labels)
+}
+
+func meterFillSegments(day, avg float64) TodayMeterFill {
+	if avg <= 0 {
+		return TodayMeterFill{}
+	}
+	max := day
+	if avg > max {
+		max = avg
+	}
+	overlap := day
+	if avg < overlap {
+		overlap = avg
+	}
+	dayOnly := day - overlap
+	if dayOnly < 0 {
+		dayOnly = 0
+	}
+	avgOnly := avg - overlap
+	if avgOnly < 0 {
+		avgOnly = 0
+	}
+	return TodayMeterFill{
+		OverlapPct: overlap / max * 100,
+		DayOnlyPct: dayOnly / max * 100,
+		AvgOnlyPct: avgOnly / max * 100,
+		GaugePct:   day / avg * 100,
+	}
 }
 
 func todayMeterFill(today, total30d int) TodayMeterFill {
 	if total30d <= 0 {
 		return TodayMeterFill{}
 	}
-	dailyAvg := float64(total30d) / 30.0
-	if dailyAvg <= 0 {
-		return TodayMeterFill{}
-	}
-	ratio := float64(today) / dailyAvg
-	gaugePct := ratio * 100
-	if gaugePct > 100 {
-		return TodayMeterFill{
-			WidthPct: 100,
-			AvgPct:   dailyAvg / float64(today) * 100,
-			AboveAvg: true,
-			GaugePct: gaugePct,
-		}
-	}
-	return TodayMeterFill{WidthPct: gaugePct, GaugePct: gaugePct}
+	return meterFillSegments(float64(today), float64(total30d)/30.0)
 }
 
 func todayDurationMeterFill(today, avg float64) TodayMeterFill {
-	if avg <= 0 {
-		return TodayMeterFill{}
-	}
-	ratio := today / avg
-	gaugePct := ratio * 100
-	if gaugePct > 100 {
-		return TodayMeterFill{
-			WidthPct: 100,
-			AvgPct:   avg / today * 100,
-			AboveAvg: true,
-			GaugePct: gaugePct,
-		}
-	}
-	return TodayMeterFill{WidthPct: gaugePct, GaugePct: gaugePct}
+	return meterFillSegments(today, avg)
 }
 
 func fmtDailyAvgInt(total30d int) string {

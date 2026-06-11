@@ -21,15 +21,12 @@ import (
 )
 
 var emb embedder.Interface
-var embLastUse time.Time
-var embState = "idle" // idle, loading, ready, error
 var srvCfg = DefaultConfig()
 
 func SetEmbedder(e embedder.Interface) {
 	emb = e
 	docs.SetEmbedder(e)
-	embState = "ready"
-	embLastUse = time.Now()
+	embedder.MarkReady()
 }
 
 func GetEmbedder() embedder.Interface {
@@ -37,12 +34,15 @@ func GetEmbedder() embedder.Interface {
 }
 
 func EmbedderState() (state string, lastUse time.Duration) {
-	return embState, time.Since(embLastUse)
+	return embedder.HealthState()
+}
+
+func EmbedderError() string {
+	return embedder.HealthError()
 }
 
 func RecordEmbed() {
-	embLastUse = time.Now()
-	embState = "ready"
+	embedder.MarkSuccess()
 }
 
 func SetConfig(cfg ServerConfig) {

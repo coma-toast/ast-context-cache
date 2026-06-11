@@ -15,10 +15,10 @@ import (
 
 // ring buffer for throughput (last 5 seconds, 10 slots @ 500ms)
 const (
-	workers       = 3
-	highCap       = 128
-	lowCap        = 2048
-	throughputSlots = 10
+	pendingCap       = 128
+	highCap          = 128
+	lowCap           = 2048
+	throughputSlots  = 10
 	throughputWindow = 500 * time.Millisecond
 )
 
@@ -34,11 +34,13 @@ type ActivityEntry struct {
 
 var (
 	emb           embedder.Interface
+	pendingCh     chan job
 	highCh        chan job
 	lowCh         chan job
 	started       sync.Once
 	inFlight     int64
 	completed    int64
+	failed       int64
 	throughput   [throughputSlots]int64
 	lastSlot     int64
 	startedAt    time.Time
@@ -52,29 +54,55 @@ var (
 	activeMu        sync.Mutex
 	activeJobs      map[string]struct{}
 	activeProjects  map[string]string
+
+	pendingMu        sync.Mutex
+	pending          map[string]job
+	pendingChQueued  map[string]struct{}
+	drainMu          sync.Mutex
 )
 
 // Start launches worker goroutines; safe to call once.
 func Start(e embedder.Interface) {
 	started.Do(func() {
 		emb = e
+		pendingCh = make(chan job, pendingCap)
 		highCh = make(chan job, highCap)
 		lowCh = make(chan job, lowCap)
-		for i := 0; i < workers; i++ {
+		workerStop = make(chan struct{}, MaxWorkers)
+		workerMu.Lock()
+		workerCount = loadWorkerCount()
+		n := workerCount
+		workerMu.Unlock()
+		for i := 0; i < n; i++ {
 			go worker()
 		}
 		startedAt = time.Now()
-		log.Printf("embed queue: %d workers (high=%d low=%d)", workers, highCap, lowCap)
+		log.Printf("embed queue: %d workers (pending=%d high=%d low=%d)", n, pendingCap, highCap, lowCap)
+		LoadPendingFromDB()
+		flushPendingIfReady()
 	})
 }
 
 func worker() {
+	workerLive.Add(1)
+	defer workerLive.Add(-1)
 	for {
 		select {
-		case j := <-highCh:
+		case <-workerStop:
+			return
+		default:
+		}
+		select {
+		case <-workerStop:
+			return
+		case j := <-pendingCh:
 			run(j)
 		default:
 			select {
+			case <-workerStop:
+				return
+			case j := <-pendingCh:
+				run(j)
 			case j := <-highCh:
 				run(j)
 			case j := <-lowCh:
@@ -89,6 +117,7 @@ func run(j job) {
 	trackJobStart(j.file, j.projectPath)
 	realtime.Notify(realtime.EmbedFinished)
 	defer func() {
+		unmarkPendingChQueued(j)
 		trackJobEnd(j.file)
 		atomic.AddInt64(&inFlight, -1)
 		realtime.Notify(realtime.EmbedFinished)
@@ -96,14 +125,17 @@ func run(j job) {
 	if emb == nil {
 		return
 	}
-	indexer.EmbedFileSymbols(emb, j.file, j.projectPath)
+	if err := indexer.EmbedFileSymbols(emb, j.file, j.projectPath); err != nil {
+		atomic.AddInt64(&failed, 1)
+		markPending(j)
+		return
+	}
+	clearPending(j)
 	atomic.AddInt64(&completed, 1)
 	recordActivity(j.file, j.projectPath)
 
-	slot := int(time.Since(startedAt) / throughputWindow)
-	if slot >= 0 && slot < throughputSlots {
-		atomic.AddInt64(&throughput[slot%throughputSlots], 1)
-	}
+	slot := int(time.Since(startedAt)/throughputWindow) % throughputSlots
+	atomic.AddInt64(&throughput[slot], 1)
 }
 
 // Submit enqueues a low-priority embed for one file.
@@ -123,7 +155,12 @@ func SubmitPriority(file, projectPath string, high bool) {
 					trackJobEnd(file)
 					realtime.Notify(realtime.EmbedFinished)
 				}()
-				indexer.EmbedFileSymbols(emb, file, projectPath)
+				if err := indexer.EmbedFileSymbols(emb, file, projectPath); err != nil {
+					atomic.AddInt64(&failed, 1)
+					markPending(job{file: file, projectPath: projectPath})
+					return
+				}
+				clearPending(job{file: file, projectPath: projectPath})
 				atomic.AddInt64(&completed, 1)
 				recordActivity(file, projectPath)
 			}()
@@ -131,6 +168,12 @@ func SubmitPriority(file, projectPath string, high bool) {
 		return
 	}
 	j := job{file: file, projectPath: projectPath}
+	if state, _ := embedder.HealthState(); state == "error" {
+		if markPendingIfNew(j, pendingReasonDrained) {
+			realtime.Notify(realtime.EmbedFinished)
+		}
+		return
+	}
 	if high {
 		select {
 		case highCh <- j:
@@ -166,7 +209,7 @@ func EnqueueAllSymbolsFiles(projectPath string) {
 	}
 }
 
-// ThroughputLast5s returns embeddings processed in last 5 seconds.
+// ThroughputLast5s returns average embeddings per second over the last 5 seconds.
 func ThroughputLast5s() int64 {
 	if startedAt.IsZero() {
 		return 0
@@ -174,33 +217,35 @@ func ThroughputLast5s() int64 {
 	var total int64
 	currentSlot := int(time.Since(startedAt) / throughputWindow)
 	for i := 0; i < throughputSlots; i++ {
-		slot := currentSlot - i
-		if slot < 0 {
-			slot += throughputSlots
-		}
-		total += atomic.LoadInt64(&throughput[slot%throughputSlots])
+		idx := (currentSlot - i + throughputSlots*1024) % throughputSlots
+		total += atomic.LoadInt64(&throughput[idx])
 	}
-	return total
+	return total / int64(throughputSlots/2)
 }
 
 // QueueSnapshot is queue depth and worker state for dashboards.
 type QueueSnapshot struct {
 	Queued      int
+	Pending     int
 	HighUsed    int
 	LowUsed     int
 	HighCap     int
 	LowCap      int
 	Workers     int
+	WorkersLive int
 	InFlight    int64
 	Completed   int64
+	Failed      int64
 	Throughput  int64
 }
 
 // Snapshot returns current queue and worker metrics.
 func Snapshot() QueueSnapshot {
-	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: workers}
+	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: WorkerCount(), WorkersLive: WorkerLive()}
 	s.InFlight = atomic.LoadInt64(&inFlight)
 	s.Completed = atomic.LoadInt64(&completed)
+	s.Failed = atomic.LoadInt64(&failed)
+	s.Pending = PendingCount()
 	s.Throughput = ThroughputLast5s()
 	if highCh == nil {
 		return s
@@ -209,6 +254,125 @@ func Snapshot() QueueSnapshot {
 	s.LowUsed = len(lowCh)
 	s.Queued = s.HighUsed + s.LowUsed
 	return s
+}
+
+func jobKey(j job) string {
+	return j.file + "\x00" + j.projectPath
+}
+
+func markPending(j job) {
+	if markPendingIfNew(j, pendingReasonFailed) {
+		realtime.Notify(realtime.EmbedFinished)
+		flushPendingIfReady()
+	}
+}
+
+func clearPending(j job) {
+	pendingMu.Lock()
+	if len(pending) > 0 {
+		delete(pending, jobKey(j))
+	}
+	pendingMu.Unlock()
+	clearPendingDB(j)
+	realtime.Notify(realtime.EmbedFinished)
+}
+
+// PendingCount is files that failed embedding and await retry.
+func PendingCount() int {
+	pendingMu.Lock()
+	defer pendingMu.Unlock()
+	return len(pending)
+}
+
+func enqueuePendingRetry(j job) bool {
+	k := jobKey(j)
+	pendingMu.Lock()
+	if pending == nil {
+		pendingMu.Unlock()
+		return false
+	}
+	if _, ok := pending[k]; !ok {
+		pendingMu.Unlock()
+		return false
+	}
+	if pendingChQueued == nil {
+		pendingChQueued = map[string]struct{}{}
+	}
+	if _, ok := pendingChQueued[k]; ok {
+		pendingMu.Unlock()
+		return false
+	}
+	pendingChQueued[k] = struct{}{}
+	pendingMu.Unlock()
+	if pendingCh == nil {
+		unmarkPendingChQueued(j)
+		return false
+	}
+	pendingCh <- j
+	realtime.Notify(realtime.EmbedFinished)
+	return true
+}
+
+func unmarkPendingChQueued(j job) {
+	pendingMu.Lock()
+	delete(pendingChQueued, jobKey(j))
+	pendingMu.Unlock()
+}
+
+func drainCh(ch chan job, reason string, clearPendingQueued bool) int {
+	if ch == nil {
+		return 0
+	}
+	n := 0
+	for {
+		select {
+		case j := <-ch:
+			if clearPendingQueued {
+				unmarkPendingChQueued(j)
+			}
+			markPendingIfNew(j, reason)
+			n++
+		default:
+			return n
+		}
+	}
+}
+
+// DrainQueueToPending moves all queued embed jobs into pending when the embedder is down.
+func DrainQueueToPending() int {
+	drainMu.Lock()
+	defer drainMu.Unlock()
+	n := drainCh(pendingCh, pendingReasonDrained, true)
+	n += drainCh(highCh, pendingReasonDrained, false)
+	n += drainCh(lowCh, pendingReasonDrained, false)
+	return n
+}
+
+// OnEmbedderError drains in-flight queue work into pending so the dashboard reflects backlog.
+func OnEmbedderError() {
+	if n := DrainQueueToPending(); n > 0 {
+		log.Printf("embedqueue: drained %d queued jobs to pending", n)
+		realtime.Notify(realtime.EmbedFinished)
+	}
+}
+
+// FlushPending re-queues all pending embed jobs (e.g. after embedder recovery).
+func FlushPending() {
+	pendingMu.Lock()
+	if len(pending) == 0 {
+		pendingMu.Unlock()
+		return
+	}
+	jobs := make([]job, 0, len(pending))
+	for _, j := range pending {
+		jobs = append(jobs, j)
+	}
+	pendingMu.Unlock()
+	s := Snapshot()
+	log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+	for _, j := range jobs {
+		enqueuePendingRetry(j)
+	}
 }
 
 // Stats returns queued jobs, active workers, total workers, completed, and throughput.

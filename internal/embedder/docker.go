@@ -28,7 +28,7 @@ func newDockerEmbedder() (Interface, func() bool, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	openEmb := NewOpenAIEmbedder(base, "", model, jsonDims)
+	openEmb := NewOpenAIEmbedderWithLabel(base, "", model, jsonDims, "dmr embed")
 	ep := strings.TrimRight(base, "/") + "/embeddings"
 	SetActive("docker", model, Dimensions, "dmr", ep)
 	return openEmb, func() bool { return true }, nil

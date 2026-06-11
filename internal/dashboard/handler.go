@@ -60,6 +60,7 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 
 	state, lastUse := mcp.EmbedderState()
+	embedErr := mcp.EmbedderError()
 
 	eq := embedqueue.Snapshot()
 
@@ -71,10 +72,12 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 
 	h := components.Health{
 		EmbedderState:    state,
+		EmbedderError:    embedErr,
 		EmbedderLast:    lastUse,
 		QueueWorkers:   eq.Workers,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
+		QueuePending:    eq.Pending,
 		QueueInFlight:   eq.InFlight,
 		QueueHighCap:    eq.HighCap,
 		QueueLowCap:     eq.LowCap,

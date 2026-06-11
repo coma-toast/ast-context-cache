@@ -6,19 +6,19 @@ templ ResourceUtilCard(h IndexHealth) {
 	<div class="card metric-card resource-util-card">
 		<div class="card-title">Server utilization</div>
 		<div class="resource-util-rows">
-			@ResourceBar("CPU", fmt.Sprintf("%.0f%%", h.CPUPercent), h.CPUPercent, "#f0883e")
-			@ResourceBar("Heap", fmt.Sprintf("%.1f MB", h.MemoryMB), memoryPct(h.MemoryMB), "#bc8cff")
-			@ResourceBar("Vector cache", fmt.Sprintf("%.2f MB", h.VectorMemMB), memoryPct(h.VectorMemMB), "#58a6ff")
-			@ResourceBar("Database", h.DiskSize, diskPct(h.DiskMB), "#3fb950")
+			@ResourceBar("CPU", fmt.Sprintf("%.0f%%", h.CPUPercent), cpuGaugePct(h.CPUPercent), "#f0883e", "Process CPU — can exceed 100% on multi-core")
+			@ResourceBar("Heap", fmt.Sprintf("%.1f MB", h.MemoryMB), memoryPct(h.MemoryMB), "#bc8cff", "")
+			@ResourceBar("Vector cache", fmt.Sprintf("%.2f MB", h.VectorMemMB), memoryPct(h.VectorMemMB), "#58a6ff", "")
+			@ResourceBar("Database", h.DiskSize, diskPct(h.DiskMB), "#3fb950", "")
 		</div>
 		<div class="stat-label">Server-wide · relative load (soft caps for gauges)</div>
 	</div>
 }
 
-templ ResourceBar(label string, value string, fillPct float64, color string) {
+templ ResourceBar(label string, value string, fillPct float64, color string, hint string) {
 	<div class="resource-bar">
 		<div class="resource-bar-head">
-			<span class="resource-bar-label">{ label }</span>
+			<span class="resource-bar-label" title={ hint }>{ label }</span>
 			<span class="resource-bar-value">{ value }</span>
 		</div>
 		<div class="channel-bar-track">
@@ -49,7 +49,7 @@ templ ChannelBar(label string, used int, cap int, color string) {
 }
 
 templ WorkerStrip(active int, total int) {
-	<div class="worker-strip" title={ fmt.Sprintf("%d of %d workers busy", active, total) }>
+	<div class={ "worker-strip", templ.KV("worker-strip-split", total > WorkerStripPerRow) } title={ fmt.Sprintf("%d of %d workers busy", active, total) } role="img" aria-label={ fmt.Sprintf("%d of %d workers busy", active, total) }>
 		for i := 0; i < total; i++ {
 			if i < active {
 				<span class="worker-pill busy"></span>
@@ -60,6 +60,34 @@ templ WorkerStrip(active int, total int) {
 	</div>
 }
 
+templ WorkerControls(active int, total int, live int) {
+	<div
+		class={ "worker-controls", templ.KV("worker-controls-paused", total == 0) }
+		data-embed-workers={ fmtInt(total) }
+		data-embed-workers-live={ fmtInt(live) }
+		data-embed-active={ fmtInt(active) }
+		data-worker-min={ fmtInt(MinEmbedWorkers) }
+		data-worker-max={ fmtInt(MaxEmbedWorkers) }
+		data-worker-per-row={ fmtInt(WorkerStripPerRow) }
+		title={ WorkerControlsTitle(active, total) }
+	>
+		<div class="worker-step-col">
+			if total <= MinEmbedWorkers {
+				<button type="button" class="worker-step-btn" disabled aria-label="Decrease workers" data-worker-delta="-1">−</button>
+			} else {
+				<button type="button" class="worker-step-btn" aria-label="Decrease workers" data-worker-delta="-1">−</button>
+			}
+			if total >= MaxEmbedWorkers {
+				<button type="button" class="worker-step-btn" disabled aria-label="Increase workers" data-worker-delta="1">+</button>
+			} else {
+				<button type="button" class="worker-step-btn" aria-label="Increase workers" data-worker-delta="1">+</button>
+			}
+		</div>
+		@WorkerStrip(active, total)
+		<span class="worker-count-label">{ fmtInt(total) }</span>
+	</div>
+}
+
 templ EmbedPanel(h IndexHealth) {
 	<div class="card metric-card embed-panel">
 		<div class="card-title">Embeddings</div>
@@ -67,12 +95,16 @@ templ EmbedPanel(h IndexHealth) {
 			<span class="embed-active-label">Active</span>
 			<span class="badge badge-blue">{ h.EmbedBackend }</span>
 			<span class="mono embed-active-model">{ h.ActiveEmbedModelShort() }</span>
-			if h.EmbedInSync {
+			if h.ShowEmbedInSyncBadge() {
 				<span class="badge badge-green embed-sync-badge">in sync</span>
-			} else {
+			} else if !h.EmbedInSync {
 				<span class="badge badge-orange embed-sync-badge" title={ fmt.Sprintf("Configured: %s · %s — restart ast-mcp", h.EmbedConfiguredBackend, h.EmbedConfiguredModel) }>restart needed</span>
 			}
-			if h.EmbedPanelBusy() {
+			if h.EmbedderState == "error" {
+				<span class="embed-active-pill error" title={ h.EmbedderError }>error</span>
+			} else if h.EmbedderState == "degraded" {
+				<span class="embed-active-pill degraded" title={ h.EmbedderError }>degraded</span>
+			} else if h.EmbedPanelBusy() {
 				<span class="embed-active-pill loaded">active</span>
 			} else if h.EmbedLoaded {
 				<span class="embed-active-pill loaded">ready</span>
@@ -80,15 +112,27 @@ templ EmbedPanel(h IndexHealth) {
 				<span class="embed-active-pill">idle</span>
 			}
 		</div>
+		if (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.EmbedderError != "" {
+			<div class={ "embed-error-banner", templ.KV("embed-warn-banner", h.EmbedderState == "degraded") } title={ h.EmbedderError }>
+				<strong>{ h.EmbedderErrorHeadline() }</strong>
+				<span class="embed-error-detail">{ h.EmbedderErrorShort() }</span>
+			</div>
+		}
+		if h.ShowEmbedBacklogHint() {
+			<div class="embed-backlog-hint">Backlog — will retry when embedder recovers</div>
+		}
 		<div class="metric-split">
-			@RingGauge(fmtInt(h.EmbedQueued), "queued", h.EmbedQueued, h.queueTotalCap())
+			<div class="embed-ring-stack">
+				@RingGauge(fmtInt(h.EmbedQueued), "queued", h.EmbedQueued, h.queueRingCap())
+				@RingGauge(fmtInt(h.EmbedPending), "pending", h.EmbedPending, h.pendingRingCap())
+			</div>
 			<div class="metric-stack">
 				@ChannelBar("Priority", h.EmbedHighQueued, h.EmbedHighCap, "#58a6ff")
 				@ChannelBar("Background", h.EmbedLowQueued, h.EmbedLowCap, "#bc8cff")
-				<div class="metric-row">
+				<div class="metric-row worker-metric-row">
 					<span class="metric-row-label">Workers</span>
-					@WorkerStrip(h.EmbedActive, h.EmbedWorkers)
-					<span class="metric-row-value">{ fmt.Sprintf("%d active", h.EmbedActive) }</span>
+					@WorkerControls(h.EmbedActive, h.EmbedWorkers, h.EmbedWorkersLive)
+					<span class="metric-row-value">{ h.EmbedWorkersStatus() }</span>
 				</div>
 				<div class="metric-row">
 					<span class="metric-row-label">Throughput</span>
@@ -120,15 +164,15 @@ templ EmbedPanel(h IndexHealth) {
 			</div>
 		}
 		<div class="embed-panel-stats">
-			<div class="embed-stat">
+			<div class="embed-stat" title="Code vectors stored in the index (all projects)">
 				<div class="embed-stat-value stat-accent">{ fmtInt(h.TotalVectors) }</div>
 				<div class="embed-stat-label">Vectors cached</div>
 			</div>
-			<div class="embed-stat">
+			<div class="embed-stat" title="Files completed by the embed queue since server start">
 				<div class="embed-stat-value stat-purple">{ fmtInt64(h.EmbedComplete) }</div>
 				<div class="embed-stat-label">Total embedded</div>
 			</div>
-			<div class="embed-stat">
+			<div class="embed-stat" title="Pinned projects get priority embedding">
 				<div class="embed-stat-value stat-green">{ fmtInt(h.PinnedCount) }</div>
 				<div class="embed-stat-label">Pinned</div>
 			</div>
@@ -141,14 +185,11 @@ templ StatMeter(title string, value string, sublabel string, bar TodayMeterFill,
 		<div class="card-title">{ title }</div>
 		<div class={ "stat-value", valueClass }>{ value }</div>
 		<div class="stat-meter-track">
-			if bar.AboveAvg {
-				<div class="stat-meter-stack">
-					<div class={ "stat-meter-over", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", bar.AvgPct) }></div>
-					<div class={ "stat-meter-bright", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", 100-bar.AvgPct) }></div>
-				</div>
-			} else {
-				<div class={ "stat-meter-fill", "level-" + gaugeLevel(bar.GaugePct) } style={ fmt.Sprintf("width:%.1f%%", bar.WidthPct) }></div>
-			}
+			<div class="stat-meter-stack">
+				<div class="stat-meter-overlap" style={ fmt.Sprintf("width:%.1f%%", bar.OverlapPct) }></div>
+				<div class="stat-meter-day" style={ fmt.Sprintf("width:%.1f%%", bar.DayOnlyPct) }></div>
+				<div class="stat-meter-avg" style={ fmt.Sprintf("width:%.1f%%", bar.AvgOnlyPct) }></div>
+			</div>
 		</div>
 		if sublabel != "" {
 			<div class="stat-label">{ sublabel }</div>

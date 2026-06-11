@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -43,6 +46,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/reset-project", handleResetProject)
 	mux.HandleFunc("/api/stop-watcher", handleStopWatcher)
 	mux.HandleFunc("/api/start-watcher", handleStartWatcher)
+	mux.HandleFunc("/api/index-project", handleIndexProject)
 	mux.HandleFunc("/api/delete-watcher", handleDeleteWatcher)
 	mux.HandleFunc("/api/timeseries", handleTimeseries)
 	mux.HandleFunc("/api/index-stats", handleIndexStats)
@@ -57,6 +61,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
+	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
 	mux.HandleFunc("/api/agent-install", handleAgentInstall)
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
@@ -511,6 +516,60 @@ func handlePinProject(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "pinned": req.Pinned})
 }
 
+func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error) {
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		var req struct {
+			Delta int  `json:"delta"`
+			Count *int `json:"count"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return 0, nil, err
+		}
+		return req.Delta, req.Count, nil
+	}
+	if err := r.ParseForm(); err != nil {
+		return 0, nil, err
+	}
+	if c := r.FormValue("count"); c != "" {
+		n, err := strconv.Atoi(c)
+		if err != nil {
+			return 0, nil, fmt.Errorf("count: %w", err)
+		}
+		return 0, &n, nil
+	}
+	delta, _ = strconv.Atoi(r.FormValue("delta"))
+	return delta, nil, nil
+}
+
+func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	delta, count, err := parseEmbedWorkersRequest(r)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	var n int
+	if count != nil {
+		n, err = embedqueue.SetWorkerCount(*count)
+	} else if delta != 0 {
+		n, err = embedqueue.AdjustWorkers(delta)
+	} else {
+		n = embedqueue.WorkerCount()
+	}
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	realtime.Notify(realtime.IndexHealth | realtime.HealthBar)
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "workers": n})
+}
+
 func handleSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == "POST" {
@@ -869,6 +928,37 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 	if projectPath != "" {
 		watcher.EnsureWatcher(projectPath)
 	}
+	respondHTMXPartial(w, r)
+}
+
+func handleIndexProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	projectPath := parseProjectPathFromRequest(r)
+	if projectPath == "" {
+		http.Error(w, "project_path required", http.StatusBadRequest)
+		return
+	}
+	if info, err := os.Stat(projectPath); err != nil {
+		http.Error(w, "path not found: "+err.Error(), http.StatusBadRequest)
+		return
+	} else if !info.IsDir() {
+		http.Error(w, "project_path must be a directory", http.StatusBadRequest)
+		return
+	}
+	n, err := indexer.IndexDirectory(projectPath, projectPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	watcher.EnsureWatcher(projectPath)
+	if mcp.GetEmbedder() != nil {
+		go embedqueue.EnqueueAllSymbolsFiles(projectPath)
+	}
+	realtime.Notify(realtime.IndexCommitted | realtime.IndexHealth)
+	w.Header().Set("X-Indexed-Symbols", strconv.Itoa(n))
 	respondHTMXPartial(w, r)
 }
 

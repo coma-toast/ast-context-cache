@@ -64,8 +64,9 @@ func indexYAMLTree(exec db.Execer, root *sitter.Node, content []byte, lines []st
 			skeleton = ExtractSkeleton(src, "yaml", sym.Kind)
 			skeletonTokens += db.EstimateTokens(skeleton)
 		}
-		_, err := exec.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			sym.Name, sym.Kind, filePath, sym.StartLine, sym.EndLine, code, fqn, projectPath, skeleton)
+		embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, sym.StartLine, sym.EndLine)
+		_, err := exec.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			sym.Name, sym.Kind, filePath, sym.StartLine, sym.EndLine, code, fqn, projectPath, skeleton, embedHash)
 		if err == nil {
 			count++
 		}

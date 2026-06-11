@@ -415,6 +415,60 @@ func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
 	vc.entries = vc.entries[:n]
 }
 
+// PurgeOrphanCodeVectors removes code vectors whose symbol_id no longer exists.
+func PurgeOrphanCodeVectors() int {
+	if db.DB == nil {
+		return 0
+	}
+	res, err := db.DB.Exec(`
+		DELETE FROM vectors
+		WHERE COALESCE(doc_type, 'code') = 'code'
+		  AND symbol_id > 0
+		  AND symbol_id NOT IN (SELECT id FROM symbols)`)
+	if err != nil {
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		Cache.purgeOrphansFromMemory()
+	}
+	return int(n)
+}
+
+func (vc *VectorCache) purgeOrphansFromMemory() {
+	rows, err := db.DB.Query(`SELECT id FROM symbols`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	valid := map[int64]struct{}{}
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			valid[id] = struct{}{}
+		}
+	}
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
+	out := vc.entries[:0]
+	for _, e := range vc.entries {
+		if e.DocType != "" && e.DocType != "code" {
+			out = append(out, e)
+			continue
+		}
+		if e.SymbolID > 0 {
+			if _, ok := valid[e.SymbolID]; !ok {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	vc.entries = out
+}
+
 func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
 	db.DB.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
 

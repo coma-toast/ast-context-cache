@@ -12,7 +12,9 @@ func applyActiveEmbedder(h *components.IndexHealth) {
 	h.EmbedRecent = embedActivityItems(embedqueue.RecentActivity())
 	h.EmbedInProgress = embedActivityItems(embedqueue.CurrentJobs())
 	state, _ := mcp.EmbedderState()
-	h.EmbedLoaded = state == "ready" || embedder.IsNetworkBackend(h.EmbedBackend) || h.EmbedActive > 0 || h.EmbedQueued > 0
+	h.EmbedderState = state
+	h.EmbedderError = mcp.EmbedderError()
+	h.EmbedLoaded = state == "ready"
 	applyEmbedAlignmentToIndexHealth(h)
 }
 
@@ -30,6 +32,8 @@ func embedActivityItems(in []embedqueue.ActivityEntry) []components.EmbedActivit
 func applyActiveEmbedderSettings(data *components.SettingsData) {
 	data.EmbedActiveBackend, data.EmbedActiveModel, data.EmbedActiveRuntime, data.EmbedActiveEndpoint, data.EmbedActiveDim = embedder.ActiveSnapshot()
 	state, _ := mcp.EmbedderState()
+	data.EmbedderState = state
+	data.EmbedderError = mcp.EmbedderError()
 	data.EmbedActiveLoaded = state == "ready"
 	applyEmbedAlignmentToSettings(data)
 }

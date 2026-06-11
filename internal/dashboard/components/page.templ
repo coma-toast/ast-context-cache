@@ -1,6 +1,5 @@
 package components
 
-import "fmt"
 import "time"
 
 type Project struct {
@@ -42,13 +41,13 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 					<select class="project-select" x-model="selectedProject" @change="applyProjectFilter()">
 						<option value="">All Projects</option>
 						for _, p := range projects {
-							<option value={ p.Path }>{ p.Name }{ fmt.Sprintf(" (%d symbols)", p.SymbolCount) }</option>
+							<option value={ p.Path }>{ p.Name }</option>
 						}
 					</select>
 				</div>
 			</header>
 
-			<div class="section-title">Query activity <span class="section-hint">Today · full bar = today when above avg; shaded to daily avg, bright above</span></div>
+			<div class="section-title">Query activity <span class="section-hint">Today vs 30d daily avg · dark purple = overlap (blue ∩ red), red = day only, blue = avg only</span></div>
 			<div id="stats-cards">
 				<div class="grid grid-4">
 					<div class="card"><div class="card-title">Queries</div><div class="stat-value stat-accent">-</div></div>
