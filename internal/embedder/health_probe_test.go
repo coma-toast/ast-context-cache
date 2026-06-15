@@ -52,15 +52,15 @@ func TestMarkSuccessClearsProbeOnlyError(t *testing.T) {
 }
 
 func TestConnectivityProbeTimeoutMarksError(t *testing.T) {
-	probeTimeout = 50 * time.Millisecond
-	defer func() { probeTimeout = 8 * time.Second }()
 	MarkReady()
 	healthMu.Lock()
 	healthLastUse = time.Time{}
 	healthLastWorkerOK = time.Time{}
 	healthMu.Unlock()
 	slow := &slowEmbedder{block: 500 * time.Millisecond}
-	runConnectivityProbe(TrackHealth(slow))
+	if runConnectivityProbe(TrackHealth(slow), 50*time.Millisecond) != probeFail {
+		t.Fatalf("want probeFail")
+	}
 	state, _, _ := HealthSnapshot()
 	if state != "error" {
 		t.Fatalf("state=%q want error", state)
@@ -71,5 +71,25 @@ func TestConnectivityProbeTimeoutMarksError(t *testing.T) {
 	}
 	if state, _, _ := HealthSnapshot(); state != "error" {
 		t.Fatalf("state after stale completion=%q want error", state)
+	}
+}
+
+func TestProbeErrorBackoff(t *testing.T) {
+	cases := []struct {
+		streak uint32
+		want   time.Duration
+	}{
+		{0, 0},
+		{1, 0},
+		{2, 5 * time.Second},
+		{3, 10 * time.Second},
+		{6, 25 * time.Second},
+		{7, 30 * time.Second},
+		{20, 30 * time.Second},
+	}
+	for _, tc := range cases {
+		if got := probeErrorBackoff(tc.streak); got != tc.want {
+			t.Fatalf("probeErrorBackoff(%d)=%s want %s", tc.streak, got, tc.want)
+		}
 	}
 }
