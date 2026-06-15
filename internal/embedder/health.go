@@ -13,13 +13,21 @@ import (
 var probeFailed atomic.Bool
 
 const (
-	probeIntervalOK      = 10 * time.Second
-	probeIntervalErr     = 30 * time.Second
-	recentErrorWindow    = 5 * time.Minute
-	probeActivityGrace   = 20 * time.Second // skip probe failures while workers recently succeeded
+	probeIntervalOK       = 10 * time.Second
+	probeBaseTimeout      = 8 * time.Second
+	probeMaxErrInterval   = 30 * time.Second
+	probeBackoffStep      = 5 * time.Second
+	recentErrorWindow     = 5 * time.Minute
+	probeActivityGrace    = 20 * time.Second // skip probe failures while workers recently succeeded
 )
 
-var probeTimeout = 8 * time.Second
+type probeResult int
+
+const (
+	probeOK probeResult = iota
+	probeFail
+	probeSkipped
+)
 
 var (
 	healthMu         sync.RWMutex
@@ -203,6 +211,18 @@ func HealthSnapshot() (state string, lastUse time.Duration, lastErr string) {
 
 var probeEpoch atomic.Uint64
 
+// probeErrorBackoff returns wait time before the next probe after the immediate 2x-timeout retry fails.
+func probeErrorBackoff(streak uint32) time.Duration {
+	if streak < 2 {
+		return 0
+	}
+	d := time.Duration(streak-1) * probeBackoffStep
+	if d > probeMaxErrInterval {
+		return probeMaxErrInterval
+	}
+	return d
+}
+
 // StartConnectivityProbe periodically probes network embed backends so a broken
 // connection surfaces in the dashboard even when no indexing is in flight.
 func StartConnectivityProbe(e Interface) {
@@ -210,18 +230,35 @@ func StartConnectivityProbe(e Interface) {
 		return
 	}
 	go func() {
+		var streak uint32
 		for {
-			runConnectivityProbe(e)
-			interval := probeIntervalOK
-			if state, _, _ := HealthSnapshot(); state == "error" {
-				interval = probeIntervalErr
+			timeout := probeBaseTimeout
+			if streak == 1 {
+				timeout = probeBaseTimeout * 2
 			}
-			time.Sleep(interval)
+			switch runConnectivityProbe(e, timeout) {
+			case probeOK:
+				streak = 0
+				time.Sleep(probeIntervalOK)
+				continue
+			case probeSkipped:
+				if state, _, _ := HealthSnapshot(); state != "error" {
+					streak = 0
+				}
+				time.Sleep(probeIntervalOK)
+				continue
+			case probeFail:
+				streak++
+				if streak == 1 {
+					continue
+				}
+				time.Sleep(probeErrorBackoff(streak))
+			}
 		}
 	}()
 }
 
-func runConnectivityProbe(e Interface) {
+func runConnectivityProbe(e Interface, timeout time.Duration) probeResult {
 	epoch := probeEpoch.Add(1)
 	ch := make(chan error, 1)
 	go func() {
@@ -234,21 +271,29 @@ func runConnectivityProbe(e Interface) {
 	select {
 	case err := <-ch:
 		if probeEpoch.Load() != epoch {
-			return
+			return probeSkipped
 		}
 		if err != nil {
+			healthMu.RLock()
+			active := recentEmbedActivityLocked()
+			healthMu.RUnlock()
+			if active {
+				return probeSkipped
+			}
 			MarkProbeResult(err)
-		} else {
-			MarkProbeResult(nil)
+			return probeFail
 		}
-	case <-time.After(probeTimeout):
+		MarkProbeResult(nil)
+		return probeOK
+	case <-time.After(timeout):
 		probeEpoch.Add(1)
 		healthMu.RLock()
 		active := recentEmbedActivityLocked()
 		healthMu.RUnlock()
 		if active {
-			return
+			return probeSkipped
 		}
-		MarkProbeResult(fmt.Errorf("connectivity probe: timeout after %s", probeTimeout))
+		MarkProbeResult(fmt.Errorf("connectivity probe: timeout after %s", timeout))
+		return probeFail
 	}
 }
