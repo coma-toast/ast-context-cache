@@ -105,7 +105,7 @@ func SnapshotForSettings(s Settings) (backend, model, runtime, endpoint string, 
 
 // AlignmentStatus compares ActiveSnapshot with effective configured settings.
 func AlignmentStatus() Alignment {
-	ab, am, _, _, _ := ActiveSnapshot()
+	ab, am, _, _, _ := WiredSnapshot()
 	cb, cm, _, _, _ := ConfiguredSnapshot()
 	return Alignment{
 		InSync:            embedSnapshotsMatch(ab, am, cb, cm),
@@ -165,7 +165,7 @@ func VerifyRunning(embed Interface) VerifyRunningResult {
 		ConfiguredBackend: align.ConfiguredBackend,
 		ConfiguredModel:   align.ConfiguredModel,
 	}
-	_, _, _, ep, _ := ActiveSnapshot()
+	_, _, _, ep, _ := WiredSnapshot()
 	res.Endpoint = ep
 	if embed == nil {
 		res.Error = "embedder not available"

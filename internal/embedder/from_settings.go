@@ -66,7 +66,6 @@ func NewFromSettings(s Settings, modelDir string) (Interface, error) {
 	}
 	switch backend {
 	case "onnx":
-		SetActive("onnx", ModelName, Dimensions, "onnxruntime", "")
 		if err := EnsureModel(modelDir); err != nil {
 			return nil, fmt.Errorf("model files: %w", err)
 		}
@@ -76,7 +75,6 @@ func NewFromSettings(s Settings, modelDir string) (Interface, error) {
 		if u == "" {
 			u = "http://127.0.0.1:8080/embed"
 		}
-		SetActive("http", "remote", Dimensions, "http", u)
 		return NewHTTPEmbedder(u, s.HTTPBearer), nil
 	case "ollama":
 		url := strings.TrimSpace(s.OllamaHost)
@@ -90,7 +88,6 @@ func NewFromSettings(s Settings, modelDir string) (Interface, error) {
 		if model == "" {
 			model = "nomic-embed-text"
 		}
-		SetActive("ollama", model, Dimensions, "ollama", url+"/api/embed")
 		return NewOllamaEmbedder(url, model), nil
 	case "openai", "litellm":
 		base := strings.TrimSpace(s.OpenAIBaseURL)
@@ -109,8 +106,6 @@ func NewFromSettings(s Settings, modelDir string) (Interface, error) {
 			jsonDims = 768
 		}
 		openEmb := NewOpenAIEmbedder(base, s.OpenAIAPIKey, model, jsonDims)
-		ep := strings.TrimRight(strings.TrimSpace(base), "/") + "/embeddings"
-		SetActive("openai", model, Dimensions, "openai", ep)
 		return openEmb, nil
 	case "docker":
 		return newDockerEmbedderFromSettings(s)
@@ -134,8 +129,6 @@ func newDockerEmbedderFromSettings(s Settings) (Interface, error) {
 	}
 	base := normalizeDMRBase(url)
 	openEmb := NewOpenAIEmbedderWithLabel(base, "", model, jsonDims, "dmr embed")
-	ep := strings.TrimRight(base, "/") + "/embeddings"
-	SetActive("docker", model, Dimensions, "dmr", ep)
 	return openEmb, nil
 }
 
@@ -213,9 +206,7 @@ func TestSettings(s Settings, modelDir string) TestResult {
 		return res
 	}
 	res.OK = true
-	res.Backend = ActiveBackend
-	res.Model = ActiveModel
-	res.Endpoint = ActiveEndpoint
+	res.Backend, res.Model, _, res.Endpoint, _ = SnapshotForSettings(s)
 	res.Dimensions = len(vecs[0])
 	return res
 }

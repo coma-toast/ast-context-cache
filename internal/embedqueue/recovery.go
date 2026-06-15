@@ -72,7 +72,7 @@ func SyncPendingFromDB() int {
 func StartErrorScanLoop() {
 	errorScanOnce.Do(func() {
 		go func() {
-			ticker := time.NewTicker(10 * time.Second)
+			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
 			for range ticker.C {
 				state, _ := embedder.HealthState()

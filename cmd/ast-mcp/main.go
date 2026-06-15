@@ -74,8 +74,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("embedder: %v", err)
 	}
+	embedder.FreezeWiredSnapshot()
 	emb := embedder.TrackHealth(rawEmb)
-	log.Printf("Embedder configured: backend=%s model=%s dims=%d", embedder.ActiveBackend, embedder.ActiveModel, embedder.ActiveDim)
+	wb, wm, _, _, wd := embedder.WiredSnapshot()
+	log.Printf("Embedder configured: backend=%s model=%s dims=%d", wb, wm, wd)
 	mcp.SetEmbedder(emb)
 	docs.SetEmbedder(emb)
 	ctxpkg.Emb = emb
@@ -106,6 +108,7 @@ func main() {
 		if embedState == "error" {
 			status = "degraded"
 		}
+		embedBackend, embedModel, _, _, _ := embedder.WiredSnapshot()
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":         status,
 			"service":        "ast-context-cache",
@@ -113,8 +116,8 @@ func main() {
 			"embedder":       embedLoaded(),
 			"embed_state":    embedState,
 			"embed_error":    embedErr,
-			"embed_mode":     embedder.ActiveBackend,
-			"embed_model":    embedder.ActiveModel,
+			"embed_mode":     embedBackend,
+			"embed_model":    embedModel,
 		})
 	})
 	mcpMux.HandleFunc("/embed", func(w http.ResponseWriter, r *http.Request) {
