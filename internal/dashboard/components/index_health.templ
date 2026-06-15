@@ -29,6 +29,10 @@ type IndexHealth struct {
 	SSDSolidState bool
 	SSDTrim       bool
 	SSDAvailable  bool
+	SSDWearUsedPct int
+	SSDSparePct    int
+	SSDDataWrittenTB float64
+	SSDTemperatureC  float64
 	Watchers          []WatcherInfo
 	DocSources        []IndexDocSource
 	DocSourcesTotal   int

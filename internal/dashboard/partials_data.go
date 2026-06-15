@@ -41,6 +41,10 @@ func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHeal
 	h.SSDCapacity = ssd.Capacity
 	h.SSDSolidState = ssd.SolidState
 	h.SSDTrim = ssd.TrimSupport
+	h.SSDWearUsedPct = ssd.WearUsedPct
+	h.SSDSparePct = ssd.SparePct
+	h.SSDDataWrittenTB = ssd.DataWrittenTB
+	h.SSDTemperatureC = ssd.TemperatureC
 
 	dbPath := db.GetDBPath()
 	if fi, err := os.Stat(dbPath); err == nil {

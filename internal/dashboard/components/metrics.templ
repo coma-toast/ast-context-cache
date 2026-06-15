@@ -19,6 +19,11 @@ templ ResourceUtilCard(h IndexHealth) {
 					<span class="ssd-health-title">SSD health</span>
 					<span class={ "ssd-smart-badge", ssdSmartClass(h.SSDSmartStatus) }>{ h.SSDSmartStatus }</span>
 				</div>
+				if h.SSDWearKnown() {
+					<div class="ssd-wear-bar">
+						@ResourceBar("Wear", h.SSDWearLabel(), float64(h.SSDWearUsedPct), ssdWearColor(h.SSDWearUsedPct), "NVMe PERCENTAGE_USED — manufacturer endurance estimate")
+					</div>
+				}
 				<div class="ssd-health-grid">
 					<div class="ssd-health-item">
 						<span class="ssd-health-label">Model</span>
@@ -34,6 +39,24 @@ templ ResourceUtilCard(h IndexHealth) {
 						<div class="ssd-health-item">
 							<span class="ssd-health-label">Protocol</span>
 							<span class="ssd-health-value">{ h.SSDProtocol }</span>
+						</div>
+					}
+					if h.SSDSpareKnown() {
+						<div class="ssd-health-item">
+							<span class="ssd-health-label">Spare</span>
+							<span class="ssd-health-value">{ h.SSDSpareLabel() }</span>
+						</div>
+					}
+					if h.SSDDataWrittenKnown() {
+						<div class="ssd-health-item">
+							<span class="ssd-health-label">Written</span>
+							<span class="ssd-health-value">{ h.SSDDataWrittenLabel() }</span>
+						</div>
+					}
+					if h.SSDTemperatureKnown() {
+						<div class="ssd-health-item">
+							<span class="ssd-health-label">Temp</span>
+							<span class="ssd-health-value">{ h.SSDTemperatureLabel() }</span>
 						</div>
 					}
 					<div class="ssd-health-item">
