@@ -372,6 +372,7 @@ header h1 .icon { font-size: 24px; }
 .resource-bar-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
 .resource-bar-value { font-family: var(--mono); font-size: 12px; color: var(--text); }
 .ssd-health-block { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ssd-wear-bar { margin-bottom: 10px; }
 .ssd-health-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .ssd-health-title { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
 .ssd-smart-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; }

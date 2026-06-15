@@ -526,3 +526,61 @@ func (h IndexHealth) SSDTrimLabel() string {
 	}
 	return "No"
 }
+
+func (h IndexHealth) SSDWearKnown() bool {
+	return h.SSDWearUsedPct >= 0
+}
+
+func (h IndexHealth) SSDSpareKnown() bool {
+	return h.SSDSparePct >= 0
+}
+
+func (h IndexHealth) SSDDataWrittenKnown() bool {
+	return h.SSDDataWrittenTB >= 0
+}
+
+func (h IndexHealth) SSDTemperatureKnown() bool {
+	return h.SSDTemperatureC >= 0
+}
+
+func (h IndexHealth) SSDWearLabel() string {
+	if !h.SSDWearKnown() {
+		return "-"
+	}
+	return fmt.Sprintf("%d%% used", h.SSDWearUsedPct)
+}
+
+func (h IndexHealth) SSDSpareLabel() string {
+	if !h.SSDSpareKnown() {
+		return "-"
+	}
+	return fmt.Sprintf("%d%%", h.SSDSparePct)
+}
+
+func (h IndexHealth) SSDDataWrittenLabel() string {
+	if !h.SSDDataWrittenKnown() {
+		return "-"
+	}
+	if h.SSDDataWrittenTB >= 100 {
+		return fmt.Sprintf("%.0f TB", h.SSDDataWrittenTB)
+	}
+	return fmt.Sprintf("%.1f TB", h.SSDDataWrittenTB)
+}
+
+func (h IndexHealth) SSDTemperatureLabel() string {
+	if !h.SSDTemperatureKnown() {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f °C", h.SSDTemperatureC)
+}
+
+func ssdWearColor(pct int) string {
+	switch {
+	case pct >= 85:
+		return "#f85149"
+	case pct >= 50:
+		return "#f0883e"
+	default:
+		return "#3fb950"
+	}
+}

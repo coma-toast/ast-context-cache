@@ -3,6 +3,8 @@
 package sys
 
 import (
+	"encoding/json"
+	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -119,7 +121,85 @@ func probeSSDHealth() SSDHealth {
 		h.TrimSupport = strings.EqualFold(prof["trim"], "yes")
 		h.Available = true
 	}
+	applySmartWear(&h, smartKeysFromDiskutil())
 	return h
+}
+
+const nvmeDataUnitBytes = 512_000 // NVMe SMART log data unit size
+
+func applySmartWear(h *SSDHealth, smart map[string]uint64) {
+	if len(smart) == 0 {
+		return
+	}
+	if v, ok := smart["PERCENTAGE_USED"]; ok {
+		h.WearUsedPct = int(v)
+		h.Available = true
+	}
+	if v, ok := smart["AVAILABLE_SPARE"]; ok {
+		h.SparePct = int(v)
+		h.Available = true
+	}
+	low := smart["DATA_UNITS_WRITTEN_0"]
+	high := smart["DATA_UNITS_WRITTEN_1"]
+	if low > 0 || high > 0 {
+		units := high<<32 | low
+		tb := float64(units*nvmeDataUnitBytes) / 1e12
+		if !math.IsNaN(tb) && tb >= 0 {
+			h.DataWrittenTB = math.Round(tb*10) / 10
+			h.Available = true
+		}
+	}
+	if v, ok := smart["TEMPERATURE"]; ok && v > 0 {
+		h.TemperatureC = float64(v) / 10
+	}
+}
+
+func smartKeysFromDiskutil() map[string]uint64 {
+	out, err := exec.Command("bash", "-c", "diskutil info -plist disk0 2>/dev/null | plutil -convert json -r -o - -").Output()
+	if err != nil {
+		return nil
+	}
+	var parsed struct {
+		Smart map[string]interface{} `json:"SMARTDeviceSpecificKeysMayVaryNotGuaranteed"`
+	}
+	if json.Unmarshal(out, &parsed) != nil || len(parsed.Smart) == 0 {
+		return nil
+	}
+	result := map[string]uint64{}
+	for k, v := range parsed.Smart {
+		if n, ok := smartUint(v); ok {
+			result[k] = n
+		}
+	}
+	return result
+}
+
+func smartUint(v interface{}) (uint64, bool) {
+	switch x := v.(type) {
+	case float64:
+		if x < 0 {
+			return 0, false
+		}
+		return uint64(x), true
+	case json.Number:
+		n, err := x.Int64()
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case int:
+		if x < 0 {
+			return 0, false
+		}
+		return uint64(x), true
+	case int64:
+		if x < 0 {
+			return 0, false
+		}
+		return uint64(x), true
+	default:
+		return 0, false
+	}
 }
 
 func parseDiskutilKV(text string) map[string]string {

@@ -1,6 +1,6 @@
 package embedder
 
-// Active* describe the running embedding provider (set at process start from NewForMain).
+// Active* describe the live embedding provider metadata (set when wiring backends).
 var (
 	ActiveBackend  = "onnx"
 	ActiveModel    = ModelName
@@ -9,9 +9,36 @@ var (
 	ActiveEndpoint = ""
 )
 
-// ActiveSnapshot returns metadata for the embedder wired at process start.
+var (
+	wiredBackend  string
+	wiredModel    string
+	wiredDim      int
+	wiredRuntime  string
+	wiredEndpoint string
+	wiredSet      bool
+)
+
+// ActiveSnapshot returns metadata for the currently wired embedder instance.
 func ActiveSnapshot() (backend, model, runtime, endpoint string, dim int) {
 	return ActiveBackend, ActiveModel, ActiveRuntime, ActiveEndpoint, ActiveDim
+}
+
+// WiredSnapshot returns metadata frozen at process start (dashboard "Active" row).
+func WiredSnapshot() (backend, model, runtime, endpoint string, dim int) {
+	if wiredSet {
+		return wiredBackend, wiredModel, wiredRuntime, wiredEndpoint, wiredDim
+	}
+	return ActiveSnapshot()
+}
+
+// FreezeWiredSnapshot pins Active* as the running embedder for dashboard display until restart.
+func FreezeWiredSnapshot() {
+	wiredBackend = ActiveBackend
+	wiredModel = ActiveModel
+	wiredDim = ActiveDim
+	wiredRuntime = ActiveRuntime
+	wiredEndpoint = ActiveEndpoint
+	wiredSet = true
 }
 
 // SetActive updates metadata for /embed/health and logging. Call from main when wiring a backend.

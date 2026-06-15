@@ -8,7 +8,7 @@ import (
 )
 
 func applyActiveEmbedder(h *components.IndexHealth) {
-	h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, h.EmbedEndpoint, h.EmbedDim = embedder.ActiveSnapshot()
+	h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, h.EmbedEndpoint, h.EmbedDim = embedder.WiredSnapshot()
 	h.EmbedRecent = embedActivityItems(embedqueue.RecentActivity())
 	h.EmbedInProgress = embedActivityItems(embedqueue.CurrentJobs())
 	state, _ := mcp.EmbedderState()
@@ -30,7 +30,7 @@ func embedActivityItems(in []embedqueue.ActivityEntry) []components.EmbedActivit
 }
 
 func applyActiveEmbedderSettings(data *components.SettingsData) {
-	data.EmbedActiveBackend, data.EmbedActiveModel, data.EmbedActiveRuntime, data.EmbedActiveEndpoint, data.EmbedActiveDim = embedder.ActiveSnapshot()
+	data.EmbedActiveBackend, data.EmbedActiveModel, data.EmbedActiveRuntime, data.EmbedActiveEndpoint, data.EmbedActiveDim = embedder.WiredSnapshot()
 	state, _ := mcp.EmbedderState()
 	data.EmbedderState = state
 	data.EmbedderError = mcp.EmbedderError()
@@ -54,5 +54,5 @@ func applyEmbedAlignmentToIndexHealth(h *components.IndexHealth) {
 }
 
 func applyActiveEmbedderHealth(h *components.Health) {
-	h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, _, h.EmbedDim = embedder.ActiveSnapshot()
+	h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, _, h.EmbedDim = embedder.WiredSnapshot()
 }

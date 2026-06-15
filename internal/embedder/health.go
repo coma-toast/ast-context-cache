@@ -14,7 +14,7 @@ var probeFailed atomic.Bool
 
 const (
 	probeIntervalOK      = 10 * time.Second
-	probeIntervalErr     = 5 * time.Second
+	probeIntervalErr     = 30 * time.Second
 	recentErrorWindow    = 5 * time.Minute
 	probeActivityGrace   = 20 * time.Second // skip probe failures while workers recently succeeded
 )
