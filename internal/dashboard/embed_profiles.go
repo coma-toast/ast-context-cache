@@ -8,7 +8,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
-	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 const embedProfilesKey = "embed_backend_profiles"
@@ -205,6 +204,5 @@ func handleEmbedSettings(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	realtime.Notify(realtime.SettingsChanged)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	writeEmbedSettingsOK(w)
 }

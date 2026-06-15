@@ -70,24 +70,29 @@ func main() {
 	if modelDir == "" {
 		modelDir = filepath.Join(exeDir, "model")
 	}
-	rawEmb, embedLoaded, err := embedder.NewForMain(modelDir)
-	if err != nil {
+	embedder.SetRuntimeHooks(embedder.RuntimeHooks{
+		OnSwap: func(tracked embedder.Interface) {
+			mcp.SetEmbedder(tracked)
+			ctxpkg.Emb = tracked
+			embedqueue.SetEmbedder(tracked)
+			if embedqueue.Ready() {
+				go embedqueue.RecoverAfterEmbedder()
+				go embedqueue.FlushPendingIfReady()
+			}
+		},
+	})
+	if err := embedder.InitRuntime(modelDir); err != nil {
 		log.Fatalf("embedder: %v", err)
 	}
-	embedder.FreezeWiredSnapshot()
-	emb := embedder.TrackHealth(rawEmb)
+	emb := embedder.Tracked()
 	wb, wm, _, _, wd := embedder.WiredSnapshot()
 	log.Printf("Embedder configured: backend=%s model=%s dims=%d", wb, wm, wd)
-	mcp.SetEmbedder(emb)
-	docs.SetEmbedder(emb)
-	ctxpkg.Emb = emb
 	embedqueue.Start(emb)
 	embedder.SetOnRecovery(embedqueue.RecoverAfterEmbedder)
 	embedder.SetOnReady(embedqueue.FlushPendingIfReady)
 	embedder.SetOnError(embedqueue.OnEmbedderError)
 	embedqueue.StartErrorScanLoop()
 	embedqueue.StartPendingReconciler()
-	embedder.StartConnectivityProbe(rawEmb)
 	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {
 		if removed {
 			search.Cache.DeleteByFile(filePath, projectPath)
@@ -113,7 +118,7 @@ func main() {
 			"status":         status,
 			"service":        "ast-context-cache",
 			"version":        version.Version,
-			"embedder":       embedLoaded(),
+			"embedder":       embedder.IsLoaded(),
 			"embed_state":    embedState,
 			"embed_error":    embedErr,
 			"embed_mode":     embedBackend,
@@ -154,7 +159,7 @@ func main() {
 			"error":      embedErr,
 			"model":      embedder.ActiveModel,
 			"dimensions": embedder.ActiveDim,
-			"loaded":     embedLoaded(),
+			"loaded":     embedder.IsLoaded(),
 			"backend":    embedder.ActiveBackend,
 			"runtime":    embedder.ActiveRuntime,
 		})

@@ -146,7 +146,7 @@ templ Settings(data SettingsData) {
 				} else if data.EmbedInSync {
 					<span class="badge badge-green embed-sync-badge">In sync</span>
 				} else {
-					<span class="badge badge-orange embed-sync-badge">Restart required</span>
+					<span class="badge badge-orange embed-sync-badge">Out of sync</span>
 				}
 			</div>
 			if (data.EmbedderState == "error" || data.EmbedderState == "degraded") && data.EmbedderError != "" {
@@ -160,7 +160,7 @@ templ Settings(data SettingsData) {
 					<span class="embed-active-label">Configured</span>
 					<span class="badge badge-blue">{ data.EmbedConfiguredBackend }</span>
 					<span class="mono">{ data.EmbedConfiguredModel }</span>
-					<span>— effective settings (env + DB) differ from this process until you restart ast-mcp</span>
+					<span>— effective settings differ from the running embedder (save again to reload, or check env overrides)</span>
 				</div>
 			}
 			if len(data.EmbedEnvOverrides) > 0 {
@@ -173,7 +173,7 @@ templ Settings(data SettingsData) {
 			Values are stored in the local database under the <span class="mono">same names as environment variables</span>.
 			<strong>Changes save automatically</strong> when you change a field (no Save button).
 			If a process env var is <strong>set and non-empty</strong>, it overrides the dashboard for that key.
-			<strong>In sync</strong> means the running embedder matches effective settings (restart ast-mcp after changes).
+			<strong>In sync</strong> means the running embedder matches effective settings. Embed backend changes apply when you save settings (no ast-mcp restart).
 			Use <strong>Test form values</strong> to probe the current form against the selected backend.
 		</p>
 		<div

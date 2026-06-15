@@ -27,7 +27,7 @@ func ResolveStartupBackend() string {
 	if BackendConfigReady(requested) {
 		return requested
 	}
-	log.Printf("WARNING: EMBED_BACKEND=%q is not fully configured (%s); starting with onnx until set in dashboard and ast-mcp is restarted",
+	log.Printf("WARNING: EMBED_BACKEND=%q is not fully configured (%s); using onnx until embed settings are completed in dashboard",
 		requested, backendMissingHint(requested))
 	return "onnx"
 }

@@ -595,8 +595,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				return
 			}
-			realtime.Notify(realtime.SettingsChanged)
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
+			writeSettingsOK(w, map[string]string{"key": key, "value": value}, true, realtime.SettingsChanged)
 			return
 		}
 		if err := db.SetSetting(key, value); err != nil {
@@ -605,13 +604,13 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
-		if embedder.IsSettingKey(key) {
+		reloadEmbed := embedder.IsSettingKey(key)
+		if reloadEmbed {
 			mask = realtime.IndexHealth | realtime.HealthBar
 		} else if key == "idle_unload_minutes" {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		}
-		realtime.Notify(mask)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
+		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
 		return
 	}
 	defaults := map[string]string{
