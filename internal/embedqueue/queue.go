@@ -34,6 +34,7 @@ type ActivityEntry struct {
 
 var (
 	emb           embedder.Interface
+	embMu         sync.RWMutex
 	pendingCh     chan job
 	highCh        chan job
 	lowCh         chan job
@@ -61,10 +62,28 @@ var (
 	drainMu          sync.Mutex
 )
 
+// Ready reports whether the embed queue workers are running.
+func Ready() bool {
+	return highCh != nil
+}
+
+// SetEmbedder swaps the embedder used by queue workers (hot reload).
+func SetEmbedder(e embedder.Interface) {
+	embMu.Lock()
+	emb = e
+	embMu.Unlock()
+}
+
+func queueEmbedder() embedder.Interface {
+	embMu.RLock()
+	defer embMu.RUnlock()
+	return emb
+}
+
 // Start launches worker goroutines; safe to call once.
 func Start(e embedder.Interface) {
 	started.Do(func() {
-		emb = e
+		SetEmbedder(e)
 		pendingCh = make(chan job, pendingCap)
 		highCh = make(chan job, highCap)
 		lowCh = make(chan job, lowCap)
@@ -122,10 +141,10 @@ func run(j job) {
 		atomic.AddInt64(&inFlight, -1)
 		realtime.Notify(realtime.EmbedFinished)
 	}()
-	if emb == nil {
+	if e := queueEmbedder(); e == nil {
 		return
 	}
-	if err := indexer.EmbedFileSymbols(emb, j.file, j.projectPath); err != nil {
+	if err := indexer.EmbedFileSymbols(queueEmbedder(), j.file, j.projectPath); err != nil {
 		atomic.AddInt64(&failed, 1)
 		markPending(j)
 		return
@@ -146,8 +165,9 @@ func Submit(file, projectPath string) {
 // SubmitPriority enqueues an embed; high priority is used for pinned projects.
 // Start must have been called from main with a non-nil embedder.
 func SubmitPriority(file, projectPath string, high bool) {
-	if highCh == nil || emb == nil {
-		if emb != nil {
+	if highCh == nil {
+		e := queueEmbedder()
+		if e != nil {
 			go func() {
 				trackJobStart(file, projectPath)
 				realtime.Notify(realtime.EmbedFinished)
@@ -155,7 +175,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 					trackJobEnd(file)
 					realtime.Notify(realtime.EmbedFinished)
 				}()
-				if err := indexer.EmbedFileSymbols(emb, file, projectPath); err != nil {
+				if err := indexer.EmbedFileSymbols(e, file, projectPath); err != nil {
 					atomic.AddInt64(&failed, 1)
 					markPending(job{file: file, projectPath: projectPath})
 					return

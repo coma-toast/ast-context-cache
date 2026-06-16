@@ -16,6 +16,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
@@ -92,7 +93,11 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIndexHealthPartial(w http.ResponseWriter, r *http.Request) {
-	components.IndexHealthCards(buildIndexHealth(r.URL.Query().Get("project_id"), parseDocSourcesPageQuery(r))).Render(r.Context(), w)
+	components.IndexHealthCards(buildIndexHealth(r.URL.Query().Get("project_id"))).Render(r.Context(), w)
+}
+
+func handleMemoryPartial(w http.ResponseWriter, r *http.Request) {
+	components.MemoryPanel(buildMemory(r.URL.Query().Get("project_id"), parseDocSourcesPageQuery(r))).Render(r.Context(), w)
 }
 
 func handleActivityDataPartial(w http.ResponseWriter, r *http.Request) {
@@ -252,10 +257,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 			idleMinutes = parsed
 		}
 	}
-	watcherIgn := settings["watcher_ignore_globs"]
-	if watcherIgn == "" {
-		watcherIgn = "[]"
-	}
+	watcherIgn := ignorepatterns.JSONForSettings(settings["watcher_ignore_globs"])
 	indexLog := settings["index_log_files"] == "true"
 	logRoots := settings["log_retention_roots"]
 	if logRoots == "" {
@@ -297,9 +299,6 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		agents = append(agents, a)
 	}
 
-	docPage := parseDocSourcesPageQuery(r)
-	docSources, docTotal, docPage := loadSettingsDocSources(docPage)
-
 	data := components.SettingsData{
 		IdleUnloadMinutes:       idleMinutes,
 		WatcherIgnoreGlobs:      watcherIgn,
@@ -312,10 +311,6 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		LogRetentionLastRun:     logLast,
 		Projects:                projects,
 		Agents:                  agents,
-		DocSources:              docSources,
-		DocSourcesTotal:         docTotal,
-		DocSourcesPage:          docPage,
-		DocSourcesPerPage:       DefaultDocSourcesPerPage,
 	}
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)

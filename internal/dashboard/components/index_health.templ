@@ -34,10 +34,6 @@ type IndexHealth struct {
 	SSDDataWrittenTB float64
 	SSDTemperatureC  float64
 	Watchers          []WatcherInfo
-	DocSources        []IndexDocSource
-	DocSourcesTotal   int
-	DocSourcesPage    int
-	DocSourcesPerPage int
 	EmbedQueued      int
 	EmbedPending     int
 	EmbedFailed      int64
@@ -94,38 +90,33 @@ templ IndexHealthCards(h IndexHealth) {
 		@EmbedPanel(h)
 		@CorpusBarChart(h.TotalSymbols, h.TotalFiles, h.TotalEdges)
 	</div>
-	@WatchersAndDocsRow(h)
-}
-
-templ WatchersAndDocsRow(h IndexHealth) {
-	<div class="index-health-watchers-row">
+	<div class="index-health-watchers-below">
 		@WatcherCard(h)
-		@DocSourcesCard(h)
 	</div>
 }
 
-templ DocSourcesCard(h IndexHealth) {
+templ DocSourcesCard(sources []IndexDocSource, total, page, perPage int, hxTarget string) {
 	<div class="card watcher-card doc-sources-card">
-		<div class="card-title">Doc sources ({ fmtInt(h.DocSourcesTotal) })</div>
+		<div class="card-title">Doc sources ({ fmtInt(total) })</div>
 		<div class="watcher-items doc-source-items">
-			if len(h.DocSources) == 0 {
+			if len(sources) == 0 {
 				<div class="watcher-empty">None cached</div>
 			} else {
-				for _, s := range h.DocSources {
+				for _, s := range sources {
 					<div class={ "doc-source-item", templ.KV("stale", s.Stale) } title={ s.URL }>
 						<span class="doc-source-name">{ s.Name }</span>
 						<span class="doc-source-meta">
 							<span class="badge badge-blue doc-source-type">{ s.Type }</span>
 							<span class={ "doc-source-age", templ.KV("stale", s.Stale) }>{ s.Age }</span>
 							<span class="doc-source-actions">
-								@DocSourceActions(s.ID, s.Name, s.Refreshing, "#index-health", h.DocSourcesPage)
+								@DocSourceActions(s.ID, s.Name, s.Refreshing, hxTarget, page)
 							</span>
 						</span>
 					</div>
 				}
 			}
 		</div>
-		@DocSourcesPager(h.DocSourcesTotal, h.DocSourcesPage, h.DocSourcesPerPage, "#index-health")
+		@DocSourcesPager(total, page, perPage, hxTarget)
 	</div>
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
@@ -76,6 +77,7 @@ func NewHandler(_ string) http.Handler {
 	// HTML partials (htmx targets)
 	mux.HandleFunc("/partials/stats", handleStatsPartial)
 	mux.HandleFunc("/partials/index-health", handleIndexHealthPartial)
+	mux.HandleFunc("/partials/memory", handleMemoryPartial)
 	mux.HandleFunc("/partials/recent", handleRecentPartial)
 	mux.HandleFunc("/partials/charts/symbols", handleSymbolChartPartial)
 	mux.HandleFunc("/partials/charts/languages", handleLanguageChartPartial)
@@ -595,28 +597,30 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				return
 			}
-			realtime.Notify(realtime.SettingsChanged)
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
+			writeSettingsOK(w, map[string]string{"key": key, "value": value}, true, realtime.SettingsChanged)
 			return
 		}
 		if err := db.SetSetting(key, value); err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		if key == "watcher_ignore_globs" {
+			ignorepatterns.InvalidateCache()
+		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
-		if embedder.IsSettingKey(key) {
+		reloadEmbed := embedder.IsSettingKey(key)
+		if reloadEmbed {
 			mask = realtime.IndexHealth | realtime.HealthBar
 		} else if key == "idle_unload_minutes" {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		}
-		realtime.Notify(mask)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": key, "value": value})
+		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
 		return
 	}
 	defaults := map[string]string{
 		"idle_unload_minutes":         "1",
-		"watcher_ignore_globs":         "[]",
+		"watcher_ignore_globs":         ignorepatterns.JSON(ignorepatterns.DefaultGlobs),
 		"index_log_files":              "false",
 		"log_retention_enabled":        "false",
 		"log_retention_roots":          "[]",
@@ -900,8 +904,13 @@ func parseProjectPathFromRequest(r *http.Request) string {
 }
 
 func respondHTMXPartial(w http.ResponseWriter, r *http.Request) {
-	if strings.Contains(r.Header.Get("HX-Target"), "settings-content") {
+	target := r.Header.Get("HX-Target")
+	if strings.Contains(target, "settings-content") {
 		handleSettingsPartial(w, r)
+		return
+	}
+	if strings.Contains(target, "memory-panel") {
+		handleMemoryPartial(w, r)
 		return
 	}
 	handleIndexHealthPartial(w, r)

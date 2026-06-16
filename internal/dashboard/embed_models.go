@@ -26,11 +26,11 @@ func handleEmbedModels(w http.ResponseWriter, r *http.Request) {
 	models, err := embedder.ListModels(s)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "models": []string{}, "selected": selected})
+		json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "models": []string{}, "selected": ""})
 		return
 	}
 	if selected != "" && !sliceContains(models, selected) {
-		models = append([]string{selected}, models...)
+		selected = ""
 	}
 	json.NewEncoder(w).Encode(map[string]any{"models": models, "selected": selected})
 }
@@ -92,7 +92,18 @@ func loadEmbedModels(data *components.SettingsData) {
 		return
 	}
 	if current != "" && !sliceContains(models, current) {
-		models = append([]string{current}, models...)
+		clearEmbedModelField(data, data.EmbedBackend)
 	}
 	data.EmbedModels = models
+}
+
+func clearEmbedModelField(data *components.SettingsData, backend string) {
+	switch components.EmbedBackendUI(backend) {
+	case "docker":
+		data.EmbedDockerModel = ""
+	case "ollama":
+		data.EmbedOllamaModel = ""
+	case "openai":
+		data.EmbedOpenAIModel = ""
+	}
 }

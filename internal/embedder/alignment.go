@@ -44,7 +44,7 @@ func effectiveOpenAIDimensionsSetting() string {
 	return strings.TrimSpace(db.GetSetting("EMBED_OPENAI_DIMENSIONS", ""))
 }
 
-// ConfiguredSnapshot returns backend/model metadata for effective settings (post-restart target).
+// ConfiguredSnapshot returns backend/model metadata for effective settings.
 func ConfiguredSnapshot() (backend, model, runtime, endpoint string, dim int) {
 	return SnapshotForSettings(EffectiveSettings())
 }

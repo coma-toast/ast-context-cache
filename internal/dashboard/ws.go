@@ -13,8 +13,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
@@ -135,7 +135,13 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 
 func renderIndexHealth() string {
 	var buf bytes.Buffer
-	components.IndexHealthCards(buildIndexHealth("", 1)).Render(context.Background(), &buf)
+	components.IndexHealthCards(buildIndexHealth("")).Render(context.Background(), &buf)
+	return buf.String()
+}
+
+func renderMemory() string {
+	var buf bytes.Buffer
+	components.MemoryPanel(buildMemory("", 1)).Render(context.Background(), &buf)
 	return buf.String()
 }
 
@@ -272,10 +278,7 @@ func renderSettings() string {
 			idleMinutes = parsed
 		}
 	}
-	watcherIgn := settings["watcher_ignore_globs"]
-	if watcherIgn == "" {
-		watcherIgn = "[]"
-	}
+	watcherIgn := ignorepatterns.JSONForSettings(settings["watcher_ignore_globs"])
 	indexLog := settings["index_log_files"] == "true"
 	logRoots := settings["log_retention_roots"]
 	if logRoots == "" {
@@ -314,30 +317,6 @@ func renderSettings() string {
 		}
 		agents = append(agents, a)
 	}
-	var docSources []components.DocSource
-	if sources, err := docs.ListSources(); err == nil {
-		for _, s := range sources {
-			updated := "Never"
-			if s.LastUpdated != "" {
-				if t, err := time.Parse("2006-01-02T15:04:05Z07:00", s.LastUpdated); err == nil {
-					updated = t.Format("Jan 2, 2006 15:04")
-				} else if t, err := time.Parse("2006-01-02 15:04:05", s.LastUpdated); err == nil {
-					updated = t.Format("Jan 2, 2006 15:04")
-				} else {
-					updated = s.LastUpdated
-				}
-			}
-			docSources = append(docSources, components.DocSource{
-				ID:          s.ID,
-				Name:        s.Name,
-				Type:        s.Type,
-				URL:         s.URL,
-				Version:     s.Version,
-				LastUpdated: updated,
-				Refreshing:  docs.IsRefreshing(s.ID),
-			})
-		}
-	}
 	data := components.SettingsData{
 		IdleUnloadMinutes:       idleMinutes,
 		WatcherIgnoreGlobs:     watcherIgn,
@@ -350,7 +329,6 @@ func renderSettings() string {
 		LogRetentionLastRun:    logLast,
 		Projects:               projects,
 		Agents:                 agents,
-		DocSources:             docSources,
 	}
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)
@@ -376,6 +354,7 @@ type dashboardPartial struct {
 // Panels refreshed via internal/realtime.Notify (no server polling).
 var dashboardPartials = []dashboardPartial{
 	{"index-health", "#index-health", renderIndexHealth},
+	{"memory", "#memory-panel", renderMemory},
 	{"health-bar", "#health-bar", renderHealthBar},
 	{"stats", "#stats-cards", renderStats},
 	{"recent", "#recent-queries", renderRecent},

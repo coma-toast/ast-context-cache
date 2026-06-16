@@ -153,7 +153,7 @@ templ EmbedPanel(h IndexHealth) {
 			if h.ShowEmbedInSyncBadge() {
 				<span class="badge badge-green embed-sync-badge">in sync</span>
 			} else if !h.EmbedInSync {
-				<span class="badge badge-orange embed-sync-badge" title={ fmt.Sprintf("Configured: %s · %s — restart ast-mcp", h.EmbedConfiguredBackend, h.EmbedConfiguredModel) }>restart needed</span>
+				<span class="badge badge-orange embed-sync-badge" title={ fmt.Sprintf("Configured: %s · %s — save settings to reload", h.EmbedConfiguredBackend, h.EmbedConfiguredModel) }>out of sync</span>
 			}
 			if h.EmbedderState == "error" {
 				<span class="embed-active-pill error" title={ h.EmbedderError }>error</span>

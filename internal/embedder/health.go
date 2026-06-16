@@ -209,7 +209,21 @@ func HealthSnapshot() (state string, lastUse time.Duration, lastErr string) {
 	return state, time.Since(healthLastUse), lastErr
 }
 
-var probeEpoch atomic.Uint64
+var (
+	probeEpoch  atomic.Uint64
+	probeStopMu sync.Mutex
+	probeStop   chan struct{}
+)
+
+func stopConnectivityProbe() {
+	probeStopMu.Lock()
+	defer probeStopMu.Unlock()
+	if probeStop != nil {
+		close(probeStop)
+		probeStop = nil
+	}
+	probeEpoch.Add(1)
+}
 
 // probeErrorBackoff returns wait time before the next probe after the immediate 2x-timeout retry fails.
 func probeErrorBackoff(streak uint32) time.Duration {
@@ -226,12 +240,22 @@ func probeErrorBackoff(streak uint32) time.Duration {
 // StartConnectivityProbe periodically probes network embed backends so a broken
 // connection surfaces in the dashboard even when no indexing is in flight.
 func StartConnectivityProbe(e Interface) {
+	stopConnectivityProbe()
 	if !IsNetworkBackend(ActiveBackend) || e == nil {
 		return
 	}
+	probeStopMu.Lock()
+	stop := make(chan struct{})
+	probeStop = stop
+	probeStopMu.Unlock()
 	go func() {
 		var streak uint32
 		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
 			timeout := probeBaseTimeout
 			if streak == 1 {
 				timeout = probeBaseTimeout * 2
@@ -252,7 +276,12 @@ func StartConnectivityProbe(e Interface) {
 				if streak == 1 {
 					continue
 				}
-				time.Sleep(probeErrorBackoff(streak))
+				sleep := probeErrorBackoff(streak)
+				select {
+				case <-stop:
+					return
+				case <-time.After(sleep):
+				}
 			}
 		}
 	}()

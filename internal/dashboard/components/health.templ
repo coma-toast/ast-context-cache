@@ -154,14 +154,6 @@ templ HealthBar(h Health) {
 			<span class={ h.EmbedderChipClass() }>{ h.EmbedderChipLabel() }</span>
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item health-gauge-item" title={ h.queueTitle() }>
-			<span class="health-label">Queue</span>
-			<span class={ "health-mini-track", "level-" + h.queueLevel() }>
-				<span class="health-mini-fill" style={ h.queueMiniStyle() }></span>
-			</span>
-			<span class="health-value">{ fmtInt(h.QueueQueued) }</span>
-		</span>
-		<span class="health-divider"></span>
 		<span class="health-item health-gauge-item" title={ h.workersTitle() }>
 			<span class="health-label">Workers</span>
 			if h.QueueWorkers > 0 {
@@ -171,12 +163,21 @@ templ HealthBar(h Health) {
 			}
 		</span>
 		<span class="health-divider"></span>
-		<span class="health-item health-gauge-item" title={ h.pendingTitle() }>
-			<span class="health-label">Pending</span>
-			<span class={ "health-mini-track", "level-" + h.pendingLevel() }>
-				<span class="health-mini-fill health-pending-fill" style={ h.pendingMiniStyle() }></span>
+		<span class="health-item health-gauge-item health-stack-item" title={ h.queueTitle() + " · " + h.pendingTitle() }>
+			<span class="health-stack-row">
+				<span class="health-label">Queue</span>
+				<span class={ "health-mini-track", "level-" + h.queueLevel() }>
+					<span class="health-mini-fill" style={ h.queueMiniStyle() }></span>
+				</span>
+				<span class="health-value health-stack-value">{ fmtInt(h.QueueQueued) }</span>
 			</span>
-			<span class="health-value">{ fmtInt(h.QueuePending) }</span>
+			<span class="health-stack-row">
+				<span class="health-label">Pending</span>
+				<span class={ "health-mini-track", "level-" + h.pendingLevel() }>
+					<span class="health-mini-fill health-pending-fill" style={ h.pendingMiniStyle() }></span>
+				</span>
+				<span class="health-value health-stack-value">{ fmtInt(h.QueuePending) }</span>
+			</span>
 		</span>
 		<span class="health-divider"></span>
 		<span class="health-item health-gauge-item health-item-secondary" title="Embedding throughput (avg/s, 5s window)">

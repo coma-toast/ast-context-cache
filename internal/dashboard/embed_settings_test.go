@@ -239,6 +239,12 @@ func TestPersistEmbedSettings_backendSwitch_restoresProfile(t *testing.T) {
 	saveEmbedSetting(t, "EMBED_HTTP_URL", "http://saved-http/embed")
 	snapshotEmbedProfileFromDB("http")
 
+	saveEmbedSetting(t, "EMBED_BACKEND", "ollama")
+	saveEmbedSetting(t, "OLLAMA_HOST", "http://saved-ollama:11434")
+	saveEmbedSetting(t, "OLLAMA_EMBED_MODEL", "saved-ollama-model")
+	snapshotEmbedProfileFromDB("ollama")
+	saveEmbedSetting(t, "EMBED_BACKEND", "http")
+
 	payload := map[string]string{
 		"EMBED_BACKEND":      "ollama",
 		"OLLAMA_HOST":        "http://new-from-form:11434",
@@ -247,8 +253,11 @@ func TestPersistEmbedSettings_backendSwitch_restoresProfile(t *testing.T) {
 	if err := PersistEmbedSettings(payload); err != nil {
 		t.Fatal(err)
 	}
-	if got := db.GetSetting("OLLAMA_EMBED_MODEL", ""); got != "form-model" {
-		t.Fatalf("after switch: got %q", got)
+	if got := db.GetSetting("OLLAMA_HOST", ""); got != "http://new-from-form:11434" {
+		t.Fatalf("host from form: got %q", got)
+	}
+	if got := db.GetSetting("OLLAMA_EMBED_MODEL", ""); got != "saved-ollama-model" {
+		t.Fatalf("model from profile, not form: got %q", got)
 	}
 
 	payload = map[string]string{"EMBED_BACKEND": "http"}
@@ -403,5 +412,62 @@ func TestSwitchEmbedBackend_storesValueAsGiven(t *testing.T) {
 	}
 	if components.EmbedBackendUI("litellm") != "openai" {
 		t.Fatalf("EmbedBackendUI should map litellm to openai profile bucket")
+	}
+}
+
+func TestReconcileEmbedModel_clearsStaleModel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "text-embedding-3-small"}},
+		})
+	}))
+	defer srv.Close()
+	testEmbedDB(t)
+	saveEmbedSetting(t, "EMBED_BACKEND", "openai")
+	saveEmbedSetting(t, "EMBED_OPENAI_BASE_URL", srv.URL)
+	saveEmbedSetting(t, "EMBED_OPENAI_MODEL", "docker.io/ai/nomic-embed-text")
+	reconcileEmbedModel("openai")
+	if got := db.GetSetting("EMBED_OPENAI_MODEL", ""); got != "" {
+		t.Fatalf("expected stale model cleared, got %q", got)
+	}
+}
+
+func TestReconcileEmbedModel_keepsValidModel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "text-embedding-3-small"}},
+		})
+	}))
+	defer srv.Close()
+	testEmbedDB(t)
+	saveEmbedSetting(t, "EMBED_BACKEND", "openai")
+	saveEmbedSetting(t, "EMBED_OPENAI_BASE_URL", srv.URL)
+	saveEmbedSetting(t, "EMBED_OPENAI_MODEL", "text-embedding-3-small")
+	reconcileEmbedModel("openai")
+	if got := db.GetSetting("EMBED_OPENAI_MODEL", ""); got != "text-embedding-3-small" {
+		t.Fatalf("expected model kept, got %q", got)
+	}
+}
+
+func TestSwitchEmbedBackend_clearsInvalidOpenAIModel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "text-embedding-3-small"}},
+		})
+	}))
+	defer srv.Close()
+	testEmbedDB(t)
+	saveEmbedSetting(t, "EMBED_BACKEND", "docker")
+	saveEmbedSetting(t, "EMBED_DOCKER_MODEL", "docker.io/ai/nomic-embed-text")
+	snapshotEmbedProfileFromDB("docker")
+	saveEmbedSetting(t, "EMBED_BACKEND", "openai")
+	saveEmbedSetting(t, "EMBED_OPENAI_BASE_URL", srv.URL)
+	saveEmbedSetting(t, "EMBED_OPENAI_MODEL", "docker.io/ai/nomic-embed-text")
+	snapshotEmbedProfileFromDB("openai")
+	if err := switchEmbedBackend("docker", "openai", "openai"); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.GetSetting("EMBED_OPENAI_MODEL", ""); got != "" {
+		t.Fatalf("expected invalid openai model cleared, got %q", got)
 	}
 }

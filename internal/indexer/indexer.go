@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/bash"
@@ -522,6 +523,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 			return nil
 		}
 		if !IsCodeFile(path) {
+			return nil
+		}
+		if ignorepatterns.Match(path, projectPath, ignorepatterns.List()) {
 			return nil
 		}
 		n, _, _, err := IndexFile(path, projectPath)

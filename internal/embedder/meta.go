@@ -31,7 +31,7 @@ func WiredSnapshot() (backend, model, runtime, endpoint string, dim int) {
 	return ActiveSnapshot()
 }
 
-// FreezeWiredSnapshot pins Active* as the running embedder for dashboard display until restart.
+// FreezeWiredSnapshot pins Active* as the running embedder for dashboard display (updated on Reload).
 func FreezeWiredSnapshot() {
 	wiredBackend = ActiveBackend
 	wiredModel = ActiveModel
