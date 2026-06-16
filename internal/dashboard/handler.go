@@ -246,7 +246,8 @@ func handleRecentPartial(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	mcp, indexing := buildRecentQueries(pid, lim)
-	components.RecentPanel(mcp, indexing).Render(r.Context(), w)
+	logs, logPath, logTrunc := buildRecentLogs(200)
+	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc).Render(r.Context(), w)
 }
 
 func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {

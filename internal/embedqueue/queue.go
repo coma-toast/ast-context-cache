@@ -96,6 +96,11 @@ func Start(e embedder.Interface) {
 			go worker()
 		}
 		startedAt = time.Now()
+		embedder.SetProbeDeferCheck(func() bool {
+			s := Snapshot()
+			return s.InFlight > 0 || s.Queued > 0
+		})
+		embedder.SetOnRecovery(func() { RecoverAfterEmbedder() })
 		log.Printf("embed queue: %d workers (pending=%d high=%d low=%d)", n, pendingCap, highCap, lowCap)
 		LoadPendingFromDB()
 		go flushPendingIfReady()

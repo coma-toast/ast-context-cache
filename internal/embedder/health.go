@@ -14,12 +14,19 @@ var probeFailed atomic.Bool
 
 const (
 	probeIntervalOK       = 10 * time.Second
-	probeBaseTimeout      = 8 * time.Second
-	probeMaxErrInterval   = 30 * time.Second
-	probeBackoffStep      = 5 * time.Second
+	probeRecoveryInterval = 30 * time.Second
+	probeRetryDelay       = 2 * time.Second
 	recentErrorWindow     = 5 * time.Minute
-	probeActivityGrace    = 20 * time.Second // skip probe failures while workers recently succeeded
+	probeActivityGrace    = 45 * time.Second // skip probe failures while workers recently succeeded
 )
+
+var probeAttemptTimeouts = []time.Duration{
+	15 * time.Second,
+	30 * time.Second,
+	45 * time.Second,
+}
+
+var probeDeferCheck func() bool
 
 type probeResult int
 
@@ -54,6 +61,24 @@ func SetOnError(fn func()) {
 // SetOnReady registers a callback after a successful embed when not recovering from error.
 func SetOnReady(fn func()) {
 	onReady = fn
+}
+
+// SetProbeDeferCheck registers a callback that skips probe failures while embed work is in flight.
+func SetProbeDeferCheck(fn func() bool) {
+	probeDeferCheck = fn
+}
+
+func probeShouldDefer() bool {
+	healthMu.RLock()
+	active := recentEmbedActivityLocked()
+	healthMu.RUnlock()
+	if active {
+		return true
+	}
+	if probeDeferCheck != nil && probeDeferCheck() {
+		return true
+	}
+	return false
 }
 
 // MarkReady sets embedder state to ready (called when the process wires an embedder).
@@ -225,23 +250,17 @@ func stopConnectivityProbe() {
 	probeEpoch.Add(1)
 }
 
-// probeErrorBackoff returns wait time before the next probe after the immediate 2x-timeout retry fails.
+// probeErrorBackoff is kept for tests; recovery always waits probeRecoveryInterval.
 func probeErrorBackoff(streak uint32) time.Duration {
-	if streak < 2 {
-		return 0
-	}
-	d := time.Duration(streak-1) * probeBackoffStep
-	if d > probeMaxErrInterval {
-		return probeMaxErrInterval
-	}
-	return d
+	_ = streak
+	return probeRecoveryInterval
 }
 
-// StartConnectivityProbe periodically probes network embed backends so a broken
-// connection surfaces in the dashboard even when no indexing is in flight.
+// StartConnectivityProbe periodically probes embed backends and retries recovery every
+// probeRecoveryInterval while in error state.
 func StartConnectivityProbe(e Interface) {
 	stopConnectivityProbe()
-	if !IsNetworkBackend(ActiveBackend) || e == nil {
+	if e == nil {
 		return
 	}
 	probeStopMu.Lock()
@@ -249,45 +268,113 @@ func StartConnectivityProbe(e Interface) {
 	probeStop = stop
 	probeStopMu.Unlock()
 	go func() {
-		var streak uint32
 		for {
 			select {
 			case <-stop:
 				return
 			default:
 			}
-			timeout := probeBaseTimeout
-			if streak == 1 {
-				timeout = probeBaseTimeout * 2
+			state, _, _ := HealthSnapshot()
+			if state == "error" {
+				switch runRecoveryCycle(e) {
+				case probeOK:
+					sleep(probeIntervalOK, stop)
+				default:
+					sleep(probeRecoveryInterval, stop)
+				}
+				continue
 			}
-			switch runConnectivityProbe(e, timeout) {
-			case probeOK:
-				streak = 0
-				time.Sleep(probeIntervalOK)
+			if !IsNetworkBackend(ActiveBackend) {
+				sleep(probeRecoveryInterval, stop)
 				continue
-			case probeSkipped:
-				if state, _, _ := HealthSnapshot(); state != "error" {
-					streak = 0
-				}
-				time.Sleep(probeIntervalOK)
-				continue
+			}
+			switch runConnectivityProbeCycle(e) {
+			case probeOK, probeSkipped:
+				sleep(probeIntervalOK, stop)
 			case probeFail:
-				streak++
-				if streak == 1 {
-					continue
-				}
-				sleep := probeErrorBackoff(streak)
-				select {
-				case <-stop:
-					return
-				case <-time.After(sleep):
-				}
+				sleep(probeRecoveryInterval, stop)
 			}
 		}
 	}()
 }
 
-func runConnectivityProbe(e Interface, timeout time.Duration) probeResult {
+func sleep(d time.Duration, stop <-chan struct{}) {
+	select {
+	case <-stop:
+	case <-time.After(d):
+	}
+}
+
+func runRecoveryCycle(e Interface) probeResult {
+	if probeShouldDefer() {
+		return probeSkipped
+	}
+	res, err := runConnectivityProbe(e, probeRecoveryInterval)
+	if res == probeSkipped {
+		return probeSkipped
+	}
+	if res == probeOK {
+		MarkSuccess()
+		return probeOK
+	}
+	if err != nil {
+		refreshProbeError(err)
+	}
+	return probeFail
+}
+
+func refreshProbeError(err error) {
+	if err == nil {
+		return
+	}
+	healthMu.Lock()
+	already := healthState == "error"
+	healthState = "error"
+	healthLastErr = err.Error()
+	healthRecentErrAt = time.Now()
+	probeFailed.Store(true)
+	healthMu.Unlock()
+	if !already {
+		realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
+		if onError != nil {
+			go onError()
+		}
+	}
+}
+
+func runConnectivityProbeCycle(e Interface) probeResult {
+	if probeShouldDefer() {
+		return probeSkipped
+	}
+	var lastErr error
+	for i, timeout := range probeAttemptTimeouts {
+		if i > 0 {
+			time.Sleep(probeRetryDelay)
+		}
+		if probeShouldDefer() {
+			return probeSkipped
+		}
+		res, err := runConnectivityProbe(e, timeout)
+		switch res {
+		case probeOK:
+			MarkProbeResult(nil)
+			return probeOK
+		case probeSkipped:
+			return probeSkipped
+		case probeFail:
+			lastErr = err
+		}
+	}
+	if probeShouldDefer() {
+		return probeSkipped
+	}
+	if lastErr != nil {
+		MarkProbeResult(lastErr)
+	}
+	return probeFail
+}
+
+func runConnectivityProbe(e Interface, timeout time.Duration) (probeResult, error) {
 	epoch := probeEpoch.Add(1)
 	ch := make(chan error, 1)
 	go func() {
@@ -300,29 +387,20 @@ func runConnectivityProbe(e Interface, timeout time.Duration) probeResult {
 	select {
 	case err := <-ch:
 		if probeEpoch.Load() != epoch {
-			return probeSkipped
+			return probeSkipped, nil
 		}
 		if err != nil {
-			healthMu.RLock()
-			active := recentEmbedActivityLocked()
-			healthMu.RUnlock()
-			if active {
-				return probeSkipped
+			if probeShouldDefer() {
+				return probeSkipped, nil
 			}
-			MarkProbeResult(err)
-			return probeFail
+			return probeFail, err
 		}
-		MarkProbeResult(nil)
-		return probeOK
+		return probeOK, nil
 	case <-time.After(timeout):
 		probeEpoch.Add(1)
-		healthMu.RLock()
-		active := recentEmbedActivityLocked()
-		healthMu.RUnlock()
-		if active {
-			return probeSkipped
+		if probeShouldDefer() {
+			return probeSkipped, nil
 		}
-		MarkProbeResult(fmt.Errorf("connectivity probe: timeout after %s", timeout))
-		return probeFail
+		return probeFail, fmt.Errorf("connectivity probe: timeout after %s", timeout)
 	}
 }

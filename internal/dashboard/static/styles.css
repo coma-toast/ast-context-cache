@@ -1212,23 +1212,28 @@ tr:hover td { background: var(--surface-hover); }
 .tool-stats-table tbody tr:hover { background: rgba(255,255,255,0.02); }
 .stat-red { color: var(--red, #f85149); }
 .recent-panel { display: flex; flex-direction: column; gap: 12px; }
-.recent-section {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  overflow: hidden;
+.recent-tab-radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
-.recent-section-title {
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 12px 16px;
-  list-style: none;
-  display: flex;
+.recent-tab-bar { align-self: flex-start; }
+.recent-tab-bar .toggle-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  cursor: pointer;
 }
-.recent-section-title::-webkit-details-marker { display: none; }
+#recent-tab-mcp:checked ~ .recent-tab-bar label[for="recent-tab-mcp"],
+#recent-tab-indexing:checked ~ .recent-tab-bar label[for="recent-tab-indexing"],
+#recent-tab-logs:checked ~ .recent-tab-bar label[for="recent-tab-logs"] {
+  background: var(--accent-dim);
+  color: #fff;
+}
+.recent-tab-pane { display: none; }
+#recent-tab-mcp:checked ~ .pane-mcp,
+#recent-tab-indexing:checked ~ .pane-indexing,
+#recent-tab-logs:checked ~ .pane-logs { display: block; }
 .recent-count {
   font-family: var(--mono);
   font-size: 11px;
@@ -1238,7 +1243,44 @@ tr:hover td { background: var(--surface-hover); }
   padding: 2px 8px;
   border-radius: 10px;
 }
-.recent-section .card { border: none; border-radius: 0; }
+#recent-tab-mcp:checked ~ .recent-tab-bar label[for="recent-tab-mcp"] .recent-count,
+#recent-tab-indexing:checked ~ .recent-tab-bar label[for="recent-tab-indexing"] .recent-count,
+#recent-tab-logs:checked ~ .recent-tab-bar label[for="recent-tab-logs"] .recent-count {
+  color: rgba(255,255,255,0.85);
+  background: rgba(0,0,0,0.2);
+}
+.recent-tab-pane .card { margin: 0; }
+.recent-logs-card { padding: 0; overflow: hidden; }
+.recent-logs-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.recent-logs-hint { color: var(--text-dim); font-size: 11px; }
+.recent-logs-scroll {
+  max-height: 420px;
+  overflow: auto;
+  padding: 8px 0;
+  background: var(--bg);
+}
+.recent-log-line {
+  display: flex;
+  gap: 10px;
+  padding: 3px 14px;
+  font-size: 11px;
+  line-height: 1.45;
+  border-left: 2px solid transparent;
+}
+.recent-log-line:hover { background: rgba(255,255,255,0.02); }
+.recent-log-ts { flex-shrink: 0; width: 130px; }
+.recent-log-msg { white-space: pre-wrap; word-break: break-word; }
+.recent-log-line.log-error { border-left-color: var(--red, #f85149); }
+.recent-log-line.log-warn { border-left-color: var(--yellow, #d29922); }
+.recent-log-line.log-info { border-left-color: transparent; }
 
 .toast-container {
   position: fixed;
