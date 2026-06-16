@@ -52,11 +52,11 @@ func SettingsFromMap(m map[string]string) Settings {
 }
 
 // ProbeTimeout caps dashboard "Test form values" remote HTTP calls.
-const ProbeTimeout = 15 * time.Second
+const ProbeTimeout = DefaultRemoteTimeout
 
 // NewFromSettings builds an embedder from explicit settings (dashboard test / preview).
 func NewFromSettings(s Settings, modelDir string) (Interface, error) {
-	return newFromSettings(s, modelDir, 120*time.Second)
+	return newFromSettings(s, modelDir, ResolveRemoteTimeout())
 }
 
 func newFromSettings(s Settings, modelDir string, remoteTimeout time.Duration) (Interface, error) {

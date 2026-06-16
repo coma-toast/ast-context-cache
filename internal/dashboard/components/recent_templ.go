@@ -111,7 +111,7 @@ func RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"recent-panel\"><input type=\"radio\" id=\"recent-tab-mcp\" name=\"recent-tab\" class=\"recent-tab-radio\" checked> <input type=\"radio\" id=\"recent-tab-indexing\" name=\"recent-tab\" class=\"recent-tab-radio\"> <input type=\"radio\" id=\"recent-tab-logs\" name=\"recent-tab\" class=\"recent-tab-radio\"><div class=\"recent-tab-bar toggle-group\"><label for=\"recent-tab-mcp\" class=\"toggle-btn\">MCP tool calls <span class=\"recent-count\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"recent-panel\"><input type=\"radio\" id=\"recent-tab-mcp\" name=\"recent-tab\" class=\"recent-tab-radio\"> <input type=\"radio\" id=\"recent-tab-indexing\" name=\"recent-tab\" class=\"recent-tab-radio\"> <input type=\"radio\" id=\"recent-tab-logs\" name=\"recent-tab\" class=\"recent-tab-radio\"><div class=\"recent-tab-bar toggle-group\"><label for=\"recent-tab-mcp\" class=\"toggle-btn\">MCP tool calls <span class=\"recent-count\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

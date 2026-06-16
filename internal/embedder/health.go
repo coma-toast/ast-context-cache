@@ -23,7 +23,7 @@ const (
 )
 
 var probeAttemptTimeouts = []time.Duration{
-	15 * time.Second,
+	DefaultRemoteTimeout,
 	30 * time.Second,
 	45 * time.Second,
 }

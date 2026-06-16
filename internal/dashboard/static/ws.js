@@ -57,9 +57,17 @@ document.addEventListener('alpine:init', () => {
                 }
                 const target = document.querySelector(targetSel);
                 if (target) {
+                    let preservedRecentTab = null;
+                    if (targetSel === '#recent-queries') {
+                        preservedRecentTab = getRecentSubTab(target);
+                    }
                     target.innerHTML = msg.data.html;
                     Alpine.flushSync();
-                    mountHTMXContent(target);
+                    if (targetSel === '#recent-queries') {
+                        mountRecentContent(target, preservedRecentTab);
+                    } else {
+                        mountHTMXContent(target);
+                    }
                     if (target.id === 'settings-content') {
                         mountSettingsContent(target);
                     }
@@ -171,8 +179,13 @@ document.addEventListener('alpine:init', () => {
                 if (!el) return;
                 const r = await fetch(path + q);
                 if (r.ok) {
+                    const preservedRecentTab = sel === '#recent-queries' ? getRecentSubTab(el) : null;
                     el.innerHTML = await r.text();
-                    mountHTMXContent(el);
+                    if (sel === '#recent-queries') {
+                        mountRecentContent(el, preservedRecentTab);
+                    } else {
+                        mountHTMXContent(el);
+                    }
                 }
             }));
             window.dispatchEvent(new CustomEvent('dashboard-project-change'));
@@ -333,6 +346,52 @@ document.body.addEventListener('htmx:configRequest', (event) => {
     }
 });
 
+const RECENT_SUBTAB_KEY = 'dashboard-recent-subtab';
+
+function recentSubTabFromRadio(radio) {
+    if (!radio) return 'mcp';
+    if (radio.id === 'recent-tab-indexing') return 'indexing';
+    if (radio.id === 'recent-tab-logs') return 'logs';
+    return 'mcp';
+}
+
+function recentSubTabRadioId(tab) {
+    if (tab === 'indexing') return 'recent-tab-indexing';
+    if (tab === 'logs') return 'recent-tab-logs';
+    return 'recent-tab-mcp';
+}
+
+function getRecentSubTab(root) {
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    if (panel?.querySelector) {
+        const checked = panel.querySelector('.recent-tab-radio:checked');
+        if (checked) return recentSubTabFromRadio(checked);
+    }
+    return sessionStorage.getItem(RECENT_SUBTAB_KEY) || 'mcp';
+}
+
+function setRecentSubTab(tab, root) {
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    if (!panel?.querySelector) return;
+    const radio = panel.querySelector('#' + recentSubTabRadioId(tab));
+    if (radio) radio.checked = true;
+    sessionStorage.setItem(RECENT_SUBTAB_KEY, tab);
+}
+
+function mountRecentContent(el, preservedTab) {
+    if (!el) return;
+    const tab = preservedTab || sessionStorage.getItem(RECENT_SUBTAB_KEY) || 'mcp';
+    mountHTMXContent(el);
+    setRecentSubTab(tab, el);
+    if (el.dataset.recentTabBound) return;
+    el.dataset.recentTabBound = '1';
+    el.addEventListener('change', (e) => {
+        if (e.target?.classList?.contains('recent-tab-radio')) {
+            sessionStorage.setItem(RECENT_SUBTAB_KEY, recentSubTabFromRadio(e.target));
+        }
+    });
+}
+
 function mountHTMXContent(el) {
     if (!el || typeof htmx === 'undefined') return;
     htmx.process(el);
@@ -482,7 +541,7 @@ async function deleteDocSource(btn) {
     }
 }
 
-const EMBED_TEST_TIMEOUT_MS = 18000;
+const EMBED_TEST_TIMEOUT_MS = 15000;
 
 function formatEmbedTestElapsed(ms) {
     return (ms / 1000).toFixed(1) + 's';
