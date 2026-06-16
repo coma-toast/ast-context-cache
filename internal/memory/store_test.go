@@ -78,3 +78,64 @@ func TestStoreProcedureAndRecall(t *testing.T) {
 		t.Fatalf("line=%q", rec.Lines[0].Line)
 	}
 }
+
+func TestForgetByRef(t *testing.T) {
+	testMemoryDB(t)
+	res, err := Store(StoreInput{
+		Kind: KindFact, Scope: ScopeSession, SessionID: "s3",
+		Subject: "user.lang", Predicate: "prefers", Object: "Go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forgot, err := Forget(ForgetInput{Refs: []string{res.Ref}})
+	if err != nil || forgot.InvalidatedRefs != 1 {
+		t.Fatalf("forget=%+v err=%v", forgot, err)
+	}
+	rec, err := Recall(RecallInput{SessionID: "s3", Query: "lang", TokenBudget: 200}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Formatted != "" {
+		t.Fatalf("expected empty recall after forget, got %q", rec.Formatted)
+	}
+}
+
+func TestStoreExtracted(t *testing.T) {
+	testMemoryDB(t)
+	ex := ExtractFromText("FACT: api.version | is | 2\nRULE: Always pass session_id on search")
+	stored, err := StoreExtracted("s4", "", "", ex, ScopeSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 2 {
+		t.Fatalf("stored=%d", len(stored))
+	}
+	rec, err := Recall(RecallInput{SessionID: "s4", TokenBudget: 400}, nil)
+	if err != nil || len(rec.Lines) < 2 {
+		t.Fatalf("recall lines=%d err=%v", len(rec.Lines), err)
+	}
+}
+
+func TestRecallTokenBudget(t *testing.T) {
+	testMemoryDB(t)
+	for i := 0; i < 20; i++ {
+		_, err := Store(StoreInput{
+			Kind: KindFact, Scope: ScopeSession, SessionID: "s5",
+			Subject: "item.count", Predicate: "equals", Object: strings.Repeat("x", 20) + string(rune('a'+i)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec, err := Recall(RecallInput{SessionID: "s5", TokenBudget: 80}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.TokensUsed > 80 {
+		t.Fatalf("tokens_used=%d budget=80", rec.TokensUsed)
+	}
+	if len(rec.Lines) >= 20 {
+		t.Fatalf("expected budget to limit lines, got %d", len(rec.Lines))
+	}
+}
