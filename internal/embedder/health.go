@@ -242,6 +242,51 @@ var (
 	probeStop   chan struct{}
 )
 
+// NudgeResult is returned by a manual dashboard/API recovery probe.
+type NudgeResult struct {
+	OK        bool   `json:"ok"`
+	State     string `json:"state"`
+	Error     string `json:"error,omitempty"`
+	LatencyMs int64  `json:"latency_ms"`
+	Skipped   bool   `json:"skipped,omitempty"`
+}
+
+var nudgeMu sync.Mutex
+
+// NudgeRecovery runs an immediate connectivity probe (same path as the background recovery loop).
+func NudgeRecovery() NudgeResult {
+	nudgeMu.Lock()
+	defer nudgeMu.Unlock()
+	e := Raw()
+	if e == nil {
+		return NudgeResult{State: "error", Error: "embedder not configured"}
+	}
+	start := time.Now()
+	log.Printf("embedder recovery: manual nudge")
+	switch runRecoveryCycle(e) {
+	case probeOK:
+		state, _, _ := HealthSnapshot()
+		return NudgeResult{OK: true, State: state, LatencyMs: time.Since(start).Milliseconds()}
+	case probeSkipped:
+		state, _, lastErr := HealthSnapshot()
+		out := NudgeResult{
+			State:     state,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Skipped:   true,
+			OK:        state == "ready",
+		}
+		if lastErr != "" {
+			out.Error = lastErr
+		} else {
+			out.Error = "probe deferred while embed work is in flight"
+		}
+		return out
+	default:
+		state, _, lastErr := HealthSnapshot()
+		return NudgeResult{State: state, Error: lastErr, LatencyMs: time.Since(start).Milliseconds()}
+	}
+}
+
 func stopConnectivityProbe() {
 	probeStopMu.Lock()
 	defer probeStopMu.Unlock()

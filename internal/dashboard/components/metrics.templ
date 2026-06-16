@@ -143,6 +143,10 @@ templ WorkerControls(active int, total int, live int) {
 	</div>
 }
 
+templ EmbedderRetryButton() {
+	<button type="button" class="embed-retry-btn" data-embedder-retry title="Run connectivity probe now">Retry now</button>
+}
+
 templ EmbedPanel(h IndexHealth) {
 	<div class="card metric-card embed-panel">
 		<div class="card-title">Embeddings</div>
@@ -169,8 +173,15 @@ templ EmbedPanel(h IndexHealth) {
 		</div>
 		if (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.EmbedderError != "" {
 			<div class={ "embed-error-banner", templ.KV("embed-warn-banner", h.EmbedderState == "degraded") } title={ h.EmbedderError }>
-				<strong>{ h.EmbedderErrorHeadline() }</strong>
-				<span class="embed-error-detail">{ h.EmbedderErrorShort() }</span>
+				<div class="embed-error-banner-body">
+					<strong>{ h.EmbedderErrorHeadline() }</strong>
+					<span class="embed-error-detail">{ h.EmbedderErrorShort() }</span>
+				</div>
+				@EmbedderRetryButton()
+			</div>
+		} else if h.EmbedderState == "error" || h.EmbedderState == "degraded" {
+			<div class="embed-retry-row">
+				@EmbedderRetryButton()
 			</div>
 		}
 		if h.ShowEmbedBacklogHint() {

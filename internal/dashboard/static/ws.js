@@ -914,6 +914,43 @@ function onWorkerPartialUpdated() {
     }
 }
 
+async function refreshHealthBarPartial() {
+    const target = document.querySelector('#health-bar');
+    if (!target) return;
+    const r = await fetch('/partials/health');
+    if (r.ok) {
+        target.innerHTML = await r.text();
+        mountHTMXContent(target);
+    }
+}
+
+async function nudgeEmbedderRetry(btn) {
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('htmx-request');
+    try {
+        const r = await fetch('/api/embedder/retry', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok && data.error) {
+            console.error('embedder retry:', data.error);
+        }
+        await Promise.all([refreshIndexHealthPartial(), refreshHealthBarPartial()]);
+        const settings = document.getElementById('settings-content');
+        if (settings?.querySelector('.embed-active-row')) {
+            const sr = await fetch('/partials/settings');
+            if (sr.ok) {
+                settings.innerHTML = await sr.text();
+                mountSettingsContent(settings);
+            }
+        }
+    } catch (err) {
+        console.error('embedder retry:', err);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('htmx-request');
+    }
+}
+
 async function refreshIndexHealthPartial() {
     const target = document.querySelector('#index-health');
     if (!target) return;
@@ -977,18 +1014,25 @@ document.body.addEventListener('click', (e) => {
         return;
     }
     const wbtn = e.target.closest('.watcher-action');
-    if (!wbtn) return;
-    e.preventDefault();
-    const action = wbtn.dataset.watcherAction;
-    const projectPath = wbtn.dataset.projectPath;
-    if (action === 'delete') {
-        const name = wbtn.dataset.projectName || projectPath;
-        if (!confirm(`Delete ${name}? This removes all indexed data.`)) return;
+    if (wbtn) {
+        e.preventDefault();
+        const action = wbtn.dataset.watcherAction;
+        const projectPath = wbtn.dataset.projectPath;
+        if (action === 'delete') {
+            const name = wbtn.dataset.projectName || projectPath;
+            if (!confirm(`Delete ${name}? This removes all indexed data.`)) return;
+        }
+        wbtn.disabled = true;
+        watcherApiAction(action, projectPath, '#index-health').finally(() => {
+            wbtn.disabled = false;
+        });
+        return;
     }
-    wbtn.disabled = true;
-    watcherApiAction(action, projectPath, '#index-health').finally(() => {
-        wbtn.disabled = false;
-    });
+    const retryBtn = e.target.closest('[data-embedder-retry]');
+    if (retryBtn) {
+        e.preventDefault();
+        nudgeEmbedderRetry(retryBtn);
+    }
 });
 
 async function refreshEmbedModelsForField(el) {

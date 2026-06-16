@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
 func TestParseLogLine(t *testing.T) {
@@ -43,6 +45,29 @@ func TestTailFileLines(t *testing.T) {
 	}
 }
 
+func TestServerLogPathDefault(t *testing.T) {
+	t.Setenv("AST_MCP_LOG_PATH", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	want := filepath.Join(home, ".astcache", "ast-mcp.log")
+	if got := serverLogPath(); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestServerLogPathLegacyFallback(t *testing.T) {
+	t.Setenv("AST_MCP_LOG_PATH", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(legacyServerLogPath, []byte("legacy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(legacyServerLogPath) })
+	if got := serverLogPath(); got != legacyServerLogPath {
+		t.Fatalf("got %q want legacy %q", got, legacyServerLogPath)
+	}
+}
+
 func TestBuildRecentLogsMissingFile(t *testing.T) {
 	t.Setenv("AST_MCP_LOG_PATH", filepath.Join(t.TempDir(), "missing.log"))
 	lines, path, _ := buildRecentLogs(10)
@@ -51,5 +76,17 @@ func TestBuildRecentLogsMissingFile(t *testing.T) {
 	}
 	if len(lines) != 1 || lines[0].Level != "warn" {
 		t.Fatalf("lines=%+v", lines)
+	}
+	if !strings.Contains(lines[0].Message, "Log file not found") {
+		t.Fatalf("message=%q", lines[0].Message)
+	}
+}
+
+func TestDefaultLogPathMatchesDB(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	want := filepath.Join(home, ".astcache", "ast-mcp.log")
+	if got := db.DefaultLogPath(); got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }

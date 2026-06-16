@@ -6,7 +6,7 @@ set -g __ast_mcp_dir  "__AST_DIR__"
 set -g __ast_mcp_ort  "__ORT_LIB__"
 set -g __ast_mcp_port 7821
 set -g __ast_mcp_dash 7830
-set -g __ast_mcp_log  /tmp/ast-mcp.log
+set -g __ast_mcp_log "$HOME/.astcache/ast-mcp.log"
 
 function __ast_mcp_is_running
     lsof -iTCP:$__ast_mcp_port -sTCP:LISTEN -P 2>/dev/null | grep -q .
@@ -35,6 +35,7 @@ function ast-mcp
                 return 0
             end
             echo "Starting ast-mcp..."
+            mkdir -p (dirname $__ast_mcp_log)
             cd $__ast_mcp_dir
             set -lx ONNXRUNTIME_LIB $__ast_mcp_ort
             nohup ./ast-mcp > $__ast_mcp_log 2>&1 &

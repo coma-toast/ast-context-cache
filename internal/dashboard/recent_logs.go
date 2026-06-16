@@ -6,15 +6,23 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
+	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
-const defaultServerLogPath = "/tmp/ast-mcp.log"
+const legacyServerLogPath = "/tmp/ast-mcp.log"
 
 func serverLogPath() string {
 	if p := strings.TrimSpace(os.Getenv("AST_MCP_LOG_PATH")); p != "" {
 		return p
 	}
-	return defaultServerLogPath
+	p := db.DefaultLogPath()
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	if _, err := os.Stat(legacyServerLogPath); err == nil {
+		return legacyServerLogPath
+	}
+	return p
 }
 
 func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path string, truncated bool) {
@@ -27,10 +35,14 @@ func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path strin
 	}
 	raw, trunc, err := tailFileLines(path, maxLines)
 	if err != nil {
+		msg := err.Error()
+		if os.IsNotExist(err) {
+			msg = "Log file not found at " + path + " — use ast-mcp start (logs to ~/.astcache/ast-mcp.log) or set AST_MCP_LOG_PATH"
+		}
 		return []components.RecentLogLine{{
 			Level:   "warn",
-			Message: err.Error(),
-			Raw:     err.Error(),
+			Message: msg,
+			Raw:     msg,
 		}}, path, false
 	}
 	for _, line := range raw {

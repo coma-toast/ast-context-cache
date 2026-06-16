@@ -139,6 +139,27 @@ func TestProbeDeferCheckSkipsFailure(t *testing.T) {
 	}
 }
 
+func TestNudgeRecoveryClearsProbeError(t *testing.T) {
+	MarkReady()
+	MarkError(errors.New("connectivity probe: timeout after 15s"))
+	runtimeMu.Lock()
+	prev := runtimeRaw
+	runtimeRaw = &stubEmbedder{}
+	runtimeMu.Unlock()
+	defer func() {
+		runtimeMu.Lock()
+		runtimeRaw = prev
+		runtimeMu.Unlock()
+	}()
+	if res := NudgeRecovery(); !res.OK {
+		t.Fatalf("nudge: %+v", res)
+	}
+	state, _, lastErr := HealthSnapshot()
+	if state != "ready" || lastErr != "" {
+		t.Fatalf("state=%q err=%q", state, lastErr)
+	}
+}
+
 func TestRecoveryIgnoresProbeDeferCheck(t *testing.T) {
 	MarkReady()
 	MarkError(errors.New("connection refused"))

@@ -59,6 +59,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/settings", handleSettings)
 	mux.HandleFunc("/api/settings/embed", handleEmbedSettings)
 	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
+	mux.HandleFunc("/api/embedder/retry", handleEmbedderRetry)
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)

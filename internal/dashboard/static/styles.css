@@ -362,6 +362,10 @@ header h1 .icon { font-size: 20px; }
   color: var(--orange);
 }
 .embed-error-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
   margin-top: 8px;
   padding: 8px 10px;
   border-radius: 6px;
@@ -371,6 +375,34 @@ header h1 .icon { font-size: 20px; }
   font-size: 11px;
   line-height: 1.35;
   word-break: break-word;
+}
+.embed-error-banner-body { flex: 1; min-width: 0; }
+.embed-retry-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+.embed-retry-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--sans);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.embed-retry-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.embed-retry-btn:disabled,
+.embed-retry-btn.htmx-request {
+  opacity: 0.6;
+  cursor: wait;
 }
 .embed-error-banner.embed-warn-banner {
   background: rgba(210, 153, 34, 0.1);
@@ -644,7 +676,7 @@ header h1 .icon { font-size: 20px; }
 }
 .worker-metric-row .metric-row-value { margin-left: 0; }
 .worker-controls-paused .worker-count-label { color: var(--orange); }
-.embed-error-banner strong {
+.embed-error-banner-body strong {
   display: block;
   margin-bottom: 2px;
 }
