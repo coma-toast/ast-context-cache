@@ -578,7 +578,10 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			}
 		}
 	default:
-		if ctxResult, ok, _ := handleContextTool(toolName, toolArgs, args, emb, start, cpuStart, projectPath); ok {
+		if memResult, ok, _ := handleMemoryTool(toolName, toolArgs, args, emb, start, cpuStart, projectPath); ok {
+			result = memResult
+			loggedToolCall = true
+		} else if ctxResult, ok, _ := handleContextTool(toolName, toolArgs, args, emb, start, cpuStart, projectPath); ok {
 			result = ctxResult
 			loggedToolCall = true
 		} else {

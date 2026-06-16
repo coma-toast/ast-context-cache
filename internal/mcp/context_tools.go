@@ -9,6 +9,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
 
@@ -38,6 +39,20 @@ func handleStoreContext(toolArgs map[string]interface{}, emb embedder.Interface,
 	}
 	if len(res.EvictedRefs) > 0 {
 		out["evicted_refs"] = res.EvictedRefs
+	}
+	if extract, _ := toolArgs["extract_memory"].(bool); extract {
+		ex := memory.ExtractFromText(content)
+		stored, _ := memory.StoreExtracted(sessionID, projectPath, res.Ref, ex, memory.ScopeSession)
+		if len(stored) > 0 {
+			lines := make([]map[string]interface{}, 0, len(stored))
+			for _, s := range stored {
+				lines = append(lines, map[string]interface{}{"ref": s.Ref, "kind": s.Kind, "line": s.Line})
+				if emb != nil {
+					go memory.EmbedEntry(s.Ref, sessionID, s.Line, emb)
+				}
+			}
+			out["memory_extracted"] = lines
+		}
 	}
 	resultJSON, _ := json.Marshal(out)
 	logToolQuery("store_context", args, len(resultJSON), db.EstimateTokens(content), 0, context.SavingsMeta{TokensSaved: res.VirtualTokensStored}, start, cpuStart, projectPath, "")

@@ -20,6 +20,13 @@ type RecentQuery struct {
 	FileTitle      string
 }
 
+type RecentLogLine struct {
+	Timestamp string
+	Level     string
+	Message   string
+	Raw       string
+}
+
 var toolBadges = map[string]string{
 	"get_context_capsule": "badge-blue",
 	"search_semantic":     "badge-purple",
@@ -40,6 +47,12 @@ var toolBadges = map[string]string{
 	"export_bundle":       "badge-orange",
 	"import_bundle":       "badge-green",
 	"execute_code":        "badge-orange",
+	"store_context":       "badge-green",
+	"fetch_context":       "badge-blue",
+	"flush_context":       "badge-red",
+	"store_memory":        "badge-green",
+	"recall_memory":       "badge-purple",
+	"forget_memory":       "badge-red",
 	"file_watcher":        "badge-green",
 }
 
@@ -69,16 +82,50 @@ func shortProject(path string) string {
 	return path
 }
 
-templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery) {
+templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine, logPath string, logTruncated bool) {
 	<div class="recent-panel">
-		<details class="recent-section" open>
-			<summary class="recent-section-title">MCP tool calls <span class="recent-count">{ fmtInt(len(mcp)) }</span></summary>
+		<input type="radio" id="recent-tab-mcp" name="recent-tab" class="recent-tab-radio" checked/>
+		<input type="radio" id="recent-tab-indexing" name="recent-tab" class="recent-tab-radio"/>
+		<input type="radio" id="recent-tab-logs" name="recent-tab" class="recent-tab-radio"/>
+		<div class="recent-tab-bar toggle-group">
+			<label for="recent-tab-mcp" class="toggle-btn">MCP tool calls <span class="recent-count">{ fmtInt(len(mcp)) }</span></label>
+			<label for="recent-tab-indexing" class="toggle-btn">Indexing <span class="recent-count">{ fmtInt(len(indexing)) }</span></label>
+			<label for="recent-tab-logs" class="toggle-btn">Logs <span class="recent-count">{ fmtInt(len(logs)) }</span></label>
+		</div>
+		<div class="recent-tab-pane pane-mcp">
 			@RecentTable(mcp)
-		</details>
-		<details class="recent-section">
-			<summary class="recent-section-title">Indexing activity <span class="recent-count">{ fmtInt(len(indexing)) }</span></summary>
+		</div>
+		<div class="recent-tab-pane pane-indexing">
 			@IndexingTable(indexing)
-		</details>
+		</div>
+		<div class="recent-tab-pane pane-logs">
+			@RecentLogs(logs, logPath, logTruncated)
+		</div>
+	</div>
+}
+
+templ RecentLogs(lines []RecentLogLine, logPath string, truncated bool) {
+	<div class="card recent-logs-card">
+		<div class="recent-logs-meta">
+			<span class="mono dim" title={ logPath }>{ logPath }</span>
+			if truncated {
+				<span class="recent-logs-hint">Showing last { fmtInt(len(lines)) } lines</span>
+			}
+		</div>
+		<div class="recent-logs-scroll">
+			if len(lines) == 0 {
+				<div class="empty-state">No log lines</div>
+			} else {
+				for _, line := range lines {
+					<div class={ "recent-log-line", "log-" + line.Level }>
+						if line.Timestamp != "" {
+							<span class="recent-log-ts mono dim">{ line.Timestamp }</span>
+						}
+						<span class="recent-log-msg mono">{ line.Message }</span>
+					</div>
+				}
+			}
+		</div>
 	</div>
 }
 
