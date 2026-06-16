@@ -59,6 +59,7 @@ func main() {
 	if err := db.Init(); err != nil {
 		log.Fatalf("DB error: %v", err)
 	}
+	watcher.EnsureDefaultIgnoreGlobs()
 
 	go db.StartWALCheckpoint()
 

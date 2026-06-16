@@ -1,0 +1,90 @@
+package components
+
+import (
+	"fmt"
+	"path/filepath"
+)
+
+type MemoryData struct {
+	FilteredProject        string
+	TotalSymbols           int
+	TotalVectors           int
+	VectorMemMB            float64
+	VirtualInventoryTokens int
+	VirtualNotesCount      int
+	VirtualUtilPct30d      float64
+	VirtualOrphanCount     int
+	VirtualFlushed30d      int
+	VirtualStored30d       int
+	VirtualAccessed30d     int
+	VirtualTodayStored     int
+	VirtualTodayAccessed   int
+	VirtualMaxNotesGlobal  int
+	VirtualMaxTokensGlobal int
+	DocSources             []IndexDocSource
+	DocSourcesTotal        int
+	DocSourcesPage         int
+	DocSourcesPerPage      int
+}
+
+func (m MemoryData) virtualSublabel() string {
+	quota := ""
+	if m.VirtualMaxTokensGlobal > 0 {
+		quota = fmt.Sprintf(" · %d/%d notes", m.VirtualNotesCount, m.VirtualMaxNotesGlobal)
+	}
+	return fmt.Sprintf("%d notes · 30d util: %.0f%% · accessed: %s · orphan: %d · flushed: %s%s",
+		m.VirtualNotesCount, m.VirtualUtilPct30d, fmtInt(m.VirtualAccessed30d), m.VirtualOrphanCount, fmtInt(m.VirtualFlushed30d), quota)
+}
+
+func (m MemoryData) virtualInventoryMeter() TodayMeterFill {
+	if m.VirtualMaxTokensGlobal <= 0 {
+		return todayMeterFill(m.VirtualInventoryTokens, maxInt(m.VirtualStored30d, 1))
+	}
+	return todayMeterFill(m.VirtualInventoryTokens, m.VirtualMaxTokensGlobal)
+}
+
+templ MemoryPanel(m MemoryData) {
+	if m.FilteredProject != "" {
+		<div class="filter-banner">
+			Semantic index below is for <strong>{ filepath.Base(m.FilteredProject) }</strong>. Session and knowledge stats are server-wide.
+		</div>
+	}
+	<div class="memory-section">
+		<div class="section-title">
+			Session memory
+			<span class="section-hint">Offloaded conversation notes (store_context) — episodic / working memory, like Mem0 session scope or LangMem episodic</span>
+		</div>
+		<div class="grid grid-3 memory-stats-grid">
+			@StatMeter("Active inventory", fmtInt(m.VirtualInventoryTokens), m.virtualSublabel(), m.virtualInventoryMeter(), "stat-cyan")
+			@StatMeter("Stored today", fmtInt(m.VirtualTodayStored), fmt.Sprintf("30d stored: %s", fmtInt(m.VirtualStored30d)), todayMeterFill(m.VirtualTodayStored, maxInt(m.VirtualStored30d/30, 1)), "stat-accent")
+			@StatMeter("Accessed today", fmtInt(m.VirtualTodayAccessed), fmt.Sprintf("30d accessed: %s", fmtInt(m.VirtualAccessed30d)), todayMeterFill(m.VirtualTodayAccessed, maxInt(m.VirtualAccessed30d/30, 1)), "stat-green")
+		</div>
+	</div>
+	<div class="memory-section">
+		<div class="section-title">
+			Semantic index
+			<span class="section-hint">Code symbols and embedding vectors — semantic recall over your repos (Mem0 semantic / vector tier)</span>
+		</div>
+		<div class="grid grid-3 memory-stats-grid">
+			<div class="card memory-stat-card">
+				<div class="card-title">Symbols</div>
+				<div class="stat-value stat-accent">{ fmtInt(m.TotalSymbols) }</div>
+			</div>
+			<div class="card memory-stat-card">
+				<div class="card-title">Vectors</div>
+				<div class="stat-value stat-purple">{ fmtInt(m.TotalVectors) }</div>
+			</div>
+			<div class="card memory-stat-card">
+				<div class="card-title">Vector cache</div>
+				<div class="stat-value stat-accent">{ fmt.Sprintf("%.2f MB", m.VectorMemMB) }</div>
+			</div>
+		</div>
+	</div>
+	<div class="memory-section">
+		<div class="section-title">
+			Knowledge base
+			<span class="section-hint">Cached documentation URLs (fetch_doc / search_docs) — external knowledge, like Zep documents or Context7</span>
+		</div>
+		@DocSourcesCard(m.DocSources, m.DocSourcesTotal, m.DocSourcesPage, m.DocSourcesPerPage, "#memory-panel")
+	</div>
+}

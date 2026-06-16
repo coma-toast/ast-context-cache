@@ -51,8 +51,15 @@ func SettingsFromMap(m map[string]string) Settings {
 	}
 }
 
+// ProbeTimeout caps dashboard "Test form values" remote HTTP calls.
+const ProbeTimeout = 15 * time.Second
+
 // NewFromSettings builds an embedder from explicit settings (dashboard test / preview).
 func NewFromSettings(s Settings, modelDir string) (Interface, error) {
+	return newFromSettings(s, modelDir, 120*time.Second)
+}
+
+func newFromSettings(s Settings, modelDir string, remoteTimeout time.Duration) (Interface, error) {
 	backend := strings.ToLower(strings.TrimSpace(s.Backend))
 	if backend == "" {
 		backend = "onnx"
@@ -75,7 +82,7 @@ func NewFromSettings(s Settings, modelDir string) (Interface, error) {
 		if u == "" {
 			u = "http://127.0.0.1:8080/embed"
 		}
-		return NewHTTPEmbedder(u, s.HTTPBearer), nil
+		return newHTTPEmbedder(u, s.HTTPBearer, remoteTimeout), nil
 	case "ollama":
 		url := strings.TrimSpace(s.OllamaHost)
 		if url != "" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
@@ -88,7 +95,7 @@ func NewFromSettings(s Settings, modelDir string) (Interface, error) {
 		if model == "" {
 			model = "nomic-embed-text"
 		}
-		return NewOllamaEmbedder(url, model), nil
+		return newOllamaEmbedder(url, model, remoteTimeout), nil
 	case "openai", "litellm":
 		base := strings.TrimSpace(s.OpenAIBaseURL)
 		if base == "" {
@@ -105,16 +112,16 @@ func NewFromSettings(s Settings, modelDir string) (Interface, error) {
 		if s.OpenAIDimensions == "" {
 			jsonDims = 768
 		}
-		openEmb := NewOpenAIEmbedder(base, s.OpenAIAPIKey, model, jsonDims)
+		openEmb := newOpenAIEmbedder(base, s.OpenAIAPIKey, model, jsonDims, "openai embed", remoteTimeout)
 		return openEmb, nil
 	case "docker":
-		return newDockerEmbedderFromSettings(s)
+		return newDockerEmbedderFromSettings(s, remoteTimeout)
 	default:
 		return nil, fmt.Errorf("EMBED_BACKEND: unknown %q (use onnx, http, ollama, openai, or docker)", backend)
 	}
 }
 
-func newDockerEmbedderFromSettings(s Settings) (Interface, error) {
+func newDockerEmbedderFromSettings(s Settings, remoteTimeout time.Duration) (Interface, error) {
 	url := strings.TrimSpace(s.DockerURL)
 	if url == "" {
 		url = DefaultDockerURL
@@ -128,7 +135,7 @@ func newDockerEmbedderFromSettings(s Settings) (Interface, error) {
 		return nil, err
 	}
 	base := normalizeDMRBase(url)
-	openEmb := NewOpenAIEmbedderWithLabel(base, "", model, jsonDims, "dmr embed")
+	openEmb := newOpenAIEmbedder(base, "", model, jsonDims, "dmr embed", remoteTimeout)
 	return openEmb, nil
 }
 
@@ -189,7 +196,7 @@ func EnvOverrides() []string {
 // TestSettings embeds a probe string using the given settings.
 func TestSettings(s Settings, modelDir string) TestResult {
 	res := TestResult{EnvBlocked: EnvOverrides()}
-	e, err := NewFromSettings(s, modelDir)
+	e, err := newFromSettings(s, modelDir, ProbeTimeout)
 	if err != nil {
 		res.Error = err.Error()
 		return res

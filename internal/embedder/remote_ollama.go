@@ -20,6 +20,10 @@ type OllamaEmbedder struct {
 
 // NewOllamaEmbedder builds a client. baseURL is e.g. http://127.0.0.1:11434 (no path).
 func NewOllamaEmbedder(baseURL, model string) *OllamaEmbedder {
+	return newOllamaEmbedder(baseURL, model, 120*time.Second)
+}
+
+func newOllamaEmbedder(baseURL, model string, timeout time.Duration) *OllamaEmbedder {
 	b := strings.TrimSpace(baseURL)
 	if b == "" {
 		b = "http://127.0.0.1:11434"
@@ -29,10 +33,13 @@ func NewOllamaEmbedder(baseURL, model string) *OllamaEmbedder {
 	if m == "" {
 		m = "nomic-embed-text"
 	}
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
 	return &OllamaEmbedder{
 		BaseURL: b,
 		Model:   m,
-		client:  &http.Client{Timeout: 120 * time.Second},
+		client:  &http.Client{Timeout: timeout},
 	}
 }
 

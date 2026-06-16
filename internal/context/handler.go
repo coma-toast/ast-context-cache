@@ -6,6 +6,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -65,6 +66,9 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 				return getContextResult{JSON: cached, Savings: savings, CacheHit: true}
 			}
 		}
+	}
+	if Emb != nil {
+		embedqueue.EnsureProjectEmbeddings(projectPath)
 	}
 	scored, pipeMetrics := search.HybridSearch(query, projectPath, Emb, 30, filters)
 	returnedSymbols := GetReturnedSymbolKeys(sessionID)

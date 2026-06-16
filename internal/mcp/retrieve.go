@@ -10,6 +10,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -166,6 +167,9 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 }
 
 func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics, codeRetrieveMeta) {
+	if emb != nil {
+		embedqueue.EnsureProjectEmbeddings(projectPath)
+	}
 	results, metrics := search.HybridSearch(query, projectPath, emb, limit*2, filters)
 	if len(results) > limit {
 		results = results[:limit]

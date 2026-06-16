@@ -41,6 +41,8 @@ func partialMatchesMask(name string, mask realtime.Reason) bool {
 	switch name {
 	case "index-health":
 		return mask&realtime.IndexHealth != 0
+	case "memory":
+		return mask&(realtime.Stats|realtime.IndexHealth|realtime.Settings) != 0
 	case "health-bar":
 		return mask&realtime.HealthBar != 0
 	case "stats":

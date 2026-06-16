@@ -1,6 +1,7 @@
 const projectFilteredTargets = new Set([
     '#stats-cards',
     '#index-health',
+    '#memory-panel',
     '#recent-queries',
     '#symbol-chart',
     '#lang-chart',
@@ -87,7 +88,22 @@ document.addEventListener('alpine:init', () => {
 
     Alpine.data('dashboard', () => ({
         selectedProject: '',
-        settingsOpen: false,
+        activeTab: 'overview',
+        settingsLoaded: false,
+
+        init() {
+            const hash = (location.hash || '').replace('#', '');
+            const tabs = ['overview', 'memory', 'activity', 'analytics', 'recent', 'settings'];
+            if (tabs.includes(hash)) {
+                this.activeTab = hash;
+            }
+            if (this.activeTab === 'settings') {
+                this.loadSettings();
+            }
+            if (this.activeTab === 'memory') {
+                this.loadMemory();
+            }
+        },
 
         projectLabel() {
             if (!this.selectedProject) return '';
@@ -95,16 +111,46 @@ document.addEventListener('alpine:init', () => {
             return parts[parts.length - 1] || this.selectedProject;
         },
 
-        async openSettings() {
-            this.settingsOpen = true;
+        setTab(tab) {
+            this.activeTab = tab;
+            if (location.hash !== '#' + tab) {
+                history.replaceState(null, '', '#' + tab);
+            }
+            if (tab === 'settings') {
+                this.loadSettings();
+            }
+            if (tab === 'memory') {
+                this.loadMemory();
+            }
+            if (tab === 'activity') {
+                window.dispatchEvent(new CustomEvent('chart-update'));
+            }
+        },
+
+        async loadSettings() {
             const el = document.getElementById('settings-content');
             if (!el) return;
-            const needsLoad = !el.querySelector('.section') && !el.querySelector('.project-list');
+            const needsLoad = !this.settingsLoaded && !el.querySelector('.section') && !el.querySelector('.project-list');
             if (needsLoad) {
                 const r = await fetch('/partials/settings');
-                if (r.ok) el.innerHTML = await r.text();
+                if (r.ok) {
+                    el.innerHTML = await r.text();
+                    this.settingsLoaded = true;
+                }
             }
             mountSettingsContent(el);
+        },
+
+        async loadMemory() {
+            const el = document.getElementById('memory-panel');
+            if (!el) return;
+            const project = this.selectedProject;
+            const q = project ? `?project_id=${encodeURIComponent(project)}` : '';
+            const r = await fetch('/partials/memory' + q);
+            if (r.ok) {
+                el.innerHTML = await r.text();
+                mountHTMXContent(el);
+            }
         },
 
         async applyProjectFilter() {
@@ -113,6 +159,7 @@ document.addEventListener('alpine:init', () => {
             const panels = [
                 ['#stats-cards', '/partials/stats'],
                 ['#index-health', '/partials/index-health'],
+                ['#memory-panel', '/partials/memory'],
                 ['#recent-queries', '/partials/recent'],
                 ['#symbol-chart', '/partials/charts/symbols'],
                 ['#lang-chart', '/partials/charts/languages'],
@@ -329,13 +376,13 @@ async function watcherApiAction(action, projectPath, targetSel) {
 }
 
 function docSourcesApiUrl(btn) {
-    const targetSel = btn.dataset.refreshTarget || '#index-health';
+    const targetSel = btn.dataset.refreshTarget || '#memory-panel';
     const projectSelect = document.querySelector('.project-select');
     let url = '/api/doc-sources';
     const params = new URLSearchParams();
     const page = parseInt(btn.dataset.docPage, 10);
     if (page > 1) params.set('doc_sources_page', String(page));
-    if (projectSelect && projectSelect.value && targetSel !== '#settings-content') {
+    if (projectSelect && projectSelect.value && targetSel !== '#settings-content' && targetSel !== '#memory-panel') {
         params.set('project_id', projectSelect.value);
     }
     const qs = params.toString();
@@ -361,10 +408,10 @@ async function loadDocSourcesPage(page, targetSel) {
     const target = document.querySelector(targetSel);
     if (!target || page < 1) return;
     const projectSelect = document.querySelector('.project-select');
-    let url = targetSel === '#settings-content' ? '/partials/settings' : '/partials/index-health';
+    let url = targetSel === '#settings-content' ? '/partials/settings' : targetSel === '#memory-panel' ? '/partials/memory' : '/partials/index-health';
     const params = new URLSearchParams();
     if (page > 1) params.set('doc_sources_page', String(page));
-    if (projectSelect && projectSelect.value && targetSel !== '#settings-content') {
+    if (projectSelect && projectSelect.value && targetSel !== '#settings-content' && targetSel !== '#memory-panel') {
         params.set('project_id', projectSelect.value);
     }
     const qs = params.toString();
@@ -433,6 +480,17 @@ async function deleteDocSource(btn) {
         btn.classList.remove('htmx-request');
         btn.disabled = false;
     }
+}
+
+const EMBED_TEST_TIMEOUT_MS = 18000;
+
+function formatEmbedTestElapsed(ms) {
+    return (ms / 1000).toFixed(1) + 's';
+}
+
+function setEmbedTestProgress(out, elapsedMs) {
+    out.className = 'perf-hint embed-test-result embed-test-running';
+    out.textContent = `Testing… ${formatEmbedTestElapsed(elapsedMs)}`;
 }
 
 const EMBED_MODEL_REFRESH_KEYS = new Set([
@@ -581,7 +639,12 @@ async function refreshEmbedModelField(field, clearSelection = false) {
             return;
         }
         const pick = clearSelection ? '' : (data.selected || selected);
-        if (!pick) {
+        if (pick && !models.includes(pick)) {
+            const key = field.dataset.settingKey;
+            if (key) await saveEmbedSettingKey(key, '');
+        }
+        const validPick = pick && models.includes(pick) ? pick : '';
+        if (!validPick) {
             const placeholder = document.createElement('option');
             placeholder.value = '';
             placeholder.textContent = 'Select a model…';
@@ -593,7 +656,7 @@ async function refreshEmbedModelField(field, clearSelection = false) {
             const opt = document.createElement('option');
             opt.value = m;
             opt.textContent = m;
-            if (m === pick) opt.selected = true;
+            if (m === validPick) opt.selected = true;
             sel.appendChild(opt);
         });
         if (hint) {
@@ -611,9 +674,13 @@ async function refreshEmbedModelField(field, clearSelection = false) {
 }
 
 async function saveEmbedSettings(backend) {
+    const switching = backend !== undefined && backend !== null;
     const payload = embedSettingsPayload();
-    if (backend !== undefined && backend !== null) {
+    if (switching) {
         payload.EMBED_BACKEND = backend;
+        delete payload.OLLAMA_EMBED_MODEL;
+        delete payload.EMBED_OPENAI_MODEL;
+        delete payload.EMBED_DOCKER_MODEL;
     }
     try {
         const r = await fetch('/api/settings/embed', {
@@ -633,7 +700,7 @@ async function saveEmbedSettings(backend) {
 }
 
 document.body.addEventListener('htmx:afterSwap', (e) => {
-    if (e.detail.target?.id === 'settings-content' || e.detail.target?.id === 'index-health') {
+    if (e.detail.target?.id === 'settings-content' || e.detail.target?.id === 'index-health' || e.detail.target?.id === 'memory-panel') {
         mountHTMXContent(e.detail.target);
     }
     if (e.detail.target?.id === 'index-health') {
@@ -835,7 +902,7 @@ document.body.addEventListener('click', (e) => {
     if (pagerBtn && !pagerBtn.disabled) {
         e.preventDefault();
         const page = parseInt(pagerBtn.dataset.docPage, 10);
-        loadDocSourcesPage(page, pagerBtn.dataset.refreshTarget || '#index-health');
+        loadDocSourcesPage(page, pagerBtn.dataset.refreshTarget || '#memory-panel');
         return;
     }
     const delBtn = e.target.closest('.doc-source-delete');
@@ -881,14 +948,21 @@ document.body.addEventListener('click', async (e) => {
     const out = document.getElementById('embedTestResult');
     if (!out) return;
     btn.disabled = true;
+    btn.classList.add('embed-test-running');
     out.style.display = '';
-    out.className = 'perf-hint embed-test-result';
-    out.textContent = 'Testing…';
+    const started = performance.now();
+    setEmbedTestProgress(out, 0);
+    const timer = setInterval(() => {
+        setEmbedTestProgress(out, performance.now() - started);
+    }, 100);
+    const ac = new AbortController();
+    const abortTimer = setTimeout(() => ac.abort(), EMBED_TEST_TIMEOUT_MS);
     try {
         const r = await fetch('/api/embedder/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(embedSettingsPayload()),
+            signal: ac.signal,
         });
         const data = await r.json();
         if (data.ok) {
@@ -905,8 +979,15 @@ document.body.addEventListener('click', async (e) => {
         }
     } catch (err) {
         out.className = 'perf-hint embed-test-result err';
-        out.textContent = String(err);
+        if (err.name === 'AbortError') {
+            out.textContent = `Timed out after ${formatEmbedTestElapsed(EMBED_TEST_TIMEOUT_MS)}`;
+        } else {
+            out.textContent = String(err);
+        }
     } finally {
+        clearInterval(timer);
+        clearTimeout(abortTimer);
+        btn.classList.remove('embed-test-running');
         btn.disabled = false;
     }
 });

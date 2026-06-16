@@ -65,10 +65,9 @@ func fmtInt64(n int64) string {
 }
 
 templ StatsCards(s Stats) {
-	<div class="grid grid-5 stats-grid">
+	<div class="grid grid-4 stats-grid">
 		@StatMeter("Queries", fmtInt(s.TodayQueries), s.queriesSublabel(), s.todayQueryMeter(), "stat-accent")
 		@StatMeter("Tokens saved", fmtInt(s.TodayTokens), s.tokensSublabel(), s.todayTokenMeter(), "stat-green")
-		@StatMeter("Virtual context", fmtInt(s.VirtualInventoryTokens), s.virtualSublabel(), s.virtualInventoryMeter(), "stat-cyan")
 		@StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationMeter(), "stat-orange")
 		@StatMeter("Sessions", fmtInt(s.TodaySessions), s.sessionsSublabel(), s.todaySessionMeter(), "stat-purple")
 	</div>

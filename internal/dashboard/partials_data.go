@@ -14,7 +14,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
-func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHealth {
+func buildIndexHealth(projectID string) components.IndexHealth {
 	h := components.IndexHealth{}
 	if projectID != "" {
 		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
@@ -79,7 +79,6 @@ func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHeal
 			})
 		}
 	}
-	appendIndexDocSources(&h, docSourcesPage)
 	eq := embedqueue.Snapshot()
 	h.EmbedQueued = eq.Queued
 	h.EmbedPending = eq.Pending
@@ -97,4 +96,30 @@ func buildIndexHealth(projectID string, docSourcesPage int) components.IndexHeal
 	h.FilteredProject = projectID
 	applyActiveEmbedder(&h)
 	return h
+}
+
+func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
+	m := components.MemoryData{FilteredProject: projectID}
+	if projectID != "" {
+		db.DB.QueryRow("SELECT COUNT(*) FROM symbols WHERE project_path = ?", projectID).Scan(&m.TotalSymbols)
+	} else {
+		db.DB.QueryRow("SELECT COUNT(*) FROM symbols").Scan(&m.TotalSymbols)
+	}
+	m.TotalVectors = search.Cache.Count(projectID)
+	m.VectorMemMB = search.Cache.MemoryMB()
+	var s components.Stats
+	fillVirtualContextStats(&s, projectID)
+	m.VirtualInventoryTokens = s.VirtualInventoryTokens
+	m.VirtualNotesCount = s.VirtualNotesCount
+	m.VirtualUtilPct30d = s.VirtualUtilPct30d
+	m.VirtualOrphanCount = s.VirtualOrphanCount
+	m.VirtualFlushed30d = s.VirtualFlushed30d
+	m.VirtualStored30d = s.VirtualStored30d
+	m.VirtualAccessed30d = s.VirtualAccessed30d
+	m.VirtualTodayStored = s.VirtualTodayStored
+	m.VirtualTodayAccessed = s.VirtualTodayAccessed
+	m.VirtualMaxNotesGlobal = s.VirtualMaxNotesGlobal
+	m.VirtualMaxTokensGlobal = s.VirtualMaxTokensGlobal
+	appendMemoryDocSources(&m, docSourcesPage)
+	return m
 }

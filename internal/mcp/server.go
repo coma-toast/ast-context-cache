@@ -296,6 +296,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		} else if emb == nil {
 			result = map[string]string{"error": "embedder not available"}
 		} else {
+			embedqueue.EnsureProjectEmbeddings(projectPath)
 			limit := 10
 			if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
 				limit = int(l)

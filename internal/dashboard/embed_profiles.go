@@ -142,6 +142,9 @@ func PersistEmbedSettings(m map[string]string) error {
 		restoreEmbedProfile(newBackend)
 		ApplyBackendDefaultsIfEmpty(newBackend)
 		for _, k := range profileKeysForBackend(newBackend) {
+			if isEmbedModelKey(k) {
+				continue
+			}
 			v, ok := m[k]
 			if !ok || strings.TrimSpace(v) == "" {
 				continue
@@ -150,6 +153,7 @@ func PersistEmbedSettings(m map[string]string) error {
 				return err
 			}
 		}
+		reconcileEmbedModel(newBackend)
 	} else {
 		for _, k := range embedder.SettingKeys() {
 			v, ok := m[k]
@@ -177,6 +181,55 @@ func onEmbedSettingChanged(key string) {
 	snapshotEmbedProfileFromDB(backend)
 }
 
+func modelKeyForBackend(backend string) string {
+	switch components.EmbedBackendUI(backend) {
+	case "docker":
+		return "EMBED_DOCKER_MODEL"
+	case "ollama":
+		return "OLLAMA_EMBED_MODEL"
+	case "openai":
+		return "EMBED_OPENAI_MODEL"
+	default:
+		return ""
+	}
+}
+
+func isEmbedModelKey(key string) bool {
+	switch key {
+	case "EMBED_DOCKER_MODEL", "OLLAMA_EMBED_MODEL", "EMBED_OPENAI_MODEL":
+		return true
+	default:
+		return false
+	}
+}
+
+func settingsFromDB(backend string) embedder.Settings {
+	m := map[string]string{"EMBED_BACKEND": components.EmbedBackendUI(backend)}
+	for _, k := range profileKeysForBackend(backend) {
+		m[k] = db.GetSetting(k, "")
+	}
+	return embedder.SettingsFromMap(m)
+}
+
+// reconcileEmbedModel clears the backend model when it is not in the remote catalog.
+func reconcileEmbedModel(backend string) {
+	key := modelKeyForBackend(backend)
+	if key == "" {
+		return
+	}
+	current := strings.TrimSpace(db.GetSetting(key, ""))
+	if current == "" {
+		return
+	}
+	models, err := embedder.ListModels(settingsFromDB(backend))
+	if err != nil {
+		return
+	}
+	if !sliceContains(models, current) {
+		_ = db.SetSetting(key, "")
+	}
+}
+
 func switchEmbedBackend(oldBackend, newBackend, newValue string) error {
 	snapshotEmbedProfileFromDB(oldBackend)
 	if err := db.SetSetting("EMBED_BACKEND", newValue); err != nil {
@@ -184,6 +237,7 @@ func switchEmbedBackend(oldBackend, newBackend, newValue string) error {
 	}
 	restoreEmbedProfile(newBackend)
 	ApplyBackendDefaultsIfEmpty(newBackend)
+	reconcileEmbedModel(newBackend)
 	snapshotEmbedProfileFromDB(newBackend)
 	return nil
 }
