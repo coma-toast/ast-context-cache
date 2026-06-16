@@ -11,6 +11,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -52,6 +53,8 @@ type RetrieveStats struct {
 	TokensSaved          int     `json:"tokens_saved,omitempty"`
 	SavingsVsCandidates  int     `json:"savings_vs_candidates,omitempty"`
 	BudgetTokensSaved    int     `json:"budget_tokens_saved,omitempty"`
+	MemoryTokens         int     `json:"memory_tokens,omitempty"`
+	MemoryLines          int     `json:"memory_lines,omitempty"`
 }
 
 type codeRetrieveMeta struct {
@@ -95,6 +98,30 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 		mode = m
 	}
 	sessionID, _ := args["session_id"].(string)
+	includeMemory := false
+	if im, ok := args["include_memory"].(bool); ok {
+		includeMemory = im
+	}
+	memoryPreamble := ""
+	memoryTokens := 0
+	memoryLines := 0
+	if includeMemory && sessionID != "" {
+		memBudget := tokenBudget / 5
+		if memBudget < 200 {
+			memBudget = 200
+		}
+		if memRes, err := memory.Recall(memory.RecallInput{
+			Query: query, SessionID: sessionID, ProjectPath: projectPath, TokenBudget: memBudget,
+		}, GetEmbedder()); err == nil && memRes.Formatted != "" {
+			memoryPreamble = "## Agent memory\n" + memRes.Formatted + "\n\n"
+			memoryTokens = memRes.TokensUsed
+			memoryLines = len(memRes.Lines)
+			tokenBudget -= memoryTokens
+			if tokenBudget < 800 {
+				tokenBudget = 800
+			}
+		}
+	}
 
 	filters := search.ParseSearchFilters(args)
 	tStart := time.Now()
@@ -155,10 +182,15 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 			TokensSaved:          savings.TokensSaved,
 			SavingsVsCandidates:  budgetSaved,
 			BudgetTokensSaved:    budgetSaved,
+			MemoryTokens:         memoryTokens,
+			MemoryLines:          memoryLines,
 		},
 	}
 
-	result.Context = assembleContext(chunks, format)
+	result.Context = memoryPreamble + assembleContext(chunks, format)
+	if memoryTokens > 0 {
+		result.Stats.TotalTokens += memoryTokens
+	}
 
 	resultJSON, _ := json.Marshal(result)
 	return map[string]interface{}{

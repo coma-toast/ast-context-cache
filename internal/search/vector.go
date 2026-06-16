@@ -370,6 +370,56 @@ func (vc *VectorCache) SearchNote(query []float32, sessionID string, limit int) 
 	return out
 }
 
+// SearchMemory returns top structured-memory vector matches (doc_type=memory).
+func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int) []ScoredResult {
+	if len(query) != VectorDims {
+		return nil
+	}
+	vc.ensureLoaded()
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+	type scored struct {
+		entry VectorEntry
+		sim   float64
+	}
+	var results []scored
+	for _, e := range vc.entries {
+		if e.DocType != "memory" {
+			continue
+		}
+		if sessionID != "" && e.ProjectPath != sessionID && e.ProjectPath != "" {
+			continue
+		}
+		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
+	}
+	if len(results) > limit {
+		for i := 0; i < limit; i++ {
+			maxIdx := i
+			for j := i + 1; j < len(results); j++ {
+				if results[j].sim > results[maxIdx].sim {
+					maxIdx = j
+				}
+			}
+			results[i], results[maxIdx] = results[maxIdx], results[i]
+		}
+		results = results[:limit]
+	}
+	out := make([]ScoredResult, len(results))
+	for i, r := range results {
+		ref := strings.TrimPrefix(r.entry.SourceFile, "mem:")
+		out[i] = ScoredResult{
+			Data: map[string]interface{}{
+				"ref":        ref,
+				"name":       r.entry.Name,
+				"similarity": r.sim,
+				"doc_type":   "memory",
+			},
+			Score: r.sim,
+		}
+	}
+	return out
+}
+
 func (vc *VectorCache) DeleteNoteByRef(sourceFile string) {
 	db.DB.Exec("DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?", sourceFile)
 	vc.mu.Lock()

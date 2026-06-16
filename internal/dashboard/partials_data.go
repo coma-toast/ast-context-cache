@@ -9,6 +9,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -120,6 +121,11 @@ func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
 	m.VirtualTodayAccessed = s.VirtualTodayAccessed
 	m.VirtualMaxNotesGlobal = s.VirtualMaxNotesGlobal
 	m.VirtualMaxTokensGlobal = s.VirtualMaxTokensGlobal
+	inv := memory.Inventory()
+	m.ActiveFacts = inv.ActiveFacts
+	m.ActiveProcedures = inv.ActiveProcedures
+	m.StructuredMemoryTokens = inv.ActiveTokens
+	m.MemoryOrphanCount = inv.OrphanCount
 	appendMemoryDocSources(&m, docSourcesPage)
 	return m
 }

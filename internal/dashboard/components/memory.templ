@@ -21,6 +21,10 @@ type MemoryData struct {
 	VirtualTodayAccessed   int
 	VirtualMaxNotesGlobal  int
 	VirtualMaxTokensGlobal int
+	ActiveFacts            int
+	ActiveProcedures       int
+	StructuredMemoryTokens int
+	MemoryOrphanCount      int
 	DocSources             []IndexDocSource
 	DocSourcesTotal        int
 	DocSourcesPage         int
@@ -77,6 +81,27 @@ templ MemoryPanel(m MemoryData) {
 			<div class="card memory-stat-card">
 				<div class="card-title">Vector cache</div>
 				<div class="stat-value stat-accent">{ fmt.Sprintf("%.2f MB", m.VectorMemMB) }</div>
+			</div>
+		</div>
+	</div>
+	<div class="memory-section">
+		<div class="section-title">
+			Temporal facts &amp; procedures
+			<span class="section-hint">Structured mem_* entries — facts with valid_from/until (Zep), PROC rules (LangMem). recall_memory is ~10× smaller than fetch_context for preferences.</span>
+		</div>
+		<div class="grid grid-3 memory-stats-grid">
+			<div class="card memory-stat-card">
+				<div class="card-title">Active facts</div>
+				<div class="stat-value stat-cyan">{ fmtInt(m.ActiveFacts) }</div>
+			</div>
+			<div class="card memory-stat-card">
+				<div class="card-title">Procedures</div>
+				<div class="stat-value stat-purple">{ fmtInt(m.ActiveProcedures) }</div>
+			</div>
+			<div class="card memory-stat-card">
+				<div class="card-title">Structured tokens</div>
+				<div class="stat-value stat-green">{ fmtInt(m.StructuredMemoryTokens) }</div>
+				<div class="perf-hint" style="margin-top:6px">Orphans: { fmtInt(m.MemoryOrphanCount) }</div>
 			</div>
 		</div>
 	</div>

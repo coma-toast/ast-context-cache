@@ -252,6 +252,43 @@ func Init() error {
 	`)
 	DB.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`)
 	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS structured_memory (
+			ref TEXT PRIMARY KEY,
+			kind TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT 'session',
+			session_id TEXT,
+			project_path TEXT,
+			subject TEXT,
+			predicate TEXT,
+			object TEXT,
+			rule TEXT,
+			valid_from TEXT NOT NULL DEFAULT (datetime('now')),
+			valid_until TEXT,
+			superseded_by TEXT,
+			source_ref TEXT,
+			token_est INTEGER NOT NULL DEFAULT 0,
+			access_count INTEGER DEFAULT 0,
+			last_accessed_at TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_struct_mem_session ON structured_memory(session_id);
+		CREATE INDEX IF NOT EXISTS idx_struct_mem_project ON structured_memory(project_path);
+		CREATE INDEX IF NOT EXISTS idx_struct_mem_fact ON structured_memory(kind, subject, predicate, valid_until);
+	`)
+	DB.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_fts USING fts5(ref, subject, predicate, object, rule)`)
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS memory_access (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			ref TEXT NOT NULL,
+			session_id TEXT,
+			project_path TEXT,
+			tool_name TEXT NOT NULL,
+			tokens_returned INTEGER NOT NULL,
+			accessed_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_memory_access_at ON memory_access(accessed_at);
+	`)
+	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS embed_pending (
 			file TEXT NOT NULL,
 			project_path TEXT NOT NULL,
