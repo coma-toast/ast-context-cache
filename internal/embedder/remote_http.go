@@ -20,7 +20,7 @@ type HTTPEmbedder struct {
 
 // NewHTTPEmbedder creates a remote embedder. url should be a full URL (e.g. http://127.0.0.1:9000/embed).
 func NewHTTPEmbedder(url, bearer string) *HTTPEmbedder {
-	return newHTTPEmbedder(url, bearer, 120*time.Second)
+	return newHTTPEmbedder(url, bearer, ResolveRemoteTimeout())
 }
 
 func newHTTPEmbedder(url, bearer string, timeout time.Duration) *HTTPEmbedder {
@@ -29,7 +29,7 @@ func newHTTPEmbedder(url, bearer string, timeout time.Duration) *HTTPEmbedder {
 		u = "http://127.0.0.1:8080/embed"
 	}
 	if timeout <= 0 {
-		timeout = 120 * time.Second
+		timeout = DefaultHTTPEmbedTimeout
 	}
 	return &HTTPEmbedder{
 		URL:    u,
