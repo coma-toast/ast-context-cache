@@ -92,7 +92,7 @@ make install
 This installs an `ast-mcp` function into your shell config (fish, bash, and/or zsh — whichever it finds).
 
 ```bash
-ast-mcp start      # start the server (background, logs to /tmp/ast-mcp.log)
+ast-mcp start      # start the server (background, logs to ~/.astcache/ast-mcp.log)
 ast-mcp stop       # stop the server
 ast-mcp restart    # restart
 ast-mcp status     # show running status + URLs

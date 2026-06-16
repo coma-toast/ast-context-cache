@@ -27,6 +27,15 @@ func GetDBPath() string {
 	return dbPath()
 }
 
+// DefaultLogPath is the default ast-mcp server log file (ast-mcp start / dashboard Logs tab).
+func DefaultLogPath() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return filepath.Join(".astcache", "ast-mcp.log")
+	}
+	return filepath.Join(home, ".astcache", "ast-mcp.log")
+}
+
 func Init() error {
 	p := dbPath()
 	os.MkdirAll(filepath.Dir(p), 0755)

@@ -137,8 +137,15 @@ templ Settings(data SettingsData) {
 			</div>
 			if (data.EmbedderState == "error" || data.EmbedderState == "degraded") && data.EmbedderError != "" {
 				<div class={ "embed-error-banner", templ.KV("embed-warn-banner", data.EmbedderState == "degraded") } title={ data.EmbedderError }>
-					<strong>{ data.EmbedderErrorHeadline() }</strong>
-					<span class="embed-error-detail">{ data.EmbedderErrorShort() }</span>
+					<div class="embed-error-banner-body">
+						<strong>{ data.EmbedderErrorHeadline() }</strong>
+						<span class="embed-error-detail">{ data.EmbedderErrorShort() }</span>
+					</div>
+					@EmbedderRetryButton()
+				</div>
+			} else if data.EmbedderState == "error" || data.EmbedderState == "degraded" {
+				<div class="embed-retry-row">
+					@EmbedderRetryButton()
 				</div>
 			}
 			if !data.EmbedInSync {
