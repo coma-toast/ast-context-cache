@@ -139,6 +139,17 @@ func TestProbeDeferCheckSkipsFailure(t *testing.T) {
 	}
 }
 
+func TestRecoveryIgnoresProbeDeferCheck(t *testing.T) {
+	MarkReady()
+	MarkError(errors.New("connection refused"))
+	oldCheck := probeDeferCheck
+	probeDeferCheck = func() bool { return true }
+	defer func() { probeDeferCheck = oldCheck }()
+	if runRecoveryCycle(&stubEmbedder{}) != probeOK {
+		t.Fatal("recovery must run even when defer check is active")
+	}
+}
+
 func TestRecoveryCycleClearsError(t *testing.T) {
 	MarkReady()
 	MarkError(errors.New("connection refused"))

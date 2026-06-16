@@ -2,6 +2,7 @@ package embedder
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,9 +16,10 @@ var probeFailed atomic.Bool
 const (
 	probeIntervalOK       = 10 * time.Second
 	probeRecoveryInterval = 30 * time.Second
+	probeRecoveryTimeout  = 60 * time.Second
 	probeRetryDelay       = 2 * time.Second
 	recentErrorWindow     = 5 * time.Minute
-	probeActivityGrace    = 45 * time.Second // skip probe failures while workers recently succeeded
+	probeActivityGrace    = 45 * time.Second // skip proactive probe failures while workers recently succeeded
 )
 
 var probeAttemptTimeouts = []time.Duration{
@@ -306,18 +308,17 @@ func sleep(d time.Duration, stop <-chan struct{}) {
 }
 
 func runRecoveryCycle(e Interface) probeResult {
-	if probeShouldDefer() {
-		return probeSkipped
-	}
-	res, err := runConnectivityProbe(e, probeRecoveryInterval)
+	res, err := runConnectivityProbe(e, probeRecoveryTimeout, false)
 	if res == probeSkipped {
 		return probeSkipped
 	}
 	if res == probeOK {
+		log.Printf("embedder recovery: probe succeeded")
 		MarkSuccess()
 		return probeOK
 	}
 	if err != nil {
+		log.Printf("embedder recovery: probe failed: %v", err)
 		refreshProbeError(err)
 	}
 	return probeFail
@@ -354,7 +355,7 @@ func runConnectivityProbeCycle(e Interface) probeResult {
 		if probeShouldDefer() {
 			return probeSkipped
 		}
-		res, err := runConnectivityProbe(e, timeout)
+		res, err := runConnectivityProbe(e, timeout, true)
 		switch res {
 		case probeOK:
 			MarkProbeResult(nil)
@@ -374,7 +375,7 @@ func runConnectivityProbeCycle(e Interface) probeResult {
 	return probeFail
 }
 
-func runConnectivityProbe(e Interface, timeout time.Duration) (probeResult, error) {
+func runConnectivityProbe(e Interface, timeout time.Duration, deferFailure bool) (probeResult, error) {
 	epoch := probeEpoch.Add(1)
 	ch := make(chan error, 1)
 	go func() {
@@ -390,7 +391,7 @@ func runConnectivityProbe(e Interface, timeout time.Duration) (probeResult, erro
 			return probeSkipped, nil
 		}
 		if err != nil {
-			if probeShouldDefer() {
+			if deferFailure && probeShouldDefer() {
 				return probeSkipped, nil
 			}
 			return probeFail, err
@@ -398,7 +399,7 @@ func runConnectivityProbe(e Interface, timeout time.Duration) (probeResult, erro
 		return probeOK, nil
 	case <-time.After(timeout):
 		probeEpoch.Add(1)
-		if probeShouldDefer() {
+		if deferFailure && probeShouldDefer() {
 			return probeSkipped, nil
 		}
 		return probeFail, fmt.Errorf("connectivity probe: timeout after %s", timeout)

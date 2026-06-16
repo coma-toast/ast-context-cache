@@ -97,8 +97,7 @@ func Start(e embedder.Interface) {
 		}
 		startedAt = time.Now()
 		embedder.SetProbeDeferCheck(func() bool {
-			s := Snapshot()
-			return s.InFlight > 0 || s.Queued > 0
+			return Snapshot().InFlight > 0
 		})
 		embedder.SetOnRecovery(func() { RecoverAfterEmbedder() })
 		log.Printf("embed queue: %d workers (pending=%d high=%d low=%d)", n, pendingCap, highCap, lowCap)
@@ -147,6 +146,10 @@ func run(j job) {
 		realtime.Notify(realtime.EmbedFinished)
 	}()
 	if e := queueEmbedder(); e == nil {
+		return
+	}
+	if state, _ := embedder.HealthState(); state == "error" {
+		markPending(j)
 		return
 	}
 	if err := indexer.EmbedFileSymbols(queueEmbedder(), j.file, j.projectPath); err != nil {
