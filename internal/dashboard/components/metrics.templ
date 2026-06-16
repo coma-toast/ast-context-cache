@@ -7,6 +7,9 @@ templ ResourceUtilCard(h IndexHealth) {
 		<div class="card-title">Server utilization</div>
 		<div class="resource-util-rows">
 			@ResourceBar("CPU", fmt.Sprintf("%.0f%%", h.CPUPercent), cpuGaugePct(h.CPUPercent), "#f0883e", "Process CPU — can exceed 100% on multi-core")
+			if h.LoadAvgAvailable {
+				@ResourceBar("Load avg", h.LoadAvgLabel(), loadAvgPct(h.LoadAvg1), "#d2a8ff", h.LoadAvgHint())
+			}
 			@ResourceBar("Heap", fmt.Sprintf("%.1f MB", h.MemoryMB), memoryPct(h.MemoryMB), "#bc8cff", "")
 			@ResourceBar("Vector cache", fmt.Sprintf("%.2f MB", h.VectorMemMB), memoryPct(h.VectorMemMB), "#58a6ff", "")
 			@ResourceBar("Database", h.DiskSize, diskPct(h.DiskMB), "#3fb950", "")
@@ -147,6 +150,19 @@ templ EmbedderRetryButton() {
 	<button type="button" class="embed-retry-btn" data-embedder-retry title="Run connectivity probe now">Retry now</button>
 }
 
+templ EmbedderDismissButton() {
+	<button type="button" class="embed-dismiss-btn" data-embedder-dismiss title="Clear alert — embedder is working again">Dismiss</button>
+}
+
+templ EmbedErrorBannerActions(showDismiss bool) {
+	<div class="embed-error-banner-actions">
+		if showDismiss {
+			@EmbedderDismissButton()
+		}
+		@EmbedderRetryButton()
+	</div>
+}
+
 templ EmbedPanel(h IndexHealth) {
 	<div class="card metric-card embed-panel">
 		<div class="card-title">Embeddings</div>
@@ -177,7 +193,7 @@ templ EmbedPanel(h IndexHealth) {
 					<strong>{ h.EmbedderErrorHeadline() }</strong>
 					<span class="embed-error-detail">{ h.EmbedderErrorShort() }</span>
 				</div>
-				@EmbedderRetryButton()
+				@EmbedErrorBannerActions(h.ShowEmbedDismiss())
 			</div>
 		} else if h.EmbedderState == "error" || h.EmbedderState == "degraded" {
 			<div class="embed-retry-row">

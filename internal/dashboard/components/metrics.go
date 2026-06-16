@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -31,6 +32,20 @@ func (d SettingsData) EmbedActiveStatusLabel() string {
 
 func (d SettingsData) EmbedderErrorShort() string {
 	return truncateEmbedLabel(d.EmbedderError, 120)
+}
+
+func (h IndexHealth) ShowEmbedDismiss() bool {
+	if h.EmbedderState == "degraded" {
+		return true
+	}
+	return h.EmbedderState == "error" && h.EmbedPanelBusy()
+}
+
+func (d SettingsData) ShowEmbedDismiss() bool {
+	if d.EmbedderState == "degraded" {
+		return true
+	}
+	return d.EmbedderState == "error" && d.EmbedActive > 0
 }
 
 func (d SettingsData) EmbedderErrorHeadline() string {
@@ -69,6 +84,26 @@ func cpuGaugePct(p float64) float64 {
 		return 100
 	}
 	return p
+}
+
+func loadAvgPct(load1 float64) float64 {
+	n := float64(runtime.NumCPU())
+	if n <= 0 {
+		n = 1
+	}
+	p := load1 / n * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+func (h IndexHealth) LoadAvgLabel() string {
+	return fmt.Sprintf("%.2f · %.2f · %.2f", h.LoadAvg1, h.LoadAvg5, h.LoadAvg15)
+}
+
+func (h IndexHealth) LoadAvgHint() string {
+	return fmt.Sprintf("Host load averages (1 / 5 / 15 min) — gauge vs %d CPU cores", runtime.NumCPU())
 }
 
 func throughputStyle(rate int64) string {

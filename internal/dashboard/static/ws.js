@@ -934,20 +934,44 @@ async function nudgeEmbedderRetry(btn) {
         if (!r.ok && data.error) {
             console.error('embedder retry:', data.error);
         }
-        await Promise.all([refreshIndexHealthPartial(), refreshHealthBarPartial()]);
-        const settings = document.getElementById('settings-content');
-        if (settings?.querySelector('.embed-active-row')) {
-            const sr = await fetch('/partials/settings');
-            if (sr.ok) {
-                settings.innerHTML = await sr.text();
-                mountSettingsContent(settings);
-            }
-        }
+        await refreshEmbedderPanels();
     } catch (err) {
         console.error('embedder retry:', err);
     } finally {
         btn.disabled = false;
         btn.classList.remove('htmx-request');
+    }
+}
+
+async function dismissEmbedderAlert(btn) {
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('htmx-request');
+    try {
+        const r = await fetch('/api/embedder/dismiss-alert', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok && data.error) {
+            console.error('embedder dismiss:', data.error);
+            return;
+        }
+        await refreshEmbedderPanels();
+    } catch (err) {
+        console.error('embedder dismiss:', err);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('htmx-request');
+    }
+}
+
+async function refreshEmbedderPanels() {
+    await Promise.all([refreshIndexHealthPartial(), refreshHealthBarPartial()]);
+    const settings = document.getElementById('settings-content');
+    if (settings?.querySelector('.embed-active-row')) {
+        const sr = await fetch('/partials/settings');
+        if (sr.ok) {
+            settings.innerHTML = await sr.text();
+            mountSettingsContent(settings);
+        }
     }
 }
 
@@ -1032,6 +1056,12 @@ document.body.addEventListener('click', (e) => {
     if (retryBtn) {
         e.preventDefault();
         nudgeEmbedderRetry(retryBtn);
+        return;
+    }
+    const dismissBtn = e.target.closest('[data-embedder-dismiss]');
+    if (dismissBtn) {
+        e.preventDefault();
+        dismissEmbedderAlert(dismissBtn);
     }
 });
 

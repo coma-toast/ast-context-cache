@@ -117,6 +117,48 @@ func TestMarkProbeResultDoesNotClearNonConnectivityWorkerErrorOnDocker(t *testin
 	}
 }
 
+func TestDismissAlertClearsDegraded(t *testing.T) {
+	MarkReady()
+	MarkError(errors.New("dmr embed 502 Bad Gateway"))
+	MarkSuccess()
+	state, _, lastErr := HealthSnapshot()
+	if state != "degraded" || lastErr == "" {
+		t.Fatalf("setup state=%q err=%q", state, lastErr)
+	}
+	res := DismissAlert()
+	if !res.OK || res.State != "ready" {
+		t.Fatalf("dismiss: %+v", res)
+	}
+	state, _, lastErr = HealthSnapshot()
+	if state != "ready" || lastErr != "" {
+		t.Fatalf("after dismiss state=%q err=%q", state, lastErr)
+	}
+}
+
+func TestDismissAlertRejectsUnreachableError(t *testing.T) {
+	MarkReady()
+	MarkError(errors.New("connection refused"))
+	res := DismissAlert()
+	if res.OK {
+		t.Fatalf("expected reject, got %+v", res)
+	}
+	if res.State != "error" {
+		t.Fatalf("state=%q", res.State)
+	}
+}
+
+func TestDismissAlertAllowsErrorWithRecentActivity(t *testing.T) {
+	MarkReady()
+	MarkError(errors.New("dmr embed 502 Bad Gateway"))
+	healthMu.Lock()
+	healthLastWorkerOK = time.Now()
+	healthMu.Unlock()
+	res := DismissAlert()
+	if !res.OK || res.State != "ready" {
+		t.Fatalf("dismiss: %+v", res)
+	}
+}
+
 func TestMarkProbeResultTriggersRecovery(t *testing.T) {
 	MarkReady()
 	recovered := make(chan struct{}, 1)

@@ -46,6 +46,7 @@ type SettingsData struct {
 	EmbedActiveEndpoint     string
 	EmbedActiveDim          int
 	EmbedActiveLoaded       bool
+	EmbedActive             int
 	EmbedderState           string
 	EmbedderError           string
 	EmbedConfiguredBackend  string
@@ -141,7 +142,7 @@ templ Settings(data SettingsData) {
 						<strong>{ data.EmbedderErrorHeadline() }</strong>
 						<span class="embed-error-detail">{ data.EmbedderErrorShort() }</span>
 					</div>
-					@EmbedderRetryButton()
+					@EmbedErrorBannerActions(data.ShowEmbedDismiss())
 				</div>
 			} else if data.EmbedderState == "error" || data.EmbedderState == "degraded" {
 				<div class="embed-retry-row">

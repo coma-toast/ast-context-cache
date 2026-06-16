@@ -60,6 +60,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/settings/embed", handleEmbedSettings)
 	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
 	mux.HandleFunc("/api/embedder/retry", handleEmbedderRetry)
+	mux.HandleFunc("/api/embedder/dismiss-alert", handleEmbedderDismissAlert)
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
@@ -1019,6 +1020,7 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 	cacheHitRatio := cache.GlobalCache.HitRatio()
 	diskIO := sys.DiskIORates()
 	ssd := sys.SSDHealthInfo()
+	load := sys.HostLoadAverage()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"memory": map[string]float64{
@@ -1028,6 +1030,13 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 			"vector_cache_mb": vectorMemMB,
 		},
 		"cpu_percent": sys.ProcessCPUPercent(),
+		"load_avg": map[string]interface{}{
+			"available": load.Available,
+			"load_1":    load.Load1,
+			"load_5":    load.Load5,
+			"load_15":   load.Load15,
+			"cpus":      runtime.NumCPU(),
+		},
 		"disk": map[string]interface{}{
 			"db_size_bytes":   diskSize,
 			"read_mbps":       diskIO.ReadMBps,

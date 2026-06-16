@@ -31,6 +31,8 @@ func embedActivityItems(in []embedqueue.ActivityEntry) []components.EmbedActivit
 
 func applyActiveEmbedderSettings(data *components.SettingsData) {
 	data.EmbedActiveBackend, data.EmbedActiveModel, data.EmbedActiveRuntime, data.EmbedActiveEndpoint, data.EmbedActiveDim = embedder.WiredSnapshot()
+	eq := embedqueue.Snapshot()
+	data.EmbedActive = int(eq.InFlight)
 	state, _ := mcp.EmbedderState()
 	data.EmbedderState = state
 	data.EmbedderError = mcp.EmbedderError()

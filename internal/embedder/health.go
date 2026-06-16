@@ -287,6 +287,35 @@ func NudgeRecovery() NudgeResult {
 	}
 }
 
+// DismissResult is returned when the operator clears a recovered embedder alert.
+type DismissResult struct {
+	OK    bool   `json:"ok"`
+	State string `json:"state"`
+	Error string `json:"error,omitempty"`
+}
+
+// DismissAlert clears a lingering error banner after the embedder is working again.
+// Rejects while the embedder is still unreachable (error with no recent embed activity).
+func DismissAlert() DismissResult {
+	healthMu.Lock()
+	if healthState == "error" && !recentEmbedActivityLocked() {
+		state := effectiveStateLocked()
+		errMsg := healthLastErr
+		healthMu.Unlock()
+		if errMsg == "" {
+			errMsg = "embedder still unreachable"
+		}
+		return DismissResult{State: state, Error: errMsg}
+	}
+	healthState = "ready"
+	healthLastErr = ""
+	healthRecentErrAt = time.Time{}
+	state := effectiveStateLocked()
+	healthMu.Unlock()
+	realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
+	return DismissResult{OK: true, State: state}
+}
+
 func stopConnectivityProbe() {
 	probeStopMu.Lock()
 	defer probeStopMu.Unlock()

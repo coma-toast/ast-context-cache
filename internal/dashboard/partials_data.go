@@ -31,6 +31,11 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 	runtime.ReadMemStats(&memStats)
 	h.MemoryMB = float64(memStats.Alloc) / (1024 * 1024)
 	h.CPUPercent = sys.ProcessCPUPercent()
+	load := sys.HostLoadAverage()
+	h.LoadAvgAvailable = load.Available
+	h.LoadAvg1 = load.Load1
+	h.LoadAvg5 = load.Load5
+	h.LoadAvg15 = load.Load15
 	diskIO := sys.DiskIORates()
 	h.DiskReadMBps = diskIO.ReadMBps
 	h.DiskWriteMBps = diskIO.WriteMBps
