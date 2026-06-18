@@ -440,13 +440,49 @@ func DeleteIndexedFile(file, projectPath string) {
 	DB.Exec("DELETE FROM indexed_files WHERE file = ? AND project_path = ?", file, projectPath)
 }
 
+func walFileBytes() int64 {
+	fi, err := os.Stat(dbPath() + "-wal")
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
+// CheckpointWAL flushes the WAL. truncate=true forces pages back into the main db file.
+func CheckpointWAL(truncate bool) (busy, walFrames, checkpointed int, err error) {
+	mode := "PASSIVE"
+	if truncate {
+		mode = "TRUNCATE"
+	}
+	row := DB.QueryRow("PRAGMA wal_checkpoint(" + mode + ")")
+	err = row.Scan(&busy, &walFrames, &checkpointed)
+	return
+}
+
 func StartWALCheckpoint() {
-	walTicker := time.NewTicker(10 * time.Minute)
+	if wal := walFileBytes(); wal > 100*1024*1024 {
+		log.Printf("Large WAL at startup (%d MB) — truncating", wal/(1024*1024))
+		if busy, frames, ckpt, err := CheckpointWAL(true); err == nil {
+			log.Printf("Startup WAL checkpoint: busy=%d log=%d checkpointed=%d", busy, frames, ckpt)
+		}
+	}
+	walTicker := time.NewTicker(2 * time.Minute)
+	truncateTicker := time.NewTicker(30 * time.Minute)
 	vacuumTicker := time.NewTicker(24 * time.Hour)
 	for {
 		select {
 		case <-walTicker.C:
-			DB.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
+			if walFileBytes() > 256*1024*1024 {
+				if busy, frames, ckpt, err := CheckpointWAL(true); err == nil && (busy > 0 || frames > 0) {
+					log.Printf("WAL checkpoint(TRUNCATE): busy=%d log=%d checkpointed=%d wal=%dMB", busy, frames, ckpt, walFileBytes()/(1024*1024))
+				}
+			} else {
+				CheckpointWAL(false)
+			}
+		case <-truncateTicker.C:
+			if busy, frames, ckpt, err := CheckpointWAL(true); err == nil && frames > 0 {
+				log.Printf("Scheduled WAL checkpoint: busy=%d log=%d checkpointed=%d", busy, frames, ckpt)
+			}
 		case <-vacuumTicker.C:
 			Compact()
 		}
