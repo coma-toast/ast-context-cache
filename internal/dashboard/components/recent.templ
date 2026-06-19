@@ -21,10 +21,16 @@ type RecentQuery struct {
 }
 
 type RecentLogLine struct {
-	Timestamp string
-	Level     string
-	Message   string
-	Raw       string
+	Timestamp    string
+	Level        string
+	Message      string
+	Raw          string
+	MsgTruncated bool
+}
+
+type LogViewOpts struct {
+	TailLines    int
+	MaxLineChars int
 }
 
 var toolBadges = map[string]string{
@@ -82,9 +88,9 @@ func shortProject(path string) string {
 	return path
 }
 
-templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine, logPath string, logTruncated bool) {
+templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine, logPath string, logTruncated bool, logOpts LogViewOpts) {
 	<div class="recent-panel">
-		<input type="radio" id="recent-tab-mcp" name="recent-tab" class="recent-tab-radio" checked/>
+		<input type="radio" id="recent-tab-mcp" name="recent-tab" class="recent-tab-radio"/>
 		<input type="radio" id="recent-tab-indexing" name="recent-tab" class="recent-tab-radio"/>
 		<input type="radio" id="recent-tab-logs" name="recent-tab" class="recent-tab-radio"/>
 		<div class="recent-tab-bar toggle-group">
@@ -99,18 +105,32 @@ templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLin
 			@IndexingTable(indexing)
 		</div>
 		<div class="recent-tab-pane pane-logs">
-			@RecentLogs(logs, logPath, logTruncated)
+			@RecentLogs(logs, logPath, logTruncated, logOpts)
 		</div>
 	</div>
 }
 
-templ RecentLogs(lines []RecentLogLine, logPath string, truncated bool) {
+templ RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogViewOpts) {
 	<div class="card recent-logs-card">
 		<div class="recent-logs-meta">
-			<span class="mono dim" title={ logPath }>{ logPath }</span>
-			if truncated {
-				<span class="recent-logs-hint">Showing last { fmtInt(len(lines)) } lines</span>
-			}
+			<span class="mono dim recent-logs-path" title={ logPath }>{ logPath }</span>
+			<div class="recent-logs-controls">
+				<label class="recent-logs-ctrl">
+					<span>Lines</span>
+					<input type="number" class="recent-logs-input" min="50" max="500" step="10" name="value" value={ fmtInt(opts.TailLines) }
+						hx-post="/api/settings" hx-trigger="change" hx-swap="none"
+						hx-vals='{"key":"dashboard_log_tail_lines"}' hx-include="this"/>
+				</label>
+				<label class="recent-logs-ctrl">
+					<span>Max chars</span>
+					<input type="number" class="recent-logs-input" min="80" max="8000" step="50" name="value" value={ fmtInt(opts.MaxLineChars) }
+						hx-post="/api/settings" hx-trigger="change" hx-swap="none"
+						hx-vals='{"key":"dashboard_log_line_chars"}' hx-include="this"/>
+				</label>
+				if truncated {
+					<span class="recent-logs-hint">file tail</span>
+				}
+			</div>
 		</div>
 		<div class="recent-logs-scroll">
 			if len(lines) == 0 {
@@ -121,7 +141,11 @@ templ RecentLogs(lines []RecentLogLine, logPath string, truncated bool) {
 						if line.Timestamp != "" {
 							<span class="recent-log-ts mono dim">{ line.Timestamp }</span>
 						}
-						<span class="recent-log-msg mono">{ line.Message }</span>
+						if line.MsgTruncated {
+							<span class="recent-log-msg mono" title={ line.Raw }>{ line.Message }</span>
+						} else {
+							<span class="recent-log-msg mono">{ line.Message }</span>
+						}
 					</div>
 				}
 			}

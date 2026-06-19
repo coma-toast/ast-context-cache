@@ -59,6 +59,8 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/settings", handleSettings)
 	mux.HandleFunc("/api/settings/embed", handleEmbedSettings)
 	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
+	mux.HandleFunc("/api/embedder/retry", handleEmbedderRetry)
+	mux.HandleFunc("/api/embedder/dismiss-alert", handleEmbedderDismissAlert)
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
@@ -79,6 +81,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/partials/index-health", handleIndexHealthPartial)
 	mux.HandleFunc("/partials/memory", handleMemoryPartial)
 	mux.HandleFunc("/partials/recent", handleRecentPartial)
+	mux.HandleFunc("/partials/recent-logs", handleRecentLogsPartial)
 	mux.HandleFunc("/partials/charts/symbols", handleSymbolChartPartial)
 	mux.HandleFunc("/partials/charts/languages", handleLanguageChartPartial)
 	mux.HandleFunc("/partials/charts/tools", handleToolChartPartial)
@@ -627,6 +630,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"log_retention_max_age_days":   "0",
 		"log_retention_max_total_mib":  "0",
 		"log_retention_dry_run":        "false",
+		"query_retention_enabled":      "true",
+		"query_retention_max_age_days":   "90",
 		"EMBED_BACKEND":                "",
 		"MODEL_DIR":                    "",
 		"EMBED_HTTP_URL":               "",
@@ -645,6 +650,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"context_max_notes_global":      "500",
 		"context_max_tokens_global":     "200000",
 		"context_limit_policy":          "reject",
+		"dashboard_log_tail_lines":      "200",
+		"dashboard_log_line_chars":      "500",
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
@@ -1018,6 +1025,7 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 	cacheHitRatio := cache.GlobalCache.HitRatio()
 	diskIO := sys.DiskIORates()
 	ssd := sys.SSDHealthInfo()
+	load := sys.HostLoadAverage()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"memory": map[string]float64{
@@ -1027,8 +1035,16 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 			"vector_cache_mb": vectorMemMB,
 		},
 		"cpu_percent": sys.ProcessCPUPercent(),
+		"load_avg": map[string]interface{}{
+			"available": load.Available,
+			"load_1":    load.Load1,
+			"load_5":    load.Load5,
+			"load_15":   load.Load15,
+			"cpus":      runtime.NumCPU(),
+		},
 		"disk": map[string]interface{}{
 			"db_size_bytes":   diskSize,
+			"wal_size_bytes":  db.WalFileBytes(),
 			"read_mbps":       diskIO.ReadMBps,
 			"write_mbps":      diskIO.WriteMBps,
 			"ssd_model":       ssd.Model,

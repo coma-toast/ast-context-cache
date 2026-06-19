@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -27,19 +28,31 @@ func GetDBPath() string {
 	return dbPath()
 }
 
+// DefaultLogPath is the default ast-mcp server log file (ast-mcp start / dashboard Logs tab).
+func DefaultLogPath() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return filepath.Join(".astcache", "ast-mcp.log")
+	}
+	return filepath.Join(home, ".astcache", "ast-mcp.log")
+}
+
 func Init() error {
 	p := dbPath()
 	os.MkdirAll(filepath.Dir(p), 0755)
 	var err error
-	DB, err = sql.Open("sqlite3", p+"?_journal_mode=WAL&_busy_timeout=5000")
+	DB, err = sql.Open("sqlite3", p+"?_journal_mode=WAL&_busy_timeout=15000")
 	if err != nil {
 		return err
 	}
+	DB.SetMaxOpenConns(1)
+	DB.SetMaxIdleConns(1)
 
 	DB.Exec(`PRAGMA journal_mode=WAL`)
-	DB.Exec(`PRAGMA busy_timeout=5000`)
+	DB.Exec(`PRAGMA busy_timeout=15000`)
 	DB.Exec(`PRAGMA synchronous=NORMAL`)
 	DB.Exec(`PRAGMA cache_size=-32000`)
+	DB.Exec(`PRAGMA wal_autocheckpoint=1000`)
 
 	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS queries (
@@ -431,13 +444,75 @@ func DeleteIndexedFile(file, projectPath string) {
 	DB.Exec("DELETE FROM indexed_files WHERE file = ? AND project_path = ?", file, projectPath)
 }
 
+func walFileBytes() int64 {
+	fi, err := os.Stat(dbPath() + "-wal")
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
+// WalFileBytes returns the on-disk size of the SQLite WAL file (usage.db-wal).
+func WalFileBytes() int64 {
+	return walFileBytes()
+}
+
+// FormatFileSize formats a byte count for dashboard display.
+func FormatFileSize(bytes int64) string {
+	switch {
+	case bytes >= 1024*1024*1024:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/(1024*1024*1024))
+	case bytes >= 1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
+	case bytes >= 1024:
+		return fmt.Sprintf("%d KB", bytes/1024)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+// CheckpointWAL flushes the WAL. truncate=true forces pages back into the main db file.
+func CheckpointWAL(truncate bool) (busy, walFrames, checkpointed int, err error) {
+	mode := "PASSIVE"
+	if truncate {
+		mode = "TRUNCATE"
+	}
+	row := DB.QueryRow("PRAGMA wal_checkpoint(" + mode + ")")
+	err = row.Scan(&busy, &walFrames, &checkpointed)
+	return
+}
+
 func StartWALCheckpoint() {
-	walTicker := time.NewTicker(10 * time.Minute)
+	if wal := walFileBytes(); wal > 100*1024*1024 {
+		log.Printf("Large WAL at startup (%d MB) — truncating", wal/(1024*1024))
+		if busy, frames, ckpt, err := CheckpointWAL(true); err == nil {
+			log.Printf("Startup WAL checkpoint: busy=%d log=%d checkpointed=%d", busy, frames, ckpt)
+		}
+	}
+	walTicker := time.NewTicker(2 * time.Minute)
+	truncateTicker := time.NewTicker(30 * time.Minute)
 	vacuumTicker := time.NewTicker(24 * time.Hour)
+	retentionTicker := time.NewTicker(24 * time.Hour)
+	go func() {
+		time.Sleep(90 * time.Second)
+		retryQueryRetention("startup")
+	}()
 	for {
 		select {
 		case <-walTicker.C:
-			DB.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
+			if walFileBytes() > 256*1024*1024 {
+				if busy, frames, ckpt, err := CheckpointWAL(true); err == nil && (busy > 0 || frames > 0) {
+					log.Printf("WAL checkpoint(TRUNCATE): busy=%d log=%d checkpointed=%d wal=%dMB", busy, frames, ckpt, walFileBytes()/(1024*1024))
+				}
+			} else {
+				CheckpointWAL(false)
+			}
+		case <-truncateTicker.C:
+			if busy, frames, ckpt, err := CheckpointWAL(true); err == nil && frames > 0 {
+				log.Printf("Scheduled WAL checkpoint: busy=%d log=%d checkpointed=%d", busy, frames, ckpt)
+			}
+		case <-retentionTicker.C:
+			retryQueryRetention("daily")
 		case <-vacuumTicker.C:
 			Compact()
 		}

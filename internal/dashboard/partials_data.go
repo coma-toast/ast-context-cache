@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +9,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -31,6 +31,11 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 	runtime.ReadMemStats(&memStats)
 	h.MemoryMB = float64(memStats.Alloc) / (1024 * 1024)
 	h.CPUPercent = sys.ProcessCPUPercent()
+	load := sys.HostLoadAverage()
+	h.LoadAvgAvailable = load.Available
+	h.LoadAvg1 = load.Load1
+	h.LoadAvg5 = load.Load5
+	h.LoadAvg15 = load.Load15
 	diskIO := sys.DiskIORates()
 	h.DiskReadMBps = diskIO.ReadMBps
 	h.DiskWriteMBps = diskIO.WriteMBps
@@ -51,19 +56,13 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 	if fi, err := os.Stat(dbPath); err == nil {
 		diskBytes := fi.Size()
 		h.DiskMB = float64(diskBytes) / (1024 * 1024)
-		switch {
-		case diskBytes >= 1024*1024*1024:
-			h.DiskSize = fmt.Sprintf("%.2f GB", float64(diskBytes)/(1024*1024*1024))
-		case diskBytes >= 1024*1024:
-			h.DiskSize = fmt.Sprintf("%.1f MB", float64(diskBytes)/(1024*1024))
-		case diskBytes >= 1024:
-			h.DiskSize = fmt.Sprintf("%d KB", diskBytes/1024)
-		default:
-			h.DiskSize = fmt.Sprintf("%d B", diskBytes)
-		}
+		h.DiskSize = db.FormatFileSize(diskBytes)
 	} else {
 		h.DiskSize = "-"
 	}
+	walBytes := db.WalFileBytes()
+	h.WalMB = float64(walBytes) / (1024 * 1024)
+	h.WalSize = db.FormatFileSize(walBytes)
 
 	ws := watcher.GetStatus()
 	if watchers, ok := ws["watchers"].([]map[string]interface{}); ok {
@@ -73,9 +72,20 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 				continue
 			}
 			active, _ := w["active"].(bool)
+			meta := projectmeta.Enrich(pp)
+			label := meta.Label
+			if label == "" {
+				label = filepath.Base(pp)
+			}
+			name := meta.RepoName
+			if name == "" {
+				name = filepath.Base(pp)
+			}
 			h.Watchers = append(h.Watchers, components.WatcherInfo{
 				ProjectPath: pp,
-				Name:        filepath.Base(pp),
+				Name:        name,
+				Label:       label,
+				Workspace:   meta.Workspace,
 				Active:      active,
 			})
 		}
@@ -83,6 +93,7 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 	eq := embedqueue.Snapshot()
 	h.EmbedQueued = eq.Queued
 	h.EmbedPending = eq.Pending
+	h.EmbedPendingPeak = eq.PendingPeak
 	h.EmbedFailed = eq.Failed
 	h.EmbedHighQueued = eq.HighUsed
 	h.EmbedLowQueued = eq.LowUsed

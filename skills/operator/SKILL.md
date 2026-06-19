@@ -89,4 +89,32 @@ make build && ast-mcp restart
 
 Cursor: skill `ast-context-cache-rebuild` in `.cursor/skills/ast-rebuild/`.
 
+## SQLite WAL runbook
+
+The dashboard reads `~/.astcache/usage.db` (WAL mode). If the WAL file grows very large, HTTP handlers can block while SQLite scans frames — MCP may still respond while the dashboard hangs.
+
+**Symptoms:** Dashboard at http://localhost:7830 stops loading; `usage.db-wal` is hundreds of MB or GB.
+
+**Emergency fix:**
+
+```bash
+ast-mcp stop
+sqlite3 ~/.astcache/usage.db "PRAGMA wal_checkpoint(TRUNCATE);"
+ast-mcp start
+```
+
+**Prevention (built-in):** `PRAGMA wal_autocheckpoint=1000`; passive checkpoints every 2m; TRUNCATE when WAL &gt; 256 MB or every 30m; startup TRUNCATE when WAL &gt; 100 MB. **Query retention** (Settings → Query history retention, default 90 days) prunes old `queries` rows daily and checkpoints after deletes. Overview shows WAL size on the Database row.
+
+**Logs:** Default server log is `~/.astcache/ast-mcp.log` (`ast-mcp start`). **mcp-local** logs to `~/.mcp-local/ast-context-cache.log`; the dashboard Logs tab auto-picks the newest log file. Override with `AST_MCP_LOG_PATH`.
+
+## WTG / multi-worktree projects
+
+When using [wtg](https://github.com/coma-toast/wtg) with `~/spaces/<workspace>/<repo>` checkouts, ast-mcp:
+
+- **Discovers** git repos under `spaces.root_dir` from `~/.config/wtg/config.yaml` (default `~/spaces`) plus indexed paths
+- **Labels** projects as `slapi · nightly` (repo · workspace) in the dashboard dropdown and Settings list
+- **Starts watchers** for WTG space checkouts on startup (workspace label present)
+
+Each worktree path is a separate `project_path` for MCP — pass the absolute checkout root (e.g. `~/spaces/nightly/slapi`). Override config with `WTG_CONFIG`.
+
 Full detail: [README](../../README.md).

@@ -28,6 +28,7 @@ import (
 //	EMBED_OPENAI_API_KEY: Bearer token (optional for open local gateways)
 //	EMBED_OPENAI_MODEL: required for openai backend (e.g. openai/text-embedding-3-small)
 //	EMBED_OPENAI_DIMENSIONS: optional; unset sends 768 in JSON for v3 shortening; "0" omits the field
+//	EMBED_REMOTE_TIMEOUT: optional HTTP client timeout for remote backends (default 300s)
 //
 // Dashboard / SQLite: when an env var is unset or empty, NewForMain reads the same key from
 // settings (see README). Non-empty env always overrides DB.

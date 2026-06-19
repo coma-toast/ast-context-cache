@@ -139,6 +139,27 @@ func TestProbeDeferCheckSkipsFailure(t *testing.T) {
 	}
 }
 
+func TestNudgeRecoveryClearsProbeError(t *testing.T) {
+	MarkReady()
+	MarkError(errors.New("connectivity probe: timeout after 15s"))
+	runtimeMu.Lock()
+	prev := runtimeRaw
+	runtimeRaw = &stubEmbedder{}
+	runtimeMu.Unlock()
+	defer func() {
+		runtimeMu.Lock()
+		runtimeRaw = prev
+		runtimeMu.Unlock()
+	}()
+	if res := NudgeRecovery(); !res.OK {
+		t.Fatalf("nudge: %+v", res)
+	}
+	state, _, lastErr := HealthSnapshot()
+	if state != "ready" || lastErr != "" {
+		t.Fatalf("state=%q err=%q", state, lastErr)
+	}
+}
+
 func TestRecoveryIgnoresProbeDeferCheck(t *testing.T) {
 	MarkReady()
 	MarkError(errors.New("connection refused"))
@@ -168,5 +189,19 @@ func TestProbeErrorBackoff(t *testing.T) {
 	}
 	if got := probeErrorBackoff(99); got != probeRecoveryInterval {
 		t.Fatalf("probeErrorBackoff=%s want %s", got, probeRecoveryInterval)
+	}
+}
+
+func TestMarkErrorDeferDuringInFlight(t *testing.T) {
+	MarkReady()
+	SetProbeDeferCheck(func() bool { return true })
+	defer SetProbeDeferCheck(nil)
+	MarkError(errors.New(`openai embed: Post "https://example/embeddings": context deadline exceeded`))
+	state, _, lastErr := HealthSnapshot()
+	if state != "degraded" {
+		t.Fatalf("state=%q want degraded", state)
+	}
+	if lastErr == "" {
+		t.Fatal("want error message")
 	}
 }

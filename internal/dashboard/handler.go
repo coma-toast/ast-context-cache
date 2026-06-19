@@ -18,6 +18,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 )
@@ -78,7 +79,8 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 		QueueWorkers:   eq.Workers,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
-		QueuePending:    eq.Pending,
+		QueuePending:     eq.Pending,
+		QueuePendingPeak: eq.PendingPeak,
 		QueueInFlight:   eq.InFlight,
 		QueueHighCap:    eq.HighCap,
 		QueueLowCap:     eq.LowCap,
@@ -246,8 +248,13 @@ func handleRecentPartial(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	mcp, indexing := buildRecentQueries(pid, lim)
-	logs, logPath, logTrunc := buildRecentLogs(200)
-	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc).Render(r.Context(), w)
+	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
+	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc, logOpts).Render(r.Context(), w)
+}
+
+func handleRecentLogsPartial(w http.ResponseWriter, r *http.Request) {
+	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
+	components.RecentLogs(logs, logPath, logTrunc, logOpts).Render(r.Context(), w)
 }
 
 func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
@@ -275,6 +282,12 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 	logRetentionEn := settings["log_retention_enabled"] == "true"
 	logDry := settings["log_retention_dry_run"] == "true"
 	logLast := settings["log_retention_last_run"]
+	queryRetentionEn := settings["query_retention_enabled"] != "false"
+	queryRetentionMaxAge := 90
+	if v, ok := settings["query_retention_max_age_days"]; ok && v != "" {
+		queryRetentionMaxAge, _ = strconv.Atoi(v)
+	}
+	queryRetentionLast := settings["query_retention_last_run"]
 
 	projects := loadProjects("")
 
@@ -310,6 +323,9 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		LogRetentionMaxTotalMB:  logRetentionMaxMB,
 		LogRetentionDryRun:      logDry,
 		LogRetentionLastRun:     logLast,
+		QueryRetentionEnabled:   queryRetentionEn,
+		QueryRetentionMaxAgeDays: queryRetentionMaxAge,
+		QueryRetentionLastRun:   queryRetentionLast,
 		Projects:                projects,
 		Agents:                  agents,
 	}
@@ -321,6 +337,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func loadProjects(pid string) []components.Project {
+	_ = pid
 	type symCount struct {
 		symbols int
 		files   int
@@ -336,44 +353,52 @@ func loadProjects(pid string) []components.Project {
 			symCounts[pp] = sc
 		}
 	}
+	queryCounts := map[string]int{}
 	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.' GROUP BY project_path")
-	if err != nil {
-		return nil
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var p string
+			var c int
+			rows.Scan(&p, &c)
+			queryCounts[p] = c
+		}
 	}
-	defer rows.Close()
-	seen := map[string]bool{}
+	allPaths := map[string]bool{}
+	for pp := range symCounts {
+		allPaths[pp] = true
+	}
+	for pp := range queryCounts {
+		allPaths[pp] = true
+	}
+	for _, pp := range projectmeta.DiscoverPaths() {
+		allPaths[pp] = true
+	}
 	var ps []components.Project
-	for rows.Next() {
-		var p string
-		var c int
-		rows.Scan(&p, &c)
-		seen[p] = true
-		sc := symCounts[p]
-		ps = append(ps, components.Project{
-			Path:        p,
-			Name:        filepath.Base(p),
-			QueryCount:  c,
-			SymbolCount: sc.symbols,
-			FileCount:   sc.files,
-			Pinned:      db.IsPinnedProject(p),
-		})
-	}
-	for pp, sc := range symCounts {
-		if seen[pp] {
-			continue
+	for pp := range allPaths {
+		meta := projectmeta.Enrich(pp)
+		sc := symCounts[pp]
+		label := meta.Label
+		if label == "" {
+			label = filepath.Base(pp)
 		}
 		ps = append(ps, components.Project{
 			Path:        pp,
-			Name:        filepath.Base(pp),
+			Name:        meta.RepoName,
+			Label:       label,
+			Workspace:   meta.Workspace,
+			Branch:      meta.Branch,
+			RepoKey:     meta.RepoKey,
+			QueryCount:  queryCounts[pp],
 			SymbolCount: sc.symbols,
 			FileCount:   sc.files,
 			Pinned:      db.IsPinnedProject(pp),
 		})
 	}
 	sort.Slice(ps, func(i, j int) bool {
-		ni, nj := strings.ToLower(ps[i].Name), strings.ToLower(ps[j].Name)
-		if ni != nj {
-			return ni < nj
+		li, lj := strings.ToLower(ps[i].Label), strings.ToLower(ps[j].Label)
+		if li != lj {
+			return li < lj
 		}
 		return ps[i].Path < ps[j].Path
 	})

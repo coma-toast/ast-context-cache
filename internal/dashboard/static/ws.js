@@ -57,9 +57,23 @@ document.addEventListener('alpine:init', () => {
                 }
                 const target = document.querySelector(targetSel);
                 if (target) {
-                    target.innerHTML = msg.data.html;
-                    Alpine.flushSync();
-                    mountHTMXContent(target);
+                    if (targetSel === '#recent-queries') {
+                        const preservedRecentTab = getRecentSubTab(target);
+                        if (preservedRecentTab === 'logs' && patchRecentLogs(target, msg.data.html)) {
+                            requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+                            syncLogsPoll();
+                        } else {
+                            target.innerHTML = msg.data.html;
+                            Alpine.flushSync();
+                            mountRecentContent(target, preservedRecentTab);
+                            requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+                            syncLogsPoll();
+                        }
+                    } else {
+                        target.innerHTML = msg.data.html;
+                        Alpine.flushSync();
+                        mountHTMXContent(target);
+                    }
                     if (target.id === 'settings-content') {
                         mountSettingsContent(target);
                     }
@@ -97,16 +111,51 @@ document.addEventListener('alpine:init', () => {
             if (tabs.includes(hash)) {
                 this.activeTab = hash;
             }
+            this.bootstrapPanels();
             if (this.activeTab === 'settings') {
                 this.loadSettings();
             }
             if (this.activeTab === 'memory') {
                 this.loadMemory();
             }
+            if (this.activeTab === 'recent') {
+                refreshRecentPartial(true);
+            }
+            syncLogsPoll();
+        },
+
+        async bootstrapPanels() {
+            const panels = [
+                ['#health-bar', '/partials/health'],
+                ['#stats-cards', '/partials/stats'],
+                ['#index-health', '/partials/index-health'],
+            ];
+            await Promise.all(panels.map(async ([sel, path]) => {
+                const el = document.querySelector(sel);
+                if (!el) return;
+                const stale = el.textContent.includes('Loading...') ||
+                    (sel === '#stats-cards' && el.querySelector('.stat-value')?.textContent === '-');
+                if (!stale) return;
+                const r = await fetch(path);
+                if (r.ok) {
+                    el.innerHTML = await r.text();
+                    mountHTMXContent(el);
+                    if (sel === '#index-health' || sel === '#health-bar') {
+                        onWorkerPartialUpdated();
+                    }
+                }
+            }));
         },
 
         projectLabel() {
             if (!this.selectedProject) return '';
+            const sel = document.querySelector('.project-select');
+            if (sel) {
+                const opt = sel.querySelector(`option[value="${CSS.escape(this.selectedProject)}"]`);
+                if (opt) {
+                    return opt.dataset.label || opt.textContent || this.selectedProject;
+                }
+            }
             const parts = this.selectedProject.split('/');
             return parts[parts.length - 1] || this.selectedProject;
         },
@@ -125,6 +174,10 @@ document.addEventListener('alpine:init', () => {
             if (tab === 'activity') {
                 window.dispatchEvent(new CustomEvent('chart-update'));
             }
+            if (tab === 'recent') {
+                refreshRecentPartial(true);
+            }
+            syncLogsPoll();
         },
 
         async loadSettings() {
@@ -171,8 +224,13 @@ document.addEventListener('alpine:init', () => {
                 if (!el) return;
                 const r = await fetch(path + q);
                 if (r.ok) {
+                    const preservedRecentTab = sel === '#recent-queries' ? getRecentSubTab(el) : null;
                     el.innerHTML = await r.text();
-                    mountHTMXContent(el);
+                    if (sel === '#recent-queries') {
+                        mountRecentContent(el, preservedRecentTab);
+                    } else {
+                        mountHTMXContent(el);
+                    }
                 }
             }));
             window.dispatchEvent(new CustomEvent('dashboard-project-change'));
@@ -333,6 +391,167 @@ document.body.addEventListener('htmx:configRequest', (event) => {
     }
 });
 
+const RECENT_SUBTAB_KEY = 'dashboard-recent-subtab';
+
+function recentSubTabFromRadio(radio) {
+    if (!radio) return 'mcp';
+    if (radio.id === 'recent-tab-indexing') return 'indexing';
+    if (radio.id === 'recent-tab-logs') return 'logs';
+    return 'mcp';
+}
+
+function recentSubTabRadioId(tab) {
+    if (tab === 'indexing') return 'recent-tab-indexing';
+    if (tab === 'logs') return 'recent-tab-logs';
+    return 'recent-tab-mcp';
+}
+
+function storedRecentSubTab() {
+    const t = sessionStorage.getItem(RECENT_SUBTAB_KEY);
+    if (t === 'indexing' || t === 'logs') return t;
+    return 'mcp';
+}
+
+function getRecentSubTab(root) {
+    const stored = storedRecentSubTab();
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    if (panel?.querySelector) {
+        const checked = panel.querySelector('.recent-tab-radio:checked');
+        if (checked) {
+            const live = recentSubTabFromRadio(checked);
+            if (live === stored) return live;
+        }
+    }
+    return stored;
+}
+
+function setRecentSubTab(tab, root) {
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    if (!panel?.querySelector) return;
+    const radio = panel.querySelector('#' + recentSubTabRadioId(tab));
+    if (radio) radio.checked = true;
+    sessionStorage.setItem(RECENT_SUBTAB_KEY, tab);
+}
+
+function patchRecentLogs(container, html) {
+    const panel = container.querySelector('.recent-panel');
+    if (!panel) return false;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const srcPanel = wrap.querySelector('.recent-panel');
+    const srcLogs = srcPanel?.querySelector('.pane-logs');
+    const dstLogs = panel.querySelector('.pane-logs');
+    if (!srcLogs || !dstLogs) return false;
+    dstLogs.innerHTML = srcLogs.innerHTML;
+    const newCount = srcPanel.querySelector('label[for="recent-tab-logs"] .recent-count');
+    const oldCount = panel.querySelector('label[for="recent-tab-logs"] .recent-count');
+    if (newCount && oldCount) oldCount.textContent = newCount.textContent;
+    setRecentSubTab('logs', container);
+    return true;
+}
+
+function patchRecentLogsCard(container, html) {
+    const panel = container.querySelector('.recent-panel');
+    const dstLogs = panel?.querySelector('.pane-logs');
+    if (!dstLogs) return false;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const card = wrap.querySelector('.recent-logs-card') || wrap.firstElementChild;
+    if (!card) return false;
+    dstLogs.innerHTML = '';
+    dstLogs.appendChild(card);
+    mountHTMXContent(dstLogs);
+    setRecentSubTab('logs', container);
+    return true;
+}
+
+function scrollRecentLogsToBottom(root, force) {
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    if (!panel) return;
+    const logsTab = panel.querySelector('#recent-tab-logs');
+    if (!logsTab?.checked) return;
+    const scroll = panel.querySelector('.recent-logs-scroll');
+    if (!scroll) return;
+    const gap = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
+    if (force || gap < 48) {
+        scroll.scrollTop = scroll.scrollHeight;
+    }
+}
+
+let logsPollTimer = null;
+
+function recentTabActive() {
+    const root = document.querySelector('[x-data="dashboard"]');
+    if (!root || typeof Alpine === 'undefined' || !Alpine.$data) return false;
+    try {
+        return Alpine.$data(root)?.activeTab === 'recent';
+    } catch {
+        return false;
+    }
+}
+
+function syncLogsPoll() {
+    if (logsPollTimer) {
+        clearInterval(logsPollTimer);
+        logsPollTimer = null;
+    }
+    const el = document.getElementById('recent-queries');
+    if (!el || !recentTabActive() || getRecentSubTab(el) !== 'logs') return;
+    logsPollTimer = setInterval(() => refreshRecentLogsOnly(false), 3000);
+}
+
+async function refreshRecentLogsOnly(forceScroll) {
+    const el = document.getElementById('recent-queries');
+    if (!el) return;
+    const r = await fetch('/partials/recent-logs');
+    if (!r.ok) return;
+    const html = await r.text();
+    if (!patchRecentLogsCard(el, html)) {
+        await refreshRecentPartial(forceScroll);
+        return;
+    }
+    requestAnimationFrame(() => scrollRecentLogsToBottom(el, !!forceScroll));
+}
+
+async function refreshRecentPartial(forceScroll) {
+    const el = document.getElementById('recent-queries');
+    if (!el) return;
+    const preserved = getRecentSubTab(el);
+    if (preserved === 'logs') {
+        await refreshRecentLogsOnly(forceScroll);
+        return;
+    }
+    const r = await fetch('/partials/recent');
+    if (!r.ok) return;
+    const html = await r.text();
+    if (el.innerHTML === html) return;
+    el.innerHTML = html;
+    mountRecentContent(el, preserved);
+}
+
+function mountRecentContent(el, preservedTab) {
+    if (!el) return;
+    const tab = preservedTab || sessionStorage.getItem(RECENT_SUBTAB_KEY) || 'mcp';
+    mountHTMXContent(el);
+    setRecentSubTab(tab, el);
+    if (tab === 'logs') {
+        requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+    }
+    syncLogsPoll();
+    if (el.dataset.recentTabBound) return;
+    el.dataset.recentTabBound = '1';
+    el.addEventListener('change', (e) => {
+        if (e.target?.classList?.contains('recent-tab-radio')) {
+            const sub = recentSubTabFromRadio(e.target);
+            sessionStorage.setItem(RECENT_SUBTAB_KEY, sub);
+            if (sub === 'logs') {
+                requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+            }
+            syncLogsPoll();
+        }
+    });
+}
+
 function mountHTMXContent(el) {
     if (!el || typeof htmx === 'undefined') return;
     htmx.process(el);
@@ -482,7 +701,7 @@ async function deleteDocSource(btn) {
     }
 }
 
-const EMBED_TEST_TIMEOUT_MS = 18000;
+const EMBED_TEST_TIMEOUT_MS = 45000;
 
 function formatEmbedTestElapsed(ms) {
     return (ms / 1000).toFixed(1) + 's';
@@ -708,6 +927,14 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     }
 });
 
+document.body.addEventListener('htmx:afterRequest', (e) => {
+    const key = e.detail.requestConfig?.parameters?.key;
+    if (!e.detail.successful) return;
+    if (key === 'dashboard_log_tail_lines' || key === 'dashboard_log_line_chars') {
+        refreshRecentLogsOnly(true);
+    }
+});
+
 window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
 
 const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 10, perRow: 5 };
@@ -855,6 +1082,67 @@ function onWorkerPartialUpdated() {
     }
 }
 
+async function refreshHealthBarPartial() {
+    const target = document.querySelector('#health-bar');
+    if (!target) return;
+    const r = await fetch('/partials/health');
+    if (r.ok) {
+        target.innerHTML = await r.text();
+        mountHTMXContent(target);
+    }
+}
+
+async function nudgeEmbedderRetry(btn) {
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('htmx-request');
+    try {
+        const r = await fetch('/api/embedder/retry', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok && data.error) {
+            console.error('embedder retry:', data.error);
+        }
+        await refreshEmbedderPanels();
+    } catch (err) {
+        console.error('embedder retry:', err);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('htmx-request');
+    }
+}
+
+async function dismissEmbedderAlert(btn) {
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('htmx-request');
+    try {
+        const r = await fetch('/api/embedder/dismiss-alert', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok && data.error) {
+            console.error('embedder dismiss:', data.error);
+            return;
+        }
+        await refreshEmbedderPanels();
+    } catch (err) {
+        console.error('embedder dismiss:', err);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('htmx-request');
+    }
+}
+
+async function refreshEmbedderPanels() {
+    await Promise.all([refreshIndexHealthPartial(), refreshHealthBarPartial()]);
+    const settings = document.getElementById('settings-content');
+    if (settings?.querySelector('.embed-active-row')) {
+        const sr = await fetch('/partials/settings');
+        if (sr.ok) {
+            settings.innerHTML = await sr.text();
+            mountSettingsContent(settings);
+        }
+    }
+}
+
 async function refreshIndexHealthPartial() {
     const target = document.querySelector('#index-health');
     if (!target) return;
@@ -918,18 +1206,31 @@ document.body.addEventListener('click', (e) => {
         return;
     }
     const wbtn = e.target.closest('.watcher-action');
-    if (!wbtn) return;
-    e.preventDefault();
-    const action = wbtn.dataset.watcherAction;
-    const projectPath = wbtn.dataset.projectPath;
-    if (action === 'delete') {
-        const name = wbtn.dataset.projectName || projectPath;
-        if (!confirm(`Delete ${name}? This removes all indexed data.`)) return;
+    if (wbtn) {
+        e.preventDefault();
+        const action = wbtn.dataset.watcherAction;
+        const projectPath = wbtn.dataset.projectPath;
+        if (action === 'delete') {
+            const name = wbtn.dataset.projectName || projectPath;
+            if (!confirm(`Delete ${name}? This removes all indexed data.`)) return;
+        }
+        wbtn.disabled = true;
+        watcherApiAction(action, projectPath, '#index-health').finally(() => {
+            wbtn.disabled = false;
+        });
+        return;
     }
-    wbtn.disabled = true;
-    watcherApiAction(action, projectPath, '#index-health').finally(() => {
-        wbtn.disabled = false;
-    });
+    const retryBtn = e.target.closest('[data-embedder-retry]');
+    if (retryBtn) {
+        e.preventDefault();
+        nudgeEmbedderRetry(retryBtn);
+        return;
+    }
+    const dismissBtn = e.target.closest('[data-embedder-dismiss]');
+    if (dismissBtn) {
+        e.preventDefault();
+        dismissEmbedderAlert(dismissBtn);
+    }
 });
 
 async function refreshEmbedModelsForField(el) {

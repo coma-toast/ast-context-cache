@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -31,6 +32,20 @@ func (d SettingsData) EmbedActiveStatusLabel() string {
 
 func (d SettingsData) EmbedderErrorShort() string {
 	return truncateEmbedLabel(d.EmbedderError, 120)
+}
+
+func (h IndexHealth) ShowEmbedDismiss() bool {
+	if h.EmbedderState == "degraded" {
+		return true
+	}
+	return h.EmbedderState == "error" && h.EmbedPanelBusy()
+}
+
+func (d SettingsData) ShowEmbedDismiss() bool {
+	if d.EmbedderState == "degraded" {
+		return true
+	}
+	return d.EmbedderState == "error" && d.EmbedActive > 0
 }
 
 func (d SettingsData) EmbedderErrorHeadline() string {
@@ -69,6 +84,26 @@ func cpuGaugePct(p float64) float64 {
 		return 100
 	}
 	return p
+}
+
+func loadAvgPct(load1 float64) float64 {
+	n := float64(runtime.NumCPU())
+	if n <= 0 {
+		n = 1
+	}
+	p := load1 / n * 100
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+func (h IndexHealth) LoadAvgLabel() string {
+	return fmt.Sprintf("%.2f · %.2f · %.2f", h.LoadAvg1, h.LoadAvg5, h.LoadAvg15)
+}
+
+func (h IndexHealth) LoadAvgHint() string {
+	return fmt.Sprintf("Host load averages (1 / 5 / 15 min) — gauge vs %d CPU cores", runtime.NumCPU())
 }
 
 func throughputStyle(rate int64) string {
@@ -148,10 +183,13 @@ func WorkerControlsTitle(active, total int) string {
 	return fmt.Sprintf("Workers: %d of %d busy", active, total)
 }
 
-func pendingRingCap(pending int) int {
-	cap := 128
-	for cap < pending && cap < 2048 {
-		cap *= 2
+func pendingRingCap(pending, peak int) int {
+	if pending <= 0 {
+		return 1
+	}
+	cap := peak
+	if cap < pending {
+		cap = pending
 	}
 	if cap < 1 {
 		return 1
@@ -160,7 +198,7 @@ func pendingRingCap(pending int) int {
 }
 
 func (h IndexHealth) pendingRingCap() int {
-	return pendingRingCap(h.EmbedPending)
+	return pendingRingCap(h.EmbedPending, h.EmbedPendingPeak)
 }
 
 func (h IndexHealth) queueRingCap() int {
@@ -230,7 +268,7 @@ func (h Health) pendingTitle() string {
 }
 
 func (h Health) pendingRingCap() int {
-	return pendingRingCap(h.QueuePending)
+	return pendingRingCap(h.QueuePending, h.QueuePendingPeak)
 }
 
 func (h Health) queueFillPct() float64 {
@@ -474,6 +512,24 @@ func diskPct(mb float64) float64 {
 		return 100
 	}
 	return p
+}
+
+func (h IndexHealth) DiskSizeLabel() string {
+	if h.DiskSize == "-" {
+		return "-"
+	}
+	if h.WalSize == "" || h.WalSize == "0 B" {
+		return h.DiskSize
+	}
+	return h.DiskSize + " · WAL " + h.WalSize
+}
+
+func (h IndexHealth) DiskFootprintPct() float64 {
+	return diskPct(h.DiskMB + h.WalMB)
+}
+
+func (h IndexHealth) DiskHint() string {
+	return "SQLite usage.db + WAL journal (usage.db-wal) on disk"
 }
 
 func diskIOPct(mbps float64) float64 {

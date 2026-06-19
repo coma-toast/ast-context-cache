@@ -42,22 +42,27 @@ var (
 
 // SyncPendingFromDB marks indexed files that lack or have stale code vectors as pending retry.
 func SyncPendingFromDB() int {
+	type row struct{ file, projectPath string }
 	rows, err := db.DB.Query(missingVectorsSQL)
 	if err != nil {
 		log.Printf("embedqueue: sync pending: %v", err)
 		return 0
 	}
-	defer rows.Close()
-	added := 0
+	var pendingRows []row
 	for rows.Next() {
-		var file, projectPath string
-		if err := rows.Scan(&file, &projectPath); err != nil {
+		var r row
+		if err := rows.Scan(&r.file, &r.projectPath); err != nil {
 			continue
 		}
-		if indexer.ShouldSkipEmbed(file) {
+		pendingRows = append(pendingRows, r)
+	}
+	rows.Close()
+	added := 0
+	for _, r := range pendingRows {
+		if indexer.ShouldSkipEmbed(r.file) {
 			continue
 		}
-		if markPendingIfNew(job{file: file, projectPath: projectPath}, pendingReasonSync) {
+		if markPendingIfNew(job{file: r.file, projectPath: r.projectPath}, pendingReasonSync) {
 			added++
 		}
 	}
@@ -141,22 +146,27 @@ func recoverPending() {
 }
 
 func syncPendingFromDBLocked() int {
+	type row struct{ file, projectPath string }
 	rows, err := db.DB.Query(missingVectorsSQL)
 	if err != nil {
 		log.Printf("embedqueue: sync pending: %v", err)
 		return 0
 	}
-	defer rows.Close()
-	added := 0
+	var pendingRows []row
 	for rows.Next() {
-		var file, projectPath string
-		if err := rows.Scan(&file, &projectPath); err != nil {
+		var r row
+		if err := rows.Scan(&r.file, &r.projectPath); err != nil {
 			continue
 		}
-		if indexer.ShouldSkipEmbed(file) {
+		pendingRows = append(pendingRows, r)
+	}
+	rows.Close()
+	added := 0
+	for _, r := range pendingRows {
+		if indexer.ShouldSkipEmbed(r.file) {
 			continue
 		}
-		if markPendingIfNew(job{file: file, projectPath: projectPath}, pendingReasonSync) {
+		if markPendingIfNew(job{file: r.file, projectPath: r.projectPath}, pendingReasonSync) {
 			added++
 		}
 	}

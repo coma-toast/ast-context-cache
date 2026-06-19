@@ -160,7 +160,8 @@ func renderHealthBar() string {
 		QueueWorkers:    eq.Workers,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
-		QueuePending:    eq.Pending,
+		QueuePending:     eq.Pending,
+		QueuePendingPeak: eq.PendingPeak,
 		QueueInFlight:   eq.InFlight,
 		QueueHighCap:    eq.HighCap,
 		QueueLowCap:     eq.LowCap,
@@ -193,9 +194,9 @@ func renderStats() string {
 
 func renderRecent() string {
 	mcp, indexing := buildRecentQueries("", 50)
-	logs, logPath, logTrunc := buildRecentLogs(200)
+	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
 	var buf bytes.Buffer
-	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc).Render(context.Background(), &buf)
+	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc, logOpts).Render(context.Background(), &buf)
 	return buf.String()
 }
 
@@ -296,6 +297,12 @@ func renderSettings() string {
 	logRetentionEn := settings["log_retention_enabled"] == "true"
 	logDry := settings["log_retention_dry_run"] == "true"
 	logLast := settings["log_retention_last_run"]
+	queryRetentionEn := settings["query_retention_enabled"] != "false"
+	queryRetentionMaxAge := 90
+	if v, ok := settings["query_retention_max_age_days"]; ok && v != "" {
+		queryRetentionMaxAge, _ = strconv.Atoi(v)
+	}
+	queryRetentionLast := settings["query_retention_last_run"]
 	projects := loadProjects("")
 	configs, _ := db.GetAgentConfigs()
 	var agents []components.AgentInfo
@@ -328,6 +335,9 @@ func renderSettings() string {
 		LogRetentionMaxTotalMB: logRetentionMaxMB,
 		LogRetentionDryRun:     logDry,
 		LogRetentionLastRun:    logLast,
+		QueryRetentionEnabled:   queryRetentionEn,
+		QueryRetentionMaxAgeDays: queryRetentionMaxAge,
+		QueryRetentionLastRun:   queryRetentionLast,
 		Projects:               projects,
 		Agents:                 agents,
 	}
@@ -397,6 +407,7 @@ func init() {
 	go hub.run()
 	initRealtimeBridge()
 	initQueryLogBridge()
+	initLogNotifyBridge()
 }
 
 func handleToastWS(w http.ResponseWriter, r *http.Request) {

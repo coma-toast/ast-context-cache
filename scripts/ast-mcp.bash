@@ -8,7 +8,8 @@ ast-mcp() {
     local ort_lib="__ORT_LIB__"
     local port=7821
     local dash=7830
-    local logfile=/tmp/ast-mcp.log
+    local logfile="${HOME:+$HOME/.astcache/ast-mcp.log}"
+    logfile="${logfile:-.astcache/ast-mcp.log}"
 
     _ast_mcp_running() {
         lsof -iTCP:${port} -sTCP:LISTEN -P 2>/dev/null | grep -q .
@@ -21,6 +22,7 @@ ast-mcp() {
                 return 0
             fi
             echo "Starting ast-mcp..."
+            mkdir -p "$(dirname "$logfile")"
             (cd "$ast_dir" && ONNXRUNTIME_LIB="$ort_lib" nohup ./ast-mcp > "$logfile" 2>&1 &)
             sleep 2
             if _ast_mcp_running; then

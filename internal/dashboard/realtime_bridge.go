@@ -7,13 +7,35 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
-var partialLast sync.Map // target string -> last HTML
+var (
+	partialLast   sync.Map // target string -> last HTML
+	notifyMu      sync.Mutex
+	pendingMask   realtime.Reason
+	notifyTimer   *time.Timer
+	debounceDelay = 150 * time.Millisecond
+)
 
 func initRealtimeBridge() {
 	realtime.SetHandler(handleRealtimeNotify)
 }
 
 func handleRealtimeNotify(mask realtime.Reason) {
+	notifyMu.Lock()
+	defer notifyMu.Unlock()
+	pendingMask |= mask
+	if notifyTimer != nil {
+		notifyTimer.Stop()
+	}
+	notifyTimer = time.AfterFunc(debounceDelay, func() {
+		notifyMu.Lock()
+		m := pendingMask
+		pendingMask = 0
+		notifyMu.Unlock()
+		flushPartialBroadcast(m)
+	})
+}
+
+func flushPartialBroadcast(mask realtime.Reason) {
 	if hub == nil {
 		return
 	}

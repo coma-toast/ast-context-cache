@@ -5,6 +5,10 @@ import "time"
 type Project struct {
 	Path        string
 	Name        string
+	Label       string
+	Workspace   string
+	Branch      string
+	RepoKey     string
 	QueryCount  int
 	SymbolCount int
 	FileCount   int
@@ -76,7 +80,7 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 						<select class="project-select" x-model="selectedProject" @change="applyProjectFilter()" aria-label="Filter by project">
 							<option value="">All Projects</option>
 							for _, p := range projects {
-								<option value={ p.Path }>{ p.Name }</option>
+								<option value={ p.Path } data-label={ p.Label }>{ p.Label }</option>
 							}
 						</select>
 					</div>
@@ -159,7 +163,7 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 						<div id="import-chart"><div class="card"><div class="empty-state">Loading...</div></div></div>
 					</section>
 
-					<section class="dashboard-panel" x-show="activeTab === 'recent'" x-cloak>
+					<section class="dashboard-panel dashboard-panel-fill" x-show="activeTab === 'recent'" x-cloak>
 						<div class="panel-heading">
 							<h2>Recent</h2>
 							<p class="panel-hint">MCP calls, indexing events, and server logs</p>

@@ -28,12 +28,12 @@ type OpenAIEmbedder struct {
 // https://litellm.example.com/v1 (trailing slashes trimmed). jsonDimensions: 0 omits the
 // dimensions field; >0 sends it (e.g. 768 for text-embedding-3-small).
 func NewOpenAIEmbedder(baseURL, apiKey, model string, jsonDimensions int) *OpenAIEmbedder {
-	return newOpenAIEmbedder(baseURL, apiKey, model, jsonDimensions, "openai embed", 120*time.Second)
+	return newOpenAIEmbedder(baseURL, apiKey, model, jsonDimensions, "openai embed", ResolveRemoteTimeout())
 }
 
 // NewOpenAIEmbedderWithLabel is like NewOpenAIEmbedder but uses label in error messages (e.g. "dmr embed" for Docker Model Runner).
 func NewOpenAIEmbedderWithLabel(baseURL, apiKey, model string, jsonDimensions int, label string) *OpenAIEmbedder {
-	return newOpenAIEmbedder(baseURL, apiKey, model, jsonDimensions, label, 120*time.Second)
+	return newOpenAIEmbedder(baseURL, apiKey, model, jsonDimensions, label, ResolveRemoteTimeout())
 }
 
 func newOpenAIEmbedder(baseURL, apiKey, model string, jsonDimensions int, label string, timeout time.Duration) *OpenAIEmbedder {
@@ -46,7 +46,7 @@ func newOpenAIEmbedder(baseURL, apiKey, model string, jsonDimensions int, label 
 		label = "openai embed"
 	}
 	if timeout <= 0 {
-		timeout = 120 * time.Second
+		timeout = DefaultHTTPEmbedTimeout
 	}
 	return &OpenAIEmbedder{
 		embeddingsURL:  b + "/embeddings",

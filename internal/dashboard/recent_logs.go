@@ -3,18 +3,53 @@ package dashboard
 import (
 	"bufio"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
+	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
-const defaultServerLogPath = "/tmp/ast-mcp.log"
+const legacyServerLogPath = "/tmp/ast-mcp.log"
 
 func serverLogPath() string {
-	if p := strings.TrimSpace(os.Getenv("AST_MCP_LOG_PATH")); p != "" {
-		return p
+	return db.ResolveServerLogPath()
+}
+
+func logViewOpts() components.LogViewOpts {
+	opts := components.LogViewOpts{TailLines: 200, MaxLineChars: 500}
+	if v := strings.TrimSpace(db.GetSetting("dashboard_log_tail_lines", "200")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			opts.TailLines = n
+		}
 	}
-	return defaultServerLogPath
+	if v := strings.TrimSpace(db.GetSetting("dashboard_log_line_chars", "500")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			opts.MaxLineChars = n
+		}
+	}
+	if opts.TailLines < 50 {
+		opts.TailLines = 50
+	}
+	if opts.TailLines > 500 {
+		opts.TailLines = 500
+	}
+	if opts.MaxLineChars < 80 {
+		opts.MaxLineChars = 80
+	}
+	if opts.MaxLineChars > 8000 {
+		opts.MaxLineChars = 8000
+	}
+	return opts
+}
+
+func buildRecentLogsForDashboard() (lines []components.RecentLogLine, path string, fileTruncated bool, opts components.LogViewOpts) {
+	opts = logViewOpts()
+	lines, path, fileTruncated = buildRecentLogs(opts.TailLines)
+	for i := range lines {
+		lines[i] = truncateLogDisplay(lines[i], opts.MaxLineChars)
+	}
+	return lines, path, fileTruncated, opts
 }
 
 func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path string, truncated bool) {
@@ -27,16 +62,29 @@ func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path strin
 	}
 	raw, trunc, err := tailFileLines(path, maxLines)
 	if err != nil {
+		msg := err.Error()
+		if os.IsNotExist(err) {
+			msg = "Log file not found at " + path + " — use ast-mcp start, mcp-local start, or set AST_MCP_LOG_PATH"
+		}
 		return []components.RecentLogLine{{
 			Level:   "warn",
-			Message: err.Error(),
-			Raw:     err.Error(),
+			Message: msg,
+			Raw:     msg,
 		}}, path, false
 	}
 	for _, line := range raw {
 		lines = append(lines, parseLogLine(line))
 	}
 	return lines, path, trunc
+}
+
+func truncateLogDisplay(line components.RecentLogLine, maxChars int) components.RecentLogLine {
+	if maxChars <= 0 || len(line.Message) <= maxChars {
+		return line
+	}
+	line.MsgTruncated = true
+	line.Message = line.Message[:maxChars] + "…"
+	return line
 }
 
 func tailFileLines(path string, maxLines int) ([]string, bool, error) {
@@ -69,9 +117,17 @@ func parseLogLine(raw string) components.RecentLogLine {
 	line := components.RecentLogLine{Raw: raw, Message: raw}
 	lower := strings.ToLower(raw)
 	switch {
-	case strings.Contains(lower, "error") || strings.Contains(lower, "fatal"):
+	case strings.Contains(lower, "error") ||
+		strings.Contains(lower, "fatal") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "deadline exceeded") ||
+		strings.Contains(lower, " failed") ||
+		strings.HasSuffix(lower, " failed"):
 		line.Level = "error"
-	case strings.Contains(lower, "warn"):
+	case strings.Contains(lower, "warn") ||
+		strings.Contains(lower, "throttl") ||
+		strings.Contains(lower, "locked") ||
+		strings.Contains(lower, "busy=1"):
 		line.Level = "warn"
 	default:
 		line.Level = "info"

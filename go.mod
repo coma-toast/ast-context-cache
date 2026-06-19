@@ -11,12 +11,13 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/yalue/onnxruntime_go v1.30.1
+	golang.org/x/sys v0.45.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/google/pprof v0.0.0-20260507013755-92041b743c96 // indirect
-	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 )
