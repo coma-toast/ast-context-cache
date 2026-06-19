@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
@@ -19,8 +20,9 @@ const (
 )
 
 var (
-	workerCount = defaultWorkers
-	workerLive  atomic.Int64
+	workerCount   = defaultWorkers
+	workerTarget  = defaultWorkers
+	workerLive    atomic.Int64
 	workerMu    sync.Mutex
 	workerStop  chan struct{}
 )
@@ -55,7 +57,7 @@ func WorkerCount() int {
 	return workerCount
 }
 
-func applyWorkerCountLocked(n int) error {
+func applyWorkerCountLocked(n int, persist bool) error {
 	if workerStop == nil {
 		return fmt.Errorf("embed queue not started")
 	}
@@ -67,8 +69,11 @@ func applyWorkerCountLocked(n int) error {
 		workerStop <- struct{}{}
 		workerCount--
 	}
-	persistWorkerCount(workerCount)
-	log.Printf("embed queue: workers set to %d", workerCount)
+	if persist {
+		workerTarget = workerCount
+		persistWorkerCount(workerCount)
+		log.Printf("embed queue: workers set to %d", workerCount)
+	}
 	realtime.Notify(realtime.EmbedFinished | realtime.IndexHealth)
 	return nil
 }
@@ -80,7 +85,7 @@ func SetWorkerCount(n int) (int, error) {
 	}
 	workerMu.Lock()
 	defer workerMu.Unlock()
-	if err := applyWorkerCountLocked(n); err != nil {
+	if err := applyWorkerCountLocked(n, true); err != nil {
 		return workerCount, err
 	}
 	return workerCount, nil
@@ -94,8 +99,35 @@ func AdjustWorkers(delta int) (int, error) {
 	if n < MinWorkers || n > MaxWorkers {
 		return workerCount, fmt.Errorf("workers must be %d–%d", MinWorkers, MaxWorkers)
 	}
-	if err := applyWorkerCountLocked(n); err != nil {
+	if err := applyWorkerCountLocked(n, true); err != nil {
 		return workerCount, err
 	}
 	return workerCount, nil
+}
+
+func startPressureBackoff() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		var lastApplied int
+		for range ticker.C {
+			workerMu.Lock()
+			target := workerTarget
+			n := db.ThrottledEmbedWorkers(target)
+			workerMu.Unlock()
+			if n == lastApplied {
+				continue
+			}
+			workerMu.Lock()
+			err := applyWorkerCountLocked(n, false)
+			got := workerCount
+			workerMu.Unlock()
+			if err != nil {
+				continue
+			}
+			lastApplied = got
+			if n < target {
+				log.Printf("embed queue: throttled workers %d -> %d (wal=%s)", target, n, db.FormatFileSize(db.WalFileBytes()))
+			}
+		}
+	}()
 }

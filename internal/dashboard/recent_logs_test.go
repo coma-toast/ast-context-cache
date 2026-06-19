@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
@@ -52,6 +53,22 @@ func TestServerLogPathDefault(t *testing.T) {
 	want := filepath.Join(home, ".astcache", "ast-mcp.log")
 	if got := serverLogPath(); got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestServerLogPathMcpLocalNewer(t *testing.T) {
+	t.Setenv("AST_MCP_LOG_PATH", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	defaultPath := db.DefaultLogPath()
+	mcpPath := db.McpLocalLogPath()
+	os.MkdirAll(filepath.Dir(defaultPath), 0755)
+	os.MkdirAll(filepath.Dir(mcpPath), 0755)
+	os.WriteFile(defaultPath, []byte("a\n"), 0o644)
+	time.Sleep(15 * time.Millisecond)
+	os.WriteFile(mcpPath, []byte("b\n"), 0o644)
+	if got := serverLogPath(); got != mcpPath {
+		t.Fatalf("got %q want %q", got, mcpPath)
 	}
 }
 

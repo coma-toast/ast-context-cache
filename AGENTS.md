@@ -42,7 +42,7 @@ Read `skills/<name>/SKILL.md` when not using Cursor project skills.
 
 Use MCP in this order for unfamiliar code (generate a stable **`session_id`** per conversation):
 
-1. **`index_status`** — `project_path` must be the **absolute** repo root.
+1. **`index_status`** — `project_path` must be the **absolute** repo root (for WTG worktrees, use the checkout path e.g. `~/spaces/nightly/slapi`, not the main git clone).
 2. **`index_files`** — if unindexed (extended tier); starts watcher + embed queue.
 3. **`get_project_map`** — `depth=2` (~200 tokens).
 4. **`get_context_capsule`** — `mode=auto` (default), `session_id`, `token_budget` (default 4000).

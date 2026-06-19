@@ -12,7 +12,7 @@ templ ResourceUtilCard(h IndexHealth) {
 			}
 			@ResourceBar("Heap", fmt.Sprintf("%.1f MB", h.MemoryMB), memoryPct(h.MemoryMB), "#bc8cff", "")
 			@ResourceBar("Vector cache", fmt.Sprintf("%.2f MB", h.VectorMemMB), memoryPct(h.VectorMemMB), "#58a6ff", "")
-			@ResourceBar("Database", h.DiskSize, diskPct(h.DiskMB), "#3fb950", "")
+			@ResourceBar("Database", h.DiskSizeLabel(), h.DiskFootprintPct(), "#3fb950", h.DiskHint())
 			@ResourceBar("Disk read", formatDiskIO(h.DiskReadMBps), diskIOPct(h.DiskReadMBps), "#79c0ff", "Host block device read throughput")
 			@ResourceBar("Disk write", formatDiskIO(h.DiskWriteMBps), diskIOPct(h.DiskWriteMBps), "#ffa657", "Host block device write throughput")
 		</div>

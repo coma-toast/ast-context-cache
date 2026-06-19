@@ -967,6 +967,30 @@ tr:hover td { background: var(--surface-hover); }
 }
 
 .watcher-card .card-title { margin-bottom: 6px; }
+.watcher-card .watcher-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.watcher-card .watcher-column-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.watcher-card .watcher-space-group + .watcher-space-group {
+  margin-top: 10px;
+}
+.watcher-card .watcher-space-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+  padding-left: 2px;
+}
 .watcher-card .watcher-items {
   display: flex;
   flex-direction: column;

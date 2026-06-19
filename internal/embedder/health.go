@@ -189,6 +189,9 @@ func isProbeErr(msg string) bool {
 }
 
 func effectiveStateLocked() string {
+	if healthState == "error" && recentEmbedActivityLocked() && isConnectivityErr(healthLastErr) {
+		return "degraded"
+	}
 	if healthState == "degraded" && !recentErrorActiveLocked() {
 		return "ready"
 	}
@@ -382,18 +385,26 @@ func sleep(d time.Duration, stop <-chan struct{}) {
 }
 
 func runRecoveryCycle(e Interface) probeResult {
-	res, err := runConnectivityProbe(e, probeRecoveryTimeout, false)
-	if res == probeSkipped {
-		return probeSkipped
+	var lastErr error
+	for i, timeout := range probeAttemptTimeouts {
+		if i > 0 {
+			time.Sleep(probeRetryDelay)
+		}
+		res, err := runConnectivityProbe(e, timeout, false)
+		switch res {
+		case probeOK:
+			log.Printf("embedder recovery: probe succeeded")
+			MarkSuccess()
+			return probeOK
+		case probeSkipped:
+			return probeSkipped
+		case probeFail:
+			lastErr = err
+		}
 	}
-	if res == probeOK {
-		log.Printf("embedder recovery: probe succeeded")
-		MarkSuccess()
-		return probeOK
-	}
-	if err != nil {
-		log.Printf("embedder recovery: probe failed: %v", err)
-		refreshProbeError(err)
+	if lastErr != nil {
+		log.Printf("embedder recovery: probe failed: %v", lastErr)
+		refreshProbeError(lastErr)
 	}
 	return probeFail
 }
@@ -403,6 +414,15 @@ func refreshProbeError(err error) {
 		return
 	}
 	healthMu.Lock()
+	if recentEmbedActivityLocked() {
+		healthState = "degraded"
+		healthLastErr = err.Error()
+		healthRecentErrAt = time.Now()
+		probeFailed.Store(true)
+		healthMu.Unlock()
+		realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
+		return
+	}
 	already := healthState == "error"
 	healthState = "error"
 	healthLastErr = err.Error()
@@ -444,6 +464,9 @@ func runConnectivityProbeCycle(e Interface) probeResult {
 		return probeSkipped
 	}
 	if lastErr != nil {
+		if recentEmbedActivityLocked() {
+			return probeFail
+		}
 		MarkProbeResult(lastErr)
 	}
 	return probeFail

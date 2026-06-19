@@ -105,6 +105,7 @@ document.addEventListener('alpine:init', () => {
             if (tabs.includes(hash)) {
                 this.activeTab = hash;
             }
+            this.bootstrapPanels();
             if (this.activeTab === 'settings') {
                 this.loadSettings();
             }
@@ -113,8 +114,38 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        async bootstrapPanels() {
+            const panels = [
+                ['#health-bar', '/partials/health'],
+                ['#stats-cards', '/partials/stats'],
+                ['#index-health', '/partials/index-health'],
+            ];
+            await Promise.all(panels.map(async ([sel, path]) => {
+                const el = document.querySelector(sel);
+                if (!el) return;
+                const stale = el.textContent.includes('Loading...') ||
+                    (sel === '#stats-cards' && el.querySelector('.stat-value')?.textContent === '-');
+                if (!stale) return;
+                const r = await fetch(path);
+                if (r.ok) {
+                    el.innerHTML = await r.text();
+                    mountHTMXContent(el);
+                    if (sel === '#index-health' || sel === '#health-bar') {
+                        onWorkerPartialUpdated();
+                    }
+                }
+            }));
+        },
+
         projectLabel() {
             if (!this.selectedProject) return '';
+            const sel = document.querySelector('.project-select');
+            if (sel) {
+                const opt = sel.querySelector(`option[value="${CSS.escape(this.selectedProject)}"]`);
+                if (opt) {
+                    return opt.dataset.label || opt.textContent || this.selectedProject;
+                }
+            }
             const parts = this.selectedProject.split('/');
             return parts[parts.length - 1] || this.selectedProject;
         },

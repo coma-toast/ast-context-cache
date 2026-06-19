@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -14,6 +15,14 @@ import (
 
 func testEmbedDB(t *testing.T) {
 	t.Helper()
+	for _, k := range embedder.SettingKeys() {
+		if v, ok := os.LookupEnv(k); ok {
+			t.Cleanup(func() { _ = os.Setenv(k, v) })
+			os.Unsetenv(k)
+		} else {
+			t.Cleanup(func() { os.Unsetenv(k) })
+		}
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	if err := db.Init(); err != nil {
@@ -271,6 +280,7 @@ func TestPersistEmbedSettings_backendSwitch_restoresProfile(t *testing.T) {
 
 func TestHandleEmbedSettings_POST_saveAndLoad(t *testing.T) {
 	testEmbedDB(t)
+	saveEmbedSetting(t, "EMBED_BACKEND", "docker")
 	body := `{
 		"EMBED_BACKEND":"docker",
 		"EMBED_DOCKER_URL":"http://post.example:12434",

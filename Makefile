@@ -32,7 +32,7 @@ else
   ORT_DYLIB := $(ORT_DYLIB_LINUX)
 endif
 
-.PHONY: help setup deps generate build run clean install uninstall
+.PHONY: help setup deps generate build run clean install uninstall test
 
 help:
 	@echo "ast-context-cache"
@@ -40,6 +40,7 @@ help:
 	@echo "  make setup    — install everything and build (start here)"
 	@echo "  make build    — download deps + build binary"
 	@echo "  make run      — build + run the server"
+	@echo "  make test     — run unit tests"
 	@echo "  make install  — copy shell functions to your shell config"
 	@echo "  make clean    — remove binary"
 	@echo ""
@@ -159,6 +160,9 @@ build: download-model download-tokenizer-lib generate internal/version/VERSION
 
 run: build
 	ONNXRUNTIME_LIB=$(ORT_DYLIB) ./$(BINARY)
+
+test: download-tokenizer-lib
+	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 ./...
 
 clean:
 	rm -f $(BINARY)

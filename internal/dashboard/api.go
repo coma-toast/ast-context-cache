@@ -629,6 +629,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"log_retention_max_age_days":   "0",
 		"log_retention_max_total_mib":  "0",
 		"log_retention_dry_run":        "false",
+		"query_retention_enabled":      "true",
+		"query_retention_max_age_days":   "90",
 		"EMBED_BACKEND":                "",
 		"MODEL_DIR":                    "",
 		"EMBED_HTTP_URL":               "",
@@ -1039,6 +1041,7 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 		},
 		"disk": map[string]interface{}{
 			"db_size_bytes":   diskSize,
+			"wal_size_bytes":  db.WalFileBytes(),
 			"read_mbps":       diskIO.ReadMBps,
 			"write_mbps":      diskIO.WriteMBps,
 			"ssd_model":       ssd.Model,

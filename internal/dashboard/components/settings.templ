@@ -25,6 +25,9 @@ type SettingsData struct {
 	LogRetentionMaxTotalMB  int
 	LogRetentionDryRun      bool
 	LogRetentionLastRun     string
+	QueryRetentionEnabled   bool
+	QueryRetentionMaxAgeDays int
+	QueryRetentionLastRun   string
 	EmbedBackend            string
 	EmbedModelDir           string
 	EmbedHTTPURL            string
@@ -339,6 +342,34 @@ templ Settings(data SettingsData) {
 	</div>
 
 	<div class="section">
+		<div class="section-title">Query history retention</div>
+		<p class="perf-hint" style="margin-bottom:12px">
+			Prunes rows from the <span class="mono">queries</span> table in <span class="mono">usage.db</span> to keep the dashboard responsive. Runs daily; a WAL checkpoint follows large deletes.
+		</p>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+			<label for="queryRetentionEnabled">Enable query retention</label>
+			<input type="hidden" name="key" value="query_retention_enabled"/>
+			<select id="queryRetentionEnabled" class="perf-input" name="value">
+				if data.QueryRetentionEnabled {
+					<option value="false">Off</option>
+					<option value="true" selected>On</option>
+				} else {
+					<option value="false" selected>Off</option>
+					<option value="true">On</option>
+				}
+			</select>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="queryRetentionMaxAge">Max age (days)</label>
+			<input type="hidden" name="key" value="query_retention_max_age_days"/>
+			<input type="number" id="queryRetentionMaxAge" min="1" step="1" class="perf-input" name="value" value={ fmt.Sprint(data.QueryRetentionMaxAgeDays) }/>
+		</form>
+		if data.QueryRetentionLastRun != "" {
+			<div class="perf-hint mono" style="margin-top:8px">Last run: { data.QueryRetentionLastRun }</div>
+		}
+	</div>
+
+	<div class="section">
 		<div class="section-title">Projects</div>
 		<div class="project-list">
 			if len(data.Projects) == 0 {
@@ -347,8 +378,11 @@ templ Settings(data SettingsData) {
 				for _, p := range data.Projects {
 					<div class="project-item">
 						<div class="info">
-							<div class="name">{ p.Name }</div>
+							<div class="name">{ p.Label }</div>
 							<div class="path" title={ p.Path }>{ p.Path }</div>
+							if p.SymbolCount == 0 && p.QueryCount == 0 {
+								<div class="perf-hint">Discovered — not indexed yet</div>
+							}
 						</div>
 						<div class="actions">
 							if p.Pinned {
@@ -357,7 +391,7 @@ templ Settings(data SettingsData) {
 								<button class="action-btn" title="Pin for priority embedding and warmer vectors" hx-post="/api/pin-project" hx-vals={ fmt.Sprintf(`{"project_path":"%s","pinned":true}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Pin</button>
 							}
 							<button class="action-btn" hx-post="/api/reset-project" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Reset</button>
-							<button class="action-btn danger" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", p.Name) } hx-headers='{"Content-Type":"application/json"}'>Delete</button>
+							<button class="action-btn danger" hx-post="/api/delete-watcher" hx-vals={ fmt.Sprintf(`{"project_path":"%s"}`, p.Path) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-confirm={ fmt.Sprintf("Delete %s? This removes all indexed data.", p.Label) } hx-headers='{"Content-Type":"application/json"}'>Delete</button>
 						</div>
 					</div>
 				}

@@ -12,17 +12,7 @@ import (
 const legacyServerLogPath = "/tmp/ast-mcp.log"
 
 func serverLogPath() string {
-	if p := strings.TrimSpace(os.Getenv("AST_MCP_LOG_PATH")); p != "" {
-		return p
-	}
-	p := db.DefaultLogPath()
-	if _, err := os.Stat(p); err == nil {
-		return p
-	}
-	if _, err := os.Stat(legacyServerLogPath); err == nil {
-		return legacyServerLogPath
-	}
-	return p
+	return db.ResolveServerLogPath()
 }
 
 func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path string, truncated bool) {
@@ -37,7 +27,7 @@ func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path strin
 	if err != nil {
 		msg := err.Error()
 		if os.IsNotExist(err) {
-			msg = "Log file not found at " + path + " — use ast-mcp start (logs to ~/.astcache/ast-mcp.log) or set AST_MCP_LOG_PATH"
+			msg = "Log file not found at " + path + " — use ast-mcp start, mcp-local start, or set AST_MCP_LOG_PATH"
 		}
 		return []components.RecentLogLine{{
 			Level:   "warn",

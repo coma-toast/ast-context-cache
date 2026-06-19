@@ -28,6 +28,7 @@ var (
 	lastActivity   = map[string]time.Time{}
 	debounceMu     sync.Mutex
 	debounceTimers = map[string]*time.Timer{}
+	catchUpSlots   = make(chan struct{}, 2)
 )
 
 func init() {
@@ -107,6 +108,8 @@ func StartWatcher(projectPath string) {
 }
 
 func catchUp(projectPath string) {
+	catchUpSlots <- struct{}{}
+	defer func() { <-catchUpSlots }()
 	indexed := db.GetIndexedFiles(projectPath)
 	seen := map[string]bool{}
 	stale := 0

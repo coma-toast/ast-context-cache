@@ -37,8 +37,13 @@ func persistPending(j job, reason string) {
 	_, err := db.DB.Exec(`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, ?, ?)`,
 		j.file, j.projectPath, reason, time.Now().Unix())
 	if err != nil {
+		if db.IsDBLocked(err) {
+			db.NoteDBLock()
+		}
 		log.Printf("embedqueue: persist pending %s: %v", j.file, err)
+		return
 	}
+	db.NoteDBOK()
 }
 
 func clearPendingDB(j job) {
@@ -79,7 +84,9 @@ func LoadPendingFromDB() int {
 		pending[k] = job{file: file, projectPath: projectPath}
 		loaded++
 	}
+	n := len(pending)
 	pendingMu.Unlock()
+	trackPendingPeak(n)
 	if loaded > 0 {
 		log.Printf("embedqueue: loaded %d pending from DB", loaded)
 	}

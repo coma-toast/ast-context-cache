@@ -183,10 +183,13 @@ func WorkerControlsTitle(active, total int) string {
 	return fmt.Sprintf("Workers: %d of %d busy", active, total)
 }
 
-func pendingRingCap(pending int) int {
-	cap := 128
-	for cap < pending && cap < 2048 {
-		cap *= 2
+func pendingRingCap(pending, peak int) int {
+	if pending <= 0 {
+		return 1
+	}
+	cap := peak
+	if cap < pending {
+		cap = pending
 	}
 	if cap < 1 {
 		return 1
@@ -195,7 +198,7 @@ func pendingRingCap(pending int) int {
 }
 
 func (h IndexHealth) pendingRingCap() int {
-	return pendingRingCap(h.EmbedPending)
+	return pendingRingCap(h.EmbedPending, h.EmbedPendingPeak)
 }
 
 func (h IndexHealth) queueRingCap() int {
@@ -265,7 +268,7 @@ func (h Health) pendingTitle() string {
 }
 
 func (h Health) pendingRingCap() int {
-	return pendingRingCap(h.QueuePending)
+	return pendingRingCap(h.QueuePending, h.QueuePendingPeak)
 }
 
 func (h Health) queueFillPct() float64 {
@@ -509,6 +512,24 @@ func diskPct(mb float64) float64 {
 		return 100
 	}
 	return p
+}
+
+func (h IndexHealth) DiskSizeLabel() string {
+	if h.DiskSize == "-" {
+		return "-"
+	}
+	if h.WalSize == "" || h.WalSize == "0 B" {
+		return h.DiskSize
+	}
+	return h.DiskSize + " · WAL " + h.WalSize
+}
+
+func (h IndexHealth) DiskFootprintPct() float64 {
+	return diskPct(h.DiskMB + h.WalMB)
+}
+
+func (h IndexHealth) DiskHint() string {
+	return "SQLite usage.db + WAL journal (usage.db-wal) on disk"
 }
 
 func diskIOPct(mbps float64) float64 {

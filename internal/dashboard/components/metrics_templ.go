@@ -53,7 +53,7 @@ func ResourceUtilCard(h IndexHealth) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ResourceBar("Database", h.DiskSize, diskPct(h.DiskMB), "#3fb950", "").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ResourceBar("Database", h.DiskSizeLabel(), h.DiskFootprintPct(), "#3fb950", h.DiskHint()).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

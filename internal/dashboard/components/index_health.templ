@@ -18,6 +18,8 @@ type IndexHealth struct {
 	VectorMemMB   float64
 	MemoryMB      float64
 	DiskMB        float64
+	WalMB         float64
+	WalSize       string
 	CPUPercent    float64
 	LoadAvgAvailable bool
 	LoadAvg1      float64
@@ -40,6 +42,7 @@ type IndexHealth struct {
 	Watchers          []WatcherInfo
 	EmbedQueued      int
 	EmbedPending     int
+	EmbedPendingPeak int
 	EmbedFailed      int64
 	EmbedHighQueued  int
 	EmbedLowQueued   int
@@ -70,6 +73,8 @@ type IndexHealth struct {
 type WatcherInfo struct {
 	ProjectPath string
 	Name        string
+	Label       string
+	Workspace   string
 	Active      bool
 }
 
@@ -161,26 +166,61 @@ templ DocSourceRefreshControl(id int, refreshing bool, hxTarget string, page int
 templ WatcherCard(h IndexHealth) {
 	<div class="card watcher-card">
 		<div class="card-title">File watchers ({ fmtInt(h.WatcherActiveCount()) }/{ fmtInt(len(h.Watchers)) } active)</div>
-		<div class="watcher-items">
-			if len(h.Watchers) == 0 {
-				<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
-			} else {
-				for _, w := range h.Watchers {
-					<div class={ "watcher-item", templ.KV("stopped", !w.Active) } title={ w.ProjectPath }>
-						<span class={ "watcher-dot", templ.KV("active", w.Active), templ.KV("inactive", !w.Active) }></span>
-						{ w.Name }
-						<span class="watcher-actions">
-							<button type="button" class="watcher-action" title="Re-index project and queue embeddings" data-watcher-action="index" data-project-path={ w.ProjectPath }>&#x21BB;</button>
-							if w.Active {
-								<button type="button" class="watcher-action" title="Pause" data-watcher-action="stop" data-project-path={ w.ProjectPath }>&#x23F8;</button>
-							} else {
-								<button type="button" class="watcher-action" title="Start" data-watcher-action="start" data-project-path={ w.ProjectPath }>&#x25B6;</button>
+		if len(h.Watchers) == 0 {
+			<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
+		} else {
+			{{ local, spaces := GroupWatchers(h.Watchers) }}
+			<div class="watcher-columns">
+				<div class="watcher-column">
+					<div class="watcher-column-title">Local</div>
+					<div class="watcher-items">
+						if len(local) == 0 {
+							<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
+						} else {
+							for _, w := range local {
+								@WatcherRow(w)
 							}
-							<button type="button" class="watcher-action" title="Delete" data-watcher-action="delete" data-project-path={ w.ProjectPath } data-project-name={ w.Name }>&#x1F5D1;</button>
-						</span>
+						}
 					</div>
-				}
+				</div>
+				<div class="watcher-column">
+					<div class="watcher-column-title">Spaces</div>
+					if len(spaces) == 0 {
+						<div class="watcher-empty"><span class="watcher-dot inactive"></span> None</div>
+					} else {
+						for _, g := range spaces {
+							<div class="watcher-space-group">
+								<div class="watcher-space-header">{ g.Space }</div>
+								<div class="watcher-items">
+									for _, w := range g.Watchers {
+										@WatcherRow(w)
+									}
+								</div>
+							</div>
+						}
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ WatcherRow(w WatcherInfo) {
+	<div class={ "watcher-item", templ.KV("stopped", !w.Active) } title={ w.ProjectPath }>
+		<span class={ "watcher-dot", templ.KV("active", w.Active), templ.KV("inactive", !w.Active) }></span>
+		if w.Label != "" {
+			{ w.Label }
+		} else {
+			{ w.Name }
+		}
+		<span class="watcher-actions">
+			<button type="button" class="watcher-action" title="Re-index project and queue embeddings" data-watcher-action="index" data-project-path={ w.ProjectPath }>&#x21BB;</button>
+			if w.Active {
+				<button type="button" class="watcher-action" title="Pause" data-watcher-action="stop" data-project-path={ w.ProjectPath }>&#x23F8;</button>
+			} else {
+				<button type="button" class="watcher-action" title="Start" data-watcher-action="start" data-project-path={ w.ProjectPath }>&#x25B6;</button>
 			}
-		</div>
+			<button type="button" class="watcher-action" title="Delete" data-watcher-action="delete" data-project-path={ w.ProjectPath } data-project-name={ w.Label }>&#x1F5D1;</button>
+		</span>
 	</div>
 }

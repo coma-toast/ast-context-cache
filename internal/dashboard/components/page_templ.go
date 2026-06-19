@@ -13,6 +13,10 @@ import "time"
 type Project struct {
 	Path        string
 	Name        string
+	Label       string
+	Workspace   string
+	Branch      string
+	RepoKey     string
 	QueryCount  int
 	SymbolCount int
 	FileCount   int
@@ -57,31 +61,44 @@ func PageTemplate(projects []Project, health HealthInfo) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Path)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 79, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 83, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-label=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
-			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
+			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 79, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 83, Col: 53}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</option>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var4 string
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(p.Label)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 83, Col: 65}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</option>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</select></div></header><main class=\"main-content\"><section class=\"dashboard-panel\" x-show=\"activeTab === 'overview'\" x-cloak><div class=\"panel-heading\"><h2>Overview</h2><p class=\"panel-hint\">Query activity and index health at a glance</p></div><div class=\"section-title\">Query activity <span class=\"section-hint\">Today vs 30d daily avg · dark purple = overlap (blue ∩ red), red = day only, blue = avg only</span></div><div id=\"stats-cards\"><div class=\"grid grid-4\"><div class=\"card\"><div class=\"card-title\">Queries</div><div class=\"stat-value stat-accent\">-</div></div><div class=\"card\"><div class=\"card-title\">Tokens saved</div><div class=\"stat-value stat-green\">-</div></div><div class=\"card\"><div class=\"card-title\">Avg duration</div><div class=\"stat-value stat-orange\">-</div></div><div class=\"card\"><div class=\"card-title\">Sessions</div><div class=\"stat-value stat-purple\">-</div></div></div></div><div class=\"section-title\">Index &amp; runtime <span class=\"section-hint\">Utilization, embeddings, and corpus</span></div><div id=\"index-health\"><div class=\"grid grid-4\"><div class=\"card\"><div class=\"card-title\">Loading...</div><div class=\"stat-value stat-accent\">-</div></div></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'memory'\" x-cloak><div class=\"panel-heading\"><h2>Memory</h2><p class=\"panel-hint\">Session notes, semantic index, and cached documentation — grouped like Mem0 (session/semantic), LangMem (episodic), and Zep (knowledge)</p></div><div id=\"memory-panel\"><div class=\"empty-state\">Loading...</div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'activity'\" x-cloak><div class=\"panel-heading\"><h2>Activity</h2><p class=\"panel-hint\">Queries over time and corpus breakdown</p></div><div class=\"section-title section-title-row\"><span>Queries over time <span class=\"section-hint\">Last 30 days</span></span><div class=\"toggle-group\" x-data><button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.interval === 'daily' }\" @click=\"$store.chart.interval = 'daily'; $dispatch('chart-update')\">Daily</button> <button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.interval === 'hourly' }\" @click=\"$store.chart.interval = 'hourly'; $dispatch('chart-update')\">Hourly</button></div><div class=\"toggle-group\" x-data><button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.metric === 'queries' }\" @click=\"$store.chart.metric = 'queries'; $dispatch('chart-update')\">Queries</button> <button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.metric === 'tokens_saved' }\" @click=\"$store.chart.metric = 'tokens_saved'; $dispatch('chart-update')\">Tokens</button></div></div><div id=\"activity-chart\" x-data=\"timeseriesChart()\" @chart-update.window=\"loadAndDraw()\"><div class=\"card\"><div class=\"chart-container\"><canvas x-ref=\"canvas\"></canvas></div></div></div><div class=\"grid grid-2 panel-spaced\"><div><div class=\"section-title\">Symbol Breakdown</div><div id=\"symbol-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div></div><div><div class=\"section-title\">Language Breakdown</div><div id=\"lang-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'analytics'\" x-cloak><div class=\"panel-heading\"><h2>Analytics</h2><p class=\"panel-hint\">Tool performance and import graph</p></div><div class=\"section-title\">Tool performance <span class=\"section-hint\">Rolling 30 days · Calls, CPU, latency, tokens saved per MCP tool</span></div><div id=\"tool-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div><div class=\"section-title panel-spaced\">Top Imports</div><div id=\"import-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'recent'\" x-cloak><div class=\"panel-heading\"><h2>Recent</h2><p class=\"panel-hint\">MCP calls, indexing events, and server logs</p></div><div id=\"recent-queries\"><div class=\"card\" style=\"padding:0\"><table><tbody><tr><td class=\"empty-state\">Loading...</td></tr></tbody></table></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'settings'\" x-cloak><div class=\"panel-heading\"><h2>Settings</h2><p class=\"panel-hint\">Embedding, indexing, projects, and integrations</p></div><div id=\"settings-content\" class=\"settings-panel\"><div class=\"empty-state\">Loading...</div></div></section></main></div></div><div id=\"toast-container\" class=\"toast-container\"></div><script src=\"/static/ws.js\"></script><script src=\"/static/chart.js\"></script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</select></div></header><main class=\"main-content\"><section class=\"dashboard-panel\" x-show=\"activeTab === 'overview'\" x-cloak><div class=\"panel-heading\"><h2>Overview</h2><p class=\"panel-hint\">Query activity and index health at a glance</p></div><div class=\"section-title\">Query activity <span class=\"section-hint\">Today vs 30d daily avg · dark purple = overlap (blue ∩ red), red = day only, blue = avg only</span></div><div id=\"stats-cards\"><div class=\"grid grid-4\"><div class=\"card\"><div class=\"card-title\">Queries</div><div class=\"stat-value stat-accent\">-</div></div><div class=\"card\"><div class=\"card-title\">Tokens saved</div><div class=\"stat-value stat-green\">-</div></div><div class=\"card\"><div class=\"card-title\">Avg duration</div><div class=\"stat-value stat-orange\">-</div></div><div class=\"card\"><div class=\"card-title\">Sessions</div><div class=\"stat-value stat-purple\">-</div></div></div></div><div class=\"section-title\">Index &amp; runtime <span class=\"section-hint\">Utilization, embeddings, and corpus</span></div><div id=\"index-health\"><div class=\"grid grid-4\"><div class=\"card\"><div class=\"card-title\">Loading...</div><div class=\"stat-value stat-accent\">-</div></div></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'memory'\" x-cloak><div class=\"panel-heading\"><h2>Memory</h2><p class=\"panel-hint\">Session notes, semantic index, and cached documentation — grouped like Mem0 (session/semantic), LangMem (episodic), and Zep (knowledge)</p></div><div id=\"memory-panel\"><div class=\"empty-state\">Loading...</div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'activity'\" x-cloak><div class=\"panel-heading\"><h2>Activity</h2><p class=\"panel-hint\">Queries over time and corpus breakdown</p></div><div class=\"section-title section-title-row\"><span>Queries over time <span class=\"section-hint\">Last 30 days</span></span><div class=\"toggle-group\" x-data><button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.interval === 'daily' }\" @click=\"$store.chart.interval = 'daily'; $dispatch('chart-update')\">Daily</button> <button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.interval === 'hourly' }\" @click=\"$store.chart.interval = 'hourly'; $dispatch('chart-update')\">Hourly</button></div><div class=\"toggle-group\" x-data><button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.metric === 'queries' }\" @click=\"$store.chart.metric = 'queries'; $dispatch('chart-update')\">Queries</button> <button class=\"toggle-btn\" :class=\"{ 'active': $store.chart.metric === 'tokens_saved' }\" @click=\"$store.chart.metric = 'tokens_saved'; $dispatch('chart-update')\">Tokens</button></div></div><div id=\"activity-chart\" x-data=\"timeseriesChart()\" @chart-update.window=\"loadAndDraw()\"><div class=\"card\"><div class=\"chart-container\"><canvas x-ref=\"canvas\"></canvas></div></div></div><div class=\"grid grid-2 panel-spaced\"><div><div class=\"section-title\">Symbol Breakdown</div><div id=\"symbol-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div></div><div><div class=\"section-title\">Language Breakdown</div><div id=\"lang-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'analytics'\" x-cloak><div class=\"panel-heading\"><h2>Analytics</h2><p class=\"panel-hint\">Tool performance and import graph</p></div><div class=\"section-title\">Tool performance <span class=\"section-hint\">Rolling 30 days · Calls, CPU, latency, tokens saved per MCP tool</span></div><div id=\"tool-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div><div class=\"section-title panel-spaced\">Top Imports</div><div id=\"import-chart\"><div class=\"card\"><div class=\"empty-state\">Loading...</div></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'recent'\" x-cloak><div class=\"panel-heading\"><h2>Recent</h2><p class=\"panel-hint\">MCP calls, indexing events, and server logs</p></div><div id=\"recent-queries\"><div class=\"card\" style=\"padding:0\"><table><tbody><tr><td class=\"empty-state\">Loading...</td></tr></tbody></table></div></div></section><section class=\"dashboard-panel\" x-show=\"activeTab === 'settings'\" x-cloak><div class=\"panel-heading\"><h2>Settings</h2><p class=\"panel-hint\">Embedding, indexing, projects, and integrations</p></div><div id=\"settings-content\" class=\"settings-panel\"><div class=\"empty-state\">Loading...</div></div></section></main></div></div><div id=\"toast-container\" class=\"toast-container\"></div><script src=\"/static/ws.js\"></script><script src=\"/static/chart.js\"></script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

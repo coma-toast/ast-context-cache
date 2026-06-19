@@ -20,6 +20,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/coma-toast/ast-context-cache/internal/version"
@@ -62,6 +63,7 @@ func main() {
 	watcher.EnsureDefaultIgnoreGlobs()
 
 	go db.StartWALCheckpoint()
+	go db.StartPressureRelief()
 
 	for _, tbl := range []string{"symbols", "edges", "queries", "vectors", "summaries"} {
 		db.DB.Exec("DELETE FROM " + tbl + " WHERE project_path = '.'")
@@ -99,6 +101,9 @@ func main() {
 			search.Cache.DeleteByFile(filePath, projectPath)
 		} else {
 			if indexer.ShouldSkipEmbed(filePath) {
+				return
+			}
+			if db.ShouldThrottleHeavyWork() && !db.IsPinnedProject(projectPath) {
 				return
 			}
 			embedqueue.SubmitPriority(filePath, projectPath, db.IsPinnedProject(projectPath))
@@ -204,14 +209,28 @@ func startBackgroundServices() {
 		}
 	}()
 	restoreRows, err := db.DB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
+	seen := map[string]bool{}
 	if err == nil {
 		for restoreRows.Next() {
 			var pp string
 			restoreRows.Scan(&pp)
+			seen[pp] = true
 			if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
 				go watcher.EnsureWatcher(pp)
 			}
 		}
 		restoreRows.Close()
+	}
+	for _, pp := range projectmeta.DiscoverPaths() {
+		if seen[pp] {
+			continue
+		}
+		meta := projectmeta.Enrich(pp)
+		if meta.Workspace == "" {
+			continue
+		}
+		if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
+			go watcher.EnsureWatcher(pp)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -49,6 +50,7 @@ func Init() error {
 	DB.Exec(`PRAGMA busy_timeout=5000`)
 	DB.Exec(`PRAGMA synchronous=NORMAL`)
 	DB.Exec(`PRAGMA cache_size=-32000`)
+	DB.Exec(`PRAGMA wal_autocheckpoint=1000`)
 
 	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS queries (
@@ -448,6 +450,25 @@ func walFileBytes() int64 {
 	return fi.Size()
 }
 
+// WalFileBytes returns the on-disk size of the SQLite WAL file (usage.db-wal).
+func WalFileBytes() int64 {
+	return walFileBytes()
+}
+
+// FormatFileSize formats a byte count for dashboard display.
+func FormatFileSize(bytes int64) string {
+	switch {
+	case bytes >= 1024*1024*1024:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/(1024*1024*1024))
+	case bytes >= 1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
+	case bytes >= 1024:
+		return fmt.Sprintf("%d KB", bytes/1024)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
 // CheckpointWAL flushes the WAL. truncate=true forces pages back into the main db file.
 func CheckpointWAL(truncate bool) (busy, walFrames, checkpointed int, err error) {
 	mode := "PASSIVE"
@@ -469,6 +490,10 @@ func StartWALCheckpoint() {
 	walTicker := time.NewTicker(2 * time.Minute)
 	truncateTicker := time.NewTicker(30 * time.Minute)
 	vacuumTicker := time.NewTicker(24 * time.Hour)
+	retentionTicker := time.NewTicker(24 * time.Hour)
+	go func() {
+		retryQueryRetention("startup")
+	}()
 	for {
 		select {
 		case <-walTicker.C:
@@ -483,6 +508,8 @@ func StartWALCheckpoint() {
 			if busy, frames, ckpt, err := CheckpointWAL(true); err == nil && frames > 0 {
 				log.Printf("Scheduled WAL checkpoint: busy=%d log=%d checkpointed=%d", busy, frames, ckpt)
 			}
+		case <-retentionTicker.C:
+			RunQueryRetention()
 		case <-vacuumTicker.C:
 			Compact()
 		}

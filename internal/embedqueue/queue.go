@@ -60,6 +60,7 @@ var (
 	pending          map[string]job
 	pendingChQueued  map[string]struct{}
 	drainMu          sync.Mutex
+	pendingPeak      atomic.Int64
 )
 
 // Ready reports whether the embed queue workers are running.
@@ -88,10 +89,11 @@ func Start(e embedder.Interface) {
 		highCh = make(chan job, highCap)
 		lowCh = make(chan job, lowCap)
 		workerStop = make(chan struct{}, MaxWorkers)
-		workerMu.Lock()
-		workerCount = loadWorkerCount()
-		n := workerCount
-		workerMu.Unlock()
+	workerMu.Lock()
+	workerCount = loadWorkerCount()
+	workerTarget = workerCount
+	n := workerCount
+	workerMu.Unlock()
 		for i := 0; i < n; i++ {
 			go worker()
 		}
@@ -103,6 +105,7 @@ func Start(e embedder.Interface) {
 		log.Printf("embed queue: %d workers (pending=%d high=%d low=%d)", n, pendingCap, highCap, lowCap)
 		LoadPendingFromDB()
 		go flushPendingIfReady()
+		startPressureBackoff()
 	})
 }
 
@@ -255,6 +258,7 @@ func ThroughputLast5s() int64 {
 type QueueSnapshot struct {
 	Queued      int
 	Pending     int
+	PendingPeak int
 	HighUsed    int
 	LowUsed     int
 	HighCap     int
@@ -274,6 +278,7 @@ func Snapshot() QueueSnapshot {
 	s.Completed = atomic.LoadInt64(&completed)
 	s.Failed = atomic.LoadInt64(&failed)
 	s.Pending = PendingCount()
+	s.PendingPeak = PendingPeak()
 	s.Throughput = ThroughputLast5s()
 	if highCh == nil {
 		return s
@@ -308,8 +313,41 @@ func clearPending(j job) {
 // PendingCount is files that failed embedding and await retry.
 func PendingCount() int {
 	pendingMu.Lock()
-	defer pendingMu.Unlock()
-	return len(pending)
+	n := len(pending)
+	pendingMu.Unlock()
+	trackPendingPeak(n)
+	return n
+}
+
+// PendingPeak is the highest pending count since the last time pending was zero.
+func PendingPeak() int {
+	pendingMu.Lock()
+	n := len(pending)
+	pendingMu.Unlock()
+	if n == 0 {
+		return 0
+	}
+	peak := int(pendingPeak.Load())
+	if peak < n {
+		peak = n
+	}
+	return peak
+}
+
+func trackPendingPeak(n int) {
+	if n == 0 {
+		pendingPeak.Store(0)
+		return
+	}
+	for {
+		cur := pendingPeak.Load()
+		if int64(n) <= cur {
+			return
+		}
+		if pendingPeak.CompareAndSwap(cur, int64(n)) {
+			return
+		}
+	}
 }
 
 func enqueuePendingRetry(j job) bool {
