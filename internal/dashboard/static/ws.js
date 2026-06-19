@@ -65,6 +65,8 @@ document.addEventListener('alpine:init', () => {
                     Alpine.flushSync();
                     if (targetSel === '#recent-queries') {
                         mountRecentContent(target, preservedRecentTab);
+                        requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+                        syncLogsPoll();
                     } else {
                         mountHTMXContent(target);
                     }
@@ -112,6 +114,10 @@ document.addEventListener('alpine:init', () => {
             if (this.activeTab === 'memory') {
                 this.loadMemory();
             }
+            if (this.activeTab === 'recent') {
+                refreshRecentPartial(true);
+            }
+            syncLogsPoll();
         },
 
         async bootstrapPanels() {
@@ -164,6 +170,10 @@ document.addEventListener('alpine:init', () => {
             if (tab === 'activity') {
                 window.dispatchEvent(new CustomEvent('chart-update'));
             }
+            if (tab === 'recent') {
+                refreshRecentPartial(true);
+            }
+            syncLogsPoll();
         },
 
         async loadSettings() {
@@ -409,16 +419,75 @@ function setRecentSubTab(tab, root) {
     sessionStorage.setItem(RECENT_SUBTAB_KEY, tab);
 }
 
+function scrollRecentLogsToBottom(root, force) {
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    if (!panel) return;
+    const logsTab = panel.querySelector('#recent-tab-logs');
+    if (!logsTab?.checked) return;
+    const scroll = panel.querySelector('.recent-logs-scroll');
+    if (!scroll) return;
+    const gap = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
+    if (force || gap < 48) {
+        scroll.scrollTop = scroll.scrollHeight;
+    }
+}
+
+let logsPollTimer = null;
+
+function recentTabActive() {
+    const root = document.querySelector('[x-data="dashboard"]');
+    if (!root || typeof Alpine === 'undefined' || !Alpine.$data) return false;
+    try {
+        return Alpine.$data(root)?.activeTab === 'recent';
+    } catch {
+        return false;
+    }
+}
+
+function syncLogsPoll() {
+    if (logsPollTimer) {
+        clearInterval(logsPollTimer);
+        logsPollTimer = null;
+    }
+    const el = document.getElementById('recent-queries');
+    if (!el || !recentTabActive() || getRecentSubTab(el) !== 'logs') return;
+    logsPollTimer = setInterval(() => refreshRecentPartial(false), 3000);
+}
+
+async function refreshRecentPartial(forceScroll) {
+    const el = document.getElementById('recent-queries');
+    if (!el) return;
+    const preserved = getRecentSubTab(el);
+    const r = await fetch('/partials/recent');
+    if (!r.ok) return;
+    const html = await r.text();
+    if (el.innerHTML === html) return;
+    el.innerHTML = html;
+    mountRecentContent(el, preserved);
+    if (preserved === 'logs') {
+        requestAnimationFrame(() => scrollRecentLogsToBottom(el, !!forceScroll));
+    }
+}
+
 function mountRecentContent(el, preservedTab) {
     if (!el) return;
     const tab = preservedTab || sessionStorage.getItem(RECENT_SUBTAB_KEY) || 'mcp';
     mountHTMXContent(el);
     setRecentSubTab(tab, el);
+    if (tab === 'logs') {
+        requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+    }
+    syncLogsPoll();
     if (el.dataset.recentTabBound) return;
     el.dataset.recentTabBound = '1';
     el.addEventListener('change', (e) => {
         if (e.target?.classList?.contains('recent-tab-radio')) {
-            sessionStorage.setItem(RECENT_SUBTAB_KEY, recentSubTabFromRadio(e.target));
+            const sub = recentSubTabFromRadio(e.target);
+            sessionStorage.setItem(RECENT_SUBTAB_KEY, sub);
+            if (sub === 'logs') {
+                requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+            }
+            syncLogsPoll();
         }
     });
 }
@@ -572,7 +641,7 @@ async function deleteDocSource(btn) {
     }
 }
 
-const EMBED_TEST_TIMEOUT_MS = 15000;
+const EMBED_TEST_TIMEOUT_MS = 45000;
 
 function formatEmbedTestElapsed(ms) {
     return (ms / 1000).toFixed(1) + 's';

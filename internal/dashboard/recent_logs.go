@@ -71,9 +71,17 @@ func parseLogLine(raw string) components.RecentLogLine {
 	line := components.RecentLogLine{Raw: raw, Message: raw}
 	lower := strings.ToLower(raw)
 	switch {
-	case strings.Contains(lower, "error") || strings.Contains(lower, "fatal"):
+	case strings.Contains(lower, "error") ||
+		strings.Contains(lower, "fatal") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "deadline exceeded") ||
+		strings.Contains(lower, " failed") ||
+		strings.HasSuffix(lower, " failed"):
 		line.Level = "error"
-	case strings.Contains(lower, "warn"):
+	case strings.Contains(lower, "warn") ||
+		strings.Contains(lower, "throttl") ||
+		strings.Contains(lower, "locked") ||
+		strings.Contains(lower, "busy=1"):
 		line.Level = "warn"
 	default:
 		line.Level = "info"

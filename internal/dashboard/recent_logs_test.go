@@ -25,6 +25,14 @@ func TestParseLogLine(t *testing.T) {
 	if errLine.Level != "error" {
 		t.Fatalf("error level=%q", errLine.Level)
 	}
+	timeoutLine := parseLogLine("2026/06/19 14:15:17 embed: context deadline exceeded")
+	if timeoutLine.Level != "error" {
+		t.Fatalf("timeout level=%q", timeoutLine.Level)
+	}
+	warnLine := parseLogLine("2026/06/19 14:13:47 embed queue: throttled workers 10 -> 4")
+	if warnLine.Level != "warn" {
+		t.Fatalf("warn level=%q", warnLine.Level)
+	}
 }
 
 func TestTailFileLines(t *testing.T) {

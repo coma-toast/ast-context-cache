@@ -757,11 +757,11 @@ header h1 .icon { font-size: 20px; }
   font-variant-numeric: tabular-nums;
 }
 .health-mini-track { width: 48px; height: 5px; background: var(--bg); border-radius: 3px; overflow: hidden; }
-.health-mini-fill { height: 100%; border-radius: 3px; transition: width 0.35s ease; }
+.health-mini-fill { display: block; height: 100%; min-width: 0; border-radius: 3px; transition: width 0.35s ease; }
 .health-mini-track.level-ok .health-mini-fill { background: var(--green); }
 .health-mini-track.level-warn .health-mini-fill { background: var(--orange); }
 .health-mini-track.level-critical .health-mini-fill { background: var(--red); }
-.health-mini-track .health-pending-fill { background: var(--orange); }
+.health-mini-track .health-mini-fill.health-pending-fill { background: var(--orange); }
 
 .card {
   background: var(--surface);
@@ -1352,19 +1352,36 @@ tr:hover td { background: var(--surface-hover); }
   background: var(--bg);
 }
 .recent-log-line {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 158px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
   padding: 3px 14px;
   font-size: 11px;
   line-height: 1.45;
   border-left: 2px solid transparent;
 }
 .recent-log-line:hover { background: rgba(255,255,255,0.02); }
-.recent-log-ts { flex-shrink: 0; width: 130px; }
-.recent-log-msg { white-space: pre-wrap; word-break: break-word; }
-.recent-log-line.log-error { border-left-color: var(--red, #f85149); }
-.recent-log-line.log-warn { border-left-color: var(--yellow, #d29922); }
-.recent-log-line.log-info { border-left-color: transparent; }
+.recent-log-ts {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.recent-log-msg { white-space: pre-wrap; word-break: break-word; min-width: 0; }
+.recent-log-line.log-error {
+  border-left-color: var(--red, #f85149);
+  background: rgba(248, 81, 73, 0.06);
+}
+.recent-log-line.log-error .recent-log-ts { color: #f08888; }
+.recent-log-line.log-error .recent-log-msg { color: #ff7b72; }
+.recent-log-line.log-warn {
+  border-left-color: var(--yellow, #d29922);
+  background: rgba(210, 153, 34, 0.06);
+}
+.recent-log-line.log-warn .recent-log-ts { color: #e3b341; }
+.recent-log-line.log-warn .recent-log-msg { color: #d29922; }
+.recent-log-line.log-info .recent-log-ts { color: var(--text-dim); }
+.recent-log-line.log-info .recent-log-msg { color: var(--text); }
 
 .toast-container {
   position: fixed;

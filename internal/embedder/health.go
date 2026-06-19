@@ -16,16 +16,16 @@ var probeFailed atomic.Bool
 const (
 	probeIntervalOK       = 10 * time.Second
 	probeRecoveryInterval = 30 * time.Second
-	probeRecoveryTimeout  = 60 * time.Second
+	probeRecoveryTimeout  = 120 * time.Second
 	probeRetryDelay       = 2 * time.Second
 	recentErrorWindow     = 5 * time.Minute
-	probeActivityGrace    = 45 * time.Second // skip proactive probe failures while workers recently succeeded
+	probeActivityGrace    = 300 * time.Second // match embed HTTP timeout while workers may be waiting on a slow remote
 )
 
 var probeAttemptTimeouts = []time.Duration{
-	DefaultRemoteTimeout,
-	30 * time.Second,
 	45 * time.Second,
+	90 * time.Second,
+	120 * time.Second,
 }
 
 var probeDeferCheck func() bool
@@ -165,9 +165,19 @@ func MarkError(err error) {
 	if err == nil {
 		return
 	}
+	msg := err.Error()
+	deferErr := isConnectivityErr(msg) && !isProbeErr(msg) && probeShouldDefer()
 	healthMu.Lock()
+	if deferErr {
+		healthState = "degraded"
+		healthLastErr = msg
+		healthRecentErrAt = time.Now()
+		healthMu.Unlock()
+		realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
+		return
+	}
 	healthState = "error"
-	healthLastErr = err.Error()
+	healthLastErr = msg
 	healthRecentErrAt = time.Now()
 	healthMu.Unlock()
 	realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
@@ -206,6 +216,7 @@ func isConnectivityErr(msg string) bool {
 		strings.Contains(m, "dial http") ||
 		strings.Contains(m, "no such host") ||
 		strings.Contains(m, "connectivity probe") ||
+		strings.Contains(m, "deadline exceeded") ||
 		strings.Contains(m, "timeout") ||
 		strings.Contains(m, "eof") ||
 		strings.Contains(m, "503") ||

@@ -407,6 +407,7 @@ func init() {
 	go hub.run()
 	initRealtimeBridge()
 	initQueryLogBridge()
+	initLogNotifyBridge()
 }
 
 func handleToastWS(w http.ResponseWriter, r *http.Request) {

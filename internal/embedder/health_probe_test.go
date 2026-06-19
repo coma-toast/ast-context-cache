@@ -191,3 +191,17 @@ func TestProbeErrorBackoff(t *testing.T) {
 		t.Fatalf("probeErrorBackoff=%s want %s", got, probeRecoveryInterval)
 	}
 }
+
+func TestMarkErrorDeferDuringInFlight(t *testing.T) {
+	MarkReady()
+	SetProbeDeferCheck(func() bool { return true })
+	defer SetProbeDeferCheck(nil)
+	MarkError(errors.New(`openai embed: Post "https://example/embeddings": context deadline exceeded`))
+	state, _, lastErr := HealthSnapshot()
+	if state != "degraded" {
+		t.Fatalf("state=%q want degraded", state)
+	}
+	if lastErr == "" {
+		t.Fatal("want error message")
+	}
+}

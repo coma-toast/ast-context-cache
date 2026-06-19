@@ -9,7 +9,7 @@ import (
 const DefaultRemoteTimeout = 15 * time.Second
 
 // DefaultHTTPEmbedTimeout is the HTTP client timeout for remote embedding API calls.
-const DefaultHTTPEmbedTimeout = 120 * time.Second
+const DefaultHTTPEmbedTimeout = 300 * time.Second
 
 // ResolveRemoteTimeout returns EMBED_REMOTE_TIMEOUT when set (env or dashboard settings),
 // otherwise DefaultHTTPEmbedTimeout.
