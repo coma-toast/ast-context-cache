@@ -114,6 +114,26 @@ func TestStaleVectorDetectedByEmbedHashSQL(t *testing.T) {
 	}
 }
 
+func TestFlushPendingDBBatch(t *testing.T) {
+	project := "/proj-batch-test"
+	db.DB.Exec(`DELETE FROM embed_pending WHERE project_path = ?`, project)
+	pendingMu.Lock()
+	for k, j := range pending {
+		if j.projectPath == project {
+			delete(pending, k)
+		}
+	}
+	pendingMu.Unlock()
+	for i := 0; i < 5; i++ {
+		markPendingIfNew(job{file: "/tmp/batch" + string(rune('a'+i)) + ".go", projectPath: project}, pendingReasonFailed)
+	}
+	FlushPendingDB()
+	var count int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE project_path = ?`, project).Scan(&count); err != nil || count != 5 {
+		t.Fatalf("batch count=%d err=%v", count, err)
+	}
+}
+
 func TestEmbedPendingPersistAndLoad(t *testing.T) {
 	db.DB.Exec(`DELETE FROM embed_pending`)
 	pendingMu.Lock()
@@ -126,11 +146,13 @@ func TestEmbedPendingPersistAndLoad(t *testing.T) {
 	if !markPendingIfNew(job{file: "/tmp/persist.go", projectPath: "/proj"}, pendingReasonFailed) {
 		t.Fatal("expected new pending")
 	}
+	FlushPendingDB()
 	var count int
 	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE file = ?`, "/tmp/persist.go").Scan(&count); err != nil || count != 1 {
 		t.Fatalf("persist row count=%d err=%v", count, err)
 	}
 	clearPending(job{file: "/tmp/persist.go", projectPath: "/proj"})
+	FlushPendingDB()
 	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE file = ?`, "/tmp/persist.go").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("after clear count=%d err=%v", count, err)
 	}

@@ -57,17 +57,21 @@ document.addEventListener('alpine:init', () => {
                 }
                 const target = document.querySelector(targetSel);
                 if (target) {
-                    let preservedRecentTab = null;
                     if (targetSel === '#recent-queries') {
-                        preservedRecentTab = getRecentSubTab(target);
-                    }
-                    target.innerHTML = msg.data.html;
-                    Alpine.flushSync();
-                    if (targetSel === '#recent-queries') {
-                        mountRecentContent(target, preservedRecentTab);
-                        requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
-                        syncLogsPoll();
+                        const preservedRecentTab = getRecentSubTab(target);
+                        if (preservedRecentTab === 'logs' && patchRecentLogs(target, msg.data.html)) {
+                            requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+                            syncLogsPoll();
+                        } else {
+                            target.innerHTML = msg.data.html;
+                            Alpine.flushSync();
+                            mountRecentContent(target, preservedRecentTab);
+                            requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+                            syncLogsPoll();
+                        }
                     } else {
+                        target.innerHTML = msg.data.html;
+                        Alpine.flushSync();
                         mountHTMXContent(target);
                     }
                     if (target.id === 'settings-content') {
@@ -402,13 +406,23 @@ function recentSubTabRadioId(tab) {
     return 'recent-tab-mcp';
 }
 
+function storedRecentSubTab() {
+    const t = sessionStorage.getItem(RECENT_SUBTAB_KEY);
+    if (t === 'indexing' || t === 'logs') return t;
+    return 'mcp';
+}
+
 function getRecentSubTab(root) {
+    const stored = storedRecentSubTab();
     const panel = root?.querySelector?.('.recent-panel') || root;
     if (panel?.querySelector) {
         const checked = panel.querySelector('.recent-tab-radio:checked');
-        if (checked) return recentSubTabFromRadio(checked);
+        if (checked) {
+            const live = recentSubTabFromRadio(checked);
+            if (live === stored) return live;
+        }
     }
-    return sessionStorage.getItem(RECENT_SUBTAB_KEY) || 'mcp';
+    return stored;
 }
 
 function setRecentSubTab(tab, root) {
@@ -417,6 +431,38 @@ function setRecentSubTab(tab, root) {
     const radio = panel.querySelector('#' + recentSubTabRadioId(tab));
     if (radio) radio.checked = true;
     sessionStorage.setItem(RECENT_SUBTAB_KEY, tab);
+}
+
+function patchRecentLogs(container, html) {
+    const panel = container.querySelector('.recent-panel');
+    if (!panel) return false;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const srcPanel = wrap.querySelector('.recent-panel');
+    const srcLogs = srcPanel?.querySelector('.pane-logs');
+    const dstLogs = panel.querySelector('.pane-logs');
+    if (!srcLogs || !dstLogs) return false;
+    dstLogs.innerHTML = srcLogs.innerHTML;
+    const newCount = srcPanel.querySelector('label[for="recent-tab-logs"] .recent-count');
+    const oldCount = panel.querySelector('label[for="recent-tab-logs"] .recent-count');
+    if (newCount && oldCount) oldCount.textContent = newCount.textContent;
+    setRecentSubTab('logs', container);
+    return true;
+}
+
+function patchRecentLogsCard(container, html) {
+    const panel = container.querySelector('.recent-panel');
+    const dstLogs = panel?.querySelector('.pane-logs');
+    if (!dstLogs) return false;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const card = wrap.querySelector('.recent-logs-card') || wrap.firstElementChild;
+    if (!card) return false;
+    dstLogs.innerHTML = '';
+    dstLogs.appendChild(card);
+    mountHTMXContent(dstLogs);
+    setRecentSubTab('logs', container);
+    return true;
 }
 
 function scrollRecentLogsToBottom(root, force) {
@@ -451,22 +497,36 @@ function syncLogsPoll() {
     }
     const el = document.getElementById('recent-queries');
     if (!el || !recentTabActive() || getRecentSubTab(el) !== 'logs') return;
-    logsPollTimer = setInterval(() => refreshRecentPartial(false), 3000);
+    logsPollTimer = setInterval(() => refreshRecentLogsOnly(false), 3000);
+}
+
+async function refreshRecentLogsOnly(forceScroll) {
+    const el = document.getElementById('recent-queries');
+    if (!el) return;
+    const r = await fetch('/partials/recent-logs');
+    if (!r.ok) return;
+    const html = await r.text();
+    if (!patchRecentLogsCard(el, html)) {
+        await refreshRecentPartial(forceScroll);
+        return;
+    }
+    requestAnimationFrame(() => scrollRecentLogsToBottom(el, !!forceScroll));
 }
 
 async function refreshRecentPartial(forceScroll) {
     const el = document.getElementById('recent-queries');
     if (!el) return;
     const preserved = getRecentSubTab(el);
+    if (preserved === 'logs') {
+        await refreshRecentLogsOnly(forceScroll);
+        return;
+    }
     const r = await fetch('/partials/recent');
     if (!r.ok) return;
     const html = await r.text();
     if (el.innerHTML === html) return;
     el.innerHTML = html;
     mountRecentContent(el, preserved);
-    if (preserved === 'logs') {
-        requestAnimationFrame(() => scrollRecentLogsToBottom(el, !!forceScroll));
-    }
 }
 
 function mountRecentContent(el, preservedTab) {
@@ -864,6 +924,14 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     }
     if (e.detail.target?.id === 'index-health') {
         onWorkerPartialUpdated();
+    }
+});
+
+document.body.addEventListener('htmx:afterRequest', (e) => {
+    const key = e.detail.requestConfig?.parameters?.key;
+    if (!e.detail.successful) return;
+    if (key === 'dashboard_log_tail_lines' || key === 'dashboard_log_line_chars') {
+        refreshRecentLogsOnly(true);
     }
 });
 

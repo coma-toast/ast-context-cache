@@ -105,7 +105,7 @@ func relievePressure() {
 		log.Printf("pressure relief: WAL checkpoint busy=%d log=%d checkpointed=%d wal=%s", busy, frames, ckpt, FormatFileSize(WalFileBytes()))
 	}
 	if wal >= walHighBytes {
-		RunQueryRetention()
+		retryQueryRetention("pressure")
 	}
 }
 
@@ -114,9 +114,8 @@ func retryQueryRetention(label string) {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt*5) * time.Second)
 		}
-		before := dbLockStreak.Load()
 		n := RunQueryRetention()
-		if n > 0 || dbLockStreak.Load() == before {
+		if n >= 0 {
 			if n > 0 {
 				log.Printf("query retention: %s deleted %d rows", label, n)
 			}

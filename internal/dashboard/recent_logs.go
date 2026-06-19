@@ -3,6 +3,7 @@ package dashboard
 import (
 	"bufio"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
@@ -13,6 +14,42 @@ const legacyServerLogPath = "/tmp/ast-mcp.log"
 
 func serverLogPath() string {
 	return db.ResolveServerLogPath()
+}
+
+func logViewOpts() components.LogViewOpts {
+	opts := components.LogViewOpts{TailLines: 200, MaxLineChars: 500}
+	if v := strings.TrimSpace(db.GetSetting("dashboard_log_tail_lines", "200")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			opts.TailLines = n
+		}
+	}
+	if v := strings.TrimSpace(db.GetSetting("dashboard_log_line_chars", "500")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			opts.MaxLineChars = n
+		}
+	}
+	if opts.TailLines < 50 {
+		opts.TailLines = 50
+	}
+	if opts.TailLines > 500 {
+		opts.TailLines = 500
+	}
+	if opts.MaxLineChars < 80 {
+		opts.MaxLineChars = 80
+	}
+	if opts.MaxLineChars > 8000 {
+		opts.MaxLineChars = 8000
+	}
+	return opts
+}
+
+func buildRecentLogsForDashboard() (lines []components.RecentLogLine, path string, fileTruncated bool, opts components.LogViewOpts) {
+	opts = logViewOpts()
+	lines, path, fileTruncated = buildRecentLogs(opts.TailLines)
+	for i := range lines {
+		lines[i] = truncateLogDisplay(lines[i], opts.MaxLineChars)
+	}
+	return lines, path, fileTruncated, opts
 }
 
 func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path string, truncated bool) {
@@ -39,6 +76,15 @@ func buildRecentLogs(maxLines int) (lines []components.RecentLogLine, path strin
 		lines = append(lines, parseLogLine(line))
 	}
 	return lines, path, trunc
+}
+
+func truncateLogDisplay(line components.RecentLogLine, maxChars int) components.RecentLogLine {
+	if maxChars <= 0 || len(line.Message) <= maxChars {
+		return line
+	}
+	line.MsgTruncated = true
+	line.Message = line.Message[:maxChars] + "…"
+	return line
 }
 
 func tailFileLines(path string, maxLines int) ([]string, bool, error) {

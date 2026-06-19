@@ -9,9 +9,13 @@ import (
 )
 
 // RunQueryRetention deletes old rows from the queries table per dashboard settings.
+// Returns rows deleted, 0 when nothing to delete, or -1 when SQLite is busy (caller should retry).
 func RunQueryRetention() int64 {
 	if strings.ToLower(strings.TrimSpace(GetSetting("query_retention_enabled", "true"))) == "false" {
 		return 0
+	}
+	if ShouldThrottleHeavyWork() && dbLockStreak.Load() > 0 {
+		return -1
 	}
 	maxDays, _ := strconv.Atoi(strings.TrimSpace(GetSetting("query_retention_max_age_days", "90")))
 	if maxDays <= 0 {
@@ -22,6 +26,7 @@ func RunQueryRetention() int64 {
 	if err != nil {
 		if IsDBLocked(err) {
 			NoteDBLock()
+			return -1
 		}
 		log.Printf("query retention: delete failed: %v", err)
 		return 0

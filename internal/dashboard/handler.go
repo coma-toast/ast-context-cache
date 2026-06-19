@@ -248,8 +248,13 @@ func handleRecentPartial(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	mcp, indexing := buildRecentQueries(pid, lim)
-	logs, logPath, logTrunc := buildRecentLogs(200)
-	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc).Render(r.Context(), w)
+	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
+	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc, logOpts).Render(r.Context(), w)
+}
+
+func handleRecentLogsPartial(w http.ResponseWriter, r *http.Request) {
+	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
+	components.RecentLogs(logs, logPath, logTrunc, logOpts).Render(r.Context(), w)
 }
 
 func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {

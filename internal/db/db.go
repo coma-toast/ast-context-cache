@@ -41,13 +41,15 @@ func Init() error {
 	p := dbPath()
 	os.MkdirAll(filepath.Dir(p), 0755)
 	var err error
-	DB, err = sql.Open("sqlite3", p+"?_journal_mode=WAL&_busy_timeout=5000")
+	DB, err = sql.Open("sqlite3", p+"?_journal_mode=WAL&_busy_timeout=15000")
 	if err != nil {
 		return err
 	}
+	DB.SetMaxOpenConns(1)
+	DB.SetMaxIdleConns(1)
 
 	DB.Exec(`PRAGMA journal_mode=WAL`)
-	DB.Exec(`PRAGMA busy_timeout=5000`)
+	DB.Exec(`PRAGMA busy_timeout=15000`)
 	DB.Exec(`PRAGMA synchronous=NORMAL`)
 	DB.Exec(`PRAGMA cache_size=-32000`)
 	DB.Exec(`PRAGMA wal_autocheckpoint=1000`)
@@ -492,6 +494,7 @@ func StartWALCheckpoint() {
 	vacuumTicker := time.NewTicker(24 * time.Hour)
 	retentionTicker := time.NewTicker(24 * time.Hour)
 	go func() {
+		time.Sleep(90 * time.Second)
 		retryQueryRetention("startup")
 	}()
 	for {
@@ -509,7 +512,7 @@ func StartWALCheckpoint() {
 				log.Printf("Scheduled WAL checkpoint: busy=%d log=%d checkpointed=%d", busy, frames, ckpt)
 			}
 		case <-retentionTicker.C:
-			RunQueryRetention()
+			retryQueryRetention("daily")
 		case <-vacuumTicker.C:
 			Compact()
 		}

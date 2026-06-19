@@ -103,6 +103,7 @@ func Start(e embedder.Interface) {
 		})
 		embedder.SetOnRecovery(func() { RecoverAfterEmbedder() })
 		log.Printf("embed queue: %d workers (pending=%d high=%d low=%d)", n, pendingCap, highCap, lowCap)
+		startPendingDBFlusher()
 		LoadPendingFromDB()
 		go flushPendingIfReady()
 		startPressureBackoff()

@@ -81,6 +81,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/partials/index-health", handleIndexHealthPartial)
 	mux.HandleFunc("/partials/memory", handleMemoryPartial)
 	mux.HandleFunc("/partials/recent", handleRecentPartial)
+	mux.HandleFunc("/partials/recent-logs", handleRecentLogsPartial)
 	mux.HandleFunc("/partials/charts/symbols", handleSymbolChartPartial)
 	mux.HandleFunc("/partials/charts/languages", handleLanguageChartPartial)
 	mux.HandleFunc("/partials/charts/tools", handleToolChartPartial)
@@ -649,6 +650,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"context_max_notes_global":      "500",
 		"context_max_tokens_global":     "200000",
 		"context_limit_policy":          "reject",
+		"dashboard_log_tail_lines":      "200",
+		"dashboard_log_line_chars":      "500",
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {

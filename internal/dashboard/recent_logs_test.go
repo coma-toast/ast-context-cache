@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
@@ -90,6 +91,26 @@ func TestServerLogPathLegacyFallback(t *testing.T) {
 	t.Cleanup(func() { os.Remove(legacyServerLogPath) })
 	if got := serverLogPath(); got != legacyServerLogPath {
 		t.Fatalf("got %q want legacy %q", got, legacyServerLogPath)
+	}
+}
+
+func TestTruncateLogDisplay(t *testing.T) {
+	line := components.RecentLogLine{Message: strings.Repeat("x", 120), Raw: strings.Repeat("x", 120)}
+	out := truncateLogDisplay(line, 80)
+	if !out.MsgTruncated {
+		t.Fatal("expected truncated")
+	}
+	if !strings.HasSuffix(out.Message, "…") || len([]rune(out.Message)) != 81 {
+		t.Fatalf("message=%q", out.Message)
+	}
+}
+
+func TestLogViewOptsDefaults(t *testing.T) {
+	_ = db.SetSetting("dashboard_log_tail_lines", "")
+	_ = db.SetSetting("dashboard_log_line_chars", "")
+	opts := logViewOpts()
+	if opts.TailLines != 200 || opts.MaxLineChars != 500 {
+		t.Fatalf("opts=%+v", opts)
 	}
 }
 

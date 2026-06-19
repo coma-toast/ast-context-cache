@@ -194,9 +194,9 @@ func renderStats() string {
 
 func renderRecent() string {
 	mcp, indexing := buildRecentQueries("", 50)
-	logs, logPath, logTrunc := buildRecentLogs(200)
+	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
 	var buf bytes.Buffer
-	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc).Render(context.Background(), &buf)
+	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc, logOpts).Render(context.Background(), &buf)
 	return buf.String()
 }
 
