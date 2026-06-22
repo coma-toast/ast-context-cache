@@ -109,11 +109,13 @@ cache_summary(
 
 ## Token savings tracking
 
-Measured on **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, and **`retrieve`** only:
+Measured on **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`**, and **`execute_code`**:
 
-`tokens_saved = max(0, full_source_baseline − tokens_returned) + session_dedup`
+`tokens_saved = max(0, full_source_baseline − tokens_returned) + session_dedup` (search tools); `execute_code` uses `data_baseline_tokens − tokens_used`.
 
-Each response includes **`tokens_saved`**, **`tokens_used`**, and **`symbol_baseline_tokens`**. Doc tools (`fetch_doc`, `search_docs`) and indexing calls do not increment dashboard totals. Use **`mode=auto`** or **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all context tools for dedup credit.
+Each response includes **`tokens_saved`**, **`tokens_used`**, and baseline fields. Doc tools (`fetch_doc`, `search_docs`) and indexing calls do not increment dashboard totals. Use **`mode=auto`** or **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all context tools for dedup credit.
+
+**Code-mode scripts:** Search tools may return **`code_script_hints`**. See [README](../README.md#code-mode-scripts) and [scripts/code-mode/README.md](../scripts/code-mode/README.md).
 
 ## Supported Languages
 

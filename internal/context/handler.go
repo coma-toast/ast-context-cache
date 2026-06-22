@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
+	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
@@ -134,6 +135,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		resp["token_budget"] = tokenBudget
 		resp["tokens_remaining"] = tokenBudget - tokensUsed
 	}
+	codescripts.AttachHints(resp, "get_context_capsule", query, projectPath, results)
 	finalData, _ := json.Marshal(resp)
 	resultStr := string(finalData)
 	if useQueryCache {

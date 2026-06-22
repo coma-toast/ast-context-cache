@@ -1,0 +1,66 @@
+[
+  {
+    "id": "compact-symbol-list",
+    "title": "Compact symbol list",
+    "description": "Names, kinds, files, and line ranges only",
+    "match": {
+      "tools": ["get_context_capsule", "search_semantic", "retrieve"],
+      "min_results": 10
+    },
+    "code_file": "compact-symbol-list.js"
+  },
+  {
+    "id": "group-by-file",
+    "title": "Group by file",
+    "description": "Per-file symbol counts and sample names",
+    "match": {
+      "tools": ["get_context_capsule", "search_semantic", "retrieve"],
+      "query_regex": "(?i)(overview|structure|files|project map|layout)",
+      "min_results": 8
+    },
+    "code_file": "group-by-file.js"
+  },
+  {
+    "id": "filter-by-kind",
+    "title": "Group by symbol kind",
+    "description": "Bucket hits by kind (function, method, …)",
+    "match": {
+      "tools": ["get_context_capsule", "search_semantic", "retrieve"],
+      "query_regex": "(?i)(function|method|class|interface|type)",
+      "min_results": 6
+    },
+    "code_file": "filter-by-kind.js"
+  },
+  {
+    "id": "exports-only",
+    "title": "Likely exports",
+    "description": "Symbols with exported-style names",
+    "match": {
+      "tools": ["get_context_capsule", "search_semantic", "retrieve"],
+      "query_regex": "(?i)(export|public|api surface|entry point)",
+      "min_results": 5
+    },
+    "code_file": "exports-only.js"
+  },
+  {
+    "id": "dedupe-by-file",
+    "title": "One hit per file",
+    "description": "Keep the top match per file path",
+    "match": {
+      "tools": ["get_context_capsule", "search_semantic", "retrieve"],
+      "min_results": 12
+    },
+    "code_file": "dedupe-by-file.js"
+  },
+  {
+    "id": "impact-candidates",
+    "title": "Impact candidates",
+    "description": "Minimal name/file/kind list before get_impact_graph",
+    "match": {
+      "tools": ["get_context_capsule", "search_semantic", "retrieve"],
+      "query_regex": "(?i)(impact|depend|blast|refactor|change)",
+      "min_results": 5
+    },
+    "code_file": "impact-candidates.js"
+  }
+]

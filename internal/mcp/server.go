@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -329,6 +330,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					resp["token_budget"] = tokenBudget
 					resp["tokens_remaining"] = tokenBudget - packSavings.TokensUsed
 				}
+				codescripts.AttachHints(resp, "search_semantic", query, projectPath, results)
 				respData, _ := json.Marshal(resp)
 				outTokens := db.EstimateTokens(string(respData))
 				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, packSavings, start, cpuStart, projectPath, "")
@@ -397,7 +399,11 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	case "analyze_complexity":
 		result = handleAnalyzeComplexity(toolArgs, projectPath)
 	case "execute_code":
-		result = handleExecuteCode(toolArgs)
+		ec := handleExecuteCodeWithMeta(toolArgs)
+		result = ec.Result
+		resultJSON, _ := json.Marshal(ec.Result)
+		logToolQuery(toolName, args, len(resultJSON), 0, ec.Savings.TokensUsed, ec.Savings, start, cpuStart, projectPath, "")
+		loggedToolCall = true
 	case "export_bundle":
 		result = handleExportBundle(toolArgs)
 	case "import_bundle":

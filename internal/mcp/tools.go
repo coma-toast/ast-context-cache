@@ -109,7 +109,7 @@ func GetTools() []Tool {
 	return []Tool{
 		{
 			Name:        "get_context_capsule",
-			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction), 'auto' (full for top 3 results, skeleton for rest). Supports Python, JS/TS, Go, Bash, Fish.",
+			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. May include code_script_hints when a bundled or repo JS script fits the query/results. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction), 'auto' (full for top 3 results, skeleton for rest). Supports Python, JS/TS, Go, Bash, Fish.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -317,7 +317,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "search_semantic",
-			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
+			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Responses may include code_script_hints when a script fits. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -399,15 +399,17 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "execute_code",
-			Description: "Execute JavaScript code in a sandboxed environment against search results. The LLM writes processing code that runs locally - only the output enters context, saving 65-99% tokens. Data is injected as 'DATA' variable.",
+			Description: "Execute JavaScript in a sandbox against search JSON passed as data. Optional script_id loads a built-in or repo script from scripts/code-mode/. Only script output enters context; response includes tokens_saved (data size minus output). Requires complete tier and AST_MCP_CODE_MODE.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"code":    map[string]string{"type": "string", "description": "JavaScript code to execute. Results available as 'DATA' variable (array of search results). Return array for output."},
-					"data":    map[string]string{"type": "string", "description": "JSON stringified data to process (typically from a previous search)"},
-					"timeout": map[string]string{"type": "integer", "description": "Execution timeout in seconds (default: 5)"},
+					"code":         map[string]string{"type": "string", "description": "JavaScript to run. Omit when using script_id. DATA holds parsed JSON from data."},
+					"script_id":    map[string]string{"type": "string", "description": "Built-in or repo script id (e.g. compact-symbol-list). Loads code when code is omitted."},
+					"project_path": map[string]string{"type": "string", "description": "Project root for repo script lookup (required with script_id for repo overrides)."},
+					"data":         map[string]string{"type": "string", "description": "JSON string of search results (or full prior tool JSON with results array)."},
+					"timeout":      map[string]string{"type": "integer", "description": "Execution timeout in seconds (default: 5, max: 30)"},
 				},
-				"required": []string{"code", "data"},
+				"required": []string{"data"},
 			},
 			Tier: TierComplete,
 		},
@@ -519,7 +521,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "retrieve",
-			Description: "RAG-style retrieval: hybrid search across code + docs, reranks results, assembles context within token budget. Returns formatted context ready for LLM consumption. Supports markdown, xml, json output formats.",
+			Description: "RAG-style retrieval: hybrid search across code + docs, reranks results, assembles context within token budget. May include code_script_hints for code hits. Returns formatted context ready for LLM consumption. Supports markdown, xml, json output formats.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -601,7 +603,7 @@ func GetPrompts() []Prompt {
 
 ### Token savings tracking
 - tokens_saved = max(0, full_source_baseline - tokens_returned) + dedup_skips
-- Tracked: get_context_capsule, get_file_context, search_semantic, retrieve (see tokens_saved, tokens_used, symbol_baseline_tokens in JSON)
+- Tracked: get_context_capsule, get_file_context, search_semantic, retrieve, execute_code (see tokens_saved, tokens_used, symbol_baseline_tokens in JSON)
 - Not tracked: fetch_doc, search_docs, index_*, get_project_map — dashboard Tokens saved can be 0 on doc-only days
 - mode=full saves ~nothing; use auto or skeleton for real savings
 

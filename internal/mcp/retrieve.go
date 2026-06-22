@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
@@ -16,10 +17,11 @@ import (
 )
 
 type RetrieveResult struct {
-	Query   string          `json:"query"`
-	Context string          `json:"context"`
-	Chunks  []RetrieveChunk `json:"chunks"`
-	Stats   RetrieveStats   `json:"stats"`
+	Query           string            `json:"query"`
+	Context         string            `json:"context"`
+	Chunks          []RetrieveChunk   `json:"chunks"`
+	Stats           RetrieveStats     `json:"stats"`
+	CodeScriptHints []codescripts.Hint `json:"code_script_hints,omitempty"`
 }
 
 type RetrieveChunk struct {
@@ -127,7 +129,7 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	tStart := time.Now()
 
 	tCode := time.Now()
-	codeChunks, codeCount, hybridMetrics, codeMeta := retrieveCode(query, projectPath, limit, includeSource, mode, sessionID, filters)
+	codeChunks, codeCount, hybridMetrics, codeMeta, hintRows := retrieveCode(query, projectPath, limit, includeSource, mode, sessionID, filters)
 	codeMs := float64(time.Since(tCode).Milliseconds())
 
 	var docChunks []RetrieveChunk
@@ -191,6 +193,7 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	if memoryTokens > 0 {
 		result.Stats.TotalTokens += memoryTokens
 	}
+	result.CodeScriptHints = codescripts.MatchHints("retrieve", query, projectPath, hintRows)
 
 	resultJSON, _ := json.Marshal(result)
 	return map[string]interface{}{
@@ -198,13 +201,22 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 }
 
-func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics, codeRetrieveMeta) {
+func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics, codeRetrieveMeta, []map[string]interface{}) {
 	if emb != nil {
 		embedqueue.EnsureProjectEmbeddings(projectPath)
 	}
 	results, metrics := search.HybridSearch(query, projectPath, emb, limit*2, filters)
 	if len(results) > limit {
 		results = results[:limit]
+	}
+	hintRows := make([]map[string]interface{}, 0, len(results))
+	for _, r := range results {
+		file, _ := r.Data["file"].(string)
+		hintRows = append(hintRows, map[string]interface{}{
+			"name": r.Data["name"],
+			"kind": r.Data["kind"],
+			"file": db.RelPath(file, projectPath),
+		})
 	}
 	returnedSymbols := context.GetReturnedSymbolKeys(sessionID)
 	fileCache := map[string][]string{}
@@ -249,7 +261,7 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 		})
 		context.LogReturned(sessionID, file, name, projectPath, startLine, mode, db.EstimateTokens(content))
 	}
-	return chunks, len(results), metrics, meta
+	return chunks, len(results), metrics, meta, hintRows
 }
 
 func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
