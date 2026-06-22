@@ -174,9 +174,12 @@ templ PageTemplate(projects []Project, health HealthInfo) {
 					</section>
 
 					<section class="dashboard-panel" x-show="activeTab === 'settings'" x-cloak>
-						<div class="panel-heading">
-							<h2>Settings</h2>
-							<p class="panel-hint">Embedding, indexing, projects, and integrations</p>
+						<div class="panel-heading panel-heading-row">
+							<div>
+								<h2>Settings</h2>
+								<p class="panel-hint">Embedding, indexing, projects, and integrations</p>
+							</div>
+							<a class="panel-heading-link" href="http://localhost:6008/" target="_blank" rel="noopener noreferrer" title="Dashboard UI fixtures — run make storybook">Open Storybook</a>
 						</div>
 						<div id="settings-content" class="settings-panel"><div class="empty-state">Loading...</div></div>
 					</section>

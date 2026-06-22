@@ -1,0 +1,13 @@
+[
+  {
+    "id": "compact-symbol-list",
+    "title": "Compact symbol list (repo example)",
+    "description": "Example repo manifest entry; overrides built-in when id matches",
+    "match": {
+      "tools": ["get_context_capsule", "search_semantic", "retrieve"],
+      "min_results": 15
+    },
+    "code_file": "compact-symbol-list.js",
+    "extends": "compact-symbol-list"
+  }
+]

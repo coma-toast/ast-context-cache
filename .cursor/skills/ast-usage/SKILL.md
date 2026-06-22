@@ -70,7 +70,7 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | External library docs | `search_docs` then `fetch_doc` | Not WebFetch when MCP is up |
 | List doc URLs | `list_doc_sources` | Core tier |
 | Portable index | `export_bundle` / `import_bundle` | Extended tier |
-| Transform results in JS | `execute_code` | Complete tier; `DATA` variable |
+| Transform results in JS | `execute_code` | Complete tier; optional `script_id`; check `code_script_hints` first |
 | Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id` |
 
 ## Virtual context compaction
@@ -175,12 +175,28 @@ If `store_context` is missing from `tools/list`, ask the user to set `AST_MCP_TI
 
 | Counted | Not counted |
 |---------|-------------|
-| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` | `fetch_doc`, `search_docs`, `index_*`, maps, impact graph, … |
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, maps, impact graph, … |
 
 - Context tool JSON includes **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**
 - Dashboard **Tokens saved** = sum of those MCP calls only (doc-only days → **0** is normal)
 - **`mode=full`** ≈ no savings; **`auto`** / **`skeleton`** / **`summary`** are where savings come from
 - Same **`session_id`** on all four context tools for dedup credit
+- **`execute_code`:** `tokens_saved = max(0, data_baseline_tokens − tokens_used)`
+
+## Code-mode scripts
+
+Search tools may attach **`code_script_hints`** when a built-in or repo script fits (many results, query regex, etc.). Hints are visible on **core** tier; running scripts needs **complete** + **`AST_MCP_CODE_MODE`**.
+
+**When hints appear:** Large result sets, structure/overview queries, export/impact queries — see [scripts/code-mode/README.md](../../scripts/code-mode/README.md).
+
+**Do not:** Paste huge `results` JSON into chat when a hint offers `script_id` — run `execute_code` and use `result` only.
+
+```
+1. get_context_capsule / search_semantic / retrieve
+2. If code_script_hints[] → top script_id
+3. execute_code(script_id=..., data=<JSON string of results>, project_path=...)
+4. Read result + tokens_saved only
+```
 
 ## RAG: `retrieve`
 

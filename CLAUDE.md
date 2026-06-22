@@ -52,7 +52,7 @@ Before host chat compaction, use **`store_context`** (extended tier) with the sa
 - **add_doc_source** / **remove_doc_source** / **update_doc_source** - Track and manage cached doc URLs
 
 ## Complete
-- **execute_code** - Run JS in a sandbox against search results; only output enters context
+- **execute_code** - Run JS sandbox on search JSON; optional `script_id`; `tokens_saved` in response
 
 # Efficient Code Context Usage Guide
 
@@ -79,9 +79,14 @@ Before host chat compaction, use **`store_context`** (extended tier) with the sa
 
 ### Token savings tracking
 - **Formula:** `tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips`
-- **Tracked tools:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` (each response includes `tokens_saved`, `tokens_used`, `symbol_baseline_tokens`)
+- **Tracked tools:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` (each response includes `tokens_saved`, `tokens_used`, `symbol_baseline_tokens` or `data_baseline_tokens`)
 - **Not tracked:** doc tools (`fetch_doc`, `search_docs`), indexing (`index_*`), maps/graphs — dashboard **Tokens saved** stays 0 on doc-only days
 - **`mode=full`** saves ~nothing; prefer **`auto`** or **`skeleton`** for measurable savings
+- **`execute_code`:** `tokens_saved = max(0, data_baseline_tokens − tokens_used)` when shrinking search JSON via scripts
+
+### Code-mode scripts (agents)
+
+Search tools may return **`code_script_hints`**. If non-empty: `execute_code(script_id=..., data=<results JSON>, project_path=...)` and use **`result` only**. Requires complete tier + `AST_MCP_CODE_MODE`. Repo scripts: `{project}/scripts/code-mode/` — [scripts/code-mode/README.md](scripts/code-mode/README.md).
 
 ### 5. Use Token Budget Wisely
 - Set token_budget to control response size

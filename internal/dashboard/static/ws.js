@@ -59,14 +59,15 @@ document.addEventListener('alpine:init', () => {
                 if (target) {
                     if (targetSel === '#recent-queries') {
                         const preservedRecentTab = getRecentSubTab(target);
-                        if (preservedRecentTab === 'logs' && patchRecentLogs(target, msg.data.html)) {
-                            requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+                        if (patchRecentPanel(target, msg.data.html)) {
+                            if (preservedRecentTab === 'logs') {
+                                requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+                            }
                             syncLogsPoll();
                         } else {
                             target.innerHTML = msg.data.html;
                             Alpine.flushSync();
                             mountRecentContent(target, preservedRecentTab);
-                            requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
                             syncLogsPoll();
                         }
                     } else {
@@ -392,6 +393,7 @@ document.body.addEventListener('htmx:configRequest', (event) => {
 });
 
 const RECENT_SUBTAB_KEY = 'dashboard-recent-subtab';
+const RECENT_LOGS_AUTOSCROLL_KEY = 'dashboard-recent-logs-autoscroll';
 
 function recentSubTabFromRadio(radio) {
     if (!radio) return 'mcp';
@@ -413,16 +415,12 @@ function storedRecentSubTab() {
 }
 
 function getRecentSubTab(root) {
-    const stored = storedRecentSubTab();
     const panel = root?.querySelector?.('.recent-panel') || root;
     if (panel?.querySelector) {
         const checked = panel.querySelector('.recent-tab-radio:checked');
-        if (checked) {
-            const live = recentSubTabFromRadio(checked);
-            if (live === stored) return live;
-        }
+        if (checked) return recentSubTabFromRadio(checked);
     }
-    return stored;
+    return storedRecentSubTab();
 }
 
 function setRecentSubTab(tab, root) {
@@ -433,20 +431,25 @@ function setRecentSubTab(tab, root) {
     sessionStorage.setItem(RECENT_SUBTAB_KEY, tab);
 }
 
-function patchRecentLogs(container, html) {
+function patchRecentPanel(container, html) {
     const panel = container.querySelector('.recent-panel');
     if (!panel) return false;
     const wrap = document.createElement('div');
     wrap.innerHTML = html;
     const srcPanel = wrap.querySelector('.recent-panel');
-    const srcLogs = srcPanel?.querySelector('.pane-logs');
-    const dstLogs = panel.querySelector('.pane-logs');
-    if (!srcLogs || !dstLogs) return false;
-    dstLogs.innerHTML = srcLogs.innerHTML;
-    const newCount = srcPanel.querySelector('label[for="recent-tab-logs"] .recent-count');
-    const oldCount = panel.querySelector('label[for="recent-tab-logs"] .recent-count');
-    if (newCount && oldCount) oldCount.textContent = newCount.textContent;
-    setRecentSubTab('logs', container);
+    if (!srcPanel) return false;
+    for (const sel of ['.pane-mcp', '.pane-indexing', '.pane-logs']) {
+        const src = srcPanel.querySelector(sel);
+        const dst = panel.querySelector(sel);
+        if (src && dst) dst.innerHTML = src.innerHTML;
+    }
+    for (const id of ['recent-tab-mcp', 'recent-tab-indexing', 'recent-tab-logs']) {
+        const newCount = srcPanel.querySelector(`label[for="${id}"] .recent-count`);
+        const oldCount = panel.querySelector(`label[for="${id}"] .recent-count`);
+        if (newCount && oldCount) oldCount.textContent = newCount.textContent;
+    }
+    mountHTMXContent(panel);
+    bindRecentLogsAutoscroll(container);
     return true;
 }
 
@@ -461,8 +464,33 @@ function patchRecentLogsCard(container, html) {
     dstLogs.innerHTML = '';
     dstLogs.appendChild(card);
     mountHTMXContent(dstLogs);
-    setRecentSubTab('logs', container);
+    bindRecentLogsAutoscroll(container);
+    const newCount = wrap.querySelector('.recent-count');
+    const oldCount = panel.querySelector('label[for="recent-tab-logs"] .recent-count');
+    if (newCount && oldCount) oldCount.textContent = newCount.textContent;
     return true;
+}
+
+function recentLogsAutoscrollEnabled(root) {
+    if (sessionStorage.getItem(RECENT_LOGS_AUTOSCROLL_KEY) === 'paused') return false;
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    const btn = panel?.querySelector?.('[data-recent-logs-autoscroll]');
+    if (btn) return btn.getAttribute('aria-pressed') !== 'true';
+    return true;
+}
+
+function syncRecentLogsAutoscrollBtn(btn) {
+    if (!btn) return;
+    const paused = sessionStorage.getItem(RECENT_LOGS_AUTOSCROLL_KEY) === 'paused';
+    btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+    btn.textContent = paused ? 'Paused' : 'Auto-scroll';
+    btn.title = paused ? 'Resume following new log lines' : 'Pause auto-scroll';
+}
+
+function bindRecentLogsAutoscroll(root) {
+    const panel = root?.querySelector?.('.recent-panel') || root;
+    const btn = panel?.querySelector?.('[data-recent-logs-autoscroll]');
+    if (btn) syncRecentLogsAutoscrollBtn(btn);
 }
 
 function scrollRecentLogsToBottom(root, force) {
@@ -470,6 +498,7 @@ function scrollRecentLogsToBottom(root, force) {
     if (!panel) return;
     const logsTab = panel.querySelector('#recent-tab-logs');
     if (!logsTab?.checked) return;
+    if (!recentLogsAutoscrollEnabled(root)) return;
     const scroll = panel.querySelector('.recent-logs-scroll');
     if (!scroll) return;
     const gap = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
@@ -524,9 +553,10 @@ async function refreshRecentPartial(forceScroll) {
     const r = await fetch('/partials/recent');
     if (!r.ok) return;
     const html = await r.text();
-    if (el.innerHTML === html) return;
-    el.innerHTML = html;
-    mountRecentContent(el, preserved);
+    if (!patchRecentPanel(el, html)) {
+        el.innerHTML = html;
+        mountRecentContent(el, preserved);
+    }
 }
 
 function mountRecentContent(el, preservedTab) {
@@ -534,6 +564,7 @@ function mountRecentContent(el, preservedTab) {
     const tab = preservedTab || sessionStorage.getItem(RECENT_SUBTAB_KEY) || 'mcp';
     mountHTMXContent(el);
     setRecentSubTab(tab, el);
+    bindRecentLogsAutoscroll(el);
     if (tab === 'logs') {
         requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
     }
@@ -548,6 +579,16 @@ function mountRecentContent(el, preservedTab) {
                 requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
             }
             syncLogsPoll();
+        }
+    });
+    el.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-recent-logs-autoscroll]');
+        if (!btn) return;
+        const willPause = btn.getAttribute('aria-pressed') !== 'true';
+        sessionStorage.setItem(RECENT_LOGS_AUTOSCROLL_KEY, willPause ? 'paused' : 'on');
+        syncRecentLogsAutoscrollBtn(btn);
+        if (!willPause) {
+            requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
         }
     });
 }

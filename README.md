@@ -12,7 +12,10 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 - **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
 - **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
 - **Virtual context compaction** -- Offload bulky conversation notes to local SQLite with stable `ctx_*` refs; recover after host compaction via `fetch_context` / `search_context` (separate metrics from code **Tokens saved**)
-- **Dashboard** -- Web UI on port 7830: real-time stats, **Virtual context** card, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool
+- **Dashboard** -- Web UI on port 7830: real-time stats, **Virtual context** card, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool. Component fixtures and Storybook MCP: [`dashboard-storybook/`](dashboard-storybook/README.md) (`make storybook` → http://localhost:6008, MCP at `/mcp`).
+
+  ![Operator dashboard — embeddings queue, health bar, and token stats (Storybook fixture)](docs/images/dashboard-overview.png)
+
 - **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency; **synchronous=NORMAL** and a **32 MiB page cache** reduce fsync pressure; **PASSIVE WAL checkpoints** every 10 minutes (less write amplification than aggressive truncate). Per-file indexing uses **one transaction** per file; MCP **query** and **session** dedup rows are **batched** before insert.
 
 ## Quick Start
@@ -319,7 +322,7 @@ The server estimates savings vs returning **full source** for each matched symbo
 
 | Counted toward dashboard | Not counted |
 |--------------------------|-------------|
-| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
 
 Context tool responses include **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, and optional **`dedup_tokens_saved`** / **`savings_vs_files`**. The dashboard **Tokens saved** card sums these MCP calls only — a day of doc fetch/search activity can legitimately show **0** even when the tools are working.
 
@@ -327,8 +330,20 @@ Context tool responses include **`tokens_saved`**, **`tokens_used`**, **`symbol_
 - **`mode=auto` / `skeleton` / `summary`** — where most savings come from.
 - **`session_id`** — required for dedup credit across repeated calls in one conversation.
 - **`retrieve` `stats`** — also includes `tokens_saved`, `symbol_baseline_tokens`, and budget/dedup fields.
+- **`execute_code`** — `tokens_saved = max(0, data_baseline_tokens − tokens_used)` when shrinking search JSON via a script.
 
-### Optional search filters
+### Code-mode scripts
+
+Search tools may return **`code_script_hints`** when a bundled or repo script fits the query and result count. Hints are metadata on core-tier search tools; running scripts still needs **complete** tier and **`AST_MCP_CODE_MODE`**.
+
+1. Search (`get_context_capsule`, `search_semantic`, or `retrieve`).
+2. If `code_script_hints[]` is non-empty, use the top `script_id`.
+3. `execute_code(script_id=..., data=<JSON string of results>, project_path=<abs root>)`.
+4. Use **`result` only** — do not paste full search JSON into chat.
+5. Check `tokens_saved` in the response; it counts toward dashboard **Tokens saved**.
+
+Repo scripts live at `{project}/scripts/code-mode/` (`manifest.json` + `.js` files); same `id` overrides built-ins. Manifest format and built-in ids: [scripts/code-mode/README.md](scripts/code-mode/README.md).
+
 
 For **`get_context_capsule`**, **`search_semantic`**, and **`retrieve`**, you can narrow results before hybrid ranking:
 
@@ -394,7 +409,7 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run JavaScript code in a sandbox against search results. Only output enters context. |
+| `execute_code` | Run JS in a sandbox against search JSON (`data`). Optional `script_id` loads built-in or repo scripts; response includes `tokens_saved`. |
 
 ## Architecture
 

@@ -109,7 +109,19 @@ When working with codebases that have an MCP server available, **always prefer M
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run JavaScript in a sandbox against search results. Only output enters context. |
+| `execute_code` | Run JS in a sandbox against search JSON (`data`). Optional `script_id`; response includes `tokens_saved`. |
+
+### Code-mode scripts
+
+Search responses may include **`code_script_hints`** (core tier). Running scripts needs **complete** tier + **`AST_MCP_CODE_MODE`**.
+
+1. Search with `get_context_capsule`, `search_semantic`, or `retrieve`.
+2. If `code_script_hints[]` is non-empty → use top `script_id`.
+3. `execute_code(script_id=..., data=<results JSON string>, project_path=...)`.
+4. Use **`result` only** — do not re-ingest full search JSON into chat.
+5. Check `tokens_saved`; dashboard **Tokens saved** includes `execute_code`.
+
+Repo scripts: `{project}/scripts/code-mode/`. Manifest: [scripts/code-mode/README.md](scripts/code-mode/README.md).
 
 ### Mode Selection
 
@@ -185,7 +197,7 @@ Savings are measured vs **full source** for symbols actually returned:
 
 | Tools that increment dashboard **Tokens saved** | Tools that do not |
 |-------------------------------------------------|-------------------|
-| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
 
 - Responses include **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, optional **`dedup_tokens_saved`**
 - **`mode=full`** → ~0 savings; use **`auto`** / **`skeleton`** for real reductions

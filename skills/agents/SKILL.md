@@ -158,7 +158,11 @@ MCP server: http://localhost:7821/mcp
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run JavaScript in a sandbox against search results. Only output enters context. Requires `AST_MCP_CODE_MODE`. |
+| `execute_code` | Run JS on search JSON (`data`); optional `script_id`; `tokens_saved` in response. Requires complete tier + `AST_MCP_CODE_MODE`. |
+
+### Code-mode scripts
+
+Search tools may return **`code_script_hints`**. Workflow: hint `script_id` → `execute_code(script_id, data=<results JSON>, project_path=...)` → use `result` only. Repo scripts: `{project}/scripts/code-mode/` — [scripts/code-mode/README.md](../../scripts/code-mode/README.md).
 
 ## Mode Selection
 
@@ -200,7 +204,7 @@ Metrics are on the dashboard **Virtual context** card (not code **Tokens saved**
 ## Token savings tracking
 
 - **Formula:** `tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips`
-- **Tracked:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve` (fields in JSON: `tokens_saved`, `tokens_used`, `symbol_baseline_tokens`, `dedup_tokens_saved`)
+- **Tracked:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` (fields in JSON: `tokens_saved`, `tokens_used`, `symbol_baseline_tokens` or `data_baseline_tokens`, `dedup_tokens_saved`)
 - **Not tracked:** `fetch_doc`, `search_docs`, `index_*`, etc. — dashboard **Tokens saved** can be 0 on doc-only days
 - Use **`auto`** / **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all four context tools.
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/dop251/goja"
@@ -345,57 +346,108 @@ func handleAnalyzeComplexity(args map[string]interface{}, projectPath string) ma
 }
 
 func handleExecuteCode(args map[string]interface{}) map[string]interface{} {
+	return handleExecuteCodeWithMeta(args).Result
+}
+
+type executeCodeOutcome struct {
+	Result  map[string]interface{}
+	Savings context.SavingsMeta
+}
+
+func handleExecuteCodeWithMeta(args map[string]interface{}) executeCodeOutcome {
 	code, _ := args["code"].(string)
+	scriptID, _ := args["script_id"].(string)
+	projectPath, _ := args["project_path"].(string)
 	dataStr, _ := args["data"].(string)
 	timeoutSecs := 5
 	if t, ok := args["timeout"].(float64); ok && t > 0 && t <= 30 {
 		timeoutSecs = int(t)
 	}
-
-	if code == "" || dataStr == "" {
-		return map[string]interface{}{"error": "code and data are required"}
+	if dataStr == "" {
+		return executeCodeOutcome{Result: map[string]interface{}{"error": "data is required"}}
 	}
-
+	if code == "" && scriptID != "" {
+		resolved, err := codescripts.ResolveScript(scriptID, projectPath)
+		if err != nil {
+			return executeCodeOutcome{Result: map[string]interface{}{"error": err.Error()}}
+		}
+		code = resolved
+	}
+	if code == "" {
+		return executeCodeOutcome{Result: map[string]interface{}{"error": "code or script_id is required"}}
+	}
+	dataBaseline := db.EstimateTokens(dataStr)
 	var data interface{}
 	if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
-		return map[string]interface{}{"error": "invalid JSON in data: " + err.Error()}
+		return executeCodeOutcome{Result: map[string]interface{}{"error": "invalid JSON in data: " + err.Error()}}
 	}
-
 	vm := goja.New()
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
-
 	vm.Set("DATA", data)
 	vm.Set("console", map[string]interface{}{
-		"log": func(args ...interface{}) {
-		},
+		"log": func(args ...interface{}) {},
 	})
-
 	done := make(chan error, 1)
 	var result goja.Value
 	go func() {
 		var err error
-		result, err = vm.RunString(code)
+		wrapped := strings.TrimSpace(code)
+		if !strings.HasPrefix(wrapped, "(function") {
+			wrapped = "(function(){\n" + code + "\n})()"
+		}
+		result, err = vm.RunString(wrapped)
 		done <- err
 	}()
-
+	fail := func(msg string) executeCodeOutcome {
+		resp := map[string]interface{}{
+			"error":                msg,
+			"data_count":           getDataCount(data),
+			"data_baseline_tokens": dataBaseline,
+			"tokens_used":          0,
+			"tokens_saved":         0,
+		}
+		if scriptID != "" {
+			resp["script_id"] = scriptID
+		}
+		return executeCodeOutcome{Result: resp}
+	}
 	select {
 	case err := <-done:
 		if err != nil {
-			return map[string]interface{}{
-				"error":      "execution error: " + err.Error(),
-				"data_count": getDataCount(data),
-			}
+			return fail("execution error: " + err.Error())
 		}
-
+		var exported interface{}
 		if result != nil {
-			return map[string]interface{}{
-				"result":     result.Export(),
-				"data_count": getDataCount(data),
-			}
+			exported = result.Export()
 		}
-		return map[string]interface{}{
-			"result":     nil,
-			"data_count": getDataCount(data),
+		outJSON, _ := json.Marshal(exported)
+		outTokens := db.EstimateTokens(string(outJSON))
+		saved := dataBaseline - outTokens
+		if saved < 0 {
+			saved = 0
+		}
+		mode := "code_script"
+		if scriptID != "" {
+			mode = scriptID
+		}
+		resp := map[string]interface{}{
+			"result":               exported,
+			"data_count":           getDataCount(data),
+			"data_baseline_tokens": dataBaseline,
+			"tokens_used":          outTokens,
+			"tokens_saved":         saved,
+		}
+		if scriptID != "" {
+			resp["script_id"] = scriptID
+		}
+		return executeCodeOutcome{
+			Result: resp,
+			Savings: context.SavingsMeta{
+				Mode:           mode,
+				SymbolBaseline: dataBaseline,
+				TokensUsed:     outTokens,
+				TokensSaved:    saved,
+			},
 		}
 	case <-func() chan struct{} {
 		ch := make(chan struct{})
@@ -405,16 +457,18 @@ func handleExecuteCode(args map[string]interface{}) map[string]interface{} {
 		}()
 		return ch
 	}():
-		return map[string]interface{}{
-			"error":      "timeout after " + strconv.Itoa(timeoutSecs) + " seconds",
-			"data_count": getDataCount(data),
-		}
+		return fail("timeout after " + strconv.Itoa(timeoutSecs) + " seconds")
 	}
 }
 
 func getDataCount(data interface{}) int {
 	if arr, ok := data.([]interface{}); ok {
 		return len(arr)
+	}
+	if m, ok := data.(map[string]interface{}); ok {
+		if arr, ok := m["results"].([]interface{}); ok {
+			return len(arr)
+		}
 	}
 	return 0
 }
