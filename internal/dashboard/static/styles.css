@@ -655,6 +655,13 @@ header h1 .icon { font-size: 20px; }
 .worker-strip.worker-strip-split {
   flex-wrap: wrap;
   max-width: calc(5 * 10px + 4 * 4px);
+  row-gap: 4px;
+}
+.worker-controls:has(.worker-strip-split) {
+  align-items: flex-start;
+}
+.worker-controls:has(.worker-strip-split) .worker-step-col {
+  margin-top: 2px;
 }
 .worker-pill { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border); }
 .worker-pill.busy { background: var(--green); border-color: var(--green); box-shadow: 0 0 6px rgba(63, 185, 80, 0.5); }
