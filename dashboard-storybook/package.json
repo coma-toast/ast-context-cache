@@ -5,7 +5,8 @@
   "scripts": {
     "storybook": "storybook dev -p 6008 --no-open",
     "build-storybook": "storybook build -o ../docs/storybook-static",
-    "capture-screenshot": "node scripts/capture-screenshot.mjs"
+    "capture-screenshot": "node scripts/capture-screenshot.mjs",
+    "verify-overview": "node scripts/verify-overview.mjs"
   },
   "devDependencies": {
     "@storybook/addon-a11y": "^10.4.4",

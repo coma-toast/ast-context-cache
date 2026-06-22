@@ -51,10 +51,11 @@ async function main() {
   await waitForServer(`${base}/iframe.html`);
   const url = `${base}/iframe.html?id=dashboard-overview--overview&viewMode=story`;
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1800 } });
   await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
   await page.waitForTimeout(800);
-  await page.screenshot({ path: outFile, fullPage: false });
+  const root = page.locator(".dashboard-story-root");
+  await root.screenshot({ path: outFile });
   await browser.close();
   server.kill("SIGTERM");
   console.log("Wrote", outFile);

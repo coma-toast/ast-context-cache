@@ -114,7 +114,8 @@ templ RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts Log
 	<div class="card recent-logs-card">
 		<div class="recent-logs-meta">
 			<span class="mono dim recent-logs-path" title={ logPath }>{ logPath }</span>
-			<div class="recent-logs-controls">
+					<div class="recent-logs-controls">
+				<button type="button" class="recent-logs-autoscroll" data-recent-logs-autoscroll aria-pressed="false" title="Follow new log lines (click to pause)">Auto-scroll</button>
 				<label class="recent-logs-ctrl">
 					<span>Lines</span>
 					<input type="number" class="recent-logs-input" min="50" max="500" step="10" name="value" value={ fmtInt(opts.TailLines) }

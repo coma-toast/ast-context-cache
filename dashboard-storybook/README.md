@@ -10,6 +10,7 @@ npm ci
 npm run storybook          # http://localhost:6008
 npm run build-storybook    # output: docs/storybook-static/
 npm run capture-screenshot # writes docs/images/dashboard-overview.png (requires build)
+npm run verify-overview    # Playwright check that Overview fixture has all sections
 ```
 
 From repo root: `make storybook`, `make dashboard-screenshot`.

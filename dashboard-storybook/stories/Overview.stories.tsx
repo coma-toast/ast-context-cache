@@ -1,10 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { DashboardHtml } from "./DashboardHtml";
 import {
-  embedPanelFixture,
-  healthBarFixture,
+  embedPanelDegradedFixture,
+  embedPanelHealthyFixture,
+  healthBarDegradedFixture,
+  healthBarHealthyFixture,
+  indexHealthHealthyFixture,
+  indexHealthDegradedFixture,
   overviewFixture,
-  statsRowFixture,
+  overviewTopBarFixture,
+  statsCardsFixture,
 } from "./fixtures";
 
 const meta = {
@@ -30,16 +35,51 @@ export const Overview: Story = {
 };
 
 export const EmbedPanel: Story = {
-  render: (args) => <DashboardHtml html={args.html ?? embedPanelFixture} />,
-  args: { html: embedPanelFixture },
+  render: (args) => <DashboardHtml html={args.html ?? embedPanelDegradedFixture} />,
+  args: { html: embedPanelDegradedFixture },
+};
+
+export const EmbedPanelHealthy: Story = {
+  name: "Embed panel (healthy)",
+  render: (args) => <DashboardHtml html={args.html ?? embedPanelHealthyFixture} />,
+  args: { html: embedPanelHealthyFixture },
 };
 
 export const HealthBar: Story = {
-  render: (args) => <DashboardHtml html={args.html ?? healthBarFixture} />,
-  args: { html: healthBarFixture },
+  render: (args) => (
+    <DashboardHtml
+      html={
+        args.html ??
+        overviewTopBarFixture(healthBarDegradedFixture)
+      }
+    />
+  ),
+  args: { html: overviewTopBarFixture(healthBarDegradedFixture) },
+};
+
+export const HealthBarOk: Story = {
+  name: "Health bar (ok)",
+  render: (args) => (
+    <DashboardHtml
+      html={args.html ?? overviewTopBarFixture(healthBarHealthyFixture)}
+    />
+  ),
+  args: { html: overviewTopBarFixture(healthBarHealthyFixture) },
 };
 
 export const StatsRow: Story = {
-  render: (args) => <DashboardHtml html={args.html ?? statsRowFixture} />,
-  args: { html: statsRowFixture },
+  name: "Query activity cards",
+  render: (args) => <DashboardHtml html={args.html ?? statsCardsFixture} />,
+  args: { html: statsCardsFixture },
+};
+
+export const IndexHealth: Story = {
+  render: (args) => <DashboardHtml html={args.html ?? indexHealthHealthyFixture} />,
+  args: { html: indexHealthHealthyFixture },
+};
+
+export const IndexHealthDegraded: Story = {
+  name: "Index health (degraded embed)",
+  render: (args) => <DashboardHtml html={args.html ?? indexHealthDegradedFixture} />,
+  args: { html: indexHealthDegradedFixture },
 };
