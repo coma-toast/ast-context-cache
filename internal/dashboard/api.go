@@ -551,11 +551,25 @@ func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error
 	return delta, nil, nil
 }
 
+func embedWorkersSnapshot() map[string]interface{} {
+	return map[string]interface{}{
+		"workers":     embedqueue.WorkerCount(),
+		"max_workers": embedqueue.MaxWorkers(),
+		"live":        embedqueue.WorkerLive(),
+	}
+}
+
 func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet {
+		out := embedWorkersSnapshot()
+		out["status"] = "ok"
+		json.NewEncoder(w).Encode(out)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET or POST required"})
 		return
 	}
 	delta, count, err := parseEmbedWorkersRequest(r)
@@ -576,7 +590,10 @@ func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	realtime.Notify(realtime.IndexHealth | realtime.HealthBar)
-	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "workers": n})
+	out := embedWorkersSnapshot()
+	out["status"] = "ok"
+	out["workers"] = n
+	json.NewEncoder(w).Encode(out)
 }
 
 func handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -629,6 +646,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				return
 			}
+			invalidatePartialCache("#index-health")
 		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged

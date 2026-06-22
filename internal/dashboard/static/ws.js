@@ -113,6 +113,9 @@ document.addEventListener('alpine:init', () => {
                 this.activeTab = hash;
             }
             this.bootstrapPanels();
+            refreshWorkerLimitsFromServer().then(() => {
+                if (syncWorkerStateFromDOM()) renderWorkerUI();
+            });
             if (this.activeTab === 'settings') {
                 this.loadSettings();
             }
@@ -974,11 +977,34 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
     if (key === 'dashboard_log_tail_lines' || key === 'dashboard_log_line_chars') {
         refreshRecentLogsOnly(true);
     }
+    if (key === 'embed_worker_max') {
+        refreshWorkerLimitsFromServer().then(() => refreshIndexHealthPartial());
+    }
 });
 
 window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
 
 const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5, visibleMax: 20 };
+
+function parseWorkerLimit(v, fallback) {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+async function refreshWorkerLimitsFromServer() {
+    try {
+        const r = await fetch('/api/embed-workers');
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data.max_workers != null) {
+            workerUIState.max = parseWorkerLimit(data.max_workers, workerUIState.max);
+        }
+        const el = document.querySelector('.worker-controls[data-embed-workers]');
+        if (el && data.max_workers != null) {
+            el.dataset.workerMax = String(workerUIState.max);
+        }
+    } catch (_) {}
+}
 
 function syncWorkerStateFromDOM() {
     const el = document.querySelector('.worker-controls[data-embed-workers]');
@@ -987,7 +1013,7 @@ function syncWorkerStateFromDOM() {
     workerUIState.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
     workerUIState.server.active = parseInt(el.dataset.embedActive, 10) || 0;
     workerUIState.min = parseInt(el.dataset.workerMin, 10) || 0;
-    workerUIState.max = parseInt(el.dataset.workerMax, 10) || 15;
+    workerUIState.max = parseWorkerLimit(el.dataset.workerMax, workerUIState.max);
     workerUIState.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
     workerUIState.visibleMax = parseInt(el.dataset.workerVisibleMax, 10) || 20;
     if (workerUIState.target !== null && workerUIState.server.total === workerUIState.target) {
@@ -1067,6 +1093,8 @@ function workerControlsTitle(plan) {
 function renderWorkerUI() {
     const el = document.querySelector('.worker-controls[data-embed-workers]');
     if (!el) return;
+    el.dataset.workerMax = String(workerUIState.max);
+    el.dataset.workerVisibleMax = String(workerUIState.visibleMax);
     const plan = getWorkerRenderPlan();
     el.classList.toggle('worker-controls-paused', plan.target === 0);
     el.title = workerControlsTitle(plan);
@@ -1132,9 +1160,12 @@ function applyWorkerDelta(delta) {
 }
 
 function onWorkerPartialUpdated() {
-    if (syncWorkerStateFromDOM()) {
-        renderWorkerUI();
-    }
+    syncWorkerStateFromDOM();
+    refreshWorkerLimitsFromServer().then(() => {
+        if (syncWorkerStateFromDOM()) {
+            renderWorkerUI();
+        }
+    });
 }
 
 async function refreshHealthBarPartial() {
@@ -1228,15 +1259,21 @@ async function adjustEmbedWorkers(delta) {
         onWorkerPartialUpdated();
         return null;
     }
+    if (data.max_workers != null) {
+        workerUIState.max = parseWorkerLimit(data.max_workers, workerUIState.max);
+    }
     return data.workers;
 }
 
-document.body.addEventListener('click', (e) => {
+document.body.addEventListener('click', async (e) => {
     const workerBtn = e.target.closest('.worker-step-btn');
-    if (workerBtn && !workerBtn.disabled) {
+    if (workerBtn) {
         e.preventDefault();
+        await refreshWorkerLimitsFromServer();
+        if (!syncWorkerStateFromDOM()) return;
+        renderWorkerUI();
         const delta = parseInt(workerBtn.dataset.workerDelta, 10);
-        if (!Number.isFinite(delta) || delta === 0) return;
+        if (workerBtn.disabled || !Number.isFinite(delta) || delta === 0) return;
         applyWorkerDelta(delta);
         adjustEmbedWorkers(delta);
         return;

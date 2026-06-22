@@ -59,6 +59,10 @@ func flushPartialBroadcast(mask realtime.Reason) {
 	}
 }
 
+func invalidatePartialCache(target string) {
+	partialLast.Delete(target)
+}
+
 func partialMatchesMask(name string, mask realtime.Reason) bool {
 	switch name {
 	case "index-health":
