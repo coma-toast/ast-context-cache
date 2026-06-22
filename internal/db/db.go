@@ -45,8 +45,8 @@ func Init() error {
 	if err != nil {
 		return err
 	}
-	DB.SetMaxOpenConns(1)
-	DB.SetMaxIdleConns(1)
+	DB.SetMaxOpenConns(4)
+	DB.SetMaxIdleConns(4)
 
 	DB.Exec(`PRAGMA journal_mode=WAL`)
 	DB.Exec(`PRAGMA busy_timeout=15000`)
