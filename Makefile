@@ -32,7 +32,7 @@ else
   ORT_DYLIB := $(ORT_DYLIB_LINUX)
 endif
 
-.PHONY: help setup deps generate build run clean install uninstall test
+.PHONY: help setup deps generate build run clean install uninstall test storybook build-storybook dashboard-screenshot
 
 help:
 	@echo "ast-context-cache"
@@ -163,6 +163,15 @@ run: build
 
 test: download-tokenizer-lib
 	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 ./...
+
+storybook:
+	cd dashboard-storybook && npm ci && npm run storybook
+
+build-storybook:
+	cd dashboard-storybook && npm ci && npm run build-storybook
+
+dashboard-screenshot: build-storybook
+	cd dashboard-storybook && npx playwright install chromium && npm run capture-screenshot
 
 clean:
 	rm -f $(BINARY)

@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
+    "ast-dashboard-storybook": {
+      "url": "http://localhost:6008/mcp"
     }
   }
 }

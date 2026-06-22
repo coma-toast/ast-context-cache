@@ -12,7 +12,10 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 - **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
 - **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
 - **Virtual context compaction** -- Offload bulky conversation notes to local SQLite with stable `ctx_*` refs; recover after host compaction via `fetch_context` / `search_context` (separate metrics from code **Tokens saved**)
-- **Dashboard** -- Web UI on port 7830: real-time stats, **Virtual context** card, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool
+- **Dashboard** -- Web UI on port 7830: real-time stats, **Virtual context** card, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool. Component fixtures and Storybook MCP: [`dashboard-storybook/`](dashboard-storybook/README.md) (`make storybook` → http://localhost:6008, MCP at `/mcp`).
+
+  ![Operator dashboard — embeddings queue, health bar, and token stats (Storybook fixture)](docs/images/dashboard-overview.png)
+
 - **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency; **synchronous=NORMAL** and a **32 MiB page cache** reduce fsync pressure; **PASSIVE WAL checkpoints** every 10 minutes (less write amplification than aggressive truncate). Per-file indexing uses **one transaction** per file; MCP **query** and **session** dedup rows are **batched** before insert.
 
 ## Quick Start
