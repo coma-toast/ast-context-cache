@@ -1,8 +1,12 @@
 ---
 name: ast-context-cache-usage
-description: Use when searching, exploring, analyzing code, or offloading conversation context with ast-context-cache MCP (get_context_capsule, retrieve, store_context, fetch_context, modes, filters).
+description: Use when searching, exploring, or analyzing code with ast-context-cache MCP — or offloading conversation context before host compaction (store_context, fetch_context, flush_context). All tools, modes, filters, code-mode scripts.
 ---
 
+
+## Goals
+
+Serve **token-efficient, precise code context** over MCP and **preserve conversation state across host compaction** using virtual context (`store_context` / `fetch_context`). All data stays local (`~/.astcache`).
 
 ## When to Use
 
@@ -75,6 +79,18 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 
 ## Virtual context compaction
 
+### Compaction policy (agents)
+
+When **`store_context`** is available (**extended** tier or `tools.json` override), agents **must** use ast-context-cache for conversation offload—not host-only summarization alone.
+
+| Phase | Action |
+|-------|--------|
+| **Before** compaction / ~70% context | `store_context(content, session_id, label?)` → write `[ctx_…] label` in chat |
+| **After** compaction | `fetch_context(refs)` if stubs remain; else `list_context` or `search_context` |
+| **Done** | `flush_context(session_id=...)` |
+
+Use the **same `session_id`** as `get_context_capsule`, `retrieve`, and other context tools.
+
 ### Why
 
 Host editors (Cursor, Claude, etc.) **compact or summarize** chat when the context window fills. Long analysis, architecture notes, and pasted diffs disappear from what the model can see—even though the task still needs them. **Virtual context** stores that material in local SQLite and gives you **`ctx_*` refs** to keep in chat instead of the full text. Nothing leaves your machine.
@@ -144,7 +160,7 @@ Operators configure via dashboard **Settings → Virtual context** or env (`AST_
 | `fetch_context` / `search_context` | `stats.virtual_tokens_returned` | 30d accessed, utilization % |
 | `flush_context` | `flushed_refs`, freed tokens | inventory ↓, flushed 30d ↑ |
 
-Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`** only—not virtual context stores.
+Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`**, and **`execute_code`** — not virtual context stores.
 
 ### Tier requirements
 

@@ -115,6 +115,9 @@ func loadProjectsFresh() []components.Project {
 	}
 	var ps []components.Project
 	for pp := range allPaths {
+		if projectmeta.IsExcluded(pp) {
+			continue
+		}
 		meta := projectmeta.Enrich(pp)
 		sc := symCounts[pp]
 		label := meta.Label
@@ -385,6 +388,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	watcherIgn := ignorepatterns.JSONForSettings(settings["watcher_ignore_globs"])
+	projectExclude := projectmeta.ExcludeJSONForSettings(settings["project_exclude_paths"])
 	indexLog := settings["index_log_files"] == "true"
 	logRoots := settings["log_retention_roots"]
 	if logRoots == "" {
@@ -435,6 +439,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 	data := components.SettingsData{
 		IdleUnloadMinutes:       idleMinutes,
 		WatcherIgnoreGlobs:      watcherIgn,
+		ProjectExcludePaths:     projectExclude,
 		IndexLogFiles:           indexLog,
 		LogRetentionEnabled:     logRetentionEn,
 		LogRetentionRoots:       logRoots,
@@ -447,6 +452,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		QueryRetentionLastRun:   queryRetentionLast,
 		Projects:                projects,
 		Agents:                  agents,
+		EmbedWorkerMax:          embedqueue.MaxWorkers(),
 	}
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)

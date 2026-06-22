@@ -13,10 +13,12 @@ import (
 )
 
 const (
-	MinWorkers         = 0
-	MaxWorkers         = 15
-	defaultWorkers     = 3
-	embedWorkersSetting = "EMBED_WORKERS"
+	MinWorkers            = 0
+	DefaultMaxWorkers     = 15
+	AbsoluteMaxWorkers    = 64
+	defaultWorkers        = 3
+	embedWorkersSetting   = "EMBED_WORKERS"
+	embedWorkerMaxSetting = "embed_worker_max"
 )
 
 var (
@@ -32,14 +34,28 @@ func WorkerLive() int {
 	return int(workerLive.Load())
 }
 
+// MaxWorkers returns the configured upper limit for embed worker goroutines.
+func MaxWorkers() int {
+	raw := db.GetSetting(embedWorkerMaxSetting, strconv.Itoa(DefaultMaxWorkers))
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return DefaultMaxWorkers
+	}
+	if n > AbsoluteMaxWorkers {
+		return AbsoluteMaxWorkers
+	}
+	return n
+}
+
 func loadWorkerCount() int {
 	raw := db.GetSetting(embedWorkersSetting, strconv.Itoa(defaultWorkers))
 	n, err := strconv.Atoi(raw)
 	if err != nil || n < MinWorkers {
 		return defaultWorkers
 	}
-	if n > MaxWorkers {
-		return MaxWorkers
+	max := MaxWorkers()
+	if n > max {
+		return max
 	}
 	return n
 }
@@ -78,10 +94,22 @@ func applyWorkerCountLocked(n int, persist bool) error {
 	return nil
 }
 
-// SetWorkerCount changes the worker pool size (clamped to MinWorkers..MaxWorkers).
+// ClampWorkersToMax lowers the live worker count when the configured max shrinks.
+func ClampWorkersToMax() error {
+	workerMu.Lock()
+	defer workerMu.Unlock()
+	max := MaxWorkers()
+	if workerCount <= max {
+		return nil
+	}
+	return applyWorkerCountLocked(max, true)
+}
+
+// SetWorkerCount changes the worker pool size (clamped to MinWorkers..MaxWorkers()).
 func SetWorkerCount(n int) (int, error) {
-	if n < MinWorkers || n > MaxWorkers {
-		return WorkerCount(), fmt.Errorf("workers must be %d–%d", MinWorkers, MaxWorkers)
+	max := MaxWorkers()
+	if n < MinWorkers || n > max {
+		return WorkerCount(), fmt.Errorf("workers must be %d–%d", MinWorkers, max)
 	}
 	workerMu.Lock()
 	defer workerMu.Unlock()
@@ -96,8 +124,9 @@ func AdjustWorkers(delta int) (int, error) {
 	workerMu.Lock()
 	defer workerMu.Unlock()
 	n := workerCount + delta
-	if n < MinWorkers || n > MaxWorkers {
-		return workerCount, fmt.Errorf("workers must be %d–%d", MinWorkers, MaxWorkers)
+	max := MaxWorkers()
+	if n < MinWorkers || n > max {
+		return workerCount, fmt.Errorf("workers must be %d–%d", MinWorkers, max)
 	}
 	if err := applyWorkerCountLocked(n, true); err != nil {
 		return workerCount, err

@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 )
 
 func pct(used, cap int) float64 {
@@ -171,10 +173,27 @@ func (h IndexHealth) EmbedRecentPreview() []EmbedActivityItem {
 }
 
 const (
-	MinEmbedWorkers   = 0
-	MaxEmbedWorkers   = 15
-	WorkerStripPerRow = 5
+	MinEmbedWorkers       = 0
+	WorkerStripPerRow     = 5
+	WorkerStripMaxRows    = 4
+	WorkerStripVisibleMax = WorkerStripPerRow * WorkerStripMaxRows
 )
+
+// EmbedWorkerMax is the configured upper limit for embed worker goroutines.
+func EmbedWorkerMax() int {
+	return embedqueue.MaxWorkers()
+}
+
+func workerStripDotCount(total int) (dots int, ellipsis bool) {
+	if total > WorkerStripVisibleMax {
+		return WorkerStripVisibleMax - 1, true
+	}
+	return total, false
+}
+
+func workerStripUsesCompact(maxWorkers int) bool {
+	return maxWorkers > 15
+}
 
 func WorkerControlsTitle(active, total int) string {
 	if total == 0 {

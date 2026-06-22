@@ -3,7 +3,6 @@ name: ast-context-cache-operator
 description: Use when configuring ast-mcp embeddings, dashboard settings, virtual context limits, log retention, or server health—not day-to-day MCP code search.
 ---
 
-# ast-context-cache Operator Skill
 
 ## When to Use
 
@@ -15,7 +14,7 @@ When configuring or operating the ast-mcp server (not day-to-day MCP search). Us
 - Watcher ignore globs, pause/start/delete watchers
 - Health checks or server restart after config changes
 
-For MCP search workflows, point agents to [usage/SKILL.md](../../skills/usage/SKILL.md) or [ast-usage](../ast-usage/SKILL.md).
+For MCP search workflows, point agents to [usage/SKILL.md](../usage/SKILL.md).
 
 ## Embedding backends
 
@@ -48,7 +47,7 @@ Open after `make run` or `ast-mcp dash`. Panels update automatically when querie
 |---------|---------|
 | Health bar (center) | Embedder state, **queue** mini-gauge, throughput, cache hit %, heap, uptime |
 | Project dropdown | Filters stats, charts, index health, and recent **MCP** activity to one repo |
-| Settings (gear) | Embedding backend, ignore globs, log indexing, log retention, pin/unpin, doc sources, virtual context |
+| Settings (gear) | Embedding backend, ignore globs, log indexing, log retention, pin/unpin, doc sources |
 
 ### Sections (top to bottom)
 
@@ -93,5 +92,34 @@ make build && ast-mcp restart
 ```
 
 Cursor: skill `ast-context-cache-rebuild` in `.cursor/skills/ast-rebuild/`.
+
+## SQLite WAL runbook
+
+The dashboard reads `~/.astcache/usage.db` (WAL mode). If the WAL file grows very large, HTTP handlers can block while SQLite scans frames — MCP may still respond while the dashboard hangs.
+
+**Symptoms:** Dashboard at http://localhost:7830 stops loading; `usage.db-wal` is hundreds of MB or GB.
+
+**Emergency fix:**
+
+```bash
+ast-mcp stop
+sqlite3 ~/.astcache/usage.db "PRAGMA wal_checkpoint(TRUNCATE);"
+ast-mcp start
+```
+
+**Prevention (built-in):** `PRAGMA wal_autocheckpoint=1000`; passive checkpoints every 2m; TRUNCATE when WAL &gt; 256 MB or every 30m; startup TRUNCATE when WAL &gt; 100 MB. **Query retention** (Settings → Query history retention, default 90 days) prunes old `queries` rows daily and checkpoints after deletes. Overview shows WAL size on the Database row.
+
+**Logs:** Default server log is `~/.astcache/ast-mcp.log` (`ast-mcp start`). **mcp-local** logs to `~/.mcp-local/ast-context-cache.log`; the dashboard Logs tab auto-picks the newest log file. Override with `AST_MCP_LOG_PATH`.
+
+## WTG / multi-worktree projects
+
+When using [wtg](https://github.com/coma-toast/wtg) with `~/spaces/<workspace>/<repo>` checkouts, ast-mcp:
+
+- **Discovers** git repos under `spaces.root_dir` from `~/.config/wtg/config.yaml` (default `~/spaces`) plus indexed paths
+- **Labels** projects as `slapi · nightly` (repo · workspace) in the dashboard dropdown and Settings list
+- **Starts watchers** for WTG space checkouts on startup (workspace label present)
+- **Excludes** repos matching `project_exclude_paths` (Settings) or `discovery.exclude` in WTG config — hidden from the project filter and skipped during auto-discovery
+
+Each worktree path is a separate `project_path` for MCP — pass the absolute checkout root (e.g. `~/spaces/nightly/slapi`). Override config with `WTG_CONFIG`.
 
 Full detail: [README](../../README.md).

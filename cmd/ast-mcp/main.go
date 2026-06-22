@@ -214,6 +214,9 @@ func startBackgroundServices() {
 		for restoreRows.Next() {
 			var pp string
 			restoreRows.Scan(&pp)
+			if projectmeta.IsExcluded(pp) {
+				continue
+			}
 			seen[pp] = true
 			if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
 				go watcher.EnsureWatcher(pp)
@@ -222,6 +225,9 @@ func startBackgroundServices() {
 		restoreRows.Close()
 	}
 	for _, pp := range projectmeta.DiscoverPaths() {
+		if projectmeta.IsExcluded(pp) {
+			continue
+		}
 		if seen[pp] {
 			continue
 		}

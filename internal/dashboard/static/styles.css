@@ -681,6 +681,17 @@ header h1 .icon { font-size: 20px; }
   max-width: calc(5 * 10px + 4 * 4px);
   row-gap: 4px;
 }
+.worker-strip.worker-strip-compact {
+  flex-wrap: wrap;
+  width: calc(5 * 8px + 4 * 3px);
+  max-width: calc(5 * 8px + 4 * 3px);
+  gap: 3px;
+  row-gap: 3px;
+}
+.worker-strip-compact .worker-pill {
+  width: 8px;
+  height: 8px;
+}
 .worker-pill { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border); }
 .worker-pill.busy { background: var(--green); border-color: var(--green); box-shadow: 0 0 6px rgba(63, 185, 80, 0.5); }
 .worker-pill.idle { background: var(--bg); }
@@ -697,6 +708,26 @@ header h1 .icon { font-size: 20px; }
   background: rgba(139, 148, 158, 0.18);
   border-color: rgba(139, 148, 158, 0.4);
   opacity: 0.9;
+}
+.worker-pill.worker-pill-ellipsis {
+  width: auto;
+  min-width: 8px;
+  height: 8px;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  font-size: 9px;
+  line-height: 8px;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1px;
+}
+.worker-strip:not(.worker-strip-compact) .worker-pill.worker-pill-ellipsis {
+  height: 10px;
+  line-height: 10px;
+  font-size: 10px;
 }
 .worker-controls {
   display: flex;

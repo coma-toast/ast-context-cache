@@ -103,8 +103,11 @@ Restart ast-mcp after changing `tools.json`. Example file: [`skills/tools.json.e
 ```markdown
 # MCP Code Search (ast-context-cache)
 
+**Goals:** Token-efficient local code search (tree-sitter + hybrid BM25/vector), cached library docs, impact analysis, and **virtual context compaction** so long threads survive host chat compaction.
+
+MCP server: http://localhost:7821/mcp · Dashboard: http://localhost:7830
+
 When working with this codebase, **always prefer MCP tools** over direct grep/read/glob.
-MCP server: http://localhost:7821/mcp
 
 ## Quick Workflow
 
@@ -185,21 +188,21 @@ Search tools may return **`code_script_hints`**. Workflow: hint `script_id` → 
 8. **Pipeline stats** — get_context_capsule returns `pipeline` counts; retrieve `stats` includes timing + budget info
 9. **Pinned projects** — pin in Settings for priority embedding, no idle watcher stop, warmer vector cache
 
-## Virtual context compaction
+## Virtual context compaction (required when tier allows)
 
-**Why:** Host chat compaction drops long analysis from the model window. Store locally, keep short **`ctx_*` stubs** in chat, fetch after compaction.
+**Do not rely on host compaction alone.** Use ast-context-cache to offload bulky thread text before the editor drops it.
 
 | Tool | Tier | When |
 |------|------|------|
-| `store_context` | extended | Before compaction; bulky plans/diffs/analysis |
-| `fetch_context` | core | Recover by ref after compaction |
-| `list_context` | core | Discover stored refs (metadata only) |
+| `store_context` | extended | Before compaction; plans, diffs, long analysis (~70% context) |
+| `fetch_context` | core | Recover by `ctx_*` ref after compaction |
+| `list_context` | core | List refs/labels for a session |
 | `search_context` | core | Refs lost from chat; search by topic |
-| `flush_context` | extended | Thread done or over quota |
+| `flush_context` | extended | Thread done or quota exceeded |
 
-Use the **same `session_id`** as code search. Example stub: `[ctx_a1b2c3d4e5f6] label`.
+Use the **same `session_id`** as code search. Chat stub: `[ctx_a1b2c3d4e5f6] label`.
 
-Metrics are on the dashboard **Virtual context** card (not code **Tokens saved**). Requires **`AST_MCP_TIER=extended`** for store/flush.
+Metrics: dashboard **Virtual context** card (separate from code **Tokens saved**). Requires **`AST_MCP_TIER=extended`** for store/flush.
 
 ## Token savings tracking
 
@@ -246,22 +249,26 @@ Avoid using grep/read for:
 
 ---
 
-## Cursor Rules (optional)
+## Cursor Rules (global or project)
 
-File: `.cursor/rules/ast-context-cache.mdc`
+Install a always-on rule so every agent session knows the full tool surface and compaction policy.
+
+**Global (recommended):** `~/.cursor/rules/ast-context-cache.mdc` with `alwaysApply: true` — copy from this repo’s documented rule or from [AGENTS.md](../../AGENTS.md).
+
+**Project optional:** `.cursor/rules/ast-context-cache.mdc`
+
+Minimum compaction lines every agent must follow:
+
 ```markdown
----
-description: Use ast-context-cache for efficient code search
----
+## Host compaction — use ast-context-cache
 
-When searching code, prefer the ast-context-cache MCP tools:
-- Use get_context_capsule with mode='auto' for most searches
-- Use search_semantic for natural language queries
-- Use get_impact_graph before making changes to understand blast radius
-- Use get_file_context to get all symbols in a specific file
-- Use retrieve for RAG-style context assembly (code + docs in one call)
-- Always pass session_id for deduplication
-- Use search_docs for library/framework documentation
-- Before host compaction: store_context with same session_id; keep ctx_* stubs in chat
-- After compaction: fetch_context(refs) or search_context(query); flush_context when done
+Before host chat compaction (or ~70% context): store_context(extended) + same session_id → [ctx_…] stub in chat.
+After compaction: fetch_context(refs) | list_context | search_context (core).
+When done: flush_context(extended).
+
+Prefer MCP over Read/Grep for exploration. All tools: get_context_capsule, search_semantic, get_file_context,
+get_project_map, get_impact_graph, retrieve, index_status, search_docs, list_doc_sources, fetch_context,
+list_context, search_context, index_files, cache_summary, store_context, flush_context, analyze_dead_code,
+analyze_complexity, export_bundle, import_bundle, fetch_doc, add/remove/update_doc_source, execute_code.
+Code-mode: code_script_hints → execute_code(script_id, data, project_path). fetch_doc not WebFetch.
 ```

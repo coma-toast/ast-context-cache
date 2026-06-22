@@ -114,6 +114,7 @@ When using [wtg](https://github.com/coma-toast/wtg) with `~/spaces/<workspace>/<
 - **Discovers** git repos under `spaces.root_dir` from `~/.config/wtg/config.yaml` (default `~/spaces`) plus indexed paths
 - **Labels** projects as `slapi · nightly` (repo · workspace) in the dashboard dropdown and Settings list
 - **Starts watchers** for WTG space checkouts on startup (workspace label present)
+- **Excludes** repos matching `project_exclude_paths` (Settings) or `discovery.exclude` in WTG config — hidden from the project filter and skipped during auto-discovery
 
 Each worktree path is a separate `project_path` for MCP — pass the absolute checkout root (e.g. `~/spaces/nightly/slapi`). Override config with `WTG_CONFIG`.
 

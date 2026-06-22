@@ -1,5 +1,15 @@
 # Code Context Instructions
 
+## Goals
+
+**ast-context-cache** is a local-first AST context engine: index code with tree-sitter, search over MCP with minimal tokens, cache docs, and **offload conversation context before host compaction** so agents recover plans/analysis after the editor compacts chat.
+
+| Priority | Mechanism |
+|----------|-----------|
+| Token-efficient code | `get_context_capsule` `mode=auto`, `get_file_context` `skeleton`, session dedup, `execute_code` + `code_script_hints` |
+| Accurate edits | `get_impact_graph`, `retrieve`, optional filters (`path_prefix`, `language`, `kinds`) |
+| Long threads | **`store_context`** → `[ctx_…]` stubs → **`fetch_context`** / **`search_context`** (same `session_id`) |
+
 # MCP Server for This Project
 
 This project includes an MCP server (`ast-context-cache`) that provides efficient code search tools.
@@ -20,9 +30,15 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 
 Read `skills/<name>/SKILL.md` when not using Cursor project skills.
 
-### Virtual context compaction (agents)
+### Virtual context compaction (agents) — required when tier allows
 
-Before host chat compaction, use **`store_context`** (extended tier) with the same **`session_id`** as code search; keep **`ctx_*` stubs** in chat. After compaction: **`fetch_context`**, **`list_context`**, or **`search_context`** (core). When done: **`flush_context`**. Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compaction).
+**Do not rely on host compaction alone** for bulky analysis, plans, or diffs you will need later. Use ast-context-cache virtual context:
+
+1. **`store_context`** (extended) with the same **`session_id`** as code search → keep **`ctx_*` stub** in chat.
+2. After compaction → **`fetch_context`**, **`list_context`**, or **`search_context`** (core).
+3. When done → **`flush_context`**.
+
+Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compaction).
 
 # Available Tools
 

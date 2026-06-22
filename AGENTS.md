@@ -1,5 +1,19 @@
 # Agent Code Research Guidelines
 
+## Goals (ast-context-cache)
+
+Local-first MCP server for AI coding agents. **No cloud, no account** — indexes code with tree-sitter + SQLite, serves token-efficient search over MCP.
+
+| Goal | How |
+|------|-----|
+| **Minimize tokens** | Hybrid BM25+vector search; `auto`/`skeleton`/`summary` modes; session dedup; `execute_code` scripts; dashboard **Tokens saved** |
+| **Precise code context** | Symbol-level AST index, source in results, impact graph, RAG `retrieve` |
+| **Fresh index** | `index_files` + fsnotify watcher; bounded embed queue; pin heavy projects |
+| **Library docs offline** | `search_docs` / `fetch_doc` cached locally (Context7-style) |
+| **Survive host compaction** | **Virtual context** — `store_context` → `ctx_*` stubs → `fetch_context` after compaction (extended write, core read) |
+
+MCP: `http://localhost:7821/mcp` · Dashboard: `http://localhost:7830`
+
 ## Running the MCP server
 
 Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that supervises `ast-mcp`, registers Cursor/OpenCode/Claude, and manages `~/.astcache/tools.json`, see [mcp-local](https://github.com/coma-toast/mcp-local) — agent workflows: [mcp-local/AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
@@ -51,7 +65,7 @@ Use MCP in this order for unfamiliar code (generate a stable **`session_id`** pe
 7. **`get_impact_graph`** — before changing exported symbols.
 8. **`retrieve`** — single-shot RAG (code ± docs); `session_id`, filters as needed.
 
-**Virtual context (long threads):** Before host compaction, **`store_context`** (extended) with the same `session_id`; keep `ctx_*` stubs in chat. After compaction, **`fetch_context`** or **`search_context`** (core). **`flush_context`** when done.
+**Virtual context (long threads) — use ast-context-cache, not host-only summarization:** Before host compaction, **`store_context`** (extended) with the same `session_id`; keep **`ctx_*` stubs** in chat (e.g. `[ctx_a1b2c3d4e5f6] auth plan`). After compaction: **`fetch_context`** (refs), **`list_context`**, or **`search_context`** (core). **`flush_context`** when done. See [Virtual context compaction](#virtual-context-compaction) below.
 
 **Defaults:** `get_context_capsule` → `auto`; `get_file_context` → **`skeleton`**; `search_semantic` → `skeleton`. Do not read whole source files when MCP can return structured symbols.
 

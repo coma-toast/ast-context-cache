@@ -107,26 +107,42 @@ templ ChannelBar(label string, used int, cap int, color string) {
 }
 
 templ WorkerStrip(active int, total int) {
-	<div class={ "worker-strip", templ.KV("worker-strip-split", total > WorkerStripPerRow) } title={ fmt.Sprintf("%d of %d workers busy", active, total) } role="img" aria-label={ fmt.Sprintf("%d of %d workers busy", active, total) }>
-		for i := 0; i < total; i++ {
+	{{ maxWorkers := EmbedWorkerMax() }}
+	{{ dots, showEllipsis := workerStripDotCount(total) }}
+	<div
+		class={
+			"worker-strip",
+			templ.KV("worker-strip-compact", workerStripUsesCompact(maxWorkers)),
+			templ.KV("worker-strip-split", !workerStripUsesCompact(maxWorkers) && total > WorkerStripPerRow),
+		}
+		title={ fmt.Sprintf("%d of %d workers busy", active, total) }
+		role="img"
+		aria-label={ fmt.Sprintf("%d of %d workers busy", active, total) }
+	>
+		for i := 0; i < dots; i++ {
 			if i < active {
 				<span class="worker-pill busy"></span>
 			} else {
 				<span class="worker-pill idle"></span>
 			}
 		}
+		if showEllipsis {
+			<span class="worker-pill worker-pill-ellipsis" aria-hidden="true">…</span>
+		}
 	</div>
 }
 
 templ WorkerControls(active int, total int, live int) {
+	{{ maxWorkers := EmbedWorkerMax() }}
 	<div
 		class={ "worker-controls", templ.KV("worker-controls-paused", total == 0) }
 		data-embed-workers={ fmtInt(total) }
 		data-embed-workers-live={ fmtInt(live) }
 		data-embed-active={ fmtInt(active) }
 		data-worker-min={ fmtInt(MinEmbedWorkers) }
-		data-worker-max={ fmtInt(MaxEmbedWorkers) }
+		data-worker-max={ fmtInt(maxWorkers) }
 		data-worker-per-row={ fmtInt(WorkerStripPerRow) }
+		data-worker-visible-max={ fmtInt(WorkerStripVisibleMax) }
 		title={ WorkerControlsTitle(active, total) }
 	>
 		<div class="worker-step-col">
@@ -135,7 +151,7 @@ templ WorkerControls(active int, total int, live int) {
 			} else {
 				<button type="button" class="worker-step-btn" aria-label="Decrease workers" data-worker-delta="-1">−</button>
 			}
-			if total >= MaxEmbedWorkers {
+			if total >= maxWorkers {
 				<button type="button" class="worker-step-btn" disabled aria-label="Increase workers" data-worker-delta="1">+</button>
 			} else {
 				<button type="button" class="worker-step-btn" aria-label="Increase workers" data-worker-delta="1">+</button>

@@ -978,7 +978,7 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
 
 window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
 
-const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5 };
+const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5, visibleMax: 20 };
 
 function syncWorkerStateFromDOM() {
     const el = document.querySelector('.worker-controls[data-embed-workers]');
@@ -989,6 +989,7 @@ function syncWorkerStateFromDOM() {
     workerUIState.min = parseInt(el.dataset.workerMin, 10) || 0;
     workerUIState.max = parseInt(el.dataset.workerMax, 10) || 15;
     workerUIState.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
+    workerUIState.visibleMax = parseInt(el.dataset.workerVisibleMax, 10) || 20;
     if (workerUIState.target !== null && workerUIState.server.total === workerUIState.target) {
         workerUIState.target = null;
     }
@@ -1000,8 +1001,12 @@ function getWorkerRenderPlan() {
     const serverTotal = workerUIState.server.total;
     const serverLive = workerUIState.server.live;
     const active = workerUIState.server.active;
-    const visible = Math.min(workerUIState.max, Math.max(target, serverLive));
-    return { target, serverTotal, serverLive, active, visible, perRow: workerUIState.perRow };
+    const rawTotal = Math.max(target, serverLive);
+    const hasEllipsis = rawTotal > workerUIState.visibleMax;
+    const pillCount = hasEllipsis ? workerUIState.visibleMax - 1 : rawTotal;
+    const visible = hasEllipsis ? workerUIState.visibleMax : pillCount;
+    const compact = workerUIState.max > 15;
+    return { target, serverTotal, serverLive, active, rawTotal, pillCount, visible, hasEllipsis, compact, perRow: workerUIState.perRow };
 }
 
 function workerPillClass(index, plan) {
@@ -1021,17 +1026,26 @@ function workerPillClass(index, plan) {
 function buildWorkerStrip(plan) {
     const strip = document.createElement('div');
     strip.className = 'worker-strip';
-    if (plan.visible > plan.perRow) {
+    if (plan.compact) {
+        strip.classList.add('worker-strip-compact');
+    } else if (plan.visible > plan.perRow) {
         strip.classList.add('worker-strip-split');
     }
     const busyLabel = `${Math.min(plan.active, plan.target)} of ${plan.target} workers busy`;
     strip.title = busyLabel;
     strip.setAttribute('role', 'img');
     strip.setAttribute('aria-label', busyLabel);
-    for (let i = 0; i < plan.visible; i++) {
+    for (let i = 0; i < plan.pillCount; i++) {
         const pill = document.createElement('span');
         pill.className = workerPillClass(i, plan);
         strip.appendChild(pill);
+    }
+    if (plan.hasEllipsis) {
+        const ell = document.createElement('span');
+        ell.className = 'worker-pill worker-pill-ellipsis';
+        ell.setAttribute('aria-hidden', 'true');
+        ell.textContent = '…';
+        strip.appendChild(ell);
     }
     return strip;
 }
