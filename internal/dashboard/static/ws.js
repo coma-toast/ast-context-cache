@@ -113,6 +113,9 @@ document.addEventListener('alpine:init', () => {
                 this.activeTab = hash;
             }
             this.bootstrapPanels();
+            refreshWorkerLimitsFromServer().then(() => {
+                if (syncWorkerStateFromDOM()) renderWorkerUI();
+            });
             if (this.activeTab === 'settings') {
                 this.loadSettings();
             }
@@ -974,11 +977,34 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
     if (key === 'dashboard_log_tail_lines' || key === 'dashboard_log_line_chars') {
         refreshRecentLogsOnly(true);
     }
+    if (key === 'embed_worker_max') {
+        refreshWorkerLimitsFromServer().then(() => refreshIndexHealthPartial());
+    }
 });
 
 window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
 
-const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5 };
+const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5, visibleMax: 20 };
+
+function parseWorkerLimit(v, fallback) {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+async function refreshWorkerLimitsFromServer() {
+    try {
+        const r = await fetch('/api/embed-workers');
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data.max_workers != null) {
+            workerUIState.max = parseWorkerLimit(data.max_workers, workerUIState.max);
+        }
+        const el = document.querySelector('.worker-controls[data-embed-workers]');
+        if (el && data.max_workers != null) {
+            el.dataset.workerMax = String(workerUIState.max);
+        }
+    } catch (_) {}
+}
 
 function syncWorkerStateFromDOM() {
     const el = document.querySelector('.worker-controls[data-embed-workers]');
@@ -987,8 +1013,9 @@ function syncWorkerStateFromDOM() {
     workerUIState.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
     workerUIState.server.active = parseInt(el.dataset.embedActive, 10) || 0;
     workerUIState.min = parseInt(el.dataset.workerMin, 10) || 0;
-    workerUIState.max = parseInt(el.dataset.workerMax, 10) || 15;
+    workerUIState.max = parseWorkerLimit(el.dataset.workerMax, workerUIState.max);
     workerUIState.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
+    workerUIState.visibleMax = parseInt(el.dataset.workerVisibleMax, 10) || 20;
     if (workerUIState.target !== null && workerUIState.server.total === workerUIState.target) {
         workerUIState.target = null;
     }
@@ -1000,8 +1027,12 @@ function getWorkerRenderPlan() {
     const serverTotal = workerUIState.server.total;
     const serverLive = workerUIState.server.live;
     const active = workerUIState.server.active;
-    const visible = Math.min(workerUIState.max, Math.max(target, serverLive));
-    return { target, serverTotal, serverLive, active, visible, perRow: workerUIState.perRow };
+    const rawTotal = Math.max(target, serverLive);
+    const hasEllipsis = rawTotal > workerUIState.visibleMax;
+    const pillCount = hasEllipsis ? workerUIState.visibleMax - 1 : rawTotal;
+    const visible = hasEllipsis ? workerUIState.visibleMax : pillCount;
+    const compact = workerUIState.max > 15;
+    return { target, serverTotal, serverLive, active, rawTotal, pillCount, visible, hasEllipsis, compact, perRow: workerUIState.perRow };
 }
 
 function workerPillClass(index, plan) {
@@ -1021,17 +1052,26 @@ function workerPillClass(index, plan) {
 function buildWorkerStrip(plan) {
     const strip = document.createElement('div');
     strip.className = 'worker-strip';
-    if (plan.visible > plan.perRow) {
+    if (plan.compact) {
+        strip.classList.add('worker-strip-compact');
+    } else if (plan.visible > plan.perRow) {
         strip.classList.add('worker-strip-split');
     }
     const busyLabel = `${Math.min(plan.active, plan.target)} of ${plan.target} workers busy`;
     strip.title = busyLabel;
     strip.setAttribute('role', 'img');
     strip.setAttribute('aria-label', busyLabel);
-    for (let i = 0; i < plan.visible; i++) {
+    for (let i = 0; i < plan.pillCount; i++) {
         const pill = document.createElement('span');
         pill.className = workerPillClass(i, plan);
         strip.appendChild(pill);
+    }
+    if (plan.hasEllipsis) {
+        const ell = document.createElement('span');
+        ell.className = 'worker-pill worker-pill-ellipsis';
+        ell.setAttribute('aria-hidden', 'true');
+        ell.textContent = '…';
+        strip.appendChild(ell);
     }
     return strip;
 }
@@ -1053,6 +1093,8 @@ function workerControlsTitle(plan) {
 function renderWorkerUI() {
     const el = document.querySelector('.worker-controls[data-embed-workers]');
     if (!el) return;
+    el.dataset.workerMax = String(workerUIState.max);
+    el.dataset.workerVisibleMax = String(workerUIState.visibleMax);
     const plan = getWorkerRenderPlan();
     el.classList.toggle('worker-controls-paused', plan.target === 0);
     el.title = workerControlsTitle(plan);
@@ -1118,9 +1160,12 @@ function applyWorkerDelta(delta) {
 }
 
 function onWorkerPartialUpdated() {
-    if (syncWorkerStateFromDOM()) {
-        renderWorkerUI();
-    }
+    syncWorkerStateFromDOM();
+    refreshWorkerLimitsFromServer().then(() => {
+        if (syncWorkerStateFromDOM()) {
+            renderWorkerUI();
+        }
+    });
 }
 
 async function refreshHealthBarPartial() {
@@ -1214,15 +1259,21 @@ async function adjustEmbedWorkers(delta) {
         onWorkerPartialUpdated();
         return null;
     }
+    if (data.max_workers != null) {
+        workerUIState.max = parseWorkerLimit(data.max_workers, workerUIState.max);
+    }
     return data.workers;
 }
 
-document.body.addEventListener('click', (e) => {
+document.body.addEventListener('click', async (e) => {
     const workerBtn = e.target.closest('.worker-step-btn');
-    if (workerBtn && !workerBtn.disabled) {
+    if (workerBtn) {
         e.preventDefault();
+        await refreshWorkerLimitsFromServer();
+        if (!syncWorkerStateFromDOM()) return;
+        renderWorkerUI();
         const delta = parseInt(workerBtn.dataset.workerDelta, 10);
-        if (!Number.isFinite(delta) || delta === 0) return;
+        if (workerBtn.disabled || !Number.isFinite(delta) || delta === 0) return;
         applyWorkerDelta(delta);
         adjustEmbedWorkers(delta);
         return;

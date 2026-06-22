@@ -18,6 +18,7 @@ type AgentInfo struct {
 type SettingsData struct {
 	IdleUnloadMinutes       int
 	WatcherIgnoreGlobs      string
+	ProjectExcludePaths     string
 	IndexLogFiles           bool
 	LogRetentionEnabled     bool
 	LogRetentionRoots       string
@@ -63,6 +64,7 @@ type SettingsData struct {
 	ContextMaxNotesGlobal   int
 	ContextMaxTokensGlobal  int
 	ContextLimitPolicy      string
+	EmbedWorkerMax          int
 }
 
 templ Settings(data SettingsData) {
@@ -76,6 +78,12 @@ templ Settings(data SettingsData) {
 				name="value"/>
 			<span class="perf-hint">Embedder model, vector cache, and file watchers are unloaded after this many minutes of inactivity. Set to 0 to keep loaded.</span>
 		</div>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="embedWorkerMax">Max embed workers</label>
+			<input type="number" id="embedWorkerMax" min="1" max="64" step="1" class="perf-input" value={ fmt.Sprint(data.EmbedWorkerMax) }
+				hx-vals='{"key":"embed_worker_max"}' hx-include="this" name="value"/>
+			<span class="perf-hint">Upper limit for the worker pool (+/− on the embeddings card). Above 15, the strip uses a compact 4×5 grid; above 20 workers the last slot shows an ellipsis.</span>
+		</form>
 	</div>
 
 	<div class="section">
@@ -266,6 +274,13 @@ templ Settings(data SettingsData) {
 			Plain <span class="mono">.log</span> files are not indexed unless you enable log search below.
 			Ignore patterns apply to paths that would otherwise be indexed as code (or as logs when enabled). Defaults include dependency folders such as <span class="mono">node_modules</span>, <span class="mono">vendor</span>, and <span class="mono">venv</span>—remove any line from the list below to index that path.
 		</p>
+		<form class="perf-setting" hx-post="/api/settings" hx-swap="none">
+			<input type="hidden" name="key" value="project_exclude_paths"/>
+			<label for="projectExcludePaths">Project exclude paths (JSON array)</label>
+			<textarea id="projectExcludePaths" name="value" rows="6" class="perf-input" style="width:100%;font-family:ui-monospace,monospace;font-size:12px">{ data.ProjectExcludePaths }</textarea>
+			<span class="perf-hint">Skip git repos during auto-discovery and hide them from the project filter. Use absolute paths, path prefixes, globs (<span class="mono">**/outputs/**</span>), or repo folder names (<span class="mono">basename:vendor-clone</span>). Does not block explicit <span class="mono">index_files</span>.</span>
+			<button type="submit" class="action-btn" style="margin-top:8px">Save project excludes</button>
+		</form>
 		<form class="perf-setting" hx-post="/api/settings" hx-swap="none">
 			<input type="hidden" name="key" value="watcher_ignore_globs"/>
 			<label for="watcherIgnoreGlobs">Watcher ignore globs (JSON array)</label>

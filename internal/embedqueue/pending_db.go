@@ -31,6 +31,9 @@ var (
 )
 
 func markPendingIfNew(j job, reason string) bool {
+	if isProjectCancelled(j.projectPath) {
+		return false
+	}
 	pendingMu.Lock()
 	if pending == nil {
 		pending = map[string]job{}

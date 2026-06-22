@@ -25,8 +25,9 @@ type wtgConfig struct {
 		RootDir string `yaml:"root_dir"`
 	} `yaml:"spaces"`
 	Discovery struct {
-		RootDir  string `yaml:"root_dir"`
-		MaxDepth int    `yaml:"max_depth"`
+		RootDir  string   `yaml:"root_dir"`
+		MaxDepth int      `yaml:"max_depth"`
+		Exclude  []string `yaml:"exclude"`
 	} `yaml:"discovery"`
 }
 
@@ -68,7 +69,7 @@ func DiscoverPaths() []string {
 	var out []string
 	add := func(p string) {
 		p = watcher.NormalizeProjectPath(p)
-		if p == "" || seen[p] {
+		if p == "" || seen[p] || IsExcluded(p) {
 			return
 		}
 		if st, err := os.Stat(p); err != nil || !st.IsDir() {
@@ -124,7 +125,14 @@ func walkDiscovery(root string, maxDepth int, add func(string)) {
 			return nil
 		}
 		if d.IsDir() && d.Name() == ".git" {
-			add(filepath.Dir(path))
+			candidate := filepath.Dir(path)
+			if IsExcluded(candidate) {
+				return filepath.SkipDir
+			}
+			add(candidate)
+			return filepath.SkipDir
+		}
+		if d.IsDir() && IsExcluded(path) {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() {

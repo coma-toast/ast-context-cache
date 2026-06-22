@@ -83,6 +83,12 @@ Use ast-context-cache MCP server (http://localhost:7821/mcp) for efficient code 
 
 See [usage/SKILL.md](../usage/SKILL.md) for full workflows including virtual context compaction.
 
+### 4. Agent instructions (all editors)
+
+Paste the block from [agents/SKILL.md](../agents/SKILL.md) into project **`AGENTS.md`** or **`CLAUDE.md`**, or rely on Cursor project skills under `.cursor/skills/`.
+
+**Cursor global rule (recommended):** Copy [AGENTS.md](../../AGENTS.md) guidance into `~/.cursor/rules/ast-context-cache.mdc` with `alwaysApply: true` so every session knows all MCP tools and **must use `store_context` before host compaction** when extended tier is enabled. See [agents/SKILL.md — Cursor Rules](../agents/SKILL.md#cursor-rules-global-or-project).
+
 ## Tool tiers
 
 | Tier | Virtual context |

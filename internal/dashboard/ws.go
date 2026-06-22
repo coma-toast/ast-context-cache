@@ -16,6 +16,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/gorilla/websocket"
@@ -281,6 +282,7 @@ func renderSettings() string {
 		}
 	}
 	watcherIgn := ignorepatterns.JSONForSettings(settings["watcher_ignore_globs"])
+	projectExclude := projectmeta.ExcludeJSONForSettings(settings["project_exclude_paths"])
 	indexLog := settings["index_log_files"] == "true"
 	logRoots := settings["log_retention_roots"]
 	if logRoots == "" {
@@ -328,6 +330,7 @@ func renderSettings() string {
 	data := components.SettingsData{
 		IdleUnloadMinutes:       idleMinutes,
 		WatcherIgnoreGlobs:     watcherIgn,
+		ProjectExcludePaths:    projectExclude,
 		IndexLogFiles:          indexLog,
 		LogRetentionEnabled:    logRetentionEn,
 		LogRetentionRoots:      logRoots,
@@ -340,6 +343,7 @@ func renderSettings() string {
 		QueryRetentionLastRun:   queryRetentionLast,
 		Projects:               projects,
 		Agents:                 agents,
+		EmbedWorkerMax:         embedqueue.MaxWorkers(),
 	}
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)

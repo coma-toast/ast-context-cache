@@ -1,7 +1,21 @@
+const WORKER_VISIBLE_MAX = 20;
+
 function workerPills(active: number, total: number): string {
-  return Array.from({ length: total }, (_, i) =>
+  const ellipsis = total > WORKER_VISIBLE_MAX;
+  const dots = ellipsis ? WORKER_VISIBLE_MAX - 1 : total;
+  let html = Array.from({ length: dots }, (_, i) =>
     `<span class="worker-pill ${i < active ? "busy" : "idle"}"></span>`,
   ).join("");
+  if (ellipsis) {
+    html += '<span class="worker-pill worker-pill-ellipsis" aria-hidden="true">…</span>';
+  }
+  return html;
+}
+
+function workerStripClass(total: number, maxWorkers = 15): string {
+  if (maxWorkers > 15) return "worker-strip worker-strip-compact";
+  if (total > 5) return "worker-strip worker-strip-split";
+  return "worker-strip";
 }
 
 /** Healthy header bar (matches live dashboard screenshot). */
@@ -14,7 +28,7 @@ export const healthBarHealthyFixture = `
   <span class="health-divider"></span>
   <span class="health-item health-gauge-item" title="Workers: 1 of 4 busy">
     <span class="health-label">Workers</span>
-    <div class="worker-strip worker-strip-split" role="img" aria-label="1 of 4 workers busy">${workerPills(1, 4)}</div>
+    <div class="${workerStripClass(4)}" role="img" aria-label="1 of 4 workers busy">${workerPills(1, 4)}</div>
   </span>
   <span class="health-divider"></span>
   <span class="health-item health-gauge-item health-stack-item" title="Queue 0 / 2176 · Pending 2">
@@ -58,7 +72,7 @@ export const healthBarDegradedFixture = `
   <span class="health-divider"></span>
   <span class="health-item health-gauge-item" title="Workers: 10 of 15 busy">
     <span class="health-label">Workers</span>
-    <div class="worker-strip worker-strip-split" role="img" aria-label="10 of 15 workers busy">${workerPills(10, 15)}</div>
+    <div class="${workerStripClass(15)}" role="img" aria-label="10 of 15 workers busy">${workerPills(10, 15)}</div>
   </span>
   <span class="health-divider"></span>
   <span class="health-item health-gauge-item health-stack-item" title="Queue 0 / 2176 · Pending 987">
@@ -200,9 +214,9 @@ export const embedPanelHealthyFixture = `
       <div class="channel-bar"><div class="channel-bar-head"><span class="channel-bar-label">Background</span><span class="channel-bar-nums">0 / 2,048</span></div><div class="channel-bar-track"><div class="channel-bar-fill level-ok" style="width:0%;background:#bc8cff"></div></div></div>
       <div class="metric-row worker-metric-row">
         <span class="metric-row-label">Workers</span>
-        <div class="worker-controls" data-embed-workers="5" data-embed-active="2" data-worker-min="0" data-worker-max="15" data-worker-per-row="5" title="Workers: 2 of 5 busy">
+        <div class="worker-controls" data-embed-workers="5" data-embed-active="2" data-worker-min="0" data-worker-max="15" data-worker-per-row="5" data-worker-visible-max="20" title="Workers: 2 of 5 busy">
           <div class="worker-step-col"><button type="button" class="worker-step-btn" aria-label="Decrease workers">−</button><button type="button" class="worker-step-btn" aria-label="Increase workers">+</button></div>
-          <div class="worker-strip worker-strip-split" role="img" aria-label="2 of 5 workers busy">${workerPills(2, 5)}</div>
+          <div class="${workerStripClass(5)}" role="img" aria-label="2 of 5 workers busy">${workerPills(2, 5)}</div>
           <span class="worker-count-label">5</span>
         </div>
         <span class="metric-row-value">2 active</span>
@@ -267,9 +281,9 @@ export const embedPanelDegradedFixture = `
       <div class="channel-bar"><div class="channel-bar-head"><span class="channel-bar-label">Background</span><span class="channel-bar-nums">0 / 2,048</span></div><div class="channel-bar-track"><div class="channel-bar-fill level-ok" style="width:0%;background:#bc8cff"></div></div></div>
       <div class="metric-row worker-metric-row">
         <span class="metric-row-label">Workers</span>
-        <div class="worker-controls" data-embed-workers="15" data-embed-active="10" data-worker-min="0" data-worker-max="15" data-worker-per-row="5" title="Workers: 10 of 15 busy">
+        <div class="worker-controls" data-embed-workers="15" data-embed-active="10" data-worker-min="0" data-worker-max="15" data-worker-per-row="5" data-worker-visible-max="20" title="Workers: 10 of 15 busy">
           <div class="worker-step-col"><button type="button" class="worker-step-btn" aria-label="Decrease workers">−</button><button type="button" class="worker-step-btn" aria-label="Increase workers">+</button></div>
-          <div class="worker-strip worker-strip-split" role="img" aria-label="10 of 15 workers busy">${workerPills(10, 15)}</div>
+          <div class="${workerStripClass(15)}" role="img" aria-label="10 of 15 workers busy">${workerPills(10, 15)}</div>
           <span class="worker-count-label">15</span>
         </div>
         <span class="metric-row-value">10 active</span>

@@ -23,6 +23,8 @@ Cursor loads skills from [`.cursor/skills/`](../.cursor/skills/) with YAML `name
 | `.cursor/skills/ast-rebuild/` | maintained in-repo (repo-relative paths) |
 | `.cursor/skills/ast-operator/` | `skills/operator/SKILL.md` |
 
+**Global Cursor rule:** `~/.cursor/rules/ast-context-cache.mdc` (`alwaysApply: true`) — full tool list + compaction policy for all workspaces. Source: [AGENTS.md](../AGENTS.md) or [skills/agents/SKILL.md](agents/SKILL.md).
+
 After editing portable skills, re-sync Cursor copies:
 
 ```bash

@@ -134,6 +134,25 @@ func Match(absPath, projectRoot string, patterns []string) bool {
 	return false
 }
 
+// MatchAnyPath reports whether path matches any glob or literal pattern against the full slash path.
+func MatchAnyPath(path string, patterns []string) bool {
+	path = filepath.ToSlash(filepath.Clean(path))
+	if path == "" {
+		return false
+	}
+	alt := strings.TrimPrefix(path, "/")
+	for _, p := range patterns {
+		p = filepath.ToSlash(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+		if matchOne(path, p) || matchOne(alt, strings.TrimPrefix(p, "/")) {
+			return true
+		}
+	}
+	return false
+}
+
 func parseRaw(raw string) []string {
 	if raw == "" || raw == "[]" {
 		return nil

@@ -24,6 +24,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -267,6 +268,8 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		go db.Compact()
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
 	} else if projectPath != "" {
+		projectPath = watcher.NormalizeProjectPath(projectPath)
+		embedqueue.RemoveProject(projectPath)
 		_, err := db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -292,11 +295,12 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	var req map[string]string
 	json.NewDecoder(r.Body).Decode(&req)
-	projectPath := req["project_path"]
+	projectPath := watcher.NormalizeProjectPath(req["project_path"])
 	if projectPath == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return
 	}
+	embedqueue.RemoveProject(projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
 	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
 	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
@@ -547,11 +551,25 @@ func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error
 	return delta, nil, nil
 }
 
+func embedWorkersSnapshot() map[string]interface{} {
+	return map[string]interface{}{
+		"workers":     embedqueue.WorkerCount(),
+		"max_workers": embedqueue.MaxWorkers(),
+		"live":        embedqueue.WorkerLive(),
+	}
+}
+
 func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet {
+		out := embedWorkersSnapshot()
+		out["status"] = "ok"
+		json.NewEncoder(w).Encode(out)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET or POST required"})
 		return
 	}
 	delta, count, err := parseEmbedWorkersRequest(r)
@@ -572,7 +590,10 @@ func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	realtime.Notify(realtime.IndexHealth | realtime.HealthBar)
-	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "workers": n})
+	out := embedWorkersSnapshot()
+	out["status"] = "ok"
+	out["workers"] = n
+	json.NewEncoder(w).Encode(out)
 }
 
 func handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -592,6 +613,13 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
 			return
 		}
+		if key == "embed_worker_max" {
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > embedqueue.AbsoluteMaxWorkers {
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("embed_worker_max must be 1–%d", embedqueue.AbsoluteMaxWorkers)})
+				return
+			}
+		}
 		if key == "EMBED_BACKEND" {
 			value = normalizeEmbedBackendValue(value)
 			oldBackend := components.EmbedBackendUI(db.GetSetting("EMBED_BACKEND", ""))
@@ -610,12 +638,26 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "watcher_ignore_globs" {
 			ignorepatterns.InvalidateCache()
 		}
+		if key == "project_exclude_paths" {
+			projectmeta.InvalidateExcludeCache()
+		}
+		if key == "embed_worker_max" {
+			if err := embedqueue.ClampWorkersToMax(); err != nil {
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			invalidatePartialCache("#index-health")
+		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
 		reloadEmbed := embedder.IsSettingKey(key)
 		if reloadEmbed {
 			mask = realtime.IndexHealth | realtime.HealthBar
 		} else if key == "idle_unload_minutes" {
+			mask |= realtime.IndexHealth | realtime.HealthBar
+		} else if key == "project_exclude_paths" {
+			mask |= realtime.IndexHealth
+		} else if key == "embed_worker_max" {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		}
 		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
@@ -624,6 +666,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	defaults := map[string]string{
 		"idle_unload_minutes":         "1",
 		"watcher_ignore_globs":         ignorepatterns.JSON(ignorepatterns.DefaultGlobs),
+		"project_exclude_paths":        "[]",
 		"index_log_files":              "false",
 		"log_retention_enabled":        "false",
 		"log_retention_roots":          "[]",
@@ -650,6 +693,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"context_max_notes_global":      "500",
 		"context_max_tokens_global":     "200000",
 		"context_limit_policy":          "reject",
+		"embed_worker_max":              strconv.Itoa(embedqueue.DefaultMaxWorkers),
 		"dashboard_log_tail_lines":      "200",
 		"dashboard_log_line_chars":      "500",
 	}
@@ -878,6 +922,8 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return
 	}
+	projectPath = watcher.NormalizeProjectPath(projectPath)
+	embedqueue.RemoveProject(projectPath)
 
 	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
 	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
@@ -894,7 +940,6 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }
 
-// parseProjectPathFromRequest reads project_path from JSON (HTMX hx-vals) or form body.
 func parseProjectPathFromRequest(r *http.Request) string {
 	ct := r.Header.Get("Content-Type")
 	if strings.Contains(ct, "application/json") {
@@ -978,16 +1023,12 @@ func handleIndexProject(w http.ResponseWriter, r *http.Request) {
 	respondHTMXPartial(w, r)
 }
 
-func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	projectPath := parseProjectPathFromRequest(r)
+func deleteProjectData(projectPath string) {
+	projectPath = watcher.NormalizeProjectPath(projectPath)
 	if projectPath == "" {
-		respondHTMXPartial(w, r)
 		return
 	}
+	embedqueue.RemoveProject(projectPath)
 	watcher.DeleteWatcher(projectPath)
 	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
 	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
@@ -1001,6 +1042,20 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
+}
+
+func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	projectPath := parseProjectPathFromRequest(r)
+	if projectPath == "" {
+		respondHTMXPartial(w, r)
+		return
+	}
+	deleteProjectData(projectPath)
+	realtime.Notify(realtime.EmbedFinished | realtime.IndexHealth)
 	respondHTMXPartial(w, r)
 }
 

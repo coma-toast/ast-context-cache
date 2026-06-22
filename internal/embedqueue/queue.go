@@ -88,7 +88,7 @@ func Start(e embedder.Interface) {
 		pendingCh = make(chan job, pendingCap)
 		highCh = make(chan job, highCap)
 		lowCh = make(chan job, lowCap)
-		workerStop = make(chan struct{}, MaxWorkers)
+		workerStop = make(chan struct{}, AbsoluteMaxWorkers)
 	workerMu.Lock()
 	workerCount = loadWorkerCount()
 	workerTarget = workerCount
@@ -149,6 +149,9 @@ func run(j job) {
 		atomic.AddInt64(&inFlight, -1)
 		realtime.Notify(realtime.EmbedFinished)
 	}()
+	if isProjectCancelled(j.projectPath) {
+		return
+	}
 	if e := queueEmbedder(); e == nil {
 		return
 	}
@@ -177,6 +180,9 @@ func Submit(file, projectPath string) {
 // SubmitPriority enqueues an embed; high priority is used for pinned projects.
 // Start must have been called from main with a non-nil embedder.
 func SubmitPriority(file, projectPath string, high bool) {
+	if isProjectCancelled(projectPath) {
+		return
+	}
 	if highCh == nil {
 		e := queueEmbedder()
 		if e != nil {
