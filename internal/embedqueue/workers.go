@@ -14,7 +14,7 @@ import (
 
 const (
 	MinWorkers         = 0
-	MaxWorkers         = 10
+	MaxWorkers         = 15
 	defaultWorkers     = 3
 	embedWorkersSetting = "EMBED_WORKERS"
 )

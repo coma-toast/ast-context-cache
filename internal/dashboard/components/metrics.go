@@ -172,7 +172,7 @@ func (h IndexHealth) EmbedRecentPreview() []EmbedActivityItem {
 
 const (
 	MinEmbedWorkers   = 0
-	MaxEmbedWorkers   = 10
+	MaxEmbedWorkers   = 15
 	WorkerStripPerRow = 5
 )
 

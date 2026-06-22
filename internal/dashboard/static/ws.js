@@ -937,7 +937,7 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
 
 window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
 
-const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 10, perRow: 5 };
+const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5 };
 
 function syncWorkerStateFromDOM() {
     const el = document.querySelector('.worker-controls[data-embed-workers]');
@@ -946,7 +946,7 @@ function syncWorkerStateFromDOM() {
     workerUIState.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
     workerUIState.server.active = parseInt(el.dataset.embedActive, 10) || 0;
     workerUIState.min = parseInt(el.dataset.workerMin, 10) || 0;
-    workerUIState.max = parseInt(el.dataset.workerMax, 10) || 10;
+    workerUIState.max = parseInt(el.dataset.workerMax, 10) || 15;
     workerUIState.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
     if (workerUIState.target !== null && workerUIState.server.total === workerUIState.target) {
         workerUIState.target = null;
