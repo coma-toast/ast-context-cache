@@ -89,24 +89,55 @@ func cpuGaugePct(p float64) float64 {
 	return p
 }
 
-func loadAvgPct(load1 float64) float64 {
+func loadAvgCPUs() float64 {
 	n := float64(runtime.NumCPU())
 	if n <= 0 {
-		n = 1
+		return 1
 	}
-	p := load1 / n * 100
-	if p > 100 {
+	return n
+}
+
+func loadAvgPerCore(load float64) float64 {
+	return load / loadAvgCPUs()
+}
+
+// loadAvgUtilPct is load ÷ cores as a percentage (uncapped; 200% = 2× overloaded).
+func loadAvgUtilPct(load float64) float64 {
+	return loadAvgPerCore(load) * 100
+}
+
+// loadAvgBarWidth caps bar fill at 100% while level uses uncapped utilization.
+func loadAvgBarWidth(utilPct float64) float64 {
+	if utilPct > 100 {
 		return 100
 	}
-	return p
+	if utilPct < 0 {
+		return 0
+	}
+	return utilPct
 }
 
 func (h IndexHealth) LoadAvgLabel() string {
-	return fmt.Sprintf("%.2f · %.2f · %.2f", h.LoadAvg1, h.LoadAvg5, h.LoadAvg15)
+	cpus := int(loadAvgCPUs())
+	return fmt.Sprintf("%.2f× · %.2f× · %.2f× · %dc",
+		loadAvgPerCore(h.LoadAvg1),
+		loadAvgPerCore(h.LoadAvg5),
+		loadAvgPerCore(h.LoadAvg15),
+		cpus)
 }
 
 func (h IndexHealth) LoadAvgHint() string {
-	return fmt.Sprintf("Host load averages (1 / 5 / 15 min) — gauge vs %d CPU cores", runtime.NumCPU())
+	cpus := int(loadAvgCPUs())
+	return fmt.Sprintf("Host load average (1 / 5 / 15 min) ÷ %d cores — 1.0× = fully utilized, >1.0× = overloaded (raw: %.2f · %.2f · %.2f)",
+		cpus, h.LoadAvg1, h.LoadAvg5, h.LoadAvg15)
+}
+
+func (h IndexHealth) loadAvgBarPct() float64 {
+	return loadAvgBarWidth(loadAvgUtilPct(h.LoadAvg1))
+}
+
+func (h IndexHealth) loadAvgLevelPct() float64 {
+	return loadAvgUtilPct(h.LoadAvg1)
 }
 
 func throughputStyle(rate int64) string {

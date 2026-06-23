@@ -6,9 +6,7 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -54,16 +52,7 @@ type healthResponse struct {
 }
 
 func New(modelDir string) (*Embedder, error) {
-	ortLib := os.Getenv("ONNXRUNTIME_LIB")
-	if ortLib == "" {
-		ortLib = "/opt/homebrew/lib/libonnxruntime.dylib"
-		if runtime.GOOS == "linux" {
-			ortLib = "/usr/lib/libonnxruntime.so"
-		}
-	}
-
-	ort.SetSharedLibraryPath(ortLib)
-	if err := ort.InitializeEnvironment(); err != nil {
+	if err := ensureONNXRuntime(); err != nil {
 		return nil, fmt.Errorf("init ONNX Runtime: %w", err)
 	}
 
@@ -81,10 +70,13 @@ func New(modelDir string) (*Embedder, error) {
 	}
 	attnMask, err := ort.NewEmptyTensor[int64](ort.NewShape(1, maxSeqLen))
 	if err != nil {
+		inputIDs.Destroy()
 		return nil, fmt.Errorf("create attention_mask tensor: %w", err)
 	}
 	output, err := ort.NewEmptyTensor[float32](ort.NewShape(1, Dimensions))
 	if err != nil {
+		inputIDs.Destroy()
+		attnMask.Destroy()
 		return nil, fmt.Errorf("create output tensor: %w", err)
 	}
 
@@ -96,6 +88,9 @@ func New(modelDir string) (*Embedder, error) {
 		nil,
 	)
 	if err != nil {
+		inputIDs.Destroy()
+		attnMask.Destroy()
+		output.Destroy()
 		return nil, fmt.Errorf("create ONNX session: %w", err)
 	}
 
@@ -109,6 +104,9 @@ func New(modelDir string) (*Embedder, error) {
 }
 
 func (e *Embedder) Close() {
+	if e == nil {
+		return
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.session == nil {
@@ -124,7 +122,6 @@ func (e *Embedder) Close() {
 	e.attnMask = nil
 	e.output = nil
 	e.tokenizer = nil
-	ort.DestroyEnvironment()
 }
 
 func (e *Embedder) Embed(texts []string) ([][]float32, error) {
