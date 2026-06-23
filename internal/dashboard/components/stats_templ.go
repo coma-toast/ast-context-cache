@@ -123,7 +123,23 @@ func StatsCards(s Stats) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div><div class=\"section-title panel-spaced\">Context memory <span class=\"section-hint\">Virtual context compaction and KV repair golden archives — full detail on Memory tab</span></div><div class=\"grid grid-3 stats-grid\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = StatMeter("Virtual context", fmtInt(s.VirtualInventoryTokens), s.virtualSublabel(), s.virtualInventoryMeter(), "stat-cyan").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = StatMeter("KV repair", fmt.Sprintf("Today: %d repairs", s.KvRepairTodayRepairs), s.kvRepairSublabel(), s.kvRepairMeter(), "stat-purple").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = StatMeter("Repair archives", fmtInt(s.KvRepairArchivesActive), s.kvRepairArchivesSublabel(), s.kvRepairArchivesMeter(), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

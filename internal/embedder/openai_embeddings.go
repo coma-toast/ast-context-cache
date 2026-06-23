@@ -121,7 +121,7 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%s %s: %s", o.errLabel, resp.Status, truncateForErr(raw, 200))
+		return nil, FormatHTTPError(o.errLabel, resp.StatusCode, resp.Status, raw)
 	}
 	var apiOut openAIEmbedAPIResponse
 	if err := json.Unmarshal(raw, &apiOut); err != nil {

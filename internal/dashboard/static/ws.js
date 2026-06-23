@@ -9,6 +9,52 @@ const projectFilteredTargets = new Set([
     '#import-chart',
 ]);
 
+const partialTabGate = {
+    '#memory-panel': 'memory',
+    '#settings-content': 'settings',
+    '#symbol-chart': 'activity',
+    '#lang-chart': 'activity',
+    '#tool-chart': 'analytics',
+    '#import-chart': 'analytics',
+    '#recent-queries': 'recent',
+};
+
+function dashboardActiveTab() {
+    const root = document.querySelector('.app-shell');
+    if (root && root._x_dataStack && root._x_dataStack[0]?.activeTab) {
+        return root._x_dataStack[0].activeTab;
+    }
+    const hash = (location.hash || '').replace('#', '');
+    return hash || 'overview';
+}
+
+function shouldApplyPartial(targetSel) {
+    const tab = partialTabGate[targetSel];
+    if (!tab) return true;
+    return dashboardActiveTab() === tab;
+}
+
+function panelNeedsBootstrap(el, sel) {
+    if (!el) return false;
+    if (el.textContent.includes('Loading...')) return true;
+    if (sel === '#stats-cards' && el.querySelector('.stat-value')?.textContent === '-') return true;
+    if (sel === '#health-bar' && !el.querySelector('.health-item')) return true;
+    return false;
+}
+
+async function fetchPartial(sel, path) {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    const r = await fetch(path);
+    if (!r.ok) return false;
+    el.innerHTML = await r.text();
+    mountHTMXContent(el);
+    if (sel === '#index-health' || sel === '#health-bar') {
+        onWorkerPartialUpdated();
+    }
+    return true;
+}
+
 function projectFilterActive() {
     const select = document.querySelector('.project-select');
     return !!(select && select.value);
@@ -53,6 +99,9 @@ document.addEventListener('alpine:init', () => {
             } else if (msg.type === 'partial') {
                 const targetSel = msg.data.target;
                 if (projectFilterActive() && projectFilteredTargets.has(targetSel)) {
+                    return;
+                }
+                if (!shouldApplyPartial(targetSel)) {
                     return;
                 }
                 const target = document.querySelector(targetSel);
@@ -105,6 +154,8 @@ document.addEventListener('alpine:init', () => {
         selectedProject: '',
         activeTab: 'overview',
         settingsLoaded: false,
+        activityLoaded: false,
+        analyticsLoaded: false,
 
         init() {
             const hash = (location.hash || '').replace('#', '');
@@ -120,6 +171,12 @@ document.addEventListener('alpine:init', () => {
             if (this.activeTab === 'memory') {
                 this.loadMemory();
             }
+            if (this.activeTab === 'activity') {
+                this.loadActivity();
+            }
+            if (this.activeTab === 'analytics') {
+                this.loadAnalytics();
+            }
             if (this.activeTab === 'recent') {
                 refreshRecentPartial(true);
             }
@@ -127,26 +184,19 @@ document.addEventListener('alpine:init', () => {
         },
 
         async bootstrapPanels() {
-            const panels = [
+            const fast = [
                 ['#health-bar', '/partials/health'],
                 ['#stats-cards', '/partials/stats'],
-                ['#index-health', '/partials/index-health'],
             ];
-            await Promise.all(panels.map(async ([sel, path]) => {
+            await Promise.all(fast.map(async ([sel, path]) => {
                 const el = document.querySelector(sel);
-                if (!el) return;
-                const stale = el.textContent.includes('Loading...') ||
-                    (sel === '#stats-cards' && el.querySelector('.stat-value')?.textContent === '-');
-                if (!stale) return;
-                const r = await fetch(path);
-                if (r.ok) {
-                    el.innerHTML = await r.text();
-                    mountHTMXContent(el);
-                    if (sel === '#index-health' || sel === '#health-bar') {
-                        onWorkerPartialUpdated();
-                    }
-                }
+                if (!panelNeedsBootstrap(el, sel)) return;
+                await fetchPartial(sel, path);
             }));
+            const el = document.querySelector('#index-health');
+            if (panelNeedsBootstrap(el, '#index-health')) {
+                await fetchPartial('#index-health', '/partials/index-health');
+            }
         },
 
         projectLabel() {
@@ -174,12 +224,38 @@ document.addEventListener('alpine:init', () => {
                 this.loadMemory();
             }
             if (tab === 'activity') {
+                this.loadActivity();
                 window.dispatchEvent(new CustomEvent('chart-update'));
+            }
+            if (tab === 'analytics') {
+                this.loadAnalytics();
             }
             if (tab === 'recent') {
                 refreshRecentPartial(true);
             }
             syncLogsPoll();
+        },
+
+        async loadActivity() {
+            if (this.activityLoaded) return;
+            this.activityLoaded = true;
+            const project = this.selectedProject;
+            const q = project ? `?project_id=${encodeURIComponent(project)}` : '';
+            await Promise.all([
+                fetchPartial('#symbol-chart', '/partials/charts/symbols' + q),
+                fetchPartial('#lang-chart', '/partials/charts/languages' + q),
+            ]);
+        },
+
+        async loadAnalytics() {
+            if (this.analyticsLoaded) return;
+            this.analyticsLoaded = true;
+            const project = this.selectedProject;
+            const q = project ? `?project_id=${encodeURIComponent(project)}` : '';
+            await Promise.all([
+                fetchPartial('#tool-chart', '/partials/charts/tools' + q),
+                fetchPartial('#import-chart', '/partials/charts/imports' + q),
+            ]);
         },
 
         async loadSettings() {
@@ -211,6 +287,8 @@ document.addEventListener('alpine:init', () => {
         async applyProjectFilter() {
             const project = this.selectedProject;
             const q = project ? `?project_id=${encodeURIComponent(project)}` : '';
+            this.activityLoaded = false;
+            this.analyticsLoaded = false;
             const panels = [
                 ['#stats-cards', '/partials/stats'],
                 ['#index-health', '/partials/index-health'],
@@ -254,7 +332,12 @@ document.addEventListener('alpine:init', () => {
             window.addEventListener('dashboard-ws-partial', this._onWsPartial);
             this._onProjectChange = () => this.loadAndDraw();
             window.addEventListener('dashboard-project-change', this._onProjectChange);
-            this.loadAndDraw();
+            this._onTabChart = () => {
+                if (dashboardActiveTab() === 'activity') {
+                    this.loadAndDraw();
+                }
+            };
+            window.addEventListener('chart-update', this._onTabChart);
         },
 
         handleData(event) {

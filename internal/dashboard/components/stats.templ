@@ -81,4 +81,10 @@ templ StatsCards(s Stats) {
 		@StatMeter("Avg duration", fmt.Sprintf("%.1f ms", s.TodayAvgDurationMs), fmt.Sprintf("30d avg: %.1f ms", s.AvgDurationMs), s.todayDurationMeter(), "stat-orange")
 		@StatMeter("Sessions", fmtInt(s.TodaySessions), s.sessionsSublabel(), s.todaySessionMeter(), "stat-purple")
 	</div>
+	<div class="section-title panel-spaced">Context memory <span class="section-hint">Virtual context compaction and KV repair golden archives — full detail on Memory tab</span></div>
+	<div class="grid grid-3 stats-grid">
+		@StatMeter("Virtual context", fmtInt(s.VirtualInventoryTokens), s.virtualSublabel(), s.virtualInventoryMeter(), "stat-cyan")
+		@StatMeter("KV repair", fmt.Sprintf("Today: %d repairs", s.KvRepairTodayRepairs), s.kvRepairSublabel(), s.kvRepairMeter(), "stat-purple")
+		@StatMeter("Repair archives", fmtInt(s.KvRepairArchivesActive), s.kvRepairArchivesSublabel(), s.kvRepairArchivesMeter(), "stat-accent")
+	</div>
 }

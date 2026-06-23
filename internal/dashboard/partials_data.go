@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -16,7 +18,40 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
+var (
+	indexHealthCacheMu sync.Mutex
+	indexHealthCache   struct {
+		at  time.Time
+		pid string
+		h   components.IndexHealth
+	}
+	indexHealthCacheTTL = 2 * time.Second
+)
+
 func buildIndexHealth(projectID string) components.IndexHealth {
+	indexHealthCacheMu.Lock()
+	if !indexHealthCache.at.IsZero() && time.Since(indexHealthCache.at) < indexHealthCacheTTL && indexHealthCache.pid == projectID {
+		h := indexHealthCache.h
+		indexHealthCacheMu.Unlock()
+		return h
+	}
+	indexHealthCacheMu.Unlock()
+	h := buildIndexHealthFresh(projectID)
+	indexHealthCacheMu.Lock()
+	indexHealthCache.at = time.Now()
+	indexHealthCache.pid = projectID
+	indexHealthCache.h = h
+	indexHealthCacheMu.Unlock()
+	return h
+}
+
+func invalidateIndexHealthCache() {
+	indexHealthCacheMu.Lock()
+	indexHealthCache.at = time.Time{}
+	indexHealthCacheMu.Unlock()
+}
+
+func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h := components.IndexHealth{}
 	if projectID != "" {
 		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)

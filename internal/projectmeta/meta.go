@@ -5,10 +5,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"gopkg.in/yaml.v3"
 )
+
+const enrichCacheTTL = 45 * time.Second
+
+var (
+	enrichMu    sync.Mutex
+	enrichCache = map[string]enrichCacheEntry{}
+)
+
+type enrichCacheEntry struct {
+	at   time.Time
+	info Info
+}
 
 // Info describes a repo checkout for dashboard display and WTG grouping.
 type Info struct {
@@ -37,6 +51,21 @@ func Enrich(projectPath string) Info {
 	if path == "" {
 		return Info{}
 	}
+	enrichMu.Lock()
+	if e, ok := enrichCache[path]; ok && time.Since(e.at) < enrichCacheTTL {
+		info := e.info
+		enrichMu.Unlock()
+		return info
+	}
+	enrichMu.Unlock()
+	info := enrichFresh(path)
+	enrichMu.Lock()
+	enrichCache[path] = enrichCacheEntry{at: time.Now(), info: info}
+	enrichMu.Unlock()
+	return info
+}
+
+func enrichFresh(path string) Info {
 	repoName := filepath.Base(path)
 	branch, commonDir := gitMeta(path)
 	workspace := workspaceForPath(path)

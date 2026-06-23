@@ -378,6 +378,13 @@ type dashboardPartial struct {
 	render func() string
 }
 
+// overviewInitialPartials are the only panels pushed on WebSocket connect (fast first paint).
+var overviewInitialPartials = []dashboardPartial{
+	{"health-bar", "#health-bar", renderHealthBar},
+	{"stats", "#stats-cards", renderStats},
+	{"index-health", "#index-health", renderIndexHealth},
+}
+
 // Panels refreshed via internal/realtime.Notify (no server polling).
 var dashboardPartials = []dashboardPartial{
 	{"index-health", "#index-health", renderIndexHealth},
@@ -407,7 +414,7 @@ func wsTrySend(c *wsClient, data []byte) (ok bool) {
 }
 
 func pushInitialDashboardSnapshot(c *wsClient) {
-	for _, p := range dashboardPartials {
+	for _, p := range overviewInitialPartials {
 		html := p.render()
 		data, err := json.Marshal(wsMsg{
 			Type:      "partial",

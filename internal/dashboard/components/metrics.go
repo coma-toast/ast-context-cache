@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 )
 
@@ -33,7 +34,7 @@ func (d SettingsData) EmbedActiveStatusLabel() string {
 }
 
 func (d SettingsData) EmbedderErrorShort() string {
-	return truncateEmbedLabel(d.EmbedderError, 120)
+	return truncateEmbedLabel(embedder.HumanizeEmbedError(d.EmbedderError), 120)
 }
 
 func (h IndexHealth) ShowEmbedDismiss() bool {
@@ -147,10 +148,7 @@ func AuxWorkerMax() int {
 }
 
 func (h IndexHealth) EmbedderErrorShort() string {
-	if len(h.EmbedderError) <= 120 {
-		return h.EmbedderError
-	}
-	return h.EmbedderError[:117] + "..."
+	return truncateEmbedLabel(embedder.HumanizeEmbedError(h.EmbedderError), 120)
 }
 
 func (h IndexHealth) EmbedActivityLabel(item EmbedActivityItem) string {
@@ -470,6 +468,24 @@ func (s Stats) virtualInventoryMeter() TodayMeterFill {
 		return todayMeterFill(s.VirtualInventoryTokens, maxInt(s.VirtualStored30d, 1))
 	}
 	return todayMeterFill(s.VirtualInventoryTokens, s.VirtualMaxTokensGlobal)
+}
+
+func (s Stats) kvRepairSublabel() string {
+	return fmt.Sprintf("30d: %d repairs · miss: %d · quality: %d · manual: %d · util: %.0f%% · orphans: %d",
+		s.KvRepairRepairsTotal30d, s.KvRepairCacheMiss30d, s.KvRepairQuality30d, s.KvRepairManual30d, s.KvRepairUtilPct30d, s.KvRepairOrphans)
+}
+
+func (s Stats) kvRepairMeter() TodayMeterFill {
+	return todayMeterFill(s.KvRepairRepairsTotal30d, maxInt(s.KvRepairArchivesStored30d, 1))
+}
+
+func (s Stats) kvRepairArchivesSublabel() string {
+	return fmt.Sprintf("30d stored: %s · tokens repaired: %s · accessed today: %s",
+		fmtInt(s.KvRepairArchivesStored30d), fmtInt(s.KvRepairTokensRepaired30d), fmtInt(s.VirtualTodayAccessed))
+}
+
+func (s Stats) kvRepairArchivesMeter() TodayMeterFill {
+	return todayMeterFill(s.KvRepairArchivesActive, maxInt(s.KvRepairArchivesStored30d, 1))
 }
 
 func maxInt(a, b int) int {

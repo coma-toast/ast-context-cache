@@ -96,7 +96,7 @@ func (o *OllamaEmbedder) postEmbed(texts []string) ([][]float32, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("ollama %s: %s", resp.Status, truncateForErr(raw, 200))
+		return nil, FormatHTTPError("ollama embed", resp.StatusCode, resp.Status, raw)
 	}
 	var out ollamaEmbedResp
 	if err := json.Unmarshal(raw, &out); err != nil {

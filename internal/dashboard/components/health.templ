@@ -2,6 +2,7 @@ package components
 
 import "fmt"
 import "time"
+import "github.com/coma-toast/ast-context-cache/internal/embedder"
 
 type Health struct {
 	EmbedderState    string
@@ -116,7 +117,11 @@ func (h Health) ShowQueryCache() bool {
 }
 
 func (h Health) EmbedderErrorShort() string {
-	return truncateEmbedLabel(h.EmbedderError, 48)
+	return truncateEmbedLabel(h.EmbedderHumanError(), 48)
+}
+
+func (h Health) EmbedderHumanError() string {
+	return embedder.HumanizeEmbedError(h.EmbedderError)
 }
 
 func (h Health) EmbedderChipLabel() string {
