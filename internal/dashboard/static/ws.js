@@ -113,7 +113,8 @@ document.addEventListener('alpine:init', () => {
                 this.activeTab = hash;
             }
             this.bootstrapPanels();
-            refreshWorkerLimitsFromServer().then(() => {
+            refreshWorkerLimitsFromServer().then((gotMax) => {
+                if (!gotMax) syncWorkerMaxFromDOM();
                 if (syncWorkerStateFromDOM()) renderWorkerUI();
             });
             if (this.activeTab === 'settings') {
@@ -994,7 +995,7 @@ function parseWorkerLimit(v, fallback) {
 async function refreshWorkerLimitsFromServer() {
     try {
         const r = await fetch('/api/embed-workers');
-        if (!r.ok) return;
+        if (!r.ok) return false;
         const data = await r.json();
         if (data.max_workers != null) {
             workerUIState.max = parseWorkerLimit(data.max_workers, workerUIState.max);
@@ -1003,7 +1004,17 @@ async function refreshWorkerLimitsFromServer() {
         if (el && data.max_workers != null) {
             el.dataset.workerMax = String(workerUIState.max);
         }
-    } catch (_) {}
+        return data.max_workers != null;
+    } catch (_) {
+        return false;
+    }
+}
+
+// Max comes from /api/embed-workers; DOM can be stale after settings change or WS skip.
+function syncWorkerMaxFromDOM() {
+    const el = document.querySelector('.worker-controls[data-embed-workers]');
+    if (!el) return;
+    workerUIState.max = parseWorkerLimit(el.dataset.workerMax, workerUIState.max);
 }
 
 function syncWorkerStateFromDOM() {
@@ -1013,7 +1024,6 @@ function syncWorkerStateFromDOM() {
     workerUIState.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
     workerUIState.server.active = parseInt(el.dataset.embedActive, 10) || 0;
     workerUIState.min = parseInt(el.dataset.workerMin, 10) || 0;
-    workerUIState.max = parseWorkerLimit(el.dataset.workerMax, workerUIState.max);
     workerUIState.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
     workerUIState.visibleMax = parseInt(el.dataset.workerVisibleMax, 10) || 20;
     if (workerUIState.target !== null && workerUIState.server.total === workerUIState.target) {
@@ -1159,13 +1169,11 @@ function applyWorkerDelta(delta) {
     renderWorkerUI();
 }
 
-function onWorkerPartialUpdated() {
+async function onWorkerPartialUpdated() {
     syncWorkerStateFromDOM();
-    refreshWorkerLimitsFromServer().then(() => {
-        if (syncWorkerStateFromDOM()) {
-            renderWorkerUI();
-        }
-    });
+    const gotMax = await refreshWorkerLimitsFromServer();
+    if (!gotMax) syncWorkerMaxFromDOM();
+    if (syncWorkerStateFromDOM()) renderWorkerUI();
 }
 
 async function refreshHealthBarPartial() {
@@ -1269,11 +1277,15 @@ document.body.addEventListener('click', async (e) => {
     const workerBtn = e.target.closest('.worker-step-btn');
     if (workerBtn) {
         e.preventDefault();
-        await refreshWorkerLimitsFromServer();
+        const gotMax = await refreshWorkerLimitsFromServer();
+        if (!gotMax) syncWorkerMaxFromDOM();
         if (!syncWorkerStateFromDOM()) return;
         renderWorkerUI();
         const delta = parseInt(workerBtn.dataset.workerDelta, 10);
-        if (workerBtn.disabled || !Number.isFinite(delta) || delta === 0) return;
+        if (!Number.isFinite(delta) || delta === 0) return;
+        const plan = getWorkerRenderPlan();
+        if (delta < 0 && plan.target <= workerUIState.min) return;
+        if (delta > 0 && plan.target >= workerUIState.max) return;
         applyWorkerDelta(delta);
         adjustEmbedWorkers(delta);
         return;
