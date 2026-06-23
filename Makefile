@@ -161,6 +161,9 @@ build: download-model download-tokenizer-lib generate internal/version/VERSION
 run: build
 	ONNXRUNTIME_LIB=$(ORT_DYLIB) ./$(BINARY)
 
+run-safe: build
+	AST_EMBED_WORKERS=0 ONNXRUNTIME_LIB=$(ORT_DYLIB) ./$(BINARY)
+
 test: download-tokenizer-lib
 	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 ./...
 

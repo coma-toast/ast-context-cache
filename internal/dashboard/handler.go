@@ -198,7 +198,8 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 		EmbedderState:    state,
 		EmbedderError:    embedErr,
 		EmbedderLast:    lastUse,
-		QueueWorkers:   eq.Workers,
+		QueueWorkers:     eq.Workers,
+		QueueWorkersLive: eq.WorkersLive,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
 		QueuePending:     eq.Pending,
@@ -453,6 +454,9 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		Projects:                projects,
 		Agents:                  agents,
 		EmbedWorkerMax:          embedqueue.MaxWorkers(),
+		EmbedAuxWorkerMax:       embedqueue.AuxMaxWorkers(),
+		EmbedAuxWorkers:         embedqueue.AuxWorkerCount(),
+		EmbedAuxBackend:         strings.TrimSpace(db.GetSetting("EMBED_AUX_BACKEND", "onnx")),
 	}
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)

@@ -21,6 +21,8 @@ type Note struct {
 	Label         string `json:"label,omitempty"`
 	Content       string `json:"content,omitempty"`
 	Tags          string `json:"tags,omitempty"`
+	Kind          string `json:"kind,omitempty"`
+	MetadataJSON  string `json:"metadata_json,omitempty"`
 	TokenEst      int    `json:"virtual_tokens,omitempty"`
 	AccessCount   int    `json:"access_count,omitempty"`
 	CreatedAt     string `json:"created_at,omitempty"`
@@ -79,7 +81,7 @@ func normalizeTags(raw interface{}) string {
 }
 
 // Store saves virtual context and returns a stable ref.
-func Store(sessionID, content, label, projectPath string, tags interface{}, emb embedder.Interface) (*StoreResult, error) {
+func Store(sessionID, content, label, projectPath string, tags interface{}, kind string, metadata map[string]interface{}, emb embedder.Interface) (*StoreResult, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	content = strings.TrimSpace(content)
 	if sessionID == "" || content == "" {
@@ -91,6 +93,14 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, emb 
 		return nil, &LimitError{Limit: "single_note_tokens", Current: tokenEst, Max: lim.MaxTokensSession, WouldAdd: tokenEst}
 	}
 	tagStr := normalizeTags(tags)
+	kind, metaJSON := resolveStoreKind(kind, tagStr, metadata)
+	if kind == KindKvRepair && metadata != nil {
+		if m, ok := metadata["token_count"].(float64); ok && int(m) > 0 {
+			tokenEst = int(m)
+		} else if m, ok := metadata["token_count"].(int); ok && m > 0 {
+			tokenEst = m
+		}
+	}
 	var evicted []string
 	var err error
 	if lim.Policy == "lru_session" {
@@ -106,9 +116,9 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, emb 
 		return nil, err
 	}
 	hash := search.ContentHash(content)
-	_, err = db.DB.Exec(`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, token_est)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		ref, sessionID, projectPath, label, content, hash, tagStr, tokenEst)
+	_, err = db.DB.Exec(`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ref, sessionID, projectPath, label, content, hash, tagStr, kind, metaJSON, tokenEst)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +128,7 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, emb 
 		go EmbedNote(ref, sessionID, label, content, emb)
 	}
 	stats := BuildStatsBlock(sessionID, lim)
+	appendKvRepairStats(stats, projectPath)
 	return &StoreResult{
 		Ref:                 ref,
 		Label:               label,
@@ -176,7 +187,7 @@ func oldestSessionNote(sessionID string) (ref string, tokens int, ok bool) {
 
 func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 	var n Note
-	err := row.Scan(&n.Ref, &n.SessionID, &n.ProjectPath, &n.Label, &n.Content, &n.Tags, &n.TokenEst, &n.AccessCount, &n.CreatedAt, &n.LastAccessed)
+	err := row.Scan(&n.Ref, &n.SessionID, &n.ProjectPath, &n.Label, &n.Content, &n.Tags, &n.Kind, &n.MetadataJSON, &n.TokenEst, &n.AccessCount, &n.CreatedAt, &n.LastAccessed)
 	if err != nil {
 		return n, err
 	}
@@ -188,7 +199,7 @@ func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 
 func noteByRef(ref string) (Note, error) {
 	row := db.DB.QueryRow(`SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
-		COALESCE(tags,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE ref = ?`, ref)
 	return scanNote(row)
 }
@@ -296,11 +307,12 @@ type FetchResult struct {
 }
 
 // Fetch returns notes by ref, optionally scoped to session_id.
-func Fetch(refsRaw interface{}, sessionID string) (*FetchResult, error) {
+func Fetch(refsRaw interface{}, sessionID, repairReason string) (*FetchResult, error) {
 	refs := parseRefList(refsRaw)
 	if len(refs) == 0 {
 		return nil, errors.New("refs required")
 	}
+	reason := normalizeRepairReason(repairReason)
 	notes := make([]Note, 0, len(refs))
 	totalReturned := 0
 	for _, ref := range refs {
@@ -315,7 +327,7 @@ func Fetch(refsRaw interface{}, sessionID string) (*FetchResult, error) {
 		if tok == 0 {
 			tok = db.EstimateTokens(n.Content)
 		}
-		RecordAccess(ref, n.SessionID, n.ProjectPath, "fetch_context", tok)
+		RecordAccess(ref, n.SessionID, n.ProjectPath, "fetch_context", tok, reason)
 		totalReturned += tok
 		notes = append(notes, n)
 	}
@@ -323,10 +335,14 @@ func Fetch(refsRaw interface{}, sessionID string) (*FetchResult, error) {
 		"virtual_tokens_returned": totalReturned,
 		"refs_accessed":           len(notes),
 	}
+	if reason != "" {
+		stats["repair_reason"] = reason
+	}
 	if sessionID != "" {
 		r := SessionRollupFor(sessionID)
 		stats["session_virtual_accessed_total"] = r.VirtualTokensAccessed
 	}
+	appendKvRepairStats(stats, "")
 	return &FetchResult{Notes: notes, Stats: stats}, nil
 }
 
@@ -349,7 +365,7 @@ func List(sessionID, projectPath string, limit int) (*ListResult, error) {
 	countQ := `SELECT COUNT(*) FROM context_notes WHERE session_id = ?`
 	countArgs := []any{sessionID}
 	q := `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
-		COALESCE(tags,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE session_id = ?`
 	args := []any{sessionID}
 	if projectPath != "" {
@@ -449,7 +465,7 @@ func Search(query, sessionID, projectPath string, limit int, emb embedder.Interf
 		if tok == 0 && n.Content != "" {
 			tok = db.EstimateTokens(n.Content)
 		}
-		RecordAccess(n.Ref, n.SessionID, n.ProjectPath, "search_context", tok)
+		RecordAccess(n.Ref, n.SessionID, n.ProjectPath, "search_context", tok, "")
 		totalReturned += tok
 		notes = append(notes, n)
 	}
@@ -470,7 +486,7 @@ func searchNotesFTS(query, sessionID, projectPath string, limit int) ([]ScoredNo
 		return nil, nil
 	}
 	q := `SELECT cn.ref, cn.session_id, COALESCE(cn.project_path,''), COALESCE(cn.label,''), cn.content,
-		COALESCE(cn.tags,''), cn.token_est, cn.access_count, cn.created_at, COALESCE(cn.last_accessed_at,'')
+		COALESCE(cn.tags,''), COALESCE(cn.kind,''), COALESCE(cn.metadata_json,''), cn.token_est, cn.access_count, cn.created_at, COALESCE(cn.last_accessed_at,'')
 		FROM context_notes_fts f
 		JOIN context_notes cn ON cn.ref = f.ref
 		WHERE context_notes_fts MATCH ?`
@@ -493,7 +509,7 @@ func searchNotesFTS(query, sessionID, projectPath string, limit int) ([]ScoredNo
 	var out []ScoredNote
 	for rows.Next() {
 		var n Note
-		if err := rows.Scan(&n.Ref, &n.SessionID, &n.ProjectPath, &n.Label, &n.Content, &n.Tags, &n.TokenEst, &n.AccessCount, &n.CreatedAt, &n.LastAccessed); err != nil {
+		if err := rows.Scan(&n.Ref, &n.SessionID, &n.ProjectPath, &n.Label, &n.Content, &n.Tags, &n.Kind, &n.MetadataJSON, &n.TokenEst, &n.AccessCount, &n.CreatedAt, &n.LastAccessed); err != nil {
 			continue
 		}
 		out = append(out, ScoredNote{Note: n, Score: 1.0})
@@ -503,7 +519,7 @@ func searchNotesFTS(query, sessionID, projectPath string, limit int) ([]ScoredNo
 
 func searchNotesLike(query, sessionID, projectPath string, limit int) ([]ScoredNote, error) {
 	q := `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
-		COALESCE(tags,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE label LIKE ? OR content LIKE ?`
 	args := []any{"%" + query + "%", "%" + query + "%"}
 	if sessionID != "" {

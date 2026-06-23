@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
@@ -19,7 +20,12 @@ func handleStoreContext(toolArgs map[string]interface{}, emb embedder.Interface,
 	label, _ := toolArgs["label"].(string)
 	projectPath, _ := toolArgs["project_path"].(string)
 	tags := toolArgs["tags"]
-	res, err := contextnotes.Store(sessionID, content, label, projectPath, tags, emb)
+	kind, _ := toolArgs["kind"].(string)
+	metadata := map[string]interface{}{}
+	if raw, ok := toolArgs["metadata"].(map[string]interface{}); ok {
+		metadata = raw
+	}
+	res, err := contextnotes.Store(sessionID, content, label, projectPath, tags, kind, metadata, emb)
 	if err != nil {
 		out := contextnotes.LimitErrorMap(err)
 		resultJSON, _ := json.Marshal(out)
@@ -36,6 +42,11 @@ func handleStoreContext(toolArgs map[string]interface{}, emb embedder.Interface,
 		"virtual_tokens_stored": res.VirtualTokensStored,
 		"session_id":            res.SessionID,
 		"stats":                 res.Stats,
+	}
+	if kind != "" {
+		out["kind"] = kind
+	} else if hasTag, _ := toolArgs["tags"].(string); hasTag != "" && strings.Contains(hasTag, contextnotes.TagKvRepair) {
+		out["kind"] = contextnotes.KindKvRepair
 	}
 	if len(res.EvictedRefs) > 0 {
 		out["evicted_refs"] = res.EvictedRefs
@@ -61,11 +72,12 @@ func handleStoreContext(toolArgs map[string]interface{}, emb embedder.Interface,
 
 func handleFetchContext(toolArgs map[string]interface{}, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
 	sessionID, _ := toolArgs["session_id"].(string)
+	repairReason, _ := toolArgs["repair_reason"].(string)
 	refs := toolArgs["refs"]
 	if refs == nil {
 		refs, _ = toolArgs["ref"].(string)
 	}
-	res, err := contextnotes.Fetch(refs, sessionID)
+	res, err := contextnotes.Fetch(refs, sessionID, repairReason)
 	if err != nil {
 		out := map[string]string{"error": err.Error()}
 		resultJSON, _ := json.Marshal(out)
@@ -152,6 +164,39 @@ func handleFlushContext(toolArgs map[string]interface{}, start time.Time, cpuSta
 	return out
 }
 
+func handleReportKvRepairEvent(toolArgs map[string]interface{}, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
+	reason, _ := toolArgs["reason"].(string)
+	outcome, _ := toolArgs["outcome"].(string)
+	sessionID, _ := toolArgs["session_id"].(string)
+	ref, _ := toolArgs["ref"].(string)
+	modelID, _ := toolArgs["model_id"].(string)
+	kvQuant, _ := toolArgs["kv_quant"].(string)
+	detail, _ := toolArgs["detail"].(string)
+	if pp, ok := toolArgs["project_path"].(string); ok && pp != "" {
+		projectPath = pp
+	}
+	tokenEst := 0
+	if v, ok := toolArgs["token_est"].(float64); ok {
+		tokenEst = int(v)
+	}
+	err := contextnotes.ReportKvRepairEvent(contextnotes.ReportEventInput{
+		Reason: reason, Outcome: outcome, SessionID: sessionID, ProjectPath: projectPath,
+		Ref: ref, ModelID: modelID, KvQuant: kvQuant, TokenEst: tokenEst, Detail: detail,
+	})
+	if err != nil {
+		out := map[string]string{"error": err.Error()}
+		resultJSON, _ := json.Marshal(out)
+		logToolQuery("report_kv_repair_event", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, err.Error())
+		return out
+	}
+	stats := map[string]interface{}{}
+	contextnotes.AppendKvRepairStatsPublic(stats, projectPath)
+	out := map[string]interface{}{"status": "ok", "reason": reason, "stats": stats}
+	resultJSON, _ := json.Marshal(out)
+	logToolQuery("report_kv_repair_event", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, "")
+	return out
+}
+
 func handleContextTool(toolName string, toolArgs map[string]interface{}, args map[string]interface{}, emb embedder.Interface, start time.Time, cpuStart sys.CPUSample, projectPath string) (interface{}, bool, error) {
 	switch toolName {
 	case "store_context":
@@ -164,6 +209,8 @@ func handleContextTool(toolName string, toolArgs map[string]interface{}, args ma
 		return handleSearchContext(toolArgs, emb, start, cpuStart, args, projectPath), true, nil
 	case "flush_context":
 		return handleFlushContext(toolArgs, start, cpuStart, args, projectPath), true, nil
+	case "report_kv_repair_event":
+		return handleReportKvRepairEvent(toolArgs, start, cpuStart, args, projectPath), true, nil
 	default:
 		return nil, false, errors.New("not a context tool")
 	}

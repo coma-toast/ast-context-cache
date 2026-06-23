@@ -16,10 +16,16 @@ var (
 	runtimeModelDir     string
 	runtimeInitialized  bool
 	runtimeRaw          Interface
-	runtimeTracked   Interface
-	runtimeLoaded    func() bool
-	runtimeHooks     RuntimeHooks
+	runtimeTracked      Interface
+	runtimeLoaded       func() bool
+	runtimeHooks        RuntimeHooks
+	onBeforeSwap        func()
 )
+
+// SetOnBeforeSwap registers a callback before tearing down the previous embedder (e.g. drain embed queue).
+func SetOnBeforeSwap(fn func()) {
+	onBeforeSwap = fn
+}
 
 // SetRuntimeHooks registers callbacks invoked after InitRuntime or Reload swaps embedders.
 func SetRuntimeHooks(h RuntimeHooks) {
@@ -67,9 +73,16 @@ func IsLoaded() bool {
 }
 
 func reloadRuntime() error {
+	if onBeforeSwap != nil {
+		onBeforeSwap()
+	}
+	stopConnectivityProbe()
 	runtimeMu.Lock()
 	prevTracked := runtimeTracked
+	runtimeRaw = nil
+	runtimeTracked = nil
 	runtimeMu.Unlock()
+	shutdownEmbedder(prevTracked)
 	raw, loaded, err := NewForMain(runtimeModelDir)
 	if err != nil {
 		return err
@@ -80,10 +93,8 @@ func reloadRuntime() error {
 	runtimeTracked = tracked
 	runtimeLoaded = loaded
 	runtimeMu.Unlock()
-	shutdownEmbedder(prevTracked)
 	FreezeWiredSnapshot()
 	MarkReady()
-	stopConnectivityProbe()
 	StartConnectivityProbe(raw)
 	if runtimeHooks.OnSwap != nil {
 		runtimeHooks.OnSwap(tracked)

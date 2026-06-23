@@ -65,6 +65,9 @@ type SettingsData struct {
 	ContextMaxTokensGlobal  int
 	ContextLimitPolicy      string
 	EmbedWorkerMax          int
+	EmbedAuxWorkerMax       int
+	EmbedAuxWorkers         int
+	EmbedAuxBackend         string
 }
 
 templ Settings(data SettingsData) {
@@ -83,6 +86,30 @@ templ Settings(data SettingsData) {
 			<input type="number" id="embedWorkerMax" min="1" max="64" step="1" class="perf-input" value={ fmt.Sprint(data.EmbedWorkerMax) }
 				hx-vals='{"key":"embed_worker_max"}' hx-include="this" name="value"/>
 			<span class="perf-hint">Upper limit for the worker pool (+/− on the embeddings card). Above 15, the strip uses a compact 4×5 grid; above 20 workers the last slot shows an ellipsis.</span>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="embedAuxWorkerMax">Max aux embed workers</label>
+			<input type="number" id="embedAuxWorkerMax" min="1" max="32" step="1" class="perf-input" value={ fmt.Sprint(data.EmbedAuxWorkerMax) }
+				hx-vals='{"key":"embed_aux_worker_max"}' hx-include="this" name="value"/>
+			<span class="perf-hint">Upper limit for the aux catch-up pool (+/− on the embeddings card). Uses the saved aux backend profile (default onnx).</span>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="embedAuxWorkers">Aux embed workers</label>
+			<input type="number" id="embedAuxWorkers" min="0" max={ fmt.Sprint(data.EmbedAuxWorkerMax) } step="1" class="perf-input" value={ fmt.Sprint(data.EmbedAuxWorkers) }
+				hx-vals='{"key":"EMBED_AUX_WORKERS"}' hx-include="this" name="value"/>
+			<span class="perf-hint">Live aux worker count; also adjustable on the overview embeddings card when aux is enabled.</span>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change from:select" hx-swap="none">
+			<label for="embedAuxBackend">Aux embed backend</label>
+			<select id="embedAuxBackend" class="perf-input" name="value"
+				hx-vals='{"key":"EMBED_AUX_BACKEND"}' hx-include="this">
+				<option value="onnx" selected?={ data.EmbedAuxBackend == "onnx" || data.EmbedAuxBackend == "" }>onnx (local)</option>
+				<option value="http" selected?={ data.EmbedAuxBackend == "http" }>http</option>
+				<option value="ollama" selected?={ data.EmbedAuxBackend == "ollama" }>ollama</option>
+				<option value="openai" selected?={ data.EmbedAuxBackend == "openai" }>openai / litellm</option>
+				<option value="docker" selected?={ data.EmbedAuxBackend == "docker" }>docker (DMR)</option>
+			</select>
+			<span class="perf-hint">Backend for the aux worker pool. Must differ from the primary backend to show aux controls on overview.</span>
 		</form>
 	</div>
 

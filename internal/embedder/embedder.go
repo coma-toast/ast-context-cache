@@ -109,11 +109,21 @@ func New(modelDir string) (*Embedder, error) {
 }
 
 func (e *Embedder) Close() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.session == nil {
+		return
+	}
 	e.session.Destroy()
 	e.inputIDs.Destroy()
 	e.attnMask.Destroy()
 	e.output.Destroy()
 	e.tokenizer.Close()
+	e.session = nil
+	e.inputIDs = nil
+	e.attnMask = nil
+	e.output = nil
+	e.tokenizer = nil
 	ort.DestroyEnvironment()
 }
 

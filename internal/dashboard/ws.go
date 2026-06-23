@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,16 +66,20 @@ func (h *wsHub) run() {
 			}
 		case msg := <-h.broadcast:
 			data, _ := json.Marshal(msg)
+			var drop []*wsClient
 			h.mu.Lock()
 			for c := range h.clients {
-				select {
-				case c.send <- data:
-				default:
-					close(c.send)
-					delete(h.clients, c)
+				if !wsTrySend(c, data) {
+					drop = append(drop, c)
 				}
 			}
 			h.mu.Unlock()
+			for _, c := range drop {
+				select {
+				case h.unregister <- c:
+				default:
+				}
+			}
 		}
 	}
 }
@@ -158,7 +163,8 @@ func renderHealthBar() string {
 		EmbedderState:    state,
 		EmbedderError:    embedErr,
 		EmbedderLast:    lastUse,
-		QueueWorkers:    eq.Workers,
+		QueueWorkers:     eq.Workers,
+		QueueWorkersLive: eq.WorkersLive,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
 		QueuePending:     eq.Pending,
@@ -344,6 +350,12 @@ func renderSettings() string {
 		Projects:               projects,
 		Agents:                 agents,
 		EmbedWorkerMax:         embedqueue.MaxWorkers(),
+		EmbedAuxWorkerMax:      embedqueue.AuxMaxWorkers(),
+		EmbedAuxWorkers:        embedqueue.AuxWorkerCount(),
+		EmbedAuxBackend:        strings.TrimSpace(settings["EMBED_AUX_BACKEND"]),
+	}
+	if data.EmbedAuxBackend == "" {
+		data.EmbedAuxBackend = "onnx"
 	}
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)
@@ -380,6 +392,20 @@ var dashboardPartials = []dashboardPartial{
 	{"settings", "#settings-content", renderSettings},
 }
 
+func wsTrySend(c *wsClient, data []byte) (ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	select {
+	case c.send <- data:
+		return true
+	default:
+		return false
+	}
+}
+
 func pushInitialDashboardSnapshot(c *wsClient) {
 	for _, p := range dashboardPartials {
 		html := p.render()
@@ -394,9 +420,7 @@ func pushInitialDashboardSnapshot(c *wsClient) {
 		if err != nil {
 			continue
 		}
-		select {
-		case c.send <- data:
-		default:
+		if !wsTrySend(c, data) {
 			return
 		}
 	}

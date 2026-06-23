@@ -113,10 +113,7 @@ document.addEventListener('alpine:init', () => {
                 this.activeTab = hash;
             }
             this.bootstrapPanels();
-            refreshWorkerLimitsFromServer().then((gotMax) => {
-                if (!gotMax) syncWorkerMaxFromDOM();
-                if (syncWorkerStateFromDOM()) renderWorkerUI();
-            });
+            onWorkerPartialUpdated();
             if (this.activeTab === 'settings') {
                 this.loadSettings();
             }
@@ -978,31 +975,44 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
     if (key === 'dashboard_log_tail_lines' || key === 'dashboard_log_line_chars') {
         refreshRecentLogsOnly(true);
     }
-    if (key === 'embed_worker_max') {
-        refreshWorkerLimitsFromServer().then(() => refreshIndexHealthPartial());
+    if (key === 'embed_worker_max' || key === 'embed_aux_worker_max') {
+        refreshWorkerLimitsFromServer(key === 'embed_aux_worker_max' ? 'aux' : 'primary').then(() => refreshIndexHealthPartial());
+    }
+    if (key === 'EMBED_AUX_WORKERS') {
+        refreshIndexHealthPartial();
     }
 });
 
 window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
 
-const workerUIState = { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5, visibleMax: 20 };
+const workerPoolState = {
+    primary: { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5, visibleMax: 20 },
+    aux: { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 10, perRow: 5, visibleMax: 20 },
+};
+const workerPoolAPI = { primary: '/api/embed-workers', aux: '/api/embed-aux-workers' };
+
+function workerControlsEl(pool) {
+    return document.querySelector(`.worker-controls[data-worker-pool="${pool}"]`);
+}
 
 function parseWorkerLimit(v, fallback) {
     const n = parseInt(v, 10);
     return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-async function refreshWorkerLimitsFromServer() {
+async function refreshWorkerLimitsFromServer(pool) {
+    const url = workerPoolAPI[pool];
+    if (!url) return false;
     try {
-        const r = await fetch('/api/embed-workers');
+        const r = await fetch(url);
         if (!r.ok) return false;
         const data = await r.json();
         if (data.max_workers != null) {
-            workerUIState.max = parseWorkerLimit(data.max_workers, workerUIState.max);
+            workerPoolState[pool].max = parseWorkerLimit(data.max_workers, workerPoolState[pool].max);
         }
-        const el = document.querySelector('.worker-controls[data-embed-workers]');
+        const el = workerControlsEl(pool);
         if (el && data.max_workers != null) {
-            el.dataset.workerMax = String(workerUIState.max);
+            el.dataset.workerMax = String(workerPoolState[pool].max);
         }
         return data.max_workers != null;
     } catch (_) {
@@ -1010,39 +1020,45 @@ async function refreshWorkerLimitsFromServer() {
     }
 }
 
-// Max comes from /api/embed-workers; DOM can be stale after settings change or WS skip.
-function syncWorkerMaxFromDOM() {
-    const el = document.querySelector('.worker-controls[data-embed-workers]');
+function syncWorkerMaxFromDOM(pool) {
+    const el = workerControlsEl(pool);
     if (!el) return;
-    workerUIState.max = parseWorkerLimit(el.dataset.workerMax, workerUIState.max);
+    workerPoolState[pool].max = parseWorkerLimit(el.dataset.workerMax, workerPoolState[pool].max);
 }
 
-function syncWorkerStateFromDOM() {
-    const el = document.querySelector('.worker-controls[data-embed-workers]');
-    if (!el) return false;
-    workerUIState.server.total = parseInt(el.dataset.embedWorkers, 10) || 0;
-    workerUIState.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
-    workerUIState.server.active = parseInt(el.dataset.embedActive, 10) || 0;
-    workerUIState.min = parseInt(el.dataset.workerMin, 10) || 0;
-    workerUIState.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
-    workerUIState.visibleMax = parseInt(el.dataset.workerVisibleMax, 10) || 20;
-    if (workerUIState.target !== null && workerUIState.server.total === workerUIState.target) {
-        workerUIState.target = null;
+function syncWorkerStateFromDOM(pool) {
+    const el = workerControlsEl(pool);
+    const state = workerPoolState[pool];
+    if (!el || !state) return false;
+    if (pool === 'aux') {
+        state.server.total = parseInt(el.dataset.embedAuxWorkers, 10) || 0;
+        state.server.live = parseInt(el.dataset.embedAuxWorkersLive, 10) || 0;
+    } else {
+        state.server.total = parseInt(el.dataset.embedWorkers, 10) || 0;
+        state.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
+    }
+    state.server.active = parseInt(el.dataset.embedActive, 10) || 0;
+    state.min = parseInt(el.dataset.workerMin, 10) || 0;
+    state.perRow = parseInt(el.dataset.workerPerRow, 10) || 5;
+    state.visibleMax = parseInt(el.dataset.workerVisibleMax, 10) || 20;
+    if (state.target !== null && state.server.total === state.target) {
+        state.target = null;
     }
     return true;
 }
 
-function getWorkerRenderPlan() {
-    const target = workerUIState.target ?? workerUIState.server.total;
-    const serverTotal = workerUIState.server.total;
-    const serverLive = workerUIState.server.live;
-    const active = workerUIState.server.active;
+function getWorkerRenderPlan(pool) {
+    const state = workerPoolState[pool];
+    const target = state.target ?? state.server.total;
+    const serverTotal = state.server.total;
+    const serverLive = state.server.live;
+    const active = state.server.active;
     const rawTotal = Math.max(target, serverLive);
-    const hasEllipsis = rawTotal > workerUIState.visibleMax;
-    const pillCount = hasEllipsis ? workerUIState.visibleMax - 1 : rawTotal;
-    const visible = hasEllipsis ? workerUIState.visibleMax : pillCount;
-    const compact = workerUIState.max > 15;
-    return { target, serverTotal, serverLive, active, rawTotal, pillCount, visible, hasEllipsis, compact, perRow: workerUIState.perRow };
+    const hasEllipsis = rawTotal > state.visibleMax;
+    const pillCount = hasEllipsis ? state.visibleMax - 1 : rawTotal;
+    const visible = hasEllipsis ? state.visibleMax : pillCount;
+    const compact = state.max > 15;
+    return { target, serverTotal, serverLive, active, rawTotal, pillCount, visible, hasEllipsis, compact, perRow: state.perRow };
 }
 
 function workerPillClass(index, plan) {
@@ -1086,28 +1102,32 @@ function buildWorkerStrip(plan) {
     return strip;
 }
 
-function workerControlsTitle(plan) {
+function workerControlsTitle(plan, pool) {
     if (plan.target === 0) {
-        return 'Workers paused — click + to resume';
+        return pool === 'aux' ? 'Aux workers off — click + to enable' : 'Workers paused — click + to resume';
     }
     const pending = Math.max(0, plan.target - plan.serverTotal);
     const draining = Math.max(0, plan.serverLive - plan.target);
     if (draining > 0 || pending > 0) {
-        return `Workers: ${plan.target} target · ${plan.active} busy` +
+        const label = pool === 'aux' ? 'Aux workers' : 'Workers';
+        return `${label}: ${plan.target} target · ${plan.active} busy` +
             (draining ? ` · ${draining} draining` : '') +
             (pending ? ` · ${pending} starting` : '');
     }
-    return `Workers: ${plan.active} of ${plan.target} busy`;
+    return pool === 'aux'
+        ? `Aux workers: ${plan.target} enabled`
+        : `Workers: ${plan.active} of ${plan.target} busy`;
 }
 
-function renderWorkerUI() {
-    const el = document.querySelector('.worker-controls[data-embed-workers]');
-    if (!el) return;
-    el.dataset.workerMax = String(workerUIState.max);
-    el.dataset.workerVisibleMax = String(workerUIState.visibleMax);
-    const plan = getWorkerRenderPlan();
+function renderWorkerUI(pool) {
+    const el = workerControlsEl(pool);
+    const state = workerPoolState[pool];
+    if (!el || !state) return;
+    el.dataset.workerMax = String(state.max);
+    el.dataset.workerVisibleMax = String(state.visibleMax);
+    const plan = getWorkerRenderPlan(pool);
     el.classList.toggle('worker-controls-paused', plan.target === 0);
-    el.title = workerControlsTitle(plan);
+    el.title = workerControlsTitle(plan, pool);
     const label = el.querySelector('.worker-count-label');
     if (label) label.textContent = String(plan.target);
     const oldStrip = el.querySelector('.worker-strip');
@@ -1120,18 +1140,22 @@ function renderWorkerUI() {
     }
     const minus = el.querySelector('[data-worker-delta="-1"]');
     const plus = el.querySelector('[data-worker-delta="1"]');
-    if (minus) minus.disabled = plan.target <= workerUIState.min;
-    if (plus) plus.disabled = plan.target >= workerUIState.max;
+    if (minus) minus.disabled = plan.target <= state.min;
+    if (plus) plus.disabled = plan.target >= state.max;
     const row = el.closest('.worker-metric-row');
     const status = row?.querySelector('.metric-row-value');
     if (status) {
-        status.textContent = plan.target === 0 ? 'paused' : `${plan.active} active`;
+        if (pool === 'aux') {
+            status.textContent = plan.target === 0 ? 'off' : `${plan.target} enabled`;
+        } else {
+            status.textContent = plan.target === 0 ? 'paused' : `${plan.active} active`;
+        }
     }
-    updateNavbarWorkers(plan);
+    if (pool === 'primary') updateNavbarWorkers(plan);
 }
 
 function updateNavbarWorkers(plan) {
-    if (!plan) plan = getWorkerRenderPlan();
+    if (!plan) plan = getWorkerRenderPlan('primary');
     const items = document.querySelectorAll('.health-item');
     for (const item of items) {
         const lab = item.querySelector('.health-label');
@@ -1156,24 +1180,28 @@ function updateNavbarWorkers(plan) {
         } else {
             item.appendChild(newStrip);
         }
-        item.title = workerControlsTitle(plan);
+        item.title = workerControlsTitle(plan, 'primary');
     }
 }
 
-function applyWorkerDelta(delta) {
-    if (!syncWorkerStateFromDOM()) return;
-    const cur = workerUIState.target ?? workerUIState.server.total;
+function applyWorkerDelta(pool, delta) {
+    if (!syncWorkerStateFromDOM(pool)) return;
+    const state = workerPoolState[pool];
+    const cur = state.target ?? state.server.total;
     const next = cur + delta;
-    if (next < workerUIState.min || next > workerUIState.max) return;
-    workerUIState.target = next;
-    renderWorkerUI();
+    if (next < state.min || next > state.max) return;
+    state.target = next;
+    renderWorkerUI(pool);
 }
 
 async function onWorkerPartialUpdated() {
-    syncWorkerStateFromDOM();
-    const gotMax = await refreshWorkerLimitsFromServer();
-    if (!gotMax) syncWorkerMaxFromDOM();
-    if (syncWorkerStateFromDOM()) renderWorkerUI();
+    for (const pool of ['primary', 'aux']) {
+        if (!workerControlsEl(pool)) continue;
+        syncWorkerStateFromDOM(pool);
+        const gotMax = await refreshWorkerLimitsFromServer(pool);
+        if (!gotMax) syncWorkerMaxFromDOM(pool);
+        if (syncWorkerStateFromDOM(pool)) renderWorkerUI(pool);
+    }
 }
 
 async function refreshHealthBarPartial() {
@@ -1253,22 +1281,24 @@ async function refreshIndexHealthPartial() {
     }
 }
 
-async function adjustEmbedWorkers(delta) {
+async function adjustEmbedWorkers(pool, delta) {
     if (!Number.isFinite(delta) || delta === 0) return null;
-    const r = await fetch('/api/embed-workers', {
+    const url = workerPoolAPI[pool];
+    if (!url) return null;
+    const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delta }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.error) {
-        console.error('embed workers:', data.error || r.status);
-        workerUIState.target = null;
+        console.error(`${pool} embed workers:`, data.error || r.status);
+        workerPoolState[pool].target = null;
         onWorkerPartialUpdated();
         return null;
     }
     if (data.max_workers != null) {
-        workerUIState.max = parseWorkerLimit(data.max_workers, workerUIState.max);
+        workerPoolState[pool].max = parseWorkerLimit(data.max_workers, workerPoolState[pool].max);
     }
     return data.workers;
 }
@@ -1277,17 +1307,20 @@ document.body.addEventListener('click', async (e) => {
     const workerBtn = e.target.closest('.worker-step-btn');
     if (workerBtn) {
         e.preventDefault();
-        const gotMax = await refreshWorkerLimitsFromServer();
-        if (!gotMax) syncWorkerMaxFromDOM();
-        if (!syncWorkerStateFromDOM()) return;
-        renderWorkerUI();
+        const controls = workerBtn.closest('.worker-controls');
+        const pool = controls?.dataset.workerPool || 'primary';
         const delta = parseInt(workerBtn.dataset.workerDelta, 10);
         if (!Number.isFinite(delta) || delta === 0) return;
-        const plan = getWorkerRenderPlan();
-        if (delta < 0 && plan.target <= workerUIState.min) return;
-        if (delta > 0 && plan.target >= workerUIState.max) return;
-        applyWorkerDelta(delta);
-        adjustEmbedWorkers(delta);
+        const gotMax = await refreshWorkerLimitsFromServer(pool);
+        if (!gotMax) syncWorkerMaxFromDOM(pool);
+        if (!syncWorkerStateFromDOM(pool)) return;
+        renderWorkerUI(pool);
+        const plan = getWorkerRenderPlan(pool);
+        const state = workerPoolState[pool];
+        if (delta < 0 && plan.target <= state.min) return;
+        if (delta > 0 && plan.target >= state.max) return;
+        applyWorkerDelta(pool, delta);
+        adjustEmbedWorkers(pool, delta);
         return;
     }
     const pagerBtn = e.target.closest('.doc-sources-pager-btn');

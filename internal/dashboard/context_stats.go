@@ -21,6 +21,7 @@ func fillVirtualContextStats(s *components.Stats, projectPath string) {
 	s.VirtualAccessed30d = ds.VirtualTokensAccessed30d
 	s.VirtualTodayStored = ds.TodayStored
 	s.VirtualTodayAccessed = ds.TodayAccessed
+	fillKvRepairStats(s, ds.KvRepair)
 	if ds.Limits != nil {
 		if v, ok := ds.Limits["max_notes_global"].(int); ok {
 			s.VirtualMaxNotesGlobal = v
@@ -29,6 +30,26 @@ func fillVirtualContextStats(s *components.Stats, projectPath string) {
 			s.VirtualMaxTokensGlobal = v
 		}
 	}
+}
+
+func fillKvRepairStats(s *components.Stats, kv contextnotes.KvRepairDashboardStats) {
+	s.KvRepairArchivesActive = kv.ArchivesActive
+	s.KvRepairArchivesStored30d = kv.ArchivesStored30d
+	s.KvRepairRepairsTotal30d = kv.RepairsTotal30d
+	s.KvRepairUtilPct30d = kv.RepairUtilizationPct30d
+	s.KvRepairOrphans = kv.RepairOrphans
+	s.KvRepairTokensRepaired30d = kv.TokensRepaired30d
+	s.KvRepairCacheMiss30d = kv.CacheMissSignals30d
+	s.KvRepairQuality30d = kv.QualitySignals30d
+	s.KvRepairManual30d = kv.ManualSignals30d
+	s.KvRepairTodayRepairs = kv.TodayRepairs
+}
+
+func handleKvRepairStats(w http.ResponseWriter, r *http.Request) {
+	pid := r.URL.Query().Get("project_id")
+	kv := contextnotes.KvRepairDashboardStatsFor(pid, StatsWindowDays)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(kv)
 }
 
 func handleContextStats(w http.ResponseWriter, r *http.Request) {

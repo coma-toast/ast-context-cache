@@ -89,6 +89,7 @@ func Start(e embedder.Interface) {
 		highCh = make(chan job, highCap)
 		lowCh = make(chan job, lowCap)
 		workerStop = make(chan struct{}, AbsoluteMaxWorkers)
+		beginProcessingWindow()
 	workerMu.Lock()
 	workerCount = loadWorkerCount()
 	workerTarget = workerCount
@@ -112,7 +113,11 @@ func Start(e embedder.Interface) {
 
 func worker() {
 	workerLive.Add(1)
-	defer workerLive.Add(-1)
+	defer func() {
+		workerLive.Add(-1)
+		notifyWorkerPoolLiveChange()
+	}()
+	waitForProcessingReady()
 	for {
 		select {
 		case <-workerStop:
@@ -140,6 +145,10 @@ func worker() {
 }
 
 func run(j job) {
+	runWithEmbedder(j, queueEmbedder())
+}
+
+func runWithEmbedder(j job, e embedder.Interface) {
 	atomic.AddInt64(&inFlight, 1)
 	trackJobStart(j.file, j.projectPath)
 	realtime.Notify(realtime.EmbedFinished)
@@ -152,14 +161,16 @@ func run(j job) {
 	if isProjectCancelled(j.projectPath) {
 		return
 	}
-	if e := queueEmbedder(); e == nil {
+	if e == nil {
 		return
 	}
-	if state, _ := embedder.HealthState(); state == "error" {
-		markPending(j)
-		return
+	if e == queueEmbedder() {
+		if state, _ := embedder.HealthState(); state == "error" {
+			markPending(j)
+			return
+		}
 	}
-	if err := indexer.EmbedFileSymbols(queueEmbedder(), j.file, j.projectPath); err != nil {
+	if err := indexer.EmbedFileSymbols(e, j.file, j.projectPath); err != nil {
 		atomic.AddInt64(&failed, 1)
 		markPending(j)
 		return
@@ -272,6 +283,8 @@ type QueueSnapshot struct {
 	LowCap      int
 	Workers     int
 	WorkersLive int
+	AuxWorkers     int
+	AuxWorkersLive int
 	InFlight    int64
 	Completed   int64
 	Failed      int64
@@ -280,7 +293,7 @@ type QueueSnapshot struct {
 
 // Snapshot returns current queue and worker metrics.
 func Snapshot() QueueSnapshot {
-	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: WorkerCount(), WorkersLive: WorkerLive()}
+	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: WorkerCount(), WorkersLive: WorkerLive(), AuxWorkers: AuxWorkerCount(), AuxWorkersLive: AuxWorkerLive()}
 	s.InFlight = atomic.LoadInt64(&inFlight)
 	s.Completed = atomic.LoadInt64(&completed)
 	s.Failed = atomic.LoadInt64(&failed)
@@ -381,9 +394,14 @@ func enqueuePendingRetry(j job) bool {
 		unmarkPendingChQueued(j)
 		return false
 	}
-	pendingCh <- j
-	realtime.Notify(realtime.EmbedFinished)
-	return true
+	select {
+	case pendingCh <- j:
+		realtime.Notify(realtime.EmbedFinished)
+		return true
+	default:
+		unmarkPendingChQueued(j)
+		return false
+	}
 }
 
 func unmarkPendingChQueued(j job) {

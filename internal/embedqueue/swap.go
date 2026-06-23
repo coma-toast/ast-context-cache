@@ -1,0 +1,67 @@
+package embedqueue
+
+import (
+	"log"
+	"sync/atomic"
+	"time"
+)
+
+const defaultSwapDrainTimeout = 2 * time.Minute
+
+var swapRestoreWorkers int
+
+// PrepareForEmbedderSwap stops workers and waits for in-flight embeds before backend reload.
+func PrepareForEmbedderSwap(timeout time.Duration) {
+	if !workersStarted() {
+		return
+	}
+	if timeout <= 0 {
+		timeout = defaultSwapDrainTimeout
+	}
+	workerMu.Lock()
+	swapRestoreWorkers = workerCount
+	if workerCount > 0 {
+		if err := applyWorkerCountLocked(0, false); err != nil {
+			log.Printf("embedqueue: swap prep pause workers: %v", err)
+		} else {
+			log.Printf("embedqueue: paused %d workers for embedder swap", swapRestoreWorkers)
+		}
+	}
+	workerMu.Unlock()
+	deadline := time.Now().Add(timeout)
+	for atomic.LoadInt64(&inFlight) > 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := atomic.LoadInt64(&inFlight); n > 0 {
+		log.Printf("embedqueue: swap prep timed out with %d in-flight embeds", n)
+	}
+	if n := DrainQueueToPending(); n > 0 {
+		log.Printf("embedqueue: drained %d queued jobs before embedder swap", n)
+	}
+}
+
+// RestoreWorkersAfterSwap resumes workers paused by PrepareForEmbedderSwap (not persisted).
+func RestoreWorkersAfterSwap() {
+	if !workersStarted() {
+		swapRestoreWorkers = 0
+		return
+	}
+	workerMu.Lock()
+	n := swapRestoreWorkers
+	swapRestoreWorkers = 0
+	workerMu.Unlock()
+	if n <= 0 {
+		return
+	}
+	workerMu.Lock()
+	defer workerMu.Unlock()
+	max := MaxWorkers()
+	if n > max {
+		n = max
+	}
+	if err := applyWorkerCountLocked(n, false); err != nil {
+		log.Printf("embedqueue: restore workers after swap: %v", err)
+		return
+	}
+	log.Printf("embedqueue: restored %d workers after embedder swap", n)
+}

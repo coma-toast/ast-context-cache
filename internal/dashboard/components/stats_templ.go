@@ -11,29 +11,39 @@ import templruntime "github.com/a-h/templ/runtime"
 import "fmt"
 
 type Stats struct {
-	TotalQueries           int
-	TodayQueries           int
-	TokensSaved            int
-	TodayTokens            int
-	DedupTokensSaved       int
-	SavingsVsFiles         int
-	SymbolBaseline         int
-	AvgDurationMs          float64
-	TodayAvgDurationMs     float64
-	Sessions               int
-	TodaySessions          int
-	TotalChars             int
-	VirtualInventoryTokens int
-	VirtualNotesCount      int
-	VirtualUtilPct30d      float64
-	VirtualOrphanCount     int
-	VirtualFlushed30d      int
-	VirtualStored30d       int
-	VirtualAccessed30d     int
-	VirtualTodayStored     int
-	VirtualTodayAccessed   int
-	VirtualMaxNotesGlobal  int
-	VirtualMaxTokensGlobal int
+	TotalQueries              int
+	TodayQueries              int
+	TokensSaved               int
+	TodayTokens               int
+	DedupTokensSaved          int
+	SavingsVsFiles            int
+	SymbolBaseline            int
+	AvgDurationMs             float64
+	TodayAvgDurationMs        float64
+	Sessions                  int
+	TodaySessions             int
+	TotalChars                int
+	VirtualInventoryTokens    int
+	VirtualNotesCount         int
+	VirtualUtilPct30d         float64
+	VirtualOrphanCount        int
+	VirtualFlushed30d         int
+	VirtualStored30d          int
+	VirtualAccessed30d        int
+	VirtualTodayStored        int
+	VirtualTodayAccessed      int
+	VirtualMaxNotesGlobal     int
+	VirtualMaxTokensGlobal    int
+	KvRepairArchivesActive    int
+	KvRepairArchivesStored30d int
+	KvRepairRepairsTotal30d   int
+	KvRepairUtilPct30d        float64
+	KvRepairOrphans           int
+	KvRepairTokensRepaired30d int
+	KvRepairCacheMiss30d      int
+	KvRepairQuality30d        int
+	KvRepairManual30d         int
+	KvRepairTodayRepairs      int
 }
 
 func fmtInt(n int) string {

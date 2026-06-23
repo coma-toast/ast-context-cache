@@ -59,6 +59,13 @@ type IndexHealth struct {
 	EmbedActive            int
 	EmbedWorkers           int
 	EmbedWorkersLive       int
+	EmbedWorkerMax         int
+	EmbedAuxWorkers        int
+	EmbedAuxWorkersLive    int
+	EmbedAuxWorkerMax      int
+	EmbedAuxBackend        string
+	EmbedAuxModel          string
+	EmbedAuxEnabled        bool
 	EmbedComplete          int64
 	EmbedThroughput        int64
 	PinnedCount            int
@@ -125,7 +132,7 @@ func IndexHealthCards(h IndexHealth) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(filepath.Base(h.FilteredProject))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 94, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 101, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -196,7 +203,7 @@ func DocSourcesCard(sources []IndexDocSource, total, page, perPage int, hxTarget
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(total))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 109, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 116, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -238,7 +245,7 @@ func DocSourcesCard(sources []IndexDocSource, total, page, perPage int, hxTarget
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(s.URL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 115, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 122, Col: 79}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 				if templ_7745c5c3_Err != nil {
@@ -251,7 +258,7 @@ func DocSourcesCard(sources []IndexDocSource, total, page, perPage int, hxTarget
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(s.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 116, Col: 44}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 123, Col: 44}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -264,7 +271,7 @@ func DocSourcesCard(sources []IndexDocSource, total, page, perPage int, hxTarget
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(s.Type)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 118, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 125, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -299,7 +306,7 @@ func DocSourcesCard(sources []IndexDocSource, total, page, perPage int, hxTarget
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(s.Age)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 119, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 126, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -396,7 +403,7 @@ func DocSourceDeleteControl(id int, name string, hxTarget string, page int) temp
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(id))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 138, Col: 136}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 145, Col: 136}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 		if templ_7745c5c3_Err != nil {
@@ -409,7 +416,7 @@ func DocSourceDeleteControl(id int, name string, hxTarget string, page int) temp
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 138, Col: 159}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 145, Col: 159}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
@@ -422,7 +429,7 @@ func DocSourceDeleteControl(id int, name string, hxTarget string, page int) temp
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(hxTarget)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 138, Col: 192}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 145, Col: 192}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -435,7 +442,7 @@ func DocSourceDeleteControl(id int, name string, hxTarget string, page int) temp
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(page))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 138, Col: 227}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 145, Col: 227}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 		if templ_7745c5c3_Err != nil {
@@ -478,7 +485,7 @@ func DocSourcesPager(total, page, perPage int, hxTarget string) templ.Component 
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(page - 1))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 144, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 151, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 			if templ_7745c5c3_Err != nil {
@@ -491,7 +498,7 @@ func DocSourcesPager(total, page, perPage int, hxTarget string) templ.Component 
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(hxTarget)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 144, Col: 124}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 151, Col: 124}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
 			if templ_7745c5c3_Err != nil {
@@ -514,7 +521,7 @@ func DocSourcesPager(total, page, perPage int, hxTarget string) templ.Component 
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(page))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 145, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 152, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
@@ -527,7 +534,7 @@ func DocSourcesPager(total, page, perPage int, hxTarget string) templ.Component 
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(docSourcesTotalPages(total, perPage)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 145, Col: 111}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 152, Col: 111}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -540,7 +547,7 @@ func DocSourcesPager(total, page, perPage int, hxTarget string) templ.Component 
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(page + 1))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 146, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 153, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 			if templ_7745c5c3_Err != nil {
@@ -553,7 +560,7 @@ func DocSourcesPager(total, page, perPage int, hxTarget string) templ.Component 
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(hxTarget)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 146, Col: 124}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 153, Col: 124}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 			if templ_7745c5c3_Err != nil {
@@ -619,7 +626,7 @@ func DocSourceRefreshControl(id int, refreshing bool, hxTarget string, page int)
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(id))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 162, Col: 126}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 169, Col: 126}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 			if templ_7745c5c3_Err != nil {
@@ -632,7 +639,7 @@ func DocSourceRefreshControl(id int, refreshing bool, hxTarget string, page int)
 			var templ_7745c5c3_Var28 string
 			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(hxTarget)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 162, Col: 159}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 169, Col: 159}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 			if templ_7745c5c3_Err != nil {
@@ -645,7 +652,7 @@ func DocSourceRefreshControl(id int, refreshing bool, hxTarget string, page int)
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(page))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 162, Col: 194}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 169, Col: 194}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 			if templ_7745c5c3_Err != nil {
@@ -688,7 +695,7 @@ func WatcherCard(h IndexHealth) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(h.WatcherActiveCount()))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 168, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 175, Col: 73}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -701,7 +708,7 @@ func WatcherCard(h IndexHealth) templ.Component {
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(len(h.Watchers)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 168, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 175, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {
@@ -753,7 +760,7 @@ func WatcherCard(h IndexHealth) templ.Component {
 					var templ_7745c5c3_Var33 string
 					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(g.Space)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 193, Col: 51}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 200, Col: 51}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 					if templ_7745c5c3_Err != nil {
@@ -834,7 +841,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(w.ProjectPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 209, Col: 84}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 216, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 		if templ_7745c5c3_Err != nil {
@@ -870,7 +877,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 			var templ_7745c5c3_Var40 string
 			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(w.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 212, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 219, Col: 12}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 			if templ_7745c5c3_Err != nil {
@@ -884,7 +891,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 			var templ_7745c5c3_Var41 string
 			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(w.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 214, Col: 11}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 221, Col: 11}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 			if templ_7745c5c3_Err != nil {
@@ -902,7 +909,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(w.ProjectPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 217, Col: 155}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 224, Col: 155}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 		if templ_7745c5c3_Err != nil {
@@ -920,7 +927,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 			var templ_7745c5c3_Var43 string
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(w.ProjectPath)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 219, Col: 123}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 226, Col: 123}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 			if templ_7745c5c3_Err != nil {
@@ -938,7 +945,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(w.ProjectPath)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 221, Col: 124}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 228, Col: 124}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 			if templ_7745c5c3_Err != nil {
@@ -956,7 +963,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(w.ProjectPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 223, Col: 125}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 230, Col: 125}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 		if templ_7745c5c3_Err != nil {
@@ -969,7 +976,7 @@ func WatcherRow(w WatcherInfo) templ.Component {
 		var templ_7745c5c3_Var46 string
 		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(w.Label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 223, Col: 155}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/index_health.templ`, Line: 230, Col: 155}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 		if templ_7745c5c3_Err != nil {

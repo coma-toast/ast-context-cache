@@ -128,6 +128,24 @@ func (h IndexHealth) EmbedWorkersStatus() string {
 	return fmt.Sprintf("%d active", h.EmbedActive)
 }
 
+func (h IndexHealth) EmbedAuxWorkersStatus() string {
+	if h.EmbedAuxWorkers == 0 {
+		return "off"
+	}
+	return fmt.Sprintf("%d enabled", h.EmbedAuxWorkers)
+}
+
+func (h IndexHealth) EmbedAuxWorkerLabel() string {
+	if h.EmbedAuxBackend == "" {
+		return "Aux workers"
+	}
+	return fmt.Sprintf("Aux (%s)", h.EmbedAuxBackend)
+}
+
+func AuxWorkerMax() int {
+	return embedqueue.AuxMaxWorkers()
+}
+
 func (h IndexHealth) EmbedderErrorShort() string {
 	if len(h.EmbedderError) <= 120 {
 		return h.EmbedderError
@@ -191,15 +209,64 @@ func workerStripDotCount(total int) (dots int, ellipsis bool) {
 	return total, false
 }
 
+func workerStripDisplayTotal(total, live int) int {
+	if live > total {
+		return live
+	}
+	return total
+}
+
+func workerPillClasses(index, active, total, live int) string {
+	target := total
+	serverTotal := total
+	serverLive := live
+	busy := index < active
+	if index >= target && index < serverLive {
+		if busy {
+			return "worker-pill draining draining-busy"
+		}
+		return "worker-pill draining"
+	}
+	if index >= serverTotal && index < target {
+		if index < serverLive {
+			if busy {
+				return "worker-pill busy"
+			}
+			return "worker-pill idle"
+		}
+		return "worker-pill pending"
+	}
+	if busy {
+		return "worker-pill busy"
+	}
+	return "worker-pill idle"
+}
+
 func workerStripUsesCompact(maxWorkers int) bool {
 	return maxWorkers > 15
 }
 
-func WorkerControlsTitle(active, total int) string {
+func workerStripSplitClass(maxWorkers, displayTotal int) bool {
+	return !workerStripUsesCompact(maxWorkers) && displayTotal > WorkerStripPerRow
+}
+
+func workerStripBusyLabel(active, target int) string {
+	return fmt.Sprintf("%d of %d workers busy", min(active, target), target)
+}
+
+func workerControlsTitle(active, total, live int) string {
 	if total == 0 {
 		return "Workers paused — click + to resume"
 	}
+	draining := live - total
+	if draining > 0 {
+		return fmt.Sprintf("Workers: %d target · %d busy · %d draining", total, active, draining)
+	}
 	return fmt.Sprintf("Workers: %d of %d busy", active, total)
+}
+
+func WorkerControlsTitle(active, total, live int) string {
+	return workerControlsTitle(active, total, live)
 }
 
 func pendingRingCap(pending, peak int) int {
@@ -274,6 +341,9 @@ func (h Health) queueTitle() string {
 func (h Health) workersTitle() string {
 	if h.QueueWorkers == 0 {
 		return "Workers paused (0) — use + on embeddings card to resume"
+	}
+	if h.QueueWorkersLive > h.QueueWorkers {
+		return fmt.Sprintf("Workers: %d target · %d busy · %d draining", h.QueueWorkers, h.QueueInFlight, h.QueueWorkersLive-h.QueueWorkers)
 	}
 	return fmt.Sprintf("Workers: %d of %d busy", h.QueueInFlight, h.QueueWorkers)
 }

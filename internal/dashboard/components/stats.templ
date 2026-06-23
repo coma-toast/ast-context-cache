@@ -26,6 +26,16 @@ type Stats struct {
 	VirtualTodayAccessed   int
 	VirtualMaxNotesGlobal  int
 	VirtualMaxTokensGlobal int
+	KvRepairArchivesActive     int
+	KvRepairArchivesStored30d  int
+	KvRepairRepairsTotal30d    int
+	KvRepairUtilPct30d         float64
+	KvRepairOrphans            int
+	KvRepairTokensRepaired30d  int
+	KvRepairCacheMiss30d       int
+	KvRepairQuality30d         int
+	KvRepairManual30d          int
+	KvRepairTodayRepairs       int
 }
 
 func fmtInt(n int) string {

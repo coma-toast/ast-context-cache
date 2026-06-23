@@ -13,25 +13,53 @@ import (
 )
 
 const (
-	MinWorkers            = 0
-	DefaultMaxWorkers     = 15
-	AbsoluteMaxWorkers    = 64
-	defaultWorkers        = 3
-	embedWorkersSetting   = "EMBED_WORKERS"
-	embedWorkerMaxSetting = "embed_worker_max"
+	MinWorkers               = 0
+	DefaultMaxWorkers        = 15
+	AbsoluteMaxWorkers       = 64
+	defaultWorkers           = 3
+	embedWorkersSetting      = "EMBED_WORKERS"
+	embedWorkerMaxSetting    = "embed_worker_max"
+	startupProcessingDelay   = 10 * time.Second
 )
 
 var (
-	workerCount   = defaultWorkers
-	workerTarget  = defaultWorkers
-	workerLive    atomic.Int64
-	workerMu    sync.Mutex
-	workerStop  chan struct{}
+	workerCount            = defaultWorkers
+	workerTarget           = defaultWorkers
+	workerLive             atomic.Int64
+	workerMu               sync.Mutex
+	workerStop             chan struct{}
+	startupWorkerOverride  *int
+	processingReadyAt      time.Time
 )
+
+func beginProcessingWindow() {
+	processingReadyAt = time.Now().Add(startupProcessingDelay)
+	if startupProcessingDelay > 0 {
+		log.Printf("embed queue: processing starts in %s", startupProcessingDelay)
+	}
+}
+
+func waitForProcessingReady() {
+	if processingReadyAt.IsZero() {
+		return
+	}
+	if d := time.Until(processingReadyAt); d > 0 {
+		time.Sleep(d)
+	}
+}
+
+// SetStartupWorkers overrides the DB worker count for this process only (not persisted).
+func SetStartupWorkers(n int) {
+	startupWorkerOverride = &n
+}
 
 // WorkerLive returns goroutines still running (may exceed WorkerCount while draining).
 func WorkerLive() int {
 	return int(workerLive.Load())
+}
+
+func notifyWorkerPoolLiveChange() {
+	realtime.Notify(realtime.IndexHealth | realtime.HealthBar)
 }
 
 // MaxWorkers returns the configured upper limit for embed worker goroutines.
@@ -48,10 +76,20 @@ func MaxWorkers() int {
 }
 
 func loadWorkerCount() int {
+	if startupWorkerOverride != nil {
+		return clampWorkerCount(*startupWorkerOverride)
+	}
 	raw := db.GetSetting(embedWorkersSetting, strconv.Itoa(defaultWorkers))
 	n, err := strconv.Atoi(raw)
 	if err != nil || n < MinWorkers {
 		return defaultWorkers
+	}
+	return clampWorkerCount(n)
+}
+
+func clampWorkerCount(n int) int {
+	if n < MinWorkers {
+		n = MinWorkers
 	}
 	max := MaxWorkers()
 	if n > max {
@@ -132,6 +170,12 @@ func AdjustWorkers(delta int) (int, error) {
 		return workerCount, err
 	}
 	return workerCount, nil
+}
+
+func workersStarted() bool {
+	workerMu.Lock()
+	defer workerMu.Unlock()
+	return workerStop != nil
 }
 
 func startPressureBackoff() {

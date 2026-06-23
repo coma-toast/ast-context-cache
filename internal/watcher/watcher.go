@@ -51,6 +51,79 @@ func NormalizeProjectPath(projectPath string) string {
 	return filepath.Clean(projectPath)
 }
 
+// RegisterKnownProject records a project in the dashboard list without starting a watcher.
+func RegisterKnownProject(projectPath string) {
+	projectPath = NormalizeProjectPath(projectPath)
+	if projectPath == "" {
+		return
+	}
+	if info, err := os.Stat(projectPath); err != nil || !info.IsDir() {
+		return
+	}
+	mu.Lock()
+	if _, ok := knownProjects[projectPath]; !ok {
+		knownProjects[projectPath] = false
+	}
+	mu.Unlock()
+}
+
+// RegisterAllKnownProjects registers every indexed repo for the dashboard (inactive).
+func RegisterAllKnownProjects() {
+	for _, pp := range indexedProjectPaths() {
+		RegisterKnownProject(pp)
+	}
+}
+
+func trackedProjectPaths() []string {
+	seen := map[string]bool{}
+	add := func(p string) {
+		p = NormalizeProjectPath(p)
+		if p != "" {
+			seen[p] = true
+		}
+	}
+	for _, pp := range indexedProjectPaths() {
+		add(pp)
+	}
+	mu.Lock()
+	for pp := range knownProjects {
+		add(pp)
+	}
+	mu.Unlock()
+	out := make([]string, 0, len(seen))
+	for pp := range seen {
+		out = append(out, pp)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		bi := strings.ToLower(filepath.Base(out[i]))
+		bj := strings.ToLower(filepath.Base(out[j]))
+		if bi != bj {
+			return bi < bj
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func indexedProjectPaths() []string {
+	rows, err := db.DB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var pp string
+		if rows.Scan(&pp) == nil {
+			pp = NormalizeProjectPath(pp)
+			if pp != "" {
+				out = append(out, pp)
+			}
+		}
+	}
+	return out
+}
+
 func StartWatcher(projectPath string) {
 	projectPath = NormalizeProjectPath(projectPath)
 	if projectPath == "" {
@@ -226,19 +299,8 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 }
 
 func GetStatus() map[string]interface{} {
+	projects := trackedProjectPaths()
 	mu.Lock()
-	projects := make([]string, 0, len(knownProjects))
-	for project := range knownProjects {
-		projects = append(projects, project)
-	}
-	sort.Slice(projects, func(i, j int) bool {
-		bi := strings.ToLower(filepath.Base(projects[i]))
-		bj := strings.ToLower(filepath.Base(projects[j]))
-		if bi != bj {
-			return bi < bj
-		}
-		return projects[i] < projects[j]
-	})
 	watchers := make([]map[string]interface{}, 0, len(projects))
 	active := 0
 	for _, project := range projects {

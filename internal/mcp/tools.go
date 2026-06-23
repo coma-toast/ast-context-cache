@@ -184,7 +184,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "store_context",
-			Description: "Store arbitrary conversation or code notes as virtual context with a stable ref (ctx_*). Use before host compaction: keep refs in chat, fetch later. Returns virtual_tokens_stored and session/global quota stats.",
+			Description: "Store arbitrary conversation or code notes as virtual context with a stable ref (ctx_*). Use before host compaction: keep refs in chat, fetch later. Returns virtual_tokens_stored and session/global quota stats. For KV repair archives use kind=kv_repair or tags containing kv_repair plus metadata (model_id, kv_quant, trigger_hint).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -192,7 +192,9 @@ func GetTools() []Tool {
 					"session_id":   map[string]string{"type": "string", "description": "Conversation session ID (required)"},
 					"label":        map[string]string{"type": "string", "description": "Short title for the note"},
 					"project_path": map[string]string{"type": "string", "description": "Optional project association"},
-					"tags":         map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array"},
+					"tags":         map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
+					"kind":         map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
+					"metadata":     map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
 					"extract_memory": map[string]string{"type": "boolean", "description": "Parse FACT:/RULE: lines into compact mem_* entries (token savings)"},
 				},
 				"required": []string{"content", "session_id"},
@@ -201,17 +203,38 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "fetch_context",
-			Description: "Retrieve stored virtual context by ref(s). Primary recovery path after compaction. Returns virtual_tokens_returned stats.",
+			Description: "Retrieve stored virtual context by ref(s). Primary recovery path after compaction or KV cache miss. Pass repair_reason (cache_miss, quality, manual) when fetching a kv_repair archive for observability.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"refs":       map[string]string{"type": "string", "description": "Single ref or array of ctx_* refs"},
-					"session_id": map[string]string{"type": "string", "description": "If set, reject refs from other sessions"},
+					"refs":          map[string]string{"type": "string", "description": "Single ref or array of ctx_* refs"},
+					"session_id":    map[string]string{"type": "string", "description": "If set, reject refs from other sessions"},
+					"repair_reason": map[string]string{"type": "string", "description": "Optional repair trigger: cache_miss, quality, or manual (logged for kv_repair metrics)"},
 				},
 				"required": []string{"refs"},
 			},
 			Tier:     TierCore,
 			ReadOnly: true,
+		},
+		{
+			Name:        "report_kv_repair_event",
+			Description: "Report a KV repair signal (cache miss, quality degradation, or manual) before or after fetch_context. Closes observability gap when host detects miss but agent has not fetched yet.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"reason":       map[string]string{"type": "string", "description": "cache_miss, quality, manual, or proactive"},
+					"outcome":      map[string]string{"type": "string", "description": "Optional: success, failed, or skipped after re-prefill attempt"},
+					"session_id":   map[string]string{"type": "string", "description": "Session ID"},
+					"project_path": map[string]string{"type": "string", "description": "Optional project path"},
+					"ref":          map[string]string{"type": "string", "description": "Optional ctx_* ref"},
+					"model_id":     map[string]string{"type": "string", "description": "Inference model id"},
+					"kv_quant":     map[string]string{"type": "string", "description": "KV cache quant in use (e.g. q4_0, f16)"},
+					"token_est":    map[string]string{"type": "integer", "description": "Estimated tokens affected"},
+					"detail":       map[string]string{"type": "string", "description": "Short heuristic or error detail"},
+				},
+				"required": []string{"reason"},
+			},
+			Tier: TierExtended,
 		},
 		{
 			Name:        "list_context",
