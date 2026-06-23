@@ -7,8 +7,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	ctxpkg "github.com/coma-toast/ast-context-cache/internal/context"
@@ -40,6 +43,7 @@ func GetStartTime() time.Time {
 func main() {
 	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")
 	codeModeFlag := flag.Bool("code-mode", true, "Enable execute_code sandbox tool (default: true)")
+	embedWorkersFlag := flag.Int("embed-workers", -1, "Embed worker count at startup (-1 = auto/DB)")
 	flag.Parse()
 
 	cfg := mcp.DefaultConfig()
@@ -60,6 +64,16 @@ func main() {
 	if err := db.Init(); err != nil {
 		log.Fatalf("DB error: %v", err)
 	}
+	if embedqueue.BeginRunLock() {
+		log.Printf("embedqueue: previous run exited abnormally; will start with 0 workers unless overridden")
+	}
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		embedqueue.EndRunLock()
+		os.Exit(0)
+	}()
 	watcher.EnsureDefaultIgnoreGlobs()
 
 	go db.StartWALCheckpoint()
@@ -79,10 +93,14 @@ func main() {
 			ctxpkg.Emb = tracked
 			embedqueue.SetEmbedder(tracked)
 			if embedqueue.Ready() {
+				embedqueue.RestoreWorkersAfterSwap()
 				go embedqueue.RecoverAfterEmbedder()
 				go embedqueue.FlushPendingIfReady()
 			}
 		},
+	})
+	embedder.SetOnBeforeSwap(func() {
+		embedqueue.PrepareForEmbedderSwap(2 * time.Minute)
 	})
 	if err := embedder.InitRuntime(modelDir); err != nil {
 		log.Fatalf("embedder: %v", err)
@@ -90,7 +108,20 @@ func main() {
 	emb := embedder.Tracked()
 	wb, wm, _, _, wd := embedder.WiredSnapshot()
 	log.Printf("Embedder configured: backend=%s model=%s dims=%d", wb, wm, wd)
+	if n := resolveStartupWorkers(*embedWorkersFlag); n >= 0 {
+		embedqueue.SetStartupWorkers(n)
+		log.Printf("embedqueue: startup workers override: %d", n)
+	}
 	embedqueue.Start(emb)
+	if err := embedder.InitAuxRuntime(modelDir); err != nil {
+		log.Printf("aux embedder: %v (aux catch-up workers disabled)", err)
+	} else {
+		auxEmb := embedder.RawAux()
+		if embedder.AuxSharesPrimary() {
+			auxEmb = embedder.Tracked()
+		}
+		embedqueue.StartAux(auxEmb)
+	}
 	embedder.SetOnRecovery(embedqueue.RecoverAfterEmbedder)
 	embedder.SetOnReady(embedqueue.FlushPendingIfReady)
 	embedder.SetOnError(embedqueue.OnEmbedderError)
@@ -192,6 +223,21 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, dashHandler))
 }
 
+func resolveStartupWorkers(flagVal int) int {
+	if flagVal >= 0 {
+		return flagVal
+	}
+	if raw := strings.TrimSpace(os.Getenv("AST_EMBED_WORKERS")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			return n
+		}
+	}
+	if embedqueue.AbnormalPreviousRun() {
+		return 0
+	}
+	return -1
+}
+
 func startBackgroundServices() {
 	go docs.EmbedAllSources()
 	go func() {
@@ -218,9 +264,6 @@ func startBackgroundServices() {
 				continue
 			}
 			seen[pp] = true
-			if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
-				go watcher.EnsureWatcher(pp)
-			}
 		}
 		restoreRows.Close()
 	}
@@ -228,15 +271,28 @@ func startBackgroundServices() {
 		if projectmeta.IsExcluded(pp) {
 			continue
 		}
-		if seen[pp] {
-			continue
-		}
-		meta := projectmeta.Enrich(pp)
-		if meta.Workspace == "" {
-			continue
-		}
-		if info, sErr := os.Stat(pp); sErr == nil && info.IsDir() {
-			go watcher.EnsureWatcher(pp)
-		}
+		seen[pp] = true
 	}
+	watcher.RegisterAllKnownProjects()
+	for _, pp := range projectmeta.DiscoverPaths() {
+		if projectmeta.IsExcluded(pp) {
+			continue
+		}
+		watcher.RegisterKnownProject(pp)
+		seen[pp] = true
+	}
+	for pp := range seen {
+		maybeStartPinnedWatcher(pp)
+	}
+}
+
+func maybeStartPinnedWatcher(projectPath string) {
+	projectPath = watcher.NormalizeProjectPath(projectPath)
+	if projectPath == "" || !db.IsPinnedProject(projectPath) {
+		return
+	}
+	if info, err := os.Stat(projectPath); err != nil || !info.IsDir() {
+		return
+	}
+	go watcher.EnsureWatcher(projectPath)
 }

@@ -26,7 +26,7 @@ func ExampleFilterTools_extended() {
 		names = append(names, t.Name)
 	}
 	fmt.Println(strings.Join(names, ", "))
-	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, store_context, fetch_context, list_context, search_context, flush_context, store_memory, recall_memory, forget_memory, search_semantic, get_project_map, get_file_context, analyze_dead_code, analyze_complexity, export_bundle, import_bundle, search_docs, fetch_doc, add_doc_source, remove_doc_source, list_doc_sources, update_doc_source, retrieve
+	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, store_context, fetch_context, report_kv_repair_event, list_context, search_context, flush_context, store_memory, recall_memory, forget_memory, search_semantic, get_project_map, get_file_context, analyze_dead_code, analyze_complexity, export_bundle, import_bundle, search_docs, fetch_doc, add_doc_source, remove_doc_source, list_doc_sources, update_doc_source, retrieve
 }
 
 func ExampleFilterTools_complete() {
@@ -38,7 +38,7 @@ func ExampleFilterTools_complete() {
 		names = append(names, t.Name)
 	}
 	fmt.Println(strings.Join(names, ", "))
-	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, store_context, fetch_context, list_context, search_context, flush_context, store_memory, recall_memory, forget_memory, search_semantic, get_project_map, get_file_context, analyze_dead_code, analyze_complexity, execute_code, export_bundle, import_bundle, search_docs, fetch_doc, add_doc_source, remove_doc_source, list_doc_sources, update_doc_source, retrieve
+	// Output: get_context_capsule, index_files, index_status, get_impact_graph, cache_summary, store_context, fetch_context, report_kv_repair_event, list_context, search_context, flush_context, store_memory, recall_memory, forget_memory, search_semantic, get_project_map, get_file_context, analyze_dead_code, analyze_complexity, execute_code, export_bundle, import_bundle, search_docs, fetch_doc, add_doc_source, remove_doc_source, list_doc_sources, update_doc_source, retrieve
 }
 
 func ExampleFilterTools_completeNoCodeMode() {

@@ -32,6 +32,22 @@ ast-mcp() {
                 return 1
             fi
             ;;
+        start-safe)
+            if _ast_mcp_running; then
+                echo "ast-mcp: already running on port $port"
+                return 0
+            fi
+            echo "Starting ast-mcp with 0 embed workers..."
+            mkdir -p "$(dirname "$logfile")"
+            (cd "$ast_dir" && AST_EMBED_WORKERS=0 ONNXRUNTIME_LIB="$ort_lib" nohup ./ast-mcp > "$logfile" 2>&1 &)
+            sleep 2
+            if _ast_mcp_running; then
+                echo "ast-mcp: started safe (0 workers; MCP :$port  Dashboard :$dash)"
+            else
+                echo "ast-mcp: FAILED — check $logfile"
+                return 1
+            fi
+            ;;
         stop)
             local pid
             pid=$(lsof -t -iTCP:${port} -sTCP:LISTEN 2>/dev/null)
@@ -99,8 +115,9 @@ ast-mcp() {
             echo "Usage: ast-mcp <command>"
             echo ""
             echo "Commands:"
-            echo "  start     Start the MCP server"
-            echo "  stop      Stop the MCP server"
+            echo "  start       Start the MCP server"
+            echo "  start-safe  Start with 0 embed workers (crash recovery)"
+            echo "  stop        Stop the MCP server"
             echo "  restart   Restart the MCP server"
             echo "  status    Show server status"
             echo "  health    Check server health endpoint"

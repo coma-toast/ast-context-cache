@@ -51,6 +51,13 @@ type IndexHealth struct {
 	EmbedActive      int
 	EmbedWorkers     int
 	EmbedWorkersLive int
+	EmbedWorkerMax   int
+	EmbedAuxWorkers     int
+	EmbedAuxWorkersLive int
+	EmbedAuxWorkerMax   int
+	EmbedAuxBackend     string
+	EmbedAuxModel       string
+	EmbedAuxEnabled     bool
 	EmbedComplete    int64
 	EmbedThroughput  int64
 	PinnedCount       int

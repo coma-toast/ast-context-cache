@@ -165,6 +165,70 @@ Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule
 
 If `store_context` is missing from `tools/list`, ask the user to set `AST_MCP_TIER=extended` and restart ast-mcp.
 
+## KV repair archives (quantized KV recovery)
+
+Golden **text archives** for inference hosts that use quantized KV caches (`q4_0`, `q8_0`, …). When the host loses KV state (cache miss, eviction, session restart) or output quality degrades, the agent fetches the archive and the host **re-prefills with f16/bf16** — same pattern as LMCache miss→recompute, but the tokens live in ast-context-cache after host compaction.
+
+### Triggers (same repair path)
+
+| Trigger | Who detects | Phase 1 |
+|---------|-------------|---------|
+| **cache_miss** | Inference host (LMCache/vLLM miss, OOM unload) | Document contract; `report_kv_repair_event` + `fetch_context(repair_reason=cache_miss)` |
+| **quality** | Agent/heuristics (repetition, needle fail) | Manual + documented heuristics |
+| **manual** | User or agent | Primary for ast-context-cache-only setups |
+
+### Store (proactive archive)
+
+```
+store_context(
+  content="<full prompt + generation archive>",
+  session_id="conv-uuid",
+  label="session kv archive",
+  kind="kv_repair",
+  tags=["kv_repair"],
+  metadata={
+    "model_id": "llama-3.1-8b",
+    "kv_quant": "q4_0",
+    "token_count": 32000,
+    "trigger_hint": "proactive"
+  }
+)
+→ [ctx_…] session kv archive
+```
+
+`kind=kv_repair` or tag `kv_repair` marks the note. Metadata round-trips in `metadata_json` on fetch.
+
+### Repair fetch
+
+```
+report_kv_repair_event(reason="cache_miss", session_id="...", ref="ctx_...", model_id="...", kv_quant="q4_0")
+fetch_context(refs=["ctx_..."], session_id="...", repair_reason="cache_miss")
+→ host re-prefills archived text with non-quant KV
+report_kv_repair_event(reason="cache_miss", outcome="success", session_id="...", ref="ctx_...")
+```
+
+Pass **`repair_reason`** on every repair fetch (`cache_miss`, `quality`, `manual`) for dashboard metrics.
+
+### Host contract (optional JSON on miss)
+
+```json
+{"repair_reason":"cache_miss","session_id":"…","ctx_ref":"ctx_…","model_id":"…","kv_quant":"q4_0"}
+```
+
+Agent calls `fetch_context` then retries generation with f16/bf16 KV.
+
+### Tier 2 manual checklist (no inference harness in repo)
+
+1. Start ast-mcp (extended tier for `store_context` / `report_kv_repair_event`).
+2. `store_context` with `kind=kv_repair` and metadata; keep `[ctx_…]` stub in chat.
+3. Clear chat (simulate compaction); stub remains.
+4. `fetch_context(refs=[...], repair_reason=manual)` — verify byte-exact text.
+5. Dashboard **Memory → KV repair** shows archives and repair counts.
+
+### Limits
+
+KV repair notes share **virtual context quotas** (same as compaction notes). Separate `AST_KV_REPAIR_MAX_*` env only if kv_repair crowds session storage.
+
 ## Mode defaults (important)
 
 | Tool | Default mode | Agent should use |

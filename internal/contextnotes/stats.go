@@ -41,7 +41,8 @@ type DashboardStats struct {
 	TodayAccessed            int                    `json:"today_accessed"`
 	FlushedTokens30d         int                    `json:"flushed_tokens_30d"`
 	Limits                   map[string]interface{} `json:"limits"`
-	ByTool30d                map[string]ToolWindow  `json:"by_tool_30d"`
+	ByTool30d                map[string]ToolWindow          `json:"by_tool_30d"`
+	KvRepair                 KvRepairDashboardStats         `json:"kv_repair"`
 }
 
 type ToolWindow struct {
@@ -154,17 +155,18 @@ func bumpSessionAccess(sessionID string, tokens int) {
 			last_access_at = excluded.last_access_at`, sessionID, tokens, now)
 }
 
-func RecordAccess(ref, sessionID, projectPath, toolName string, virtualTokens int) {
+func RecordAccess(ref, sessionID, projectPath, toolName string, virtualTokens int, repairReason string) {
 	if ref == "" || virtualTokens <= 0 {
 		return
 	}
+	reason := normalizeRepairReason(repairReason)
 	now := time.Now().UTC().Format(time.RFC3339)
 	db.DB.Exec(`UPDATE context_notes SET access_count = access_count + 1,
 		tokens_fetched = tokens_fetched + ?,
 		last_accessed_at = ?
 		WHERE ref = ?`, virtualTokens, now, ref)
-	db.DB.Exec(`INSERT INTO context_note_access (ref, session_id, project_path, tool_name, virtual_tokens, accessed_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, ref, sessionID, projectPath, toolName, virtualTokens, now)
+	db.DB.Exec(`INSERT INTO context_note_access (ref, session_id, project_path, tool_name, virtual_tokens, repair_reason, accessed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, ref, sessionID, projectPath, toolName, virtualTokens, reason, now)
 	bumpSessionAccess(sessionID, virtualTokens)
 }
 
@@ -219,5 +221,6 @@ func DashboardStatsFor(projectPath string, windowDays int) DashboardStats {
 			Scan(&calls, &tok)
 		ds.ByTool30d[tool] = ToolWindow{Calls: calls, VirtualTokens: tok}
 	}
+	ds.KvRepair = KvRepairDashboardStatsFor(projectPath, windowDays)
 	return ds
 }

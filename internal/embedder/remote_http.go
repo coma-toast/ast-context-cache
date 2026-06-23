@@ -72,7 +72,7 @@ func (h *HTTPEmbedder) Embed(texts []string) ([][]float32, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("embed http %s: %s", resp.Status, truncateForErr(raw, 200))
+		return nil, FormatHTTPError("embed http", resp.StatusCode, resp.Status, raw)
 	}
 	var out httpEmbedResp
 	if err := json.Unmarshal(raw, &out); err != nil {

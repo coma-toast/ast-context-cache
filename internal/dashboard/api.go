@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -66,12 +67,14 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
+	mux.HandleFunc("/api/embed-aux-workers", handleEmbedAuxWorkers)
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
 	mux.HandleFunc("/api/agent-install", handleAgentInstall)
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/api/doc-sources", handleDocSources)
 	mux.HandleFunc("/api/context-stats", handleContextStats)
+	mux.HandleFunc("/api/kv-repair-stats", handleKvRepairStats)
 	mux.HandleFunc("/api/flush-context", handleFlushContextAPI)
 
 	// WebSocket
@@ -596,6 +599,65 @@ func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+func embedAuxWorkersSnapshot() map[string]interface{} {
+	backend, model := embedder.AuxSnapshot()
+	return map[string]interface{}{
+		"workers":     embedqueue.AuxWorkerCount(),
+		"max_workers": embedqueue.AuxMaxWorkers(),
+		"live":        embedqueue.AuxWorkerLive(),
+		"backend":     backend,
+		"model":       model,
+		"enabled":     backend != "" && !embedder.AuxSharesPrimary(),
+	}
+}
+
+func handleEmbedAuxWorkers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if embedder.AuxSharesPrimary() {
+		if r.Method == http.MethodGet {
+			out := embedAuxWorkersSnapshot()
+			out["status"] = "ok"
+			json.NewEncoder(w).Encode(out)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"error": "aux pool requires a different backend than primary (set EMBED_AUX_BACKEND, default onnx)"})
+		return
+	}
+	if r.Method == http.MethodGet {
+		out := embedAuxWorkersSnapshot()
+		out["status"] = "ok"
+		json.NewEncoder(w).Encode(out)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET or POST required"})
+		return
+	}
+	delta, count, err := parseEmbedWorkersRequest(r)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	var n int
+	if count != nil {
+		n, err = embedqueue.SetAuxWorkerCount(*count)
+	} else if delta != 0 {
+		n, err = embedqueue.AdjustAuxWorkers(delta)
+	} else {
+		n = embedqueue.AuxWorkerCount()
+	}
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	realtime.Notify(realtime.IndexHealth | realtime.HealthBar)
+	out := embedAuxWorkersSnapshot()
+	out["status"] = "ok"
+	out["workers"] = n
+	json.NewEncoder(w).Encode(out)
+}
+
 func handleSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == "POST" {
@@ -619,6 +681,24 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("embed_worker_max must be 1–%d", embedqueue.AbsoluteMaxWorkers)})
 				return
 			}
+		}
+		if key == "embed_aux_worker_max" {
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > 32 {
+				json.NewEncoder(w).Encode(map[string]string{"error": "embed_aux_worker_max must be 1–32"})
+				return
+			}
+		}
+		if key == "EMBED_AUX_WORKERS" {
+			max := embedqueue.AuxMaxWorkers()
+			n, err := strconv.Atoi(value)
+			if err != nil || n < embedqueue.MinWorkers || n > max {
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("EMBED_AUX_WORKERS must be %d–%d", embedqueue.MinWorkers, max)})
+				return
+			}
+		}
+		if key == "EMBED_AUX_BACKEND" {
+			value = normalizeEmbedBackendValue(value)
 		}
 		if key == "EMBED_BACKEND" {
 			value = normalizeEmbedBackendValue(value)
@@ -648,6 +728,30 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			invalidatePartialCache("#index-health")
 		}
+		if key == "embed_aux_worker_max" {
+			if err := embedqueue.ClampAuxWorkersToMax(); err != nil {
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			invalidatePartialCache("#index-health")
+		}
+		if key == "EMBED_AUX_WORKERS" {
+			n, _ := strconv.Atoi(value)
+			if _, err := embedqueue.SetAuxWorkerCount(n); err != nil {
+				log.Printf("dashboard: set aux workers: %v", err)
+			}
+			invalidatePartialCache("#index-health")
+		}
+		if key == "EMBED_AUX_BACKEND" {
+			if embedder.AuxRuntimeReady() {
+				if err := embedder.ReloadAuxRuntime(); err != nil {
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+					return
+				}
+				embedqueue.SetAuxEmbedder(embedder.RawAux())
+			}
+			invalidatePartialCache("#index-health")
+		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
 		reloadEmbed := embedder.IsSettingKey(key)
@@ -658,6 +762,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		} else if key == "project_exclude_paths" {
 			mask |= realtime.IndexHealth
 		} else if key == "embed_worker_max" {
+			mask |= realtime.IndexHealth | realtime.HealthBar
+		} else if key == "embed_aux_worker_max" || key == "EMBED_AUX_WORKERS" || key == "EMBED_AUX_BACKEND" {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		}
 		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
@@ -694,6 +800,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"context_max_tokens_global":     "200000",
 		"context_limit_policy":          "reject",
 		"embed_worker_max":              strconv.Itoa(embedqueue.DefaultMaxWorkers),
+		"embed_aux_worker_max":          strconv.Itoa(embedqueue.DefaultAuxMaxWorkers),
+		"EMBED_AUX_WORKERS":             "0",
+		"EMBED_AUX_BACKEND":             "onnx",
 		"dashboard_log_tail_lines":      "200",
 		"dashboard_log_line_chars":      "500",
 	}

@@ -14,29 +14,39 @@ import (
 )
 
 type MemoryData struct {
-	FilteredProject        string
-	TotalSymbols           int
-	TotalVectors           int
-	VectorMemMB            float64
-	VirtualInventoryTokens int
-	VirtualNotesCount      int
-	VirtualUtilPct30d      float64
-	VirtualOrphanCount     int
-	VirtualFlushed30d      int
-	VirtualStored30d       int
-	VirtualAccessed30d     int
-	VirtualTodayStored     int
-	VirtualTodayAccessed   int
-	VirtualMaxNotesGlobal  int
-	VirtualMaxTokensGlobal int
-	ActiveFacts            int
-	ActiveProcedures       int
-	StructuredMemoryTokens int
-	MemoryOrphanCount      int
-	DocSources             []IndexDocSource
-	DocSourcesTotal        int
-	DocSourcesPage         int
-	DocSourcesPerPage      int
+	FilteredProject           string
+	TotalSymbols              int
+	TotalVectors              int
+	VectorMemMB               float64
+	VirtualInventoryTokens    int
+	VirtualNotesCount         int
+	VirtualUtilPct30d         float64
+	VirtualOrphanCount        int
+	VirtualFlushed30d         int
+	VirtualStored30d          int
+	VirtualAccessed30d        int
+	VirtualTodayStored        int
+	VirtualTodayAccessed      int
+	VirtualMaxNotesGlobal     int
+	VirtualMaxTokensGlobal    int
+	KvRepairArchivesActive    int
+	KvRepairArchivesStored30d int
+	KvRepairRepairsTotal30d   int
+	KvRepairUtilPct30d        float64
+	KvRepairOrphans           int
+	KvRepairTokensRepaired30d int
+	KvRepairCacheMiss30d      int
+	KvRepairQuality30d        int
+	KvRepairManual30d         int
+	KvRepairTodayRepairs      int
+	ActiveFacts               int
+	ActiveProcedures          int
+	StructuredMemoryTokens    int
+	MemoryOrphanCount         int
+	DocSources                []IndexDocSource
+	DocSourcesTotal           int
+	DocSourcesPage            int
+	DocSourcesPerPage         int
 }
 
 func (m MemoryData) virtualSublabel() string {
@@ -53,6 +63,15 @@ func (m MemoryData) virtualInventoryMeter() TodayMeterFill {
 		return todayMeterFill(m.VirtualInventoryTokens, maxInt(m.VirtualStored30d, 1))
 	}
 	return todayMeterFill(m.VirtualInventoryTokens, m.VirtualMaxTokensGlobal)
+}
+
+func (m MemoryData) kvRepairSublabel() string {
+	return fmt.Sprintf("30d: %d repairs · miss: %d · quality: %d · manual: %d · util: %.0f%% · orphans: %d",
+		m.KvRepairRepairsTotal30d, m.KvRepairCacheMiss30d, m.KvRepairQuality30d, m.KvRepairManual30d, m.KvRepairUtilPct30d, m.KvRepairOrphans)
+}
+
+func (m MemoryData) kvRepairMeter() TodayMeterFill {
+	return todayMeterFill(m.KvRepairRepairsTotal30d, maxInt(m.KvRepairArchivesStored30d, 1))
 }
 
 func MemoryPanel(m MemoryData) templ.Component {
@@ -84,7 +103,7 @@ func MemoryPanel(m MemoryData) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(filepath.Base(m.FilteredProject))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 53, Col: 73}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 72, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -111,98 +130,114 @@ func MemoryPanel(m MemoryData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><div class=\"memory-section\"><div class=\"section-title\">Semantic index <span class=\"section-hint\">Code symbols and embedding vectors — semantic recall over your repos (Mem0 semantic / vector tier)</span></div><div class=\"grid grid-3 memory-stats-grid\"><div class=\"card memory-stat-card\"><div class=\"card-title\">Symbols</div><div class=\"stat-value stat-accent\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><div class=\"grid grid-3 memory-stats-grid\" style=\"margin-top:12px\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = StatMeter("KV repair", fmt.Sprintf("Today: %d repairs", m.KvRepairTodayRepairs), m.kvRepairSublabel(), m.kvRepairMeter(), "stat-purple").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = StatMeter("Archives active", fmtInt(m.KvRepairArchivesActive), fmt.Sprintf("30d stored: %s · tokens repaired: %s", fmtInt(m.KvRepairArchivesStored30d), fmtInt(m.KvRepairTokensRepaired30d)), todayMeterFill(m.KvRepairArchivesActive, maxInt(m.KvRepairArchivesStored30d, 1)), "stat-accent").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = StatMeter("Repair orphans", fmtInt(m.KvRepairOrphans), "Archives never fetched for repair", todayMeterFill(m.KvRepairOrphans, maxInt(m.KvRepairArchivesActive, 1)), "stat-green").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div class=\"memory-section\"><div class=\"section-title\">Semantic index <span class=\"section-hint\">Code symbols and embedding vectors — semantic recall over your repos (Mem0 semantic / vector tier)</span></div><div class=\"grid grid-3 memory-stats-grid\"><div class=\"card memory-stat-card\"><div class=\"card-title\">Symbols</div><div class=\"stat-value stat-accent\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(m.TotalSymbols))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 75, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 99, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Vectors</div><div class=\"stat-value stat-purple\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Vectors</div><div class=\"stat-value stat-purple\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(m.TotalVectors))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 79, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 103, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Vector cache</div><div class=\"stat-value stat-accent\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Vector cache</div><div class=\"stat-value stat-accent\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.2f MB", m.VectorMemMB))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 83, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 107, Col: 79}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div></div></div><div class=\"memory-section\"><div class=\"section-title\">Temporal facts &amp; procedures <span class=\"section-hint\">Structured mem_* entries — facts with valid_from/until (Zep), PROC rules (LangMem). recall_memory is ~10× smaller than fetch_context for preferences.</span></div><div class=\"grid grid-3 memory-stats-grid\"><div class=\"card memory-stat-card\"><div class=\"card-title\">Active facts</div><div class=\"stat-value stat-cyan\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></div></div></div><div class=\"memory-section\"><div class=\"section-title\">Temporal facts &amp; procedures <span class=\"section-hint\">Structured mem_* entries — facts with valid_from/until (Zep), PROC rules (LangMem). recall_memory is ~10× smaller than fetch_context for preferences.</span></div><div class=\"grid grid-3 memory-stats-grid\"><div class=\"card memory-stat-card\"><div class=\"card-title\">Active facts</div><div class=\"stat-value stat-cyan\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(m.ActiveFacts))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 95, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 119, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Procedures</div><div class=\"stat-value stat-purple\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Procedures</div><div class=\"stat-value stat-purple\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(m.ActiveProcedures))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 99, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 123, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Structured tokens</div><div class=\"stat-value stat-green\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div></div><div class=\"card memory-stat-card\"><div class=\"card-title\">Structured tokens</div><div class=\"stat-value stat-green\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(m.StructuredMemoryTokens))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 103, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 127, Col: 73}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><div class=\"perf-hint\" style=\"margin-top:6px\">Orphans: ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div><div class=\"perf-hint\" style=\"margin-top:6px\">Orphans: ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(m.MemoryOrphanCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 104, Col: 88}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/memory.templ`, Line: 128, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div></div></div></div><div class=\"memory-section\"><div class=\"section-title\">Knowledge base <span class=\"section-hint\">Cached documentation URLs (fetch_doc / search_docs) — external knowledge, like Zep documents or Context7</span></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div></div></div></div><div class=\"memory-section\"><div class=\"section-title\">Knowledge base <span class=\"section-hint\">Cached documentation URLs (fetch_doc / search_docs) — external knowledge, like Zep documents or Context7</span></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -210,7 +245,7 @@ func MemoryPanel(m MemoryData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

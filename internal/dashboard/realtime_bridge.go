@@ -39,6 +39,9 @@ func flushPartialBroadcast(mask realtime.Reason) {
 	if hub == nil {
 		return
 	}
+	if mask&realtime.IndexHealth != 0 {
+		invalidateIndexHealthCache()
+	}
 	for _, p := range dashboardPartials {
 		if !partialMatchesMask(p.name, mask) {
 			continue

@@ -252,6 +252,28 @@ func Init() error {
 		CREATE INDEX IF NOT EXISTS idx_context_note_access_at ON context_note_access(accessed_at);
 		CREATE INDEX IF NOT EXISTS idx_context_note_access_ref ON context_note_access(ref);
 	`)
+	DB.Exec(`ALTER TABLE context_notes ADD COLUMN kind TEXT DEFAULT ''`)
+	DB.Exec(`ALTER TABLE context_notes ADD COLUMN metadata_json TEXT DEFAULT ''`)
+	DB.Exec(`ALTER TABLE context_note_access ADD COLUMN repair_reason TEXT DEFAULT ''`)
+	DB.Exec(`ALTER TABLE context_note_access ADD COLUMN metadata_json TEXT DEFAULT ''`)
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS kv_repair_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT,
+			project_path TEXT,
+			ref TEXT,
+			repair_reason TEXT NOT NULL,
+			outcome TEXT,
+			model_id TEXT,
+			kv_quant TEXT,
+			token_est INTEGER DEFAULT 0,
+			detail TEXT,
+			metadata_json TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_kv_repair_events_at ON kv_repair_events(created_at);
+		CREATE INDEX IF NOT EXISTS idx_kv_repair_events_reason ON kv_repair_events(repair_reason);
+	`)
 	DB.Exec(`
 		CREATE TABLE IF NOT EXISTS context_session_stats (
 			session_id TEXT PRIMARY KEY,

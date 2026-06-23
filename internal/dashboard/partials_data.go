@@ -4,9 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
@@ -15,7 +18,40 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
+var (
+	indexHealthCacheMu sync.Mutex
+	indexHealthCache   struct {
+		at  time.Time
+		pid string
+		h   components.IndexHealth
+	}
+	indexHealthCacheTTL = 2 * time.Second
+)
+
 func buildIndexHealth(projectID string) components.IndexHealth {
+	indexHealthCacheMu.Lock()
+	if !indexHealthCache.at.IsZero() && time.Since(indexHealthCache.at) < indexHealthCacheTTL && indexHealthCache.pid == projectID {
+		h := indexHealthCache.h
+		indexHealthCacheMu.Unlock()
+		return h
+	}
+	indexHealthCacheMu.Unlock()
+	h := buildIndexHealthFresh(projectID)
+	indexHealthCacheMu.Lock()
+	indexHealthCache.at = time.Now()
+	indexHealthCache.pid = projectID
+	indexHealthCache.h = h
+	indexHealthCacheMu.Unlock()
+	return h
+}
+
+func invalidateIndexHealthCache() {
+	indexHealthCacheMu.Lock()
+	indexHealthCache.at = time.Time{}
+	indexHealthCacheMu.Unlock()
+}
+
+func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h := components.IndexHealth{}
 	if projectID != "" {
 		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
@@ -71,6 +107,9 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 			if projectID != "" && pp != projectID {
 				continue
 			}
+			if projectmeta.IsExcluded(pp) {
+				continue
+			}
 			active, _ := w["active"].(bool)
 			meta := projectmeta.Enrich(pp)
 			label := meta.Label
@@ -102,6 +141,12 @@ func buildIndexHealth(projectID string) components.IndexHealth {
 	h.EmbedActive = int(eq.InFlight)
 	h.EmbedWorkers = eq.Workers
 	h.EmbedWorkersLive = eq.WorkersLive
+	h.EmbedWorkerMax = embedqueue.MaxWorkers()
+	h.EmbedAuxWorkers = eq.AuxWorkers
+	h.EmbedAuxWorkersLive = eq.AuxWorkersLive
+	h.EmbedAuxWorkerMax = embedqueue.AuxMaxWorkers()
+	h.EmbedAuxBackend, h.EmbedAuxModel = embedder.AuxSnapshot()
+	h.EmbedAuxEnabled = h.EmbedAuxBackend != "" && !embedder.AuxSharesPrimary()
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
 	h.PinnedCount = db.PinnedProjectCount()
@@ -132,6 +177,16 @@ func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
 	m.VirtualTodayAccessed = s.VirtualTodayAccessed
 	m.VirtualMaxNotesGlobal = s.VirtualMaxNotesGlobal
 	m.VirtualMaxTokensGlobal = s.VirtualMaxTokensGlobal
+	m.KvRepairArchivesActive = s.KvRepairArchivesActive
+	m.KvRepairArchivesStored30d = s.KvRepairArchivesStored30d
+	m.KvRepairRepairsTotal30d = s.KvRepairRepairsTotal30d
+	m.KvRepairUtilPct30d = s.KvRepairUtilPct30d
+	m.KvRepairOrphans = s.KvRepairOrphans
+	m.KvRepairTokensRepaired30d = s.KvRepairTokensRepaired30d
+	m.KvRepairCacheMiss30d = s.KvRepairCacheMiss30d
+	m.KvRepairQuality30d = s.KvRepairQuality30d
+	m.KvRepairManual30d = s.KvRepairManual30d
+	m.KvRepairTodayRepairs = s.KvRepairTodayRepairs
 	inv := memory.Inventory()
 	m.ActiveFacts = inv.ActiveFacts
 	m.ActiveProcedures = inv.ActiveProcedures

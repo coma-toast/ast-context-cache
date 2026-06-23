@@ -118,25 +118,21 @@ templ ChannelBar(label string, used int, cap int, color string) {
 	</div>
 }
 
-templ WorkerStrip(active int, total int) {
-	{{ maxWorkers := EmbedWorkerMax() }}
-	{{ dots, showEllipsis := workerStripDotCount(total) }}
+templ WorkerStrip(active int, total int, live int, maxWorkers int) {
+	{{ displayTotal := workerStripDisplayTotal(total, live) }}
+	{{ dots, showEllipsis := workerStripDotCount(displayTotal) }}
 	<div
 		class={
 			"worker-strip",
 			templ.KV("worker-strip-compact", workerStripUsesCompact(maxWorkers)),
-			templ.KV("worker-strip-split", !workerStripUsesCompact(maxWorkers) && total > WorkerStripPerRow),
+			templ.KV("worker-strip-split", workerStripSplitClass(maxWorkers, displayTotal)),
 		}
-		title={ fmt.Sprintf("%d of %d workers busy", active, total) }
+		title={ workerStripBusyLabel(active, total) }
 		role="img"
-		aria-label={ fmt.Sprintf("%d of %d workers busy", active, total) }
+		aria-label={ workerStripBusyLabel(active, total) }
 	>
 		for i := 0; i < dots; i++ {
-			if i < active {
-				<span class="worker-pill busy"></span>
-			} else {
-				<span class="worker-pill idle"></span>
-			}
+			<span class={ workerPillClasses(i, active, total, live) }></span>
 		}
 		if showEllipsis {
 			<span class="worker-pill worker-pill-ellipsis" aria-hidden="true">…</span>
@@ -144,18 +140,31 @@ templ WorkerStrip(active int, total int) {
 	</div>
 }
 
-templ WorkerControls(active int, total int, live int) {
-	{{ maxWorkers := EmbedWorkerMax() }}
+templ WorkerControls(active int, total int, live int, maxWorkers int) {
+	@workerControlsPool(active, total, live, "primary", maxWorkers)
+}
+
+templ AuxWorkerControls(active int, total int, live int, maxWorkers int) {
+	@workerControlsPool(active, total, live, "aux", maxWorkers)
+}
+
+templ workerControlsPool(active int, total int, live int, pool string, maxWorkers int) {
 	<div
-		class={ "worker-controls", templ.KV("worker-controls-paused", total == 0) }
-		data-embed-workers={ fmtInt(total) }
-		data-embed-workers-live={ fmtInt(live) }
+		class={ "worker-controls", templ.KV("worker-controls-paused", total == 0), templ.KV("worker-controls-aux", pool == "aux") }
+		if pool == "aux" {
+			data-embed-aux-workers={ fmtInt(total) }
+			data-embed-aux-workers-live={ fmtInt(live) }
+		} else {
+			data-embed-workers={ fmtInt(total) }
+			data-embed-workers-live={ fmtInt(live) }
+		}
 		data-embed-active={ fmtInt(active) }
+		data-worker-pool={ pool }
 		data-worker-min={ fmtInt(MinEmbedWorkers) }
 		data-worker-max={ fmtInt(maxWorkers) }
 		data-worker-per-row={ fmtInt(WorkerStripPerRow) }
 		data-worker-visible-max={ fmtInt(WorkerStripVisibleMax) }
-		title={ WorkerControlsTitle(active, total) }
+		title={ WorkerControlsTitle(active, total, live) }
 	>
 		<div class="worker-step-col">
 			if total <= MinEmbedWorkers {
@@ -169,7 +178,7 @@ templ WorkerControls(active int, total int, live int) {
 				<button type="button" class="worker-step-btn" aria-label="Increase workers" data-worker-delta="1">+</button>
 			}
 		</div>
-		@WorkerStrip(active, total)
+		@WorkerStrip(active, total, live, maxWorkers)
 		<span class="worker-count-label">{ fmtInt(total) }</span>
 	</div>
 }
@@ -241,9 +250,16 @@ templ EmbedPanel(h IndexHealth) {
 				@ChannelBar("Background", h.EmbedLowQueued, h.EmbedLowCap, "#bc8cff")
 				<div class="metric-row worker-metric-row">
 					<span class="metric-row-label">Workers</span>
-					@WorkerControls(h.EmbedActive, h.EmbedWorkers, h.EmbedWorkersLive)
+					@WorkerControls(h.EmbedActive, h.EmbedWorkers, h.EmbedWorkersLive, h.EmbedWorkerMax)
 					<span class="metric-row-value">{ h.EmbedWorkersStatus() }</span>
 				</div>
+				if h.EmbedAuxEnabled {
+					<div class="metric-row worker-metric-row worker-metric-row-aux">
+						<span class="metric-row-label">{ h.EmbedAuxWorkerLabel() }</span>
+						@AuxWorkerControls(h.EmbedActive, h.EmbedAuxWorkers, h.EmbedAuxWorkersLive, h.EmbedAuxWorkerMax)
+						<span class="metric-row-value">{ h.EmbedAuxWorkersStatus() }</span>
+					</div>
+				}
 				<div class="metric-row">
 					<span class="metric-row-label">Throughput</span>
 					<div class="channel-bar-track throughput-track">

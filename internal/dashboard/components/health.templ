@@ -2,6 +2,7 @@ package components
 
 import "fmt"
 import "time"
+import "github.com/coma-toast/ast-context-cache/internal/embedder"
 
 type Health struct {
 	EmbedderState    string
@@ -11,7 +12,8 @@ type Health struct {
 	EmbedModel      string
 	EmbedRuntime    string
 	EmbedDim        int
-	QueueWorkers   int
+	QueueWorkers     int
+	QueueWorkersLive int
 	QueueThroughput int64
 	QueueQueued     int
 	QueuePending     int
@@ -115,7 +117,11 @@ func (h Health) ShowQueryCache() bool {
 }
 
 func (h Health) EmbedderErrorShort() string {
-	return truncateEmbedLabel(h.EmbedderError, 48)
+	return truncateEmbedLabel(h.EmbedderHumanError(), 48)
+}
+
+func (h Health) EmbedderHumanError() string {
+	return embedder.HumanizeEmbedError(h.EmbedderError)
 }
 
 func (h Health) EmbedderChipLabel() string {
@@ -158,7 +164,7 @@ templ HealthBar(h Health) {
 		<span class="health-item health-gauge-item" title={ h.workersTitle() }>
 			<span class="health-label">Workers</span>
 			if h.QueueWorkers > 0 {
-				@WorkerStrip(int(h.QueueInFlight), h.QueueWorkers)
+				@WorkerStrip(int(h.QueueInFlight), h.QueueWorkers, h.QueueWorkersLive, EmbedWorkerMax())
 			} else {
 				<span class="health-value health-value-muted">paused</span>
 			}
