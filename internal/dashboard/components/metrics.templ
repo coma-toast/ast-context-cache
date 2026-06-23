@@ -8,7 +8,7 @@ templ ResourceUtilCard(h IndexHealth) {
 		<div class="resource-util-rows">
 			@ResourceBar("CPU", fmt.Sprintf("%.0f%%", h.CPUPercent), cpuGaugePct(h.CPUPercent), "#f0883e", "Process CPU — can exceed 100% on multi-core")
 			if h.LoadAvgAvailable {
-				@ResourceBar("Load avg", h.LoadAvgLabel(), loadAvgPct(h.LoadAvg1), "#d2a8ff", h.LoadAvgHint())
+				@loadAvgBar(h)
 			}
 			@ResourceBar("Heap", fmt.Sprintf("%.1f MB", h.MemoryMB), memoryPct(h.MemoryMB), "#bc8cff", "")
 			@ResourceBar("Vector cache", fmt.Sprintf("%.2f MB", h.VectorMemMB), memoryPct(h.VectorMemMB), "#58a6ff", "")
@@ -81,6 +81,18 @@ templ ResourceBar(label string, value string, fillPct float64, color string, hin
 		</div>
 		<div class="channel-bar-track">
 			<div class={ "channel-bar-fill", "level-" + gaugeLevel(fillPct) } style={ fmt.Sprintf("width:%.1f%%;background:%s", fillPct, color) }></div>
+		</div>
+	</div>
+}
+
+templ loadAvgBar(h IndexHealth) {
+	<div class="resource-bar">
+		<div class="resource-bar-head">
+			<span class="resource-bar-label" title={ h.LoadAvgHint() }>Load avg</span>
+			<span class="resource-bar-value">{ h.LoadAvgLabel() }</span>
+		</div>
+		<div class="channel-bar-track">
+			<div class={ "channel-bar-fill", "level-" + gaugeLevel(h.loadAvgLevelPct()) } style={ fmt.Sprintf("width:%.1f%%;background:#d2a8ff", h.loadAvgBarPct()) }></div>
 		</div>
 	</div>
 }
