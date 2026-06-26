@@ -59,7 +59,17 @@ function ast-mcp
             set -l pid (lsof -t -iTCP:$__ast_mcp_port -sTCP:LISTEN 2>/dev/null)
             if test -n "$pid"
                 kill $pid 2>/dev/null
-                echo "ast-mcp: stopped (pid $pid)"
+                set -l i 0
+                while test $i -lt 5
+                    sleep 1
+                    if not __ast_mcp_is_running
+                        echo "ast-mcp: stopped (pid $pid)"
+                        return 0
+                    end
+                    set i (math $i + 1)
+                end
+                kill -9 $pid 2>/dev/null
+                echo "ast-mcp: force stopped (pid $pid)"
             else
                 echo "ast-mcp: not running"
             end

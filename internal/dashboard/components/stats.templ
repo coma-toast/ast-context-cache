@@ -74,6 +74,13 @@ func fmtInt64(n int64) string {
 	return result
 }
 
+func fmtBool(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
 templ StatsCards(s Stats) {
 	<div class="grid grid-4 stats-grid">
 		@StatMeter("Queries", fmtInt(s.TodayQueries), s.queriesSublabel(), s.todayQueryMeter(), "stat-accent")

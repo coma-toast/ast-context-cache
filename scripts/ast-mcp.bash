@@ -61,7 +61,17 @@ ast-mcp() {
             pid=$(lsof -t -iTCP:${port} -sTCP:LISTEN 2>/dev/null)
             if [[ -n "$pid" ]]; then
                 kill "$pid" 2>/dev/null
-                echo "ast-mcp: stopped (pid $pid)"
+                local i
+                for i in 1 2 3 4 5; do
+                    sleep 1
+                    _ast_mcp_running || break
+                done
+                if _ast_mcp_running; then
+                    kill -9 "$pid" 2>/dev/null
+                    echo "ast-mcp: force stopped (pid $pid)"
+                else
+                    echo "ast-mcp: stopped (pid $pid)"
+                fi
             else
                 echo "ast-mcp: not running"
             fi

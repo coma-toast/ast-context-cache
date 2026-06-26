@@ -30,6 +30,9 @@ func buildRecentQueries(projectID string, limit int) (mcp, indexing []components
 }
 
 func queryRecent(projectID string, limit int, toolFilter string) []components.RecentQuery {
+	if db.DB == nil {
+		return nil
+	}
 	if limit > 500 {
 		limit = 500
 	}

@@ -80,6 +80,9 @@ func SetSetting(key, value string) error {
 
 func GetAllSettings() map[string]string {
 	result := map[string]string{}
+	if DB == nil {
+		return result
+	}
 	rows, err := DB.Query("SELECT key, value FROM settings")
 	if err != nil {
 		return result
@@ -103,6 +106,9 @@ type AgentConfig struct {
 }
 
 func GetAgentConfigs() ([]AgentConfig, error) {
+	if DB == nil {
+		return nil, nil
+	}
 	rows, err := DB.Query("SELECT id, agent_type, install_path, is_global, instructions_hash, installed_at FROM agent_configs ORDER BY agent_type")
 	if err != nil {
 		return nil, err

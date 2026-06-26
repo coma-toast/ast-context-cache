@@ -27,9 +27,26 @@ var (
 	indexHealthCacheTTL = 2 * time.Second
 )
 
+func indexHealthCacheTTLForRefresh() time.Duration {
+	if eq := embedqueue.Snapshot(); eq.InFlight > 0 || eq.Queued > 0 || eq.Pending > 0 || db.WALMaintenanceActive() {
+		return 0
+	}
+	return indexHealthCacheTTL
+}
+
 func buildIndexHealth(projectID string) components.IndexHealth {
+	if db.WALMaintenanceActive() {
+		indexHealthCacheMu.Lock()
+		if !indexHealthCache.at.IsZero() && indexHealthCache.pid == projectID {
+			h := applyLiveHealthSignals(indexHealthCache.h)
+			indexHealthCacheMu.Unlock()
+			return h
+		}
+		indexHealthCacheMu.Unlock()
+	}
 	indexHealthCacheMu.Lock()
-	if !indexHealthCache.at.IsZero() && time.Since(indexHealthCache.at) < indexHealthCacheTTL && indexHealthCache.pid == projectID {
+	ttl := indexHealthCacheTTLForRefresh()
+	if ttl > 0 && !indexHealthCache.at.IsZero() && time.Since(indexHealthCache.at) < ttl && indexHealthCache.pid == projectID {
 		h := indexHealthCache.h
 		indexHealthCacheMu.Unlock()
 		return h
@@ -50,9 +67,42 @@ func invalidateIndexHealthCache() {
 	indexHealthCacheMu.Unlock()
 }
 
+func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
+	walSnap := db.GetWALSnapshot()
+	h.WALMaintenanceActive = walSnap.Active
+	h.WALMaintenancePhase = string(walSnap.Phase)
+	h.WALMaintenanceMode = walSnap.Mode
+	h.WALMaintenanceReason = walSnap.Reason
+	h.WALMaintenanceStarted = walSnap.StartedAt
+	h.WALWalStartBytes = walSnap.WalStartBytes
+	h.WALWalCurrentBytes = walSnap.WalCurrentBytes
+	h.WALBusyStreak = walSnap.BusyStreak
+	h.WALInFlight = walSnap.InFlight
+	h.WALLastBusy = walSnap.LastBusy
+	h.WALPressure = db.WalPressure()
+	eq := embedqueue.Snapshot()
+	h.EmbedQueued = eq.Queued
+	h.EmbedPending = eq.Pending
+	h.EmbedPendingPeak = eq.PendingPeak
+	h.EmbedFailed = eq.Failed
+	h.EmbedHighQueued = eq.HighUsed
+	h.EmbedLowQueued = eq.LowUsed
+	h.EmbedActive = int(eq.InFlight)
+	h.EmbedWorkers = eq.Workers
+	h.EmbedWorkersEffective = eq.WorkersEffective
+	h.EmbedWorkersLive = eq.WorkersLive
+	h.EmbedAuxWorkers = eq.AuxWorkers
+	h.EmbedAuxWorkersEffective = eq.AuxWorkersEffective
+	h.EmbedAuxWorkersLive = eq.AuxWorkersLive
+	h.EmbedComplete = eq.Completed
+	h.EmbedThroughput = eq.Throughput
+	return h
+}
+
 func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h := components.IndexHealth{}
 	if db.IndexDB == nil {
+		applyActiveEmbedder(&h)
 		return h
 	}
 	if projectID != "" {
@@ -172,6 +222,9 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 
 func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
 	m := components.MemoryData{FilteredProject: projectID}
+	if db.IndexDB == nil {
+		return m
+	}
 	if projectID != "" {
 		db.IndexDB.QueryRow("SELECT COUNT(*) FROM symbols WHERE project_path = ?", projectID).Scan(&m.TotalSymbols)
 	} else {

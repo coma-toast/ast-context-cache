@@ -144,6 +144,21 @@ document.addEventListener('alpine:init', () => {
 
     ws.onerror = () => {};
 
+    let lastOverviewPartialAt = Date.now();
+    window.addEventListener('dashboard-ws-partial', () => {
+        lastOverviewPartialAt = Date.now();
+    });
+    setInterval(async () => {
+        if (dashboardActiveTab() !== 'overview') return;
+        if (Date.now() - lastOverviewPartialAt < 6000) return;
+        const panels = [
+            ['#health-bar', '/partials/health'],
+            ['#index-health', '/partials/index-health'],
+        ];
+        await Promise.all(panels.map(([sel, path]) => fetchPartial(sel, path)));
+        lastOverviewPartialAt = Date.now();
+    }, 5000);
+
     Alpine.store('chart', {
         interval: 'daily',
         metric: 'queries',
@@ -522,9 +537,15 @@ function patchRecentPanel(container, html) {
     wrap.innerHTML = html;
     const srcPanel = wrap.querySelector('.recent-panel');
     if (!srcPanel) return false;
-    for (const sel of ['.pane-mcp', '.pane-indexing', '.pane-logs']) {
+    for (const sel of ['.pane-mcp', '.pane-indexing']) {
         const src = srcPanel.querySelector(sel);
         const dst = panel.querySelector(sel);
+        if (src && dst) dst.innerHTML = src.innerHTML;
+    }
+    const srcLogPath = srcPanel.querySelector('.pane-logs .recent-logs-path');
+    if (srcLogPath?.textContent?.trim()) {
+        const src = srcPanel.querySelector('.pane-logs');
+        const dst = panel.querySelector('.pane-logs');
         if (src && dst) dst.innerHTML = src.innerHTML;
     }
     for (const id of ['recent-tab-mcp', 'recent-tab-indexing', 'recent-tab-logs']) {
@@ -650,7 +671,7 @@ function mountRecentContent(el, preservedTab) {
     setRecentSubTab(tab, el);
     bindRecentLogsAutoscroll(el);
     if (tab === 'logs') {
-        requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+        void refreshRecentLogsOnly(true);
     }
     syncLogsPoll();
     if (el.dataset.recentTabBound) return;
@@ -660,7 +681,7 @@ function mountRecentContent(el, preservedTab) {
             const sub = recentSubTabFromRadio(e.target);
             sessionStorage.setItem(RECENT_SUBTAB_KEY, sub);
             if (sub === 'logs') {
-                requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+                void refreshRecentLogsOnly(true);
             }
             syncLogsPoll();
         }
@@ -684,6 +705,16 @@ function mountHTMXContent(el) {
 
 function mountSettingsContent(el) {
     mountHTMXContent(el);
+    const list = el?.querySelector?.('.project-list[data-projects-loading="true"]');
+    if (list) {
+        setTimeout(async () => {
+            const r = await fetch('/partials/settings');
+            if (r.ok) {
+                el.innerHTML = await r.text();
+                mountSettingsContent(el);
+            }
+        }, 600);
+    }
 }
 
 async function watcherApiAction(action, projectPath, targetSel) {

@@ -126,6 +126,11 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	var s stats
 	s.WindowDays = StatsWindowDays
+	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode(s)
+		return
+	}
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
@@ -139,7 +144,6 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	s.TodayTokensSaved = today.TodayTokens
 	s.TodaySessions = today.TodaySessions
 	s.TodayAvgDurationMs = today.TodayAvgDurationMs
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s)
 }
 
@@ -164,6 +168,11 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 	}
 	if lim > 500 {
 		lim = 500
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
 	}
 	var rows *sql.Rows
 	var err error
@@ -207,20 +216,30 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 
 func handleProjects(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() && !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	type symCount struct {
 		symbols int
 		files   int
 	}
 	symCounts := map[string]symCount{}
-	symRows, err := db.IndexDB.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
-	if err == nil {
-		defer symRows.Close()
-		for symRows.Next() {
-			var pp string
-			var sc symCount
-			symRows.Scan(&pp, &sc.symbols, &sc.files)
-			symCounts[pp] = sc
+	if indexDBReady() {
+		symRows, err := db.IndexDB.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+		if err == nil {
+			defer symRows.Close()
+			for symRows.Next() {
+				var pp string
+				var sc symCount
+				symRows.Scan(&pp, &sc.symbols, &sc.files)
+				symCounts[pp] = sc
+			}
 		}
+	}
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
 	}
 	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL GROUP BY project_path")
 	if err != nil {
@@ -320,6 +339,11 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTimeseries(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
 	pid := r.URL.Query().Get("project_id")
 	interval := r.URL.Query().Get("interval")
 	if interval == "" {
@@ -350,7 +374,6 @@ func handleTimeseries(w http.ResponseWriter, r *http.Request) {
 		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
 			FROM queries WHERE timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, days)
 	}
-	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -378,12 +401,14 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
 	var totalSymbols, totalFiles, totalEdges int
-	if pid != "" {
-		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
-	} else {
-		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
+	if indexDBReady() {
+		if pid != "" {
+			db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
+		} else {
+			db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
+		}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"total_symbols":    totalSymbols,
@@ -397,6 +422,10 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
@@ -422,6 +451,10 @@ func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	q := `SELECT CASE
 		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
 		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
@@ -453,6 +486,10 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 func handleTopImports(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
@@ -488,10 +525,12 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	memoryMB := search.Cache.MemoryMB()
 
 	var dbVectors int
-	if pid != "" {
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
-	} else {
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
+	if indexDBReady() {
+		if pid != "" {
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
+		} else {
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
+		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{

@@ -7,10 +7,14 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 func fillVirtualContextStats(s *components.Stats, projectPath string) {
+	if db.ContextDB == nil || db.DB == nil {
+		return
+	}
 	ds := contextnotes.DashboardStatsFor(projectPath, StatsWindowDays)
 	s.VirtualInventoryTokens = ds.ActiveInventoryTokens
 	s.VirtualNotesCount = ds.ActiveNotesCount

@@ -18,7 +18,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
-	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -53,7 +52,7 @@ func loadProjects(pid string) []components.Project {
 	return ps
 }
 
-func loadProjectsForPage() []components.Project {
+func loadProjectsForPage() ([]components.Project, bool) {
 	projectsCacheMu.Lock()
 	if len(projectsCache) > 0 {
 		out := make([]components.Project, len(projectsCache))
@@ -63,14 +62,17 @@ func loadProjectsForPage() []components.Project {
 		if stale {
 			go func() { loadProjects("") }()
 		}
-		return out
+		return out, false
 	}
 	projectsCacheMu.Unlock()
 	go func() { loadProjects("") }()
-	return nil
+	return nil, true
 }
 
 func loadProjectsFresh() []components.Project {
+	if db.IndexDB == nil || db.DB == nil {
+		return nil
+	}
 	type symCount struct {
 		symbols int
 		files   int
@@ -152,7 +154,7 @@ func handleDashboardPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	projects := loadProjectsForPage()
+	projects, _ := loadProjectsForPage()
 	h := components.HealthInfo{
 		Version:    version.Version,
 		StartTime: serverStartTime,
@@ -163,6 +165,10 @@ func handleDashboardPage(w http.ResponseWriter, r *http.Request) {
 func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	s := components.Stats{}
+	if !usageDBReady() {
+		components.StatsCards(s).Render(r.Context(), w)
+		return
+	}
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + ", " + dedupTokensSum + ", " + savingsVsFilesSum + " FROM queries WHERE "
@@ -228,6 +234,11 @@ func handleMemoryPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleActivityDataPartial(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
 	pid := r.URL.Query().Get("project_id")
 	interval := r.URL.Query().Get("interval")
 	if interval == "" {
@@ -257,7 +268,6 @@ func handleActivityDataPartial(w http.ResponseWriter, r *http.Request) {
 		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
 			FROM queries WHERE timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, days)
 	}
-	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		json.NewEncoder(w).Encode([]interface{}{})
 		return
@@ -282,6 +292,10 @@ func handleActivityDataPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSymbolChartPartial(w http.ResponseWriter, r *http.Request) {
+	if !indexDBReady() {
+		components.BarChart(nil, 0).Render(r.Context(), w)
+		return
+	}
 	pid := r.URL.Query().Get("project_id")
 	var rows *sql.Rows
 	var err error
@@ -306,6 +320,10 @@ func handleSymbolChartPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLanguageChartPartial(w http.ResponseWriter, r *http.Request) {
+	if !indexDBReady() {
+		components.BarChart(nil, 3).Render(r.Context(), w)
+		return
+	}
 	pid := r.URL.Query().Get("project_id")
 	q := `SELECT CASE
 		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
@@ -341,6 +359,10 @@ func handleToolChartPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleImportChartPartial(w http.ResponseWriter, r *http.Request) {
+	if !indexDBReady() {
+		components.BarChart(nil, 5).Render(r.Context(), w)
+		return
+	}
 	pid := r.URL.Query().Get("project_id")
 	var rows *sql.Rows
 	var err error
@@ -372,8 +394,18 @@ func handleRecentPartial(w http.ResponseWriter, r *http.Request) {
 			lim = parsed
 		}
 	}
-	mcp, indexing := buildRecentQueries(pid, lim)
-	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
+	var mcp, indexing []components.RecentQuery
+	if usageDBReady() {
+		mcp, indexing = buildRecentQueries(pid, lim)
+	}
+	includeLogs := r.URL.Query().Get("include_logs") == "1"
+	var logs []components.RecentLogLine
+	var logPath string
+	var logTrunc bool
+	logOpts := components.LogViewOpts{TailLines: 200, MaxLineChars: 500}
+	if includeLogs {
+		logs, logPath, logTrunc, logOpts = buildRecentLogsForDashboard()
+	}
 	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc, logOpts).Render(r.Context(), w)
 }
 
@@ -383,86 +415,6 @@ func handleRecentLogsPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
-	settings := db.GetAllSettings()
-	idleMinutes := 1
-	if v, ok := settings["idle_unload_minutes"]; ok {
-		if parsed, err := strconv.Atoi(v); err == nil {
-			idleMinutes = parsed
-		}
-	}
-	watcherIgn := ignorepatterns.JSONForSettings(settings["watcher_ignore_globs"])
-	projectExclude := projectmeta.ExcludeJSONForSettings(settings["project_exclude_paths"])
-	indexLog := settings["index_log_files"] == "true"
-	logRoots := settings["log_retention_roots"]
-	if logRoots == "" {
-		logRoots = "[]"
-	}
-	logRetentionMaxAge := 0
-	if v, ok := settings["log_retention_max_age_days"]; ok && v != "" {
-		logRetentionMaxAge, _ = strconv.Atoi(v)
-	}
-	logRetentionMaxMB := 0
-	if v, ok := settings["log_retention_max_total_mib"]; ok && v != "" {
-		logRetentionMaxMB, _ = strconv.Atoi(v)
-	}
-	logRetentionEn := settings["log_retention_enabled"] == "true"
-	logDry := settings["log_retention_dry_run"] == "true"
-	logLast := settings["log_retention_last_run"]
-	queryRetentionEn := settings["query_retention_enabled"] != "false"
-	queryRetentionMaxAge := 90
-	if v, ok := settings["query_retention_max_age_days"]; ok && v != "" {
-		queryRetentionMaxAge, _ = strconv.Atoi(v)
-	}
-	queryRetentionLast := settings["query_retention_last_run"]
-
-	projects := loadProjects("")
-
-	configs, _ := db.GetAgentConfigs()
-	var agents []components.AgentInfo
-	for _, sa := range supportedAgents {
-		a := components.AgentInfo{
-			Type:        sa.Type,
-			Name:        sa.Name,
-			GlobalPath:  sa.GlobalPath,
-			ProjectPath: sa.ProjectPath,
-			Description: sa.Description,
-		}
-		for _, c := range configs {
-			if c.AgentType == sa.Type {
-				if c.IsGlobal {
-					a.GlobalInstalled = true
-				} else {
-					a.ProjectInstalled = true
-				}
-			}
-		}
-		agents = append(agents, a)
-	}
-
-	data := components.SettingsData{
-		IdleUnloadMinutes:       idleMinutes,
-		WatcherIgnoreGlobs:      watcherIgn,
-		ProjectExcludePaths:     projectExclude,
-		IndexLogFiles:           indexLog,
-		LogRetentionEnabled:     logRetentionEn,
-		LogRetentionRoots:       logRoots,
-		LogRetentionMaxAgeDays:  logRetentionMaxAge,
-		LogRetentionMaxTotalMB:  logRetentionMaxMB,
-		LogRetentionDryRun:      logDry,
-		LogRetentionLastRun:     logLast,
-		QueryRetentionEnabled:   queryRetentionEn,
-		QueryRetentionMaxAgeDays: queryRetentionMaxAge,
-		QueryRetentionLastRun:   queryRetentionLast,
-		Projects:                projects,
-		Agents:                  agents,
-		EmbedWorkerMax:          embedqueue.MaxWorkers(),
-		EmbedAuxWorkerMax:       embedqueue.AuxMaxWorkers(),
-		EmbedAuxWorkers:         embedqueue.AuxWorkerTarget(),
-		EmbedAuxBackend:         strings.TrimSpace(db.GetSetting("EMBED_AUX_BACKEND", "onnx")),
-	}
-	PopulateEmbedSettings(settings, &data)
-	populateContextSettings(settings, &data)
-	applyActiveEmbedderSettings(&data)
-	loadEmbedModels(&data)
-	components.Settings(data).Render(r.Context(), w)
+	loadModels := r.URL.Query().Get("load_models") == "1"
+	components.Settings(buildSettingsData(settingsBuildOpts{loadEmbedModels: loadModels})).Render(r.Context(), w)
 }

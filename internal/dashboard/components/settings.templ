@@ -58,6 +58,7 @@ type SettingsData struct {
 	EmbedInSync             bool
 	EmbedEnvOverrides       []string
 	Projects                []Project
+	ProjectsLoading         bool
 	Agents                  []AgentInfo
 	ContextMaxNotesSession  int
 	ContextMaxTokensSession int
@@ -413,8 +414,10 @@ templ Settings(data SettingsData) {
 
 	<div class="section">
 		<div class="section-title">Projects</div>
-		<div class="project-list">
-			if len(data.Projects) == 0 {
+		<div class="project-list" data-projects-loading={ fmtBool(data.ProjectsLoading) }>
+			if data.ProjectsLoading {
+				<div class="empty-state">Loading projects…</div>
+			} else if len(data.Projects) == 0 {
 				<div class="empty-state">No indexed projects</div>
 			} else {
 				for _, p := range data.Projects {

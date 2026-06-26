@@ -66,6 +66,7 @@ type SettingsData struct {
 	EmbedInSync              bool
 	EmbedEnvOverrides        []string
 	Projects                 []Project
+	ProjectsLoading          bool
 	Agents                   []AgentInfo
 	ContextMaxNotesSession   int
 	ContextMaxTokensSession  int
@@ -106,7 +107,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.IdleUnloadMinutes))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 78, Col: 106}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 79, Col: 106}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 		if templ_7745c5c3_Err != nil {
@@ -119,7 +120,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.EmbedWorkerMax))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 86, Col: 128}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 87, Col: 128}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
@@ -132,7 +133,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.EmbedAuxWorkerMax))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 92, Col: 134}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 93, Col: 134}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -145,7 +146,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.EmbedAuxWorkerMax))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 98, Col: 93}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 99, Col: 93}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -158,7 +159,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.EmbedAuxWorkers))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 98, Col: 164}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 99, Col: 164}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -221,7 +222,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.ContextMaxNotesSession))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 121, Col: 126}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 122, Col: 126}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -234,7 +235,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.ContextMaxTokensSession))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 126, Col: 131}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 127, Col: 131}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 		if templ_7745c5c3_Err != nil {
@@ -247,7 +248,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.ContextMaxNotesGlobal))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 131, Col: 124}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 132, Col: 124}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 		if templ_7745c5c3_Err != nil {
@@ -260,7 +261,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.ContextMaxTokensGlobal))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 136, Col: 129}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 137, Col: 129}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 		if templ_7745c5c3_Err != nil {
@@ -293,7 +294,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedActiveEndpoint)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 154, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 155, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 		if templ_7745c5c3_Err != nil {
@@ -306,7 +307,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedActiveStatusLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 156, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 157, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -319,7 +320,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedActiveBackend)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 157, Col: 60}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 158, Col: 60}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -332,7 +333,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var14 string
 		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedActiveModel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 158, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 159, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
@@ -345,7 +346,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedActiveRuntime)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 160, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 161, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
@@ -358,7 +359,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(data.EmbedActiveDim))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 160, Col: 69}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 161, Col: 69}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -434,7 +435,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedderError)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 178, Col: 131}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 179, Col: 131}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 			if templ_7745c5c3_Err != nil {
@@ -447,7 +448,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedderErrorHeadline())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 180, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 181, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -460,7 +461,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedderErrorShort())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 181, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 182, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -500,7 +501,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedConfiguredBackend)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 193, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 194, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
@@ -513,7 +514,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(data.EmbedConfiguredModel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 194, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 195, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -532,7 +533,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(strings.Join(data.EmbedEnvOverrides, ", "))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 200, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 201, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
@@ -550,7 +551,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(EmbedBackendUI(data.EmbedBackend))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 213, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 214, Col: 51}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 		if templ_7745c5c3_Err != nil {
@@ -613,7 +614,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedDockerURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 233, Col: 207}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 234, Col: 207}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 		if templ_7745c5c3_Err != nil {
@@ -634,7 +635,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedDockerDimensions)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 240, Col: 202}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 241, Col: 202}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 		if templ_7745c5c3_Err != nil {
@@ -647,7 +648,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedModelDir)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 248, Col: 118}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 249, Col: 118}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 		if templ_7745c5c3_Err != nil {
@@ -660,7 +661,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedHTTPURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 255, Col: 166}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 256, Col: 166}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 		if templ_7745c5c3_Err != nil {
@@ -673,7 +674,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedHTTPBearer)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 260, Col: 172}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 261, Col: 172}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 		if templ_7745c5c3_Err != nil {
@@ -686,7 +687,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedOllamaHost)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 267, Col: 172}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 268, Col: 172}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 		if templ_7745c5c3_Err != nil {
@@ -707,7 +708,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedOpenAIBaseURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 275, Col: 215}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 276, Col: 215}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 		if templ_7745c5c3_Err != nil {
@@ -720,7 +721,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var33 string
 		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedOpenAIAPIKey)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 281, Col: 173}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 282, Col: 173}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 		if templ_7745c5c3_Err != nil {
@@ -741,7 +742,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var34 string
 		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.EmbedOpenAIDimensions)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 287, Col: 177}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 288, Col: 177}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 		if templ_7745c5c3_Err != nil {
@@ -754,7 +755,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var35 string
 		templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(data.ProjectExcludePaths)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 307, Col: 174}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 308, Col: 174}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 		if templ_7745c5c3_Err != nil {
@@ -767,7 +768,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var36 string
 		templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(data.WatcherIgnoreGlobs)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 314, Col: 173}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 315, Col: 173}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 		if templ_7745c5c3_Err != nil {
@@ -810,7 +811,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(data.LogRetentionRoots)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 354, Col: 170}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 355, Col: 170}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 		if templ_7745c5c3_Err != nil {
@@ -823,7 +824,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.LogRetentionMaxAgeDays))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 361, Col: 144}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 362, Col: 144}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 		if templ_7745c5c3_Err != nil {
@@ -836,7 +837,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.LogRetentionMaxTotalMB))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 366, Col: 143}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 367, Col: 143}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 		if templ_7745c5c3_Err != nil {
@@ -869,7 +870,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var40 string
 			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(data.LogRetentionLastRun)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 382, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 383, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 			if templ_7745c5c3_Err != nil {
@@ -902,7 +903,7 @@ func Settings(data SettingsData) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(data.QueryRetentionMaxAgeDays))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 407, Col: 148}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 408, Col: 148}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 		if templ_7745c5c3_Err != nil {
@@ -920,7 +921,7 @@ func Settings(data SettingsData) templ.Component {
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(data.QueryRetentionLastRun)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 410, Col: 92}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 411, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {
@@ -931,306 +932,324 @@ func Settings(data SettingsData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</div><div class=\"section\"><div class=\"section-title\">Projects</div><div class=\"project-list\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</div><div class=\"section\"><div class=\"section-title\">Projects</div><div class=\"project-list\" data-projects-loading=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if len(data.Projects) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "<div class=\"empty-state\">No indexed projects</div>")
+		var templ_7745c5c3_Var43 string
+		templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmtBool(data.ProjectsLoading))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 417, Col: 81}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if data.ProjectsLoading {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "<div class=\"empty-state\">Loading projects…</div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else if len(data.Projects) == 0 {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "<div class=\"empty-state\">No indexed projects</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
 			for _, p := range data.Projects {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "<div class=\"project-item\"><div class=\"info\"><div class=\"name\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var43 string
-				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(p.Label)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 423, Col: 34}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "</div><div class=\"path\" title=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 103, "<div class=\"project-item\"><div class=\"info\"><div class=\"name\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var44 string
-				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Path)
+				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(p.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 424, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 426, Col: 34}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 103, "\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</div><div class=\"path\" title=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var45 string
-				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(p.Path)
+				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 424, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 427, Col: 39}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var46 string
+				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(p.Path)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 427, Col: 50}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if p.SymbolCount == 0 && p.QueryCount == 0 {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "<div class=\"perf-hint\">Discovered — not indexed yet</div>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "<div class=\"perf-hint\">Discovered — not indexed yet</div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "</div><div class=\"actions\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "</div><div class=\"actions\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if p.Pinned {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "<button class=\"action-btn\" title=\"Pinned: priority embedding and longer vector warm\" hx-post=\"/api/pin-project\" hx-vals=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var46 string
-					templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"project_path":"%s","pinned":false}`, p.Path))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 431, Col: 189}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Unpin</button> ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "<button class=\"action-btn\" title=\"Pin for priority embedding and warmer vectors\" hx-post=\"/api/pin-project\" hx-vals=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "<button class=\"action-btn\" title=\"Pinned: priority embedding and longer vector warm\" hx-post=\"/api/pin-project\" hx-vals=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var47 string
-					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"project_path":"%s","pinned":true}`, p.Path))
+					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"project_path":"%s","pinned":false}`, p.Path))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 433, Col: 184}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 434, Col: 189}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var47)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Pin</button> ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Unpin</button> ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "<button class=\"action-btn\" title=\"Pin for priority embedding and warmer vectors\" hx-post=\"/api/pin-project\" hx-vals=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var48 string
+					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"project_path":"%s","pinned":true}`, p.Path))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 436, Col: 184}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Pin</button> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "<button class=\"action-btn\" hx-post=\"/api/reset-project\" hx-vals=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var48 string
-				templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"project_path":"%s"}`, p.Path))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 435, Col: 117}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Reset</button> <button class=\"action-btn danger\" hx-post=\"/api/delete-watcher\" hx-vals=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "<button class=\"action-btn\" hx-post=\"/api/reset-project\" hx-vals=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var49 string
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"project_path":"%s"}`, p.Path))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 436, Col: 125}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 438, Col: 117}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-confirm=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 114, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Reset</button> <button class=\"action-btn danger\" hx-post=\"/api/delete-watcher\" hx-vals=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var50 string
-				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("Delete %s? This removes all indexed data.", p.Label))
+				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"project_path":"%s"}`, p.Path))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 436, Col: 284}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 439, Col: 125}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 114, "\" hx-headers='{\"Content-Type\":\"application/json\"}'>Delete</button></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-confirm=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var51 string
+				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("Delete %s? This removes all indexed data.", p.Label))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 439, Col: 284}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "\" hx-headers='{\"Content-Type\":\"application/json\"}'>Delete</button></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "</div></div><div class=\"section\"><div class=\"section-title\">Agent Integration</div><p style=\"color: var(--text-dim); margin-bottom: 16px; font-size: 13px;\">Install context instructions for your AI coding agents.</p><div class=\"agent-list\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "</div></div><div class=\"section\"><div class=\"section-title\">Agent Integration</div><p style=\"color: var(--text-dim); margin-bottom: 16px; font-size: 13px;\">Install context instructions for your AI coding agents.</p><div class=\"agent-list\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if len(data.Agents) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "<div class=\"empty-state\">No agents available</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "<div class=\"empty-state\">No agents available</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
 			for _, a := range data.Agents {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<div class=\"agent-item\"><div class=\"info\"><div class=\"name\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var51 string
-				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(a.Name)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 456, Col: 33}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "</div><div class=\"desc\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "<div class=\"agent-item\"><div class=\"info\"><div class=\"name\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var52 string
-				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(a.Description)
+				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(a.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 457, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 459, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "</div><div class=\"paths\"><span class=\"global\">Global: ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</div><div class=\"desc\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var53 string
-				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(a.GlobalPath)
+				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(a.Description)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 459, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 460, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</span> <span class=\"project\">Project: ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 121, "</div><div class=\"paths\"><span class=\"global\">Global: ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var54 string
-				templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(a.ProjectPath)
+				templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(a.GlobalPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 460, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 462, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 121, "</span></div></div><div class=\"install-btns\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "</span> <span class=\"project\">Project: ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var55 string
+				templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(a.ProjectPath)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 463, Col: 54}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "</span></div></div><div class=\"install-btns\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if a.GlobalInstalled {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "<span class=\"installed-badge\">Global</span> ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 124, "<span class=\"installed-badge\">Global</span> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<button class=\"action-btn\" hx-post=\"/api/agent-install\" hx-vals=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var55 string
-					templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"agent_type":"%s","is_global":true}`, a.Type))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 467, Col: 133}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var55)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 124, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Global</button> ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				if a.ProjectInstalled {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 125, "<span class=\"installed-badge\">Project</span> ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 126, "<button class=\"action-btn\" hx-post=\"/api/agent-install\" hx-vals=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 125, "<button class=\"action-btn\" hx-post=\"/api/agent-install\" hx-vals=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var56 string
-					templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"agent_type":"%s","is_global":false}`, a.Type))
+					templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"agent_type":"%s","is_global":true}`, a.Type))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 472, Col: 134}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 470, Col: 133}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var56)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 127, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Project</button> ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 126, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Global</button> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				if a.GlobalInstalled || a.ProjectInstalled {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 128, "<button class=\"action-btn danger\" hx-post=\"/api/agent-uninstall\" hx-vals=\"")
+				if a.ProjectInstalled {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 127, "<span class=\"installed-badge\">Project</span> ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 128, "<button class=\"action-btn\" hx-post=\"/api/agent-install\" hx-vals=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var57 string
-					templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"agent_type":"%s","is_global":%t}`, a.Type, a.GlobalInstalled))
+					templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"agent_type":"%s","is_global":false}`, a.Type))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 475, Col: 159}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 475, Col: 134}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var57)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 129, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-confirm=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 129, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-headers='{\"Content-Type\":\"application/json\"}'>Project</button> ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				if a.GlobalInstalled || a.ProjectInstalled {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "<button class=\"action-btn danger\" hx-post=\"/api/agent-uninstall\" hx-vals=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var58 string
-					templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("Remove %s configuration?", a.Name))
+					templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf(`{"agent_type":"%s","is_global":%t}`, a.Type, a.GlobalInstalled))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 475, Col: 300}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 478, Col: 159}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var58)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "\" hx-headers='{\"Content-Type\":\"application/json\"}'>Remove</button>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 131, "\" hx-target=\"#settings-content\" hx-get=\"/partials/settings\" hx-swap=\"innerHTML\" hx-confirm=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var59 string
+					templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("Remove %s configuration?", a.Name))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/settings.templ`, Line: 478, Col: 300}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var59)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 132, "\" hx-headers='{\"Content-Type\":\"application/json\"}'>Remove</button>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 131, "</div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 133, "</div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 132, "</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 134, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

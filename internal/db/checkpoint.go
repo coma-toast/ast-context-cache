@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,9 @@ const (
 	walPassiveBytes  = 32 * 1024 * 1024
 	walTruncateBytes = 64 * 1024 * 1024
 	walForceBytes    = 128 * 1024 * 1024
+
+	checkpointOpTimeout  = 20 * time.Second
+	checkpointMaxElapsed = 90 * time.Second
 )
 
 var (
@@ -32,14 +36,14 @@ func openCheckpointPools() error {
 	paths := []string{indexDBPath(), usageDBPath(), contextDBPath()}
 	checkpointPools = make([]*sql.DB, 0, len(paths))
 	for _, p := range paths {
-		conn, err := sql.Open("sqlite3", p+"?_journal_mode=WAL&_busy_timeout=60000")
+		conn, err := sql.Open("sqlite3", p+"?_journal_mode=WAL&_busy_timeout=15000")
 		if err != nil {
 			closeCheckpointPools()
 			return err
 		}
 		conn.SetMaxOpenConns(1)
 		conn.SetMaxIdleConns(1)
-		conn.Exec(`PRAGMA busy_timeout=60000`)
+		conn.Exec(`PRAGMA busy_timeout=15000`)
 		checkpointPools = append(checkpointPools, conn)
 	}
 	return nil
@@ -55,11 +59,29 @@ func closeCheckpointPools() {
 }
 
 func checkpointOn(dbConn *sql.DB, mode string) (busy, walFrames, checkpointed int, err error) {
+	if checkpointAbort.Load() {
+		return 1, 0, 0, fmt.Errorf("checkpoint aborted")
+	}
 	if WALMaintenanceActive() {
 		setWALPhase(WALPhaseCheckpoint, mode)
 	}
-	row := dbConn.QueryRow("PRAGMA wal_checkpoint(" + mode + ")")
-	err = row.Scan(&busy, &walFrames, &checkpointed)
+	type res struct {
+		busy, frames, ckpt int
+		err                error
+	}
+	ch := make(chan res, 1)
+	go func() {
+		row := dbConn.QueryRow("PRAGMA wal_checkpoint(" + mode + ")")
+		var b, f, c int
+		e := row.Scan(&b, &f, &c)
+		ch <- res{b, f, c, e}
+	}()
+	select {
+	case r := <-ch:
+		busy, walFrames, checkpointed, err = r.busy, r.frames, r.ckpt, r.err
+	case <-time.After(checkpointOpTimeout):
+		busy, err = 1, fmt.Errorf("checkpoint %s timed out after %s", mode, checkpointOpTimeout)
+	}
 	if WALMaintenanceActive() {
 		recordWALCheckpointResult(busy, walFrames, checkpointed, err)
 	}
@@ -123,6 +145,10 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 	checkpointMu.Lock()
 	defer checkpointMu.Unlock()
 
+	if checkpointAbort.Load() {
+		return 1, 0, 0, fmt.Errorf("checkpoint aborted")
+	}
+
 	wal := walFileBytes()
 	if !force && time.Since(lastMaintAt) < 45*time.Second && !lastMaintBusy {
 		return 0, 0, 0, nil
@@ -131,6 +157,7 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 	beginWALMaintenance(reason)
 	defer endWALMaintenance()
 
+	deadline := time.Now().Add(checkpointMaxElapsed)
 	walBefore := wal
 	pause := force || wal >= walTruncateBytes
 	restore := prepCheckpoint(pause)
@@ -139,9 +166,16 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 		restore()
 	}()
 
+	tryCheckpoint := func(mode string) (int, int, int, error) {
+		if checkpointAbort.Load() || time.Now().After(deadline) {
+			return 1, 0, 0, fmt.Errorf("checkpoint aborted or deadline exceeded")
+		}
+		return checkpointAll(mode)
+	}
+
 	useForcePath := force || wal >= walForceBytes || walBusyStreak.Load() >= 3
 	if useForcePath {
-		busy, walFrames, checkpointed, err = checkpointAll("RESTART")
+		busy, walFrames, checkpointed, err = tryCheckpoint("RESTART")
 		if err != nil || busy == 0 {
 			walBusyStreak.Store(0)
 			logCheckpoint("force RESTART ("+reason+")", walBefore, busy, walFrames, checkpointed)
@@ -149,7 +183,7 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 			lastMaintBusy = busy == 1
 			return
 		}
-		busy, walFrames, checkpointed, err = checkpointAll("TRUNCATE")
+		busy, walFrames, checkpointed, err = tryCheckpoint("TRUNCATE")
 		if busy == 0 {
 			walBusyStreak.Store(0)
 		}
@@ -159,12 +193,12 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 		return
 	}
 
-	busy, walFrames, checkpointed, err = checkpointAll("TRUNCATE")
+	busy, walFrames, checkpointed, err = tryCheckpoint("TRUNCATE")
 	trackCheckpointResult(true, busy, walFrames)
-	if busy == 1 {
-		busy, walFrames, checkpointed, err = checkpointAll("RESTART")
-		if busy == 1 {
-			busy, walFrames, checkpointed, err = checkpointAll("TRUNCATE")
+	if busy == 1 && time.Now().Before(deadline) && !checkpointAbort.Load() {
+		busy, walFrames, checkpointed, err = tryCheckpoint("RESTART")
+		if busy == 1 && time.Now().Before(deadline) && !checkpointAbort.Load() {
+			busy, walFrames, checkpointed, err = tryCheckpoint("TRUNCATE")
 		}
 		trackCheckpointResult(true, busy, walFrames)
 	}

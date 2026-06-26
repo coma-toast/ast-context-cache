@@ -113,6 +113,8 @@ func main() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
+		log.Println("ast-mcp: shutting down")
+		db.RequestShutdown()
 		embedqueue.EndRunLock()
 		os.Exit(0)
 	}()

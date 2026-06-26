@@ -6,6 +6,9 @@ import (
 )
 
 func fillTodayStats(pid, todayStart, tomorrowStart string, s *components.Stats) {
+	if db.DB == nil {
+		return
+	}
 	todaySel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + " FROM queries WHERE timestamp >= ? AND timestamp < ?"
 	args := []any{todayStart, tomorrowStart}
 	if pid != "" {
