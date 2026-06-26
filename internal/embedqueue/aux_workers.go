@@ -83,6 +83,13 @@ func AuxWorkerCount() int {
 	return auxWorkerCount
 }
 
+// AuxWorkerTarget returns the persisted aux worker target.
+func AuxWorkerTarget() int {
+	auxWorkerMu.Lock()
+	defer auxWorkerMu.Unlock()
+	return auxWorkerTarget
+}
+
 // AuxWorkerLive returns running aux worker goroutines.
 func AuxWorkerLive() int {
 	return int(auxWorkerLive.Load())
@@ -113,29 +120,29 @@ func applyAuxWorkerCountLocked(n int, persist bool) error {
 func SetAuxWorkerCount(n int) (int, error) {
 	max := AuxMaxWorkers()
 	if n < MinWorkers || n > max {
-		return AuxWorkerCount(), fmt.Errorf("aux workers must be %d–%d", MinWorkers, max)
+		return AuxWorkerTarget(), fmt.Errorf("aux workers must be %d–%d", MinWorkers, max)
 	}
 	auxWorkerMu.Lock()
 	defer auxWorkerMu.Unlock()
 	if err := applyAuxWorkerCountLocked(n, true); err != nil {
-		return auxWorkerCount, err
+		return auxWorkerTarget, err
 	}
-	return auxWorkerCount, nil
+	return auxWorkerTarget, nil
 }
 
-// AdjustAuxWorkers atomically adds delta to aux worker count.
+// AdjustAuxWorkers atomically adds delta to the persisted aux worker target.
 func AdjustAuxWorkers(delta int) (int, error) {
 	auxWorkerMu.Lock()
 	defer auxWorkerMu.Unlock()
-	n := auxWorkerCount + delta
+	n := auxWorkerTarget + delta
 	max := AuxMaxWorkers()
 	if n < MinWorkers || n > max {
-		return auxWorkerCount, fmt.Errorf("aux workers must be %d–%d", MinWorkers, max)
+		return auxWorkerTarget, fmt.Errorf("aux workers must be %d–%d", MinWorkers, max)
 	}
 	if err := applyAuxWorkerCountLocked(n, true); err != nil {
-		return auxWorkerCount, err
+		return auxWorkerTarget, err
 	}
-	return auxWorkerCount, nil
+	return auxWorkerTarget, nil
 }
 
 // ClampAuxWorkersToMax lowers aux worker count when the configured max shrinks.

@@ -76,6 +76,8 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/context-stats", handleContextStats)
 	mux.HandleFunc("/api/kv-repair-stats", handleKvRepairStats)
 	mux.HandleFunc("/api/flush-context", handleFlushContextAPI)
+	mux.HandleFunc("/api/wal-checkpoint", handleWALCheckpoint)
+	mux.HandleFunc("/api/wal-status", handleWALStatus)
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
@@ -210,7 +212,7 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 		files   int
 	}
 	symCounts := map[string]symCount{}
-	symRows, err := db.DB.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+	symRows, err := db.IndexDB.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
 	if err == nil {
 		defer symRows.Close()
 		for symRows.Next() {
@@ -254,18 +256,18 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	projectPath := req["project_path"]
 
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
 
 	if projectPath == "all" {
-		_, err := db.DB.Exec("DELETE FROM symbols")
+		_, err := db.IndexDB.Exec("DELETE FROM symbols")
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		db.DB.Exec("DELETE FROM edges")
-		db.DB.Exec("DELETE FROM indexed_files")
-		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		db.IndexDB.Exec("DELETE FROM edges")
+		db.IndexDB.Exec("DELETE FROM indexed_files")
+		db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
@@ -273,14 +275,14 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 	} else if projectPath != "" {
 		projectPath = watcher.NormalizeProjectPath(projectPath)
 		embedqueue.RemoveProject(projectPath)
-		_, err := db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+		_, err := db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-		db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+		db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+		db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearProject(projectPath)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
@@ -305,12 +307,12 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	embedqueue.RemoveProject(projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
@@ -377,11 +379,11 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var totalSymbols, totalFiles, totalEdges int
 	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
+		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
 	} else {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
+		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"total_symbols":    totalSymbols,
@@ -398,9 +400,9 @@ func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
+		rows, err = db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
 	} else {
-		rows, err = db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
+		rows, err = db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -429,9 +431,9 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
+		rows, err = db.IndexDB.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
 	} else {
-		rows, err = db.DB.Query(q + " GROUP BY language ORDER BY symbols DESC")
+		rows, err = db.IndexDB.Query(q + " GROUP BY language ORDER BY symbols DESC")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -454,9 +456,9 @@ func handleTopImports(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
+		rows, err = db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
 	} else {
-		rows, err = db.DB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
+		rows, err = db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -487,9 +489,9 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 
 	var dbVectors int
 	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
 	} else {
-		db.DB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -555,10 +557,14 @@ func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error
 }
 
 func embedWorkersSnapshot() map[string]interface{} {
+	target := embedqueue.WorkerTarget()
+	effective := embedqueue.WorkerCount()
 	return map[string]interface{}{
-		"workers":     embedqueue.WorkerCount(),
-		"max_workers": embedqueue.MaxWorkers(),
-		"live":        embedqueue.WorkerLive(),
+		"workers":            target,
+		"workers_effective":  effective,
+		"workers_throttled":  effective < target,
+		"max_workers":        embedqueue.MaxWorkers(),
+		"live":               embedqueue.WorkerLive(),
 	}
 }
 
@@ -601,13 +607,17 @@ func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
 
 func embedAuxWorkersSnapshot() map[string]interface{} {
 	backend, model := embedder.AuxSnapshot()
+	target := embedqueue.AuxWorkerTarget()
+	effective := embedqueue.AuxWorkerCount()
 	return map[string]interface{}{
-		"workers":     embedqueue.AuxWorkerCount(),
-		"max_workers": embedqueue.AuxMaxWorkers(),
-		"live":        embedqueue.AuxWorkerLive(),
-		"backend":     backend,
-		"model":       model,
-		"enabled":     backend != "" && !embedder.AuxSharesPrimary(),
+		"workers":           target,
+		"workers_effective": effective,
+		"workers_throttled": effective < target,
+		"max_workers":       embedqueue.AuxMaxWorkers(),
+		"live":              embedqueue.AuxWorkerLive(),
+		"backend":           backend,
+		"model":             model,
+		"enabled":           backend != "" && !embedder.AuxSharesPrimary(),
 	}
 }
 
@@ -1034,14 +1044,14 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	projectPath = watcher.NormalizeProjectPath(projectPath)
 	embedqueue.RemoveProject(projectPath)
 
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
@@ -1139,15 +1149,15 @@ func deleteProjectData(projectPath string) {
 	}
 	embedqueue.RemoveProject(projectPath)
 	watcher.DeleteWatcher(projectPath)
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.IndexDB.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
@@ -1282,5 +1292,47 @@ func handleDocSources(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"sources": sources,
 		"total":   len(sources),
+	})
+}
+
+func handleWALCheckpoint(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	started, errMsg := db.RunManualWALCheckpoint()
+	if !started {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"started": true, "status": "ok"})
+}
+
+func handleWALStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
+		return
+	}
+	s := db.GetWALSnapshot()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active":            s.Active,
+		"phase":             s.Phase,
+		"mode":              s.Mode,
+		"reason":            s.Reason,
+		"started_at":        s.StartedAt,
+		"wal_start_bytes":   s.WalStartBytes,
+		"wal_current_bytes": s.WalCurrentBytes,
+		"busy_streak":       s.BusyStreak,
+		"in_flight":         s.InFlight,
+		"last_busy":         s.LastBusy,
+		"last_frames":       s.LastFrames,
+		"last_checkpointed": s.LastCheckpointed,
+		"wal_size_bytes":    db.WalFileBytes(),
+		"wal_pressure":      db.WalPressure(),
 	})
 }

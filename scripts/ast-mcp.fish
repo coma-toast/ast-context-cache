@@ -39,7 +39,15 @@ function ast-mcp
             cd $__ast_mcp_dir
             set -lx ONNXRUNTIME_LIB $__ast_mcp_ort
             nohup ./ast-mcp > $__ast_mcp_log 2>&1 &
-            sleep 2
+            set -l waited 0
+            while test $waited -lt 120
+                sleep 3
+                set waited (math $waited + 3)
+                if __ast_mcp_is_running
+                    echo "ast-mcp: started (MCP :$__ast_mcp_port  Dashboard :$__ast_mcp_dash)"
+                    return 0
+                end
+            end
             if __ast_mcp_is_running
                 echo "ast-mcp: started (MCP :$__ast_mcp_port  Dashboard :$__ast_mcp_dash)"
             else
@@ -81,7 +89,7 @@ function ast-mcp
                 return 1
             end
             set -l resp (curl -s -m 2 http://localhost:$__ast_mcp_port/health 2>/dev/null)
-            if echo $resp | grep -q '"healthy"'
+            if echo $resp | grep -qE '"status":"(healthy|starting)"'
                 set_color green; echo "ast-mcp: healthy"; set_color normal
                 echo "  $resp"
             else

@@ -24,7 +24,15 @@ ast-mcp() {
             echo "Starting ast-mcp..."
             mkdir -p "$(dirname "$logfile")"
             (cd "$ast_dir" && ONNXRUNTIME_LIB="$ort_lib" nohup ./ast-mcp > "$logfile" 2>&1 &)
-            sleep 2
+            local waited=0
+            while [[ $waited -lt 120 ]]; do
+                sleep 3
+                waited=$((waited + 3))
+                if _ast_mcp_running; then
+                    echo "ast-mcp: started (MCP :$port  Dashboard :$dash)"
+                    return 0
+                fi
+            done
             if _ast_mcp_running; then
                 echo "ast-mcp: started (MCP :$port  Dashboard :$dash)"
             else
@@ -81,7 +89,7 @@ ast-mcp() {
             fi
             local resp
             resp=$(curl -s -m 2 "http://localhost:$port/health" 2>/dev/null)
-            if echo "$resp" | grep -q '"healthy"'; then
+            if echo "$resp" | grep -qE '"status":"(healthy|starting)"'; then
                 echo "ast-mcp: healthy"
                 echo "  $resp"
             else

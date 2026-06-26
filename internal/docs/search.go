@@ -71,7 +71,7 @@ func searchDocsFTS(query string, limit int) ([]ScoredDoc, error) {
 	if ftsQuery == "" {
 		return nil, nil
 	}
-	rows, err := db.DB.Query(`
+	rows, err := db.ContextDB.Query(`
 		SELECT dc.id, dc.source_id, dc.title, dc.content, COALESCE(dc.path,''), COALESCE(dc.content_hash,''), dc.updated_at, f.rank
 		FROM docs_fts f
 		JOIN doc_content dc ON f.rowid = dc.id
@@ -86,7 +86,7 @@ func searchDocsFTS(query string, limit int) ([]ScoredDoc, error) {
 }
 
 func searchDocsLike(query string, limit int) ([]ScoredDoc, error) {
-	rows, err := db.DB.Query(`
+	rows, err := db.ContextDB.Query(`
 		SELECT dc.id, dc.source_id, dc.title, dc.content, COALESCE(dc.path,''), COALESCE(dc.content_hash,''), dc.updated_at
 		FROM doc_content dc
 		WHERE dc.title LIKE ? OR dc.content LIKE ?
@@ -131,7 +131,7 @@ func entryFromVectorHit(s search.ScoredResult) (DocEntry, bool) {
 		return DocEntry{}, false
 	}
 	var e DocEntry
-	err := db.DB.QueryRow(`
+	err := db.ContextDB.QueryRow(`
 		SELECT id, source_id, title, content, COALESCE(path,''), COALESCE(content_hash,''), updated_at
 		FROM doc_content WHERE id = ?`, id).Scan(&e.ID, &e.SourceID, &e.Title, &e.Content, &e.Path, &e.ContentHash, &e.UpdatedAt)
 	return e, err == nil

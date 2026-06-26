@@ -28,9 +28,9 @@ func TestReindexDeletesCodeVectors(t *testing.T) {
 	if err := os.WriteFile(file, []byte("func g(){}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	db.DB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)
-	db.DB.Exec(`DELETE FROM symbols WHERE project_path = ?`, project)
-	tx, err := db.DB.Begin()
+	db.IndexDB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)
+	db.IndexDB.Exec(`DELETE FROM symbols WHERE project_path = ?`, project)
+	tx, err := db.IndexDB.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,14 +45,14 @@ func TestReindexDeletesCodeVectors(t *testing.T) {
 	symID, _ := res.LastInsertId()
 	tx.Exec(`INSERT INTO vectors (symbol_id, content_hash, vector, doc_type, source_file, name, kind, project_path) VALUES (?, 'h0', ?, 'code', ?, 'g', 'function', ?)`, symID, []byte{9}, file, project)
 	tx.Commit()
-	tx2, _ := db.DB.Begin()
+	tx2, _ := db.IndexDB.Begin()
 	if err := deleteCodeVectorsTx(tx2, file, project); err != nil {
 		t.Fatal(err)
 	}
 	tx2.Exec(`DELETE FROM symbols WHERE file = ? AND project_path = ?`, file, project)
 	tx2.Commit()
 	var count int
-	db.DB.QueryRow(`SELECT COUNT(*) FROM vectors WHERE source_file = ? AND project_path = ?`, file, project).Scan(&count)
+	db.IndexDB.QueryRow(`SELECT COUNT(*) FROM vectors WHERE source_file = ? AND project_path = ?`, file, project).Scan(&count)
 	if count != 0 {
 		t.Fatalf("vectors=%d want 0 after reindex delete", count)
 	}

@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
@@ -47,7 +48,9 @@ func flushPartialBroadcast(mask realtime.Reason) {
 			continue
 		}
 		html := p.render()
-		if last, ok := partialLast.Load(p.target); ok && last.(string) == html {
+		if db.WALMaintenanceActive() {
+			partialLast.Delete(p.target)
+		} else if last, ok := partialLast.Load(p.target); ok && last.(string) == html {
 			continue
 		}
 		partialLast.Store(p.target, html)

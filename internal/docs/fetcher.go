@@ -37,7 +37,7 @@ type DocEntry struct {
 }
 
 func AddSource(name, docType, docURL, version string) (int, error) {
-	_, err := db.DB.Exec(
+	_, err := db.ContextDB.Exec(
 		`INSERT INTO doc_sources (name, type, url, version) VALUES (?, ?, ?, ?)
 		 ON CONFLICT(name, type, url) DO UPDATE SET version = excluded.version`,
 		name, docType, docURL, version)
@@ -45,14 +45,14 @@ func AddSource(name, docType, docURL, version string) (int, error) {
 		return 0, err
 	}
 	var id int
-	err = db.DB.QueryRow("SELECT id FROM doc_sources WHERE name = ? AND type = ? AND url = ?", name, docType, docURL).Scan(&id)
+	err = db.ContextDB.QueryRow("SELECT id FROM doc_sources WHERE name = ? AND type = ? AND url = ?", name, docType, docURL).Scan(&id)
 	return id, err
 }
 
 func RemoveSource(id int) error {
 	deleteDocVectors(id)
-	db.DB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
-	_, err := db.DB.Exec("DELETE FROM doc_sources WHERE id = ?", id)
+	db.ContextDB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
+	_, err := db.ContextDB.Exec("DELETE FROM doc_sources WHERE id = ?", id)
 	rebuildDocsFTS()
 	return err
 }
@@ -69,7 +69,7 @@ func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
 		page = 1
 	}
 	var total int
-	if err := db.DB.QueryRow("SELECT COUNT(*) FROM doc_sources").Scan(&total); err != nil {
+	if err := db.ContextDB.QueryRow("SELECT COUNT(*) FROM doc_sources").Scan(&total); err != nil {
 		return nil, 0, page, err
 	}
 	if total == 0 {
@@ -83,7 +83,7 @@ func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
 		page = totalPages
 	}
 	offset := (page - 1) * perPage
-	rows, err := db.DB.Query(
+	rows, err := db.ContextDB.Query(
 		"SELECT id, name, type, url, COALESCE(version,''), COALESCE(last_updated,''), created_at FROM doc_sources ORDER BY name LIMIT ? OFFSET ?",
 		perPage, offset)
 	if err != nil {
@@ -101,7 +101,7 @@ func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
 
 func UpdateSource(id int) error {
 	var name, docType, docURL string
-	err := db.DB.QueryRow("SELECT name, type, url FROM doc_sources WHERE id = ?", id).Scan(&name, &docType, &docURL)
+	err := db.ContextDB.QueryRow("SELECT name, type, url FROM doc_sources WHERE id = ?", id).Scan(&name, &docType, &docURL)
 	if err != nil {
 		return err
 	}
@@ -112,11 +112,11 @@ func UpdateSource(id int) error {
 	}
 
 	deleteDocVectors(id)
-	db.DB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
+	db.ContextDB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
 	if err := storeEntries(id, content); err != nil {
 		return err
 	}
-	db.DB.Exec("UPDATE doc_sources SET last_updated = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
+	db.ContextDB.Exec("UPDATE doc_sources SET last_updated = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
 	go EmbedSource(id)
 	return nil
 }
@@ -124,7 +124,7 @@ func UpdateSource(id int) error {
 func storeEntries(sourceID int, entries []DocEntry) error {
 	for _, entry := range entries {
 		hash := contentHash(entry.Content)
-		_, err := db.DB.Exec(
+		_, err := db.ContextDB.Exec(
 			`INSERT INTO doc_content (source_id, title, content, path, content_hash) VALUES (?, ?, ?, ?, ?)`,
 			sourceID, entry.Title, entry.Content, entry.Path, hash)
 		if err != nil {
@@ -136,7 +136,7 @@ func storeEntries(sourceID int, entries []DocEntry) error {
 }
 
 func rebuildDocsFTS() {
-	db.DB.Exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`)
+	db.ContextDB.Exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`)
 }
 
 func UpdateAllSources() {
@@ -173,7 +173,7 @@ func FetchAndCache(name, docType, docURL, version string, force, renderJS bool) 
 		return 0, nil, false, err
 	}
 	var lastUpdated string
-	if err = db.DB.QueryRow("SELECT COALESCE(last_updated,'') FROM doc_sources WHERE id = ?", id).Scan(&lastUpdated); err != nil {
+	if err = db.ContextDB.QueryRow("SELECT COALESCE(last_updated,'') FROM doc_sources WHERE id = ?", id).Scan(&lastUpdated); err != nil {
 		return id, nil, false, err
 	}
 	if force || SourceNeedsRefresh(lastUpdated) {
@@ -189,7 +189,7 @@ func FetchAndCache(name, docType, docURL, version string, force, renderJS bool) 
 }
 
 func ListEntriesBySource(sourceID int) ([]DocEntry, error) {
-	rows, err := db.DB.Query(`
+	rows, err := db.ContextDB.Query(`
 		SELECT id, source_id, title, content, COALESCE(path,''), COALESCE(content_hash,''), updated_at
 		FROM doc_content WHERE source_id = ? ORDER BY id`, sourceID)
 	if err != nil {

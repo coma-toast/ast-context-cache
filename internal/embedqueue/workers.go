@@ -111,6 +111,13 @@ func WorkerCount() int {
 	return workerCount
 }
 
+// WorkerTarget returns the persisted/desired worker count (may exceed live count under WAL throttle).
+func WorkerTarget() int {
+	workerMu.Lock()
+	defer workerMu.Unlock()
+	return workerTarget
+}
+
 func applyWorkerCountLocked(n int, persist bool) error {
 	if workerStop == nil {
 		return fmt.Errorf("embed queue not started")
@@ -147,29 +154,29 @@ func ClampWorkersToMax() error {
 func SetWorkerCount(n int) (int, error) {
 	max := MaxWorkers()
 	if n < MinWorkers || n > max {
-		return WorkerCount(), fmt.Errorf("workers must be %d–%d", MinWorkers, max)
+		return WorkerTarget(), fmt.Errorf("workers must be %d–%d", MinWorkers, max)
 	}
 	workerMu.Lock()
 	defer workerMu.Unlock()
 	if err := applyWorkerCountLocked(n, true); err != nil {
-		return workerCount, err
+		return workerTarget, err
 	}
-	return workerCount, nil
+	return workerTarget, nil
 }
 
-// AdjustWorkers atomically adds delta to the current worker count.
+// AdjustWorkers atomically adds delta to the persisted worker target.
 func AdjustWorkers(delta int) (int, error) {
 	workerMu.Lock()
 	defer workerMu.Unlock()
-	n := workerCount + delta
+	n := workerTarget + delta
 	max := MaxWorkers()
 	if n < MinWorkers || n > max {
-		return workerCount, fmt.Errorf("workers must be %d–%d", MinWorkers, max)
+		return workerTarget, fmt.Errorf("workers must be %d–%d", MinWorkers, max)
 	}
 	if err := applyWorkerCountLocked(n, true); err != nil {
-		return workerCount, err
+		return workerTarget, err
 	}
-	return workerCount, nil
+	return workerTarget, nil
 }
 
 func workersStarted() bool {
@@ -184,22 +191,35 @@ func startPressureBackoff() {
 		var lastApplied int
 		for range ticker.C {
 			workerMu.Lock()
+			if swapPauseDepth > 0 {
+				workerMu.Unlock()
+				continue
+			}
 			target := workerTarget
 			n := db.ThrottledEmbedWorkers(target)
+			cur := workerCount
 			workerMu.Unlock()
-			if n == lastApplied {
+			if n == cur {
+				lastApplied = n
 				continue
 			}
 			workerMu.Lock()
+			if swapPauseDepth > 0 {
+				workerMu.Unlock()
+				continue
+			}
 			err := applyWorkerCountLocked(n, false)
 			got := workerCount
 			workerMu.Unlock()
 			if err != nil {
 				continue
 			}
+			prev := lastApplied
 			lastApplied = got
 			if n < target {
-				log.Printf("embed queue: throttled workers %d -> %d (wal=%s)", target, n, db.FormatFileSize(db.WalFileBytes()))
+				log.Printf("embed queue: throttled workers %d -> %d (target %d wal=%s)", target, n, target, db.FormatFileSize(db.WalFileBytes()))
+			} else if got > prev || (got == target && cur < target) {
+				log.Printf("embed queue: restored workers to %d (wal=%s)", got, db.FormatFileSize(db.WalFileBytes()))
 			}
 		}
 	}()

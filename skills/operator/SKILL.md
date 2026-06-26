@@ -104,7 +104,9 @@ sqlite3 ~/.astcache/usage.db "PRAGMA wal_checkpoint(TRUNCATE);"
 ast-mcp start
 ```
 
-**Prevention (built-in):** `PRAGMA wal_autocheckpoint=1000`; passive checkpoints every 2m; TRUNCATE when WAL &gt; 256 MB or every 30m; startup TRUNCATE when WAL &gt; 100 MB. **Query retention** (Settings → Query history retention, default 90 days) prunes old `queries` rows daily and checkpoints after deletes. Overview shows WAL size on the Database row.
+**Prevention (built-in):** `PRAGMA wal_autocheckpoint=200`; PASSIVE every 30s when WAL &gt; 32 MB; TRUNCATE (with embed worker pause) when WAL &gt; 64 MB every 90s; force RESTART+TRUNCATE at 128 MB or after 3 busy streaks. Worker throttle: 64 MB → 8 workers, 128 MB → 4, 256 MB → 2. **Query retention** (Settings → Query history retention, default 90 days) prunes old `queries` rows daily and checkpoints after deletes.
+
+**Dashboard progress:** When a checkpoint runs, the Embeddings panel shows an amber **Compacting database WAL** banner with phase (pausing → checkpoint → restoring), elapsed time, WAL size shrink, and a progress bar. Worker badge reads **checkpointing** instead of a frozen `0/N`. Database row shows live `512 MB → 480 MB` during compaction. Use **Checkpoint WAL now** (embed panel footer) or `POST /api/wal-checkpoint`; status via `GET /api/wal-status`.
 
 **Logs:** Default server log is `~/.astcache/ast-mcp.log` (`ast-mcp start`). **mcp-local** logs to `~/.mcp-local/ast-context-cache.log`; the dashboard Logs tab auto-picks the newest log file. Override with `AST_MCP_LOG_PATH`.
 

@@ -12,8 +12,9 @@ type Health struct {
 	EmbedModel      string
 	EmbedRuntime    string
 	EmbedDim        int
-	QueueWorkers     int
-	QueueWorkersLive int
+	QueueWorkers           int
+	QueueWorkersEffective  int
+	QueueWorkersLive       int
 	QueueThroughput int64
 	QueueQueued     int
 	QueuePending     int
@@ -46,6 +47,12 @@ func (h Health) EmbedderEmoji() string {
 }
 
 func (h Health) EmbedderStatus() string {
+	if h.EmbedderState == "loading" {
+		if msg := h.StartupMessage(); msg != "" {
+			return msg
+		}
+		return "Starting…"
+	}
 	if h.EmbedderState == "error" || h.EmbedderState == "degraded" {
 		return h.EmbedderErrorShort()
 	}
@@ -164,7 +171,7 @@ templ HealthBar(h Health) {
 		<span class="health-item health-gauge-item" title={ h.workersTitle() }>
 			<span class="health-label">Workers</span>
 			if h.QueueWorkers > 0 {
-				@WorkerStrip(int(h.QueueInFlight), h.QueueWorkers, h.QueueWorkersLive, EmbedWorkerMax())
+				@WorkerStrip(int(h.QueueInFlight), h.QueueWorkers, h.QueueWorkersEffective, h.QueueWorkersLive, EmbedWorkerMax())
 			} else {
 				<span class="health-value health-value-muted">paused</span>
 			}

@@ -268,7 +268,7 @@ func vectorSearch(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 }
 
 func queryEntries(q string, args ...any) ([]Entry, error) {
-	rows, err := db.DB.Query(q, args...)
+	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +304,7 @@ type ForgetResult struct {
 // Forget soft-invalidates structured memory.
 func Forget(in ForgetInput) (*ForgetResult, error) {
 	if in.All {
-		rows, err := db.DB.Query(`SELECT ref, token_est FROM structured_memory WHERE valid_until IS NULL OR valid_until = ''`)
+		rows, err := db.ContextDB.Query(`SELECT ref, token_est FROM structured_memory WHERE valid_until IS NULL OR valid_until = ''`)
 		if err != nil {
 			return nil, err
 		}
@@ -328,7 +328,7 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		count := 0
 		for _, ref := range in.Refs {
 			var tok int
-			if db.DB.QueryRow(`SELECT token_est FROM structured_memory WHERE ref = ?`, ref).Scan(&tok) == nil {
+			if db.ContextDB.QueryRow(`SELECT token_est FROM structured_memory WHERE ref = ?`, ref).Scan(&tok) == nil {
 				invalidateRef(ref)
 				tokens += tok
 				count++
@@ -352,12 +352,12 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 }
 
 func invalidateRef(ref string) {
-	db.DB.Exec(`UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ?`, ref)
+	db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ?`, ref)
 }
 
 // RecordAccess tracks recall for dashboard stats.
 func RecordAccess(ref, sessionID, projectPath, tool string, tokens int) {
-	db.DB.Exec(`UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`, ref)
+	db.ContextDB.Exec(`UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`, ref)
 	db.DB.Exec(`INSERT INTO memory_access (ref, session_id, project_path, tool_name, tokens_returned) VALUES (?, ?, ?, ?, ?)`,
 		ref, nullIfEmpty(sessionID), nullIfEmpty(projectPath), tool, tokens)
 }

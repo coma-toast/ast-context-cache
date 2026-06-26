@@ -78,7 +78,7 @@ func loadProjectsFresh() []components.Project {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	symCounts := map[string]symCount{}
-	symRows, err := db.DB.QueryContext(ctx, "SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+	symRows, err := db.IndexDB.QueryContext(ctx, "SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
 	if err == nil {
 		defer symRows.Close()
 		for symRows.Next() {
@@ -198,8 +198,9 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 		EmbedderState:    state,
 		EmbedderError:    embedErr,
 		EmbedderLast:    lastUse,
-		QueueWorkers:     eq.Workers,
-		QueueWorkersLive: eq.WorkersLive,
+		QueueWorkers:           eq.Workers,
+		QueueWorkersEffective:  eq.WorkersEffective,
+		QueueWorkersLive:       eq.WorkersLive,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
 		QueuePending:     eq.Pending,
@@ -214,6 +215,7 @@ func handleHealthPartial(w http.ResponseWriter, r *http.Request) {
 		Version:       version.Version,
 	}
 	applyActiveEmbedderHealth(&h)
+	overlayStartupEmbedder(&h.EmbedderState, &h.EmbedderError, &h.EmbedBackend)
 	components.HealthBar(h).Render(r.Context(), w)
 }
 
@@ -284,9 +286,9 @@ func handleSymbolChartPartial(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
+		rows, err = db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
 	} else {
-		rows, err = db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
+		rows, err = db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
 	}
 	if err != nil {
 		components.BarChart(nil, 0).Render(r.Context(), w)
@@ -314,9 +316,9 @@ func handleLanguageChartPartial(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
+		rows, err = db.IndexDB.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
 	} else {
-		rows, err = db.DB.Query(q + " GROUP BY language ORDER BY symbols DESC")
+		rows, err = db.IndexDB.Query(q + " GROUP BY language ORDER BY symbols DESC")
 	}
 	if err != nil {
 		components.BarChart(nil, 3).Render(r.Context(), w)
@@ -343,9 +345,9 @@ func handleImportChartPartial(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
+		rows, err = db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
 	} else {
-		rows, err = db.DB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
+		rows, err = db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
 	}
 	if err != nil {
 		components.BarChart(nil, 5).Render(r.Context(), w)
@@ -455,7 +457,7 @@ func handleSettingsPartial(w http.ResponseWriter, r *http.Request) {
 		Agents:                  agents,
 		EmbedWorkerMax:          embedqueue.MaxWorkers(),
 		EmbedAuxWorkerMax:       embedqueue.AuxMaxWorkers(),
-		EmbedAuxWorkers:         embedqueue.AuxWorkerCount(),
+		EmbedAuxWorkers:         embedqueue.AuxWorkerTarget(),
 		EmbedAuxBackend:         strings.TrimSpace(db.GetSetting("EMBED_AUX_BACKEND", "onnx")),
 	}
 	PopulateEmbedSettings(settings, &data)

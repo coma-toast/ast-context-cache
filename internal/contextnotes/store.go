@@ -116,7 +116,7 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 		return nil, err
 	}
 	hash := search.ContentHash(content)
-	_, err = db.DB.Exec(`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est)
+	_, err = db.ContextDB.Exec(`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ref, sessionID, projectPath, label, content, hash, tagStr, kind, metaJSON, tokenEst)
 	if err != nil {
@@ -141,7 +141,7 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 
 func checkLimits(sessionID string, addTokens int, lim Limits) error {
 	var sessionNotes, sessionTokens int
-	db.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
+	db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
 		Scan(&sessionNotes, &sessionTokens)
 	globalNotes, globalTokens := GlobalRollup()
 	if sessionNotes+1 > lim.MaxNotesSession {
@@ -180,7 +180,7 @@ func evictSessionLRU(sessionID string, needTokens int, lim Limits) ([]string, er
 }
 
 func oldestSessionNote(sessionID string) (ref string, tokens int, ok bool) {
-	err := db.DB.QueryRow(`SELECT ref, token_est FROM context_notes WHERE session_id = ?
+	err := db.ContextDB.QueryRow(`SELECT ref, token_est FROM context_notes WHERE session_id = ?
 		ORDER BY created_at ASC, access_count ASC LIMIT 1`, sessionID).Scan(&ref, &tokens)
 	return ref, tokens, err == nil
 }
@@ -198,7 +198,7 @@ func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 }
 
 func noteByRef(ref string) (Note, error) {
-	row := db.DB.QueryRow(`SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
+	row := db.ContextDB.QueryRow(`SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE ref = ?`, ref)
 	return scanNote(row)
@@ -213,14 +213,14 @@ func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, se
 		}
 		var sid string
 		var tok int
-		err := db.DB.QueryRow(`SELECT session_id, token_est FROM context_notes WHERE ref = ?`, ref).Scan(&sid, &tok)
+		err := db.ContextDB.QueryRow(`SELECT session_id, token_est FROM context_notes WHERE ref = ?`, ref).Scan(&sid, &tok)
 		if err != nil {
 			continue
 		}
 		if sessionID != "" && sid != sessionID {
 			continue
 		}
-		db.DB.Exec(`DELETE FROM context_notes WHERE ref = ?`, ref)
+		db.ContextDB.Exec(`DELETE FROM context_notes WHERE ref = ?`, ref)
 		deleteNoteFTS(ref)
 		deleteNoteVector(ref)
 		tokensFreed += tok
@@ -238,7 +238,7 @@ func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int)
 		q += ` AND project_path = ?`
 		args = append(args, projectPath)
 	}
-	rows, err := db.DB.Query(q, args...)
+	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
 		return 0, 0
 	}
@@ -255,7 +255,7 @@ func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int)
 }
 
 func deleteAll() (tokensFreed int, count int) {
-	rows, err := db.DB.Query(`SELECT ref FROM context_notes`)
+	rows, err := db.ContextDB.Query(`SELECT ref FROM context_notes`)
 	if err != nil {
 		return 0, 0
 	}
@@ -374,10 +374,10 @@ func List(sessionID, projectPath string, limit int) (*ListResult, error) {
 		args = append(args, projectPath)
 		countArgs = append(countArgs, projectPath)
 	}
-	db.DB.QueryRow(countQ, countArgs...).Scan(&total)
+	db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
 	q += ` ORDER BY created_at DESC LIMIT ?`
 	args = append(args, limit)
-	rows, err := db.DB.Query(q, args...)
+	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +501,7 @@ func searchNotesFTS(query, sessionID, projectPath string, limit int) ([]ScoredNo
 	}
 	q += ` ORDER BY cn.created_at DESC LIMIT ?`
 	args = append(args, limit)
-	rows, err := db.DB.Query(q, args...)
+	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +532,7 @@ func searchNotesLike(query, sessionID, projectPath string, limit int) ([]ScoredN
 	}
 	q += ` ORDER BY created_at DESC LIMIT ?`
 	args = append(args, limit)
-	rows, err := db.DB.Query(q, args...)
+	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -37,11 +37,8 @@ func TestHumanizeEmbedError_LiteLLMPythonDict(t *testing.T) {
 	if strings.Contains(got, "{") || strings.Contains(got, "'error'") {
 		t.Fatalf("want cleaned message, got %q", got)
 	}
-	if !strings.Contains(got, "Loading model") {
-		t.Fatalf("want inner message, got %q", got)
-	}
-	if !strings.Contains(got, "Service unavailable") {
-		t.Fatalf("want status hint, got %q", got)
+	if !strings.Contains(got, "Embed model loading") {
+		t.Fatalf("want loading hint, got %q", got)
 	}
 }
 

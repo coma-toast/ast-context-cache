@@ -163,8 +163,9 @@ func renderHealthBar() string {
 		EmbedderState:    state,
 		EmbedderError:    embedErr,
 		EmbedderLast:    lastUse,
-		QueueWorkers:     eq.Workers,
-		QueueWorkersLive: eq.WorkersLive,
+		QueueWorkers:           eq.Workers,
+		QueueWorkersEffective:  eq.WorkersEffective,
+		QueueWorkersLive:       eq.WorkersLive,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
 		QueuePending:     eq.Pending,
@@ -208,7 +209,12 @@ func renderRecent() string {
 }
 
 func renderSymbolChart() string {
-	rows, err := db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
+	if db.IndexDB == nil {
+		var buf bytes.Buffer
+		components.BarChart(nil, 0).Render(context.Background(), &buf)
+		return buf.String()
+	}
+	rows, err := db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
 	if err != nil {
 		var buf bytes.Buffer
 		components.BarChart(nil, 0).Render(context.Background(), &buf)
@@ -228,13 +234,18 @@ func renderSymbolChart() string {
 }
 
 func renderLanguageChart() string {
+	if db.IndexDB == nil {
+		var buf bytes.Buffer
+		components.BarChart(nil, 3).Render(context.Background(), &buf)
+		return buf.String()
+	}
 	q := `SELECT CASE
 		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
 		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
 		WHEN file LIKE '%.ts' THEN 'TypeScript' WHEN file LIKE '%.tsx' THEN 'TSX'
 		WHEN file LIKE '%.sh' THEN 'Bash' WHEN file LIKE '%.fish' THEN 'Fish'
 		ELSE 'Other' END as language, COUNT(*) as symbols FROM symbols GROUP BY language ORDER BY symbols DESC`
-	rows, err := db.DB.Query(q)
+	rows, err := db.IndexDB.Query(q)
 	if err != nil {
 		var buf bytes.Buffer
 		components.BarChart(nil, 3).Render(context.Background(), &buf)
@@ -260,7 +271,12 @@ func renderToolChart() string {
 }
 
 func renderImportChart() string {
-	rows, err := db.DB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
+	if db.IndexDB == nil {
+		var buf bytes.Buffer
+		components.BarChart(nil, 5).Render(context.Background(), &buf)
+		return buf.String()
+	}
+	rows, err := db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
 	if err != nil {
 		var buf bytes.Buffer
 		components.BarChart(nil, 5).Render(context.Background(), &buf)
@@ -351,7 +367,7 @@ func renderSettings() string {
 		Agents:                 agents,
 		EmbedWorkerMax:         embedqueue.MaxWorkers(),
 		EmbedAuxWorkerMax:      embedqueue.AuxMaxWorkers(),
-		EmbedAuxWorkers:        embedqueue.AuxWorkerCount(),
+		EmbedAuxWorkers:        embedqueue.AuxWorkerTarget(),
 		EmbedAuxBackend:        strings.TrimSpace(settings["EMBED_AUX_BACKEND"]),
 	}
 	if data.EmbedAuxBackend == "" {

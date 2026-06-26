@@ -52,6 +52,8 @@ type queryLogRow struct {
 type sessionLogRow struct {
 	sessionID  string
 	symbolID   int
+	symbolName string
+	startLine  int
 	filePath   string
 	mode       string
 	tokenCount int
@@ -175,14 +177,14 @@ func flushSessionLogBuffer() {
 		return
 	}
 	defer tx.Rollback()
-	stmt, err := tx.Prepare(`INSERT INTO sessions (session_id, symbol_id, file_path, mode, token_count) VALUES (?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO sessions (session_id, symbol_id, symbol_name, start_line, file_path, mode, token_count) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		log.Printf("session log batch: prepare: %v", err)
 		return
 	}
 	defer stmt.Close()
 	for _, r := range batch {
-		if _, err := stmt.Exec(r.sessionID, r.symbolID, r.filePath, r.mode, r.tokenCount); err != nil {
+		if _, err := stmt.Exec(r.sessionID, r.symbolID, r.symbolName, r.startLine, r.filePath, r.mode, r.tokenCount); err != nil {
 			log.Printf("session log batch: insert: %v", err)
 		}
 	}
@@ -192,12 +194,15 @@ func flushSessionLogBuffer() {
 }
 
 // EnqueueSessionReturned buffers a session dedup row; flushed periodically in batches.
-func EnqueueSessionReturned(sessionID string, symbolID int, filePath, mode string, tokenCount int) {
+func EnqueueSessionReturned(sessionID string, symbolID int, symbolName string, startLine int, filePath, mode string, tokenCount int) {
 	if sessionID == "" {
 		return
 	}
 	sessBufMu.Lock()
-	sessBuf = append(sessBuf, sessionLogRow{sessionID: sessionID, symbolID: symbolID, filePath: filePath, mode: mode, tokenCount: tokenCount})
+	sessBuf = append(sessBuf, sessionLogRow{
+		sessionID: sessionID, symbolID: symbolID, symbolName: symbolName, startLine: startLine,
+		filePath: filePath, mode: mode, tokenCount: tokenCount,
+	})
 	n := len(sessBuf)
 	sessBufMu.Unlock()
 	if n >= sessionFlushSize {

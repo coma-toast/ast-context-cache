@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 )
@@ -157,7 +158,21 @@ func (h IndexHealth) EmbedWorkersStatus() string {
 	if h.EmbedWorkers == 0 {
 		return "paused"
 	}
-	return fmt.Sprintf("%d active", h.EmbedActive)
+	return fmt.Sprintf("%d busy", h.EmbedActive)
+}
+
+func (h IndexHealth) EmbedWorkersWalBadge() string {
+	if h.EmbedWorkers == 0 || h.EmbedWorkersEffective >= h.EmbedWorkers {
+		return ""
+	}
+	return fmt.Sprintf("WAL %d/%d", h.EmbedWorkersEffective, h.EmbedWorkers)
+}
+
+func (h IndexHealth) EmbedWorkersWalTitle() string {
+	if h.EmbedWorkersEffective >= h.EmbedWorkers {
+		return ""
+	}
+	return fmt.Sprintf("SQLite WAL throttled: %d of %d worker goroutines running", h.EmbedWorkersEffective, h.EmbedWorkers)
 }
 
 func (h IndexHealth) EmbedAuxWorkersStatus() string {
@@ -238,16 +253,19 @@ func workerStripDotCount(total int) (dots int, ellipsis bool) {
 	return total, false
 }
 
-func workerStripDisplayTotal(total, live int) int {
-	if live > total {
+func workerStripDisplayTotal(target, effective, live int) int {
+	raw := target
+	if effective > raw {
+		raw = effective
+	}
+	if live > raw {
 		return live
 	}
-	return total
+	return raw
 }
 
-func workerPillClasses(index, active, total, live int) string {
-	target := total
-	serverTotal := total
+func workerPillClasses(index, active, target, effective, live int) string {
+	serverTotal := effective
 	serverLive := live
 	busy := index < active
 	if index >= target && index < serverLive {
@@ -283,19 +301,22 @@ func workerStripBusyLabel(active, target int) string {
 	return fmt.Sprintf("%d of %d workers busy", min(active, target), target)
 }
 
-func workerControlsTitle(active, total, live int) string {
-	if total == 0 {
+func workerControlsTitle(active, target, effective, live int) string {
+	if target == 0 {
 		return "Workers paused — click + to resume"
 	}
-	draining := live - total
-	if draining > 0 {
-		return fmt.Sprintf("Workers: %d target · %d busy · %d draining", total, active, draining)
+	if effective < target {
+		return fmt.Sprintf("Workers: %d target · %d running (WAL throttled) · %d busy", target, effective, active)
 	}
-	return fmt.Sprintf("Workers: %d of %d busy", active, total)
+	draining := live - target
+	if draining > 0 {
+		return fmt.Sprintf("Workers: %d target · %d busy · %d draining", target, active, draining)
+	}
+	return fmt.Sprintf("Workers: %d of %d busy", active, target)
 }
 
-func WorkerControlsTitle(active, total, live int) string {
-	return workerControlsTitle(active, total, live)
+func WorkerControlsTitle(active, target, effective, live int) string {
+	return workerControlsTitle(active, target, effective, live)
 }
 
 func pendingRingCap(pending, peak int) int {
@@ -326,6 +347,8 @@ func (h IndexHealth) queueTotalCap() int {
 
 func (h IndexHealth) EmbedderErrorHeadline() string {
 	switch h.EmbedderState {
+	case "loading":
+		return "Starting up"
 	case "error":
 		return "Embedder unreachable"
 	case "degraded":
@@ -653,6 +676,14 @@ func diskPct(mb float64) float64 {
 func (h IndexHealth) DiskSizeLabel() string {
 	if h.DiskSize == "-" {
 		return "-"
+	}
+	if h.WALMaintenanceActive && h.WALWalStartBytes > 0 {
+		start := db.FormatFileSize(h.WALWalStartBytes)
+		cur := db.FormatFileSize(h.WALWalCurrentBytes)
+		if cur != start {
+			return h.DiskSize + " · WAL " + start + " → " + cur
+		}
+		return h.DiskSize + " · WAL " + cur + " · compacting"
 	}
 	if h.WalSize == "" || h.WalSize == "0 B" {
 		return h.DiskSize

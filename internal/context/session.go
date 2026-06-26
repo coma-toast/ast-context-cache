@@ -16,10 +16,9 @@ func GetReturnedSymbolKeys(sessionID string) map[string]bool {
 		return nil
 	}
 	rows, err := db.DB.Query(`
-		SELECT sess.file_path, COALESCE(sym.name,''), COALESCE(sym.start_line,0)
-		FROM sessions sess
-		LEFT JOIN symbols sym ON sym.id = sess.symbol_id
-		WHERE sess.session_id = ? AND sess.symbol_id > 0`, sessionID)
+		SELECT COALESCE(file_path,''), COALESCE(symbol_name,''), COALESCE(start_line,0)
+		FROM sessions
+		WHERE session_id = ? AND (symbol_name != '' OR file_path != '')`, sessionID)
 	if err != nil {
 		return nil
 	}
@@ -38,7 +37,7 @@ func GetReturnedSymbolKeys(sessionID string) map[string]bool {
 
 func LookupSymbolID(file, name, projectPath string, startLine int) int {
 	var id int
-	err := db.DB.QueryRow(
+	err := db.IndexDB.QueryRow(
 		"SELECT id FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
 		file, name, projectPath, startLine).Scan(&id)
 	if err != nil {
@@ -52,5 +51,5 @@ func LogReturned(sessionID, file, name, projectPath string, startLine int, mode 
 		return
 	}
 	symbolID := LookupSymbolID(file, name, projectPath, startLine)
-	db.EnqueueSessionReturned(sessionID, symbolID, file, mode, tokenCount)
+	db.EnqueueSessionReturned(sessionID, symbolID, name, startLine, file, mode, tokenCount)
 }

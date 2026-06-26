@@ -22,7 +22,7 @@ func handleProjectMap(projectPath string, depth int) string {
 		symbols []map[string]string
 	}
 
-	rows, err := db.DB.Query(
+	rows, err := db.IndexDB.Query(
 		"SELECT file, name, kind FROM symbols WHERE project_path = ? ORDER BY file, start_line",
 		projectPath)
 	if err != nil {
@@ -119,7 +119,7 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 }
 
 func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenBudget int) fileContextResult {
-	rows, err := db.DB.Query(
+	rows, err := db.IndexDB.Query(
 		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
 		file, projectPath)
 	if err != nil {
@@ -256,7 +256,7 @@ func handleAnalyzeDeadCode(args map[string]interface{}, projectPath string) map[
 	var err error
 
 	if kind == "" || kind == "function" {
-		rows, err = db.DB.Query(`
+		rows, err = db.IndexDB.Query(`
 			SELECT s.name, s.file, s.kind 
 			FROM symbols s
 			WHERE s.project_path = ? AND s.kind IN ('function', 'method')
@@ -267,7 +267,7 @@ func handleAnalyzeDeadCode(args map[string]interface{}, projectPath string) map[
 			ORDER BY s.file, s.name
 		`, projectPath)
 	} else {
-		rows, err = db.DB.Query(`
+		rows, err = db.IndexDB.Query(`
 			SELECT s.name, s.file, s.kind 
 			FROM symbols s
 			WHERE s.project_path = ? AND s.kind = ?
@@ -312,7 +312,7 @@ func handleAnalyzeComplexity(args map[string]interface{}, projectPath string) ma
 		limit = int(l)
 	}
 
-	rows, err := db.DB.Query(`
+	rows, err := db.IndexDB.Query(`
 		SELECT name, file, kind, complexity 
 		FROM symbols 
 		WHERE project_path = ? AND complexity >= ?

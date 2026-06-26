@@ -5,6 +5,7 @@
 package watcher
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log"
 	"os"
@@ -106,7 +107,7 @@ func trackedProjectPaths() []string {
 }
 
 func indexedProjectPaths() []string {
-	rows, err := db.DB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'")
+	rows, err := db.IndexDB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'")
 	if err != nil {
 		return nil
 	}
@@ -219,10 +220,15 @@ func catchUp(projectPath string) {
 		return nil
 	})
 	removed := 0
-	for file := range indexed {
+		for file := range indexed {
 		if !seen[file] {
-			db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", file, projectPath)
-			db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", file, projectPath)
+			_ = db.IndexWrite(func(tx *sql.Tx) error {
+				if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", file, projectPath); err != nil {
+					return err
+				}
+				_, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", file, projectPath)
+				return err
+			})
 			db.DeleteIndexedFile(file, projectPath)
 			removed++
 			if PostIndexHook != nil {
@@ -267,8 +273,13 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 	debounceTimers[path] = time.AfterFunc(500*time.Millisecond, func() {
 		start := time.Now()
 		if removed {
-			db.DB.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", path, projectPath)
-			db.DB.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", path, projectPath)
+			_ = db.IndexWrite(func(tx *sql.Tx) error {
+				if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", path, projectPath); err != nil {
+					return err
+				}
+				_, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", path, projectPath)
+				return err
+			})
 			db.DeleteIndexedFile(path, projectPath)
 			log.Printf("Removed symbols for deleted file: %s", path)
 			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, db.QueryLogMetrics{}, projectPath, "")

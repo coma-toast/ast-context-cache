@@ -13,29 +13,30 @@ import "time"
 import "github.com/coma-toast/ast-context-cache/internal/embedder"
 
 type Health struct {
-	EmbedderState    string
-	EmbedderError    string
-	EmbedderLast     time.Duration
-	EmbedBackend     string
-	EmbedModel       string
-	EmbedRuntime     string
-	EmbedDim         int
-	QueueWorkers     int
-	QueueWorkersLive int
-	QueueThroughput  int64
-	QueueQueued      int
-	QueuePending     int
-	QueuePendingPeak int
-	QueueInFlight    int64
-	QueueHighCap     int
-	QueueLowCap      int
-	CacheHitRatio    float64
-	VectorMemMB      float64
-	HeapMB           float64
-	CPUPercent       float64
-	TotalAllocMB     float64
-	Uptime           time.Duration
-	Version          string
+	EmbedderState         string
+	EmbedderError         string
+	EmbedderLast          time.Duration
+	EmbedBackend          string
+	EmbedModel            string
+	EmbedRuntime          string
+	EmbedDim              int
+	QueueWorkers          int
+	QueueWorkersEffective int
+	QueueWorkersLive      int
+	QueueThroughput       int64
+	QueueQueued           int
+	QueuePending          int
+	QueuePendingPeak      int
+	QueueInFlight         int64
+	QueueHighCap          int
+	QueueLowCap           int
+	CacheHitRatio         float64
+	VectorMemMB           float64
+	HeapMB                float64
+	CPUPercent            float64
+	TotalAllocMB          float64
+	Uptime                time.Duration
+	Version               string
 }
 
 func (h Health) EmbedderEmoji() string {
@@ -54,6 +55,12 @@ func (h Health) EmbedderEmoji() string {
 }
 
 func (h Health) EmbedderStatus() string {
+	if h.EmbedderState == "loading" {
+		if msg := h.StartupMessage(); msg != "" {
+			return msg
+		}
+		return "Starting…"
+	}
 	if h.EmbedderState == "error" || h.EmbedderState == "degraded" {
 		return h.EmbedderErrorShort()
 	}
@@ -208,7 +215,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(h.ActiveEmbedTitleFull())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 159, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 166, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -221,7 +228,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(h.EmbedBackend)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 160, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 167, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -256,7 +263,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(h.EmbedderChipLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 161, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 168, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -269,7 +276,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(h.workersTitle())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 164, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 171, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 		if templ_7745c5c3_Err != nil {
@@ -280,7 +287,7 @@ func HealthBar(h Health) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if h.QueueWorkers > 0 {
-			templ_7745c5c3_Err = WorkerStrip(int(h.QueueInFlight), h.QueueWorkers, h.QueueWorkersLive, EmbedWorkerMax()).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = WorkerStrip(int(h.QueueInFlight), h.QueueWorkers, h.QueueWorkersEffective, h.QueueWorkersLive, EmbedWorkerMax()).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -297,7 +304,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(h.queueTitle() + " · " + h.pendingTitle())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 173, Col: 114}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 180, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 		if templ_7745c5c3_Err != nil {
@@ -332,7 +339,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(h.queueMiniStyle())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 177, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 184, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -345,7 +352,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var14 string
 		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(h.QueueQueued))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 179, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 186, Col: 73}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
@@ -380,7 +387,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(h.pendingMiniStyle())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 184, Col: 84}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 191, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -393,7 +400,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(h.QueuePending))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 186, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 193, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -406,7 +413,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d/s", h.QueueThroughput))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 192, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 199, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -442,7 +449,7 @@ func HealthBar(h Health) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%d%%", h.CachePercent()))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 199, Col: 87}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 206, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
@@ -455,7 +462,7 @@ func HealthBar(h Health) templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d%%", h.CachePercent()))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 201, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 208, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -478,7 +485,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var24 string
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue("Uptime " + h.FormatUptime())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 207, Col: 86}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 214, Col: 86}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 		if templ_7745c5c3_Err != nil {
@@ -491,7 +498,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(h.FormatUptime())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 209, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 216, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -504,7 +511,7 @@ func HealthBar(h Health) templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(h.Version)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 213, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/health.templ`, Line: 220, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {

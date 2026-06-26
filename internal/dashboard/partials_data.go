@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -53,12 +52,15 @@ func invalidateIndexHealthCache() {
 
 func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h := components.IndexHealth{}
+	if db.IndexDB == nil {
+		return h
+	}
 	if projectID != "" {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", projectID).Scan(&h.TotalEdges)
+		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", projectID).Scan(&h.TotalEdges)
 	} else {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&h.TotalEdges)
+		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&h.TotalSymbols, &h.TotalFiles)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&h.TotalEdges)
 	}
 	h.TotalVectors = search.Cache.Count(projectID)
 	h.VectorMemMB = search.Cache.MemoryMB()
@@ -88,9 +90,8 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.SSDDataWrittenTB = ssd.DataWrittenTB
 	h.SSDTemperatureC = ssd.TemperatureC
 
-	dbPath := db.GetDBPath()
-	if fi, err := os.Stat(dbPath); err == nil {
-		diskBytes := fi.Size()
+	diskBytes := db.TotalDBBytes()
+	if diskBytes > 0 {
 		h.DiskMB = float64(diskBytes) / (1024 * 1024)
 		h.DiskSize = db.FormatFileSize(diskBytes)
 	} else {
@@ -140,9 +141,11 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.EmbedLowCap = eq.LowCap
 	h.EmbedActive = int(eq.InFlight)
 	h.EmbedWorkers = eq.Workers
+	h.EmbedWorkersEffective = eq.WorkersEffective
 	h.EmbedWorkersLive = eq.WorkersLive
 	h.EmbedWorkerMax = embedqueue.MaxWorkers()
 	h.EmbedAuxWorkers = eq.AuxWorkers
+	h.EmbedAuxWorkersEffective = eq.AuxWorkersEffective
 	h.EmbedAuxWorkersLive = eq.AuxWorkersLive
 	h.EmbedAuxWorkerMax = embedqueue.AuxMaxWorkers()
 	h.EmbedAuxBackend, h.EmbedAuxModel = embedder.AuxSnapshot()
@@ -151,6 +154,18 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.EmbedThroughput = eq.Throughput
 	h.PinnedCount = db.PinnedProjectCount()
 	h.FilteredProject = projectID
+	walSnap := db.GetWALSnapshot()
+	h.WALMaintenanceActive = walSnap.Active
+	h.WALMaintenancePhase = string(walSnap.Phase)
+	h.WALMaintenanceMode = walSnap.Mode
+	h.WALMaintenanceReason = walSnap.Reason
+	h.WALMaintenanceStarted = walSnap.StartedAt
+	h.WALWalStartBytes = walSnap.WalStartBytes
+	h.WALWalCurrentBytes = walSnap.WalCurrentBytes
+	h.WALBusyStreak = walSnap.BusyStreak
+	h.WALInFlight = walSnap.InFlight
+	h.WALLastBusy = walSnap.LastBusy
+	h.WALPressure = db.WalPressure()
 	applyActiveEmbedder(&h)
 	return h
 }
@@ -158,9 +173,9 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
 	m := components.MemoryData{FilteredProject: projectID}
 	if projectID != "" {
-		db.DB.QueryRow("SELECT COUNT(*) FROM symbols WHERE project_path = ?", projectID).Scan(&m.TotalSymbols)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM symbols WHERE project_path = ?", projectID).Scan(&m.TotalSymbols)
 	} else {
-		db.DB.QueryRow("SELECT COUNT(*) FROM symbols").Scan(&m.TotalSymbols)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM symbols").Scan(&m.TotalSymbols)
 	}
 	m.TotalVectors = search.Cache.Count(projectID)
 	m.VectorMemMB = search.Cache.MemoryMB()

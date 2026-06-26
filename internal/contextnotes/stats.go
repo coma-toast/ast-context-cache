@@ -58,7 +58,7 @@ func LiveInventory(projectPath string) Inventory {
 		where = "project_path = ?"
 		args = append(args, projectPath)
 	}
-	db.DB.QueryRow("SELECT COUNT(*), COALESCE(SUM(token_est),0), COALESCE(SUM(CASE WHEN access_count=0 THEN 1 ELSE 0 END),0) FROM context_notes WHERE "+where, args...).
+	db.ContextDB.QueryRow("SELECT COUNT(*), COALESCE(SUM(token_est),0), COALESCE(SUM(CASE WHEN access_count=0 THEN 1 ELSE 0 END),0) FROM context_notes WHERE "+where, args...).
 		Scan(&inv.ActiveNotesCount, &inv.ActiveInventoryTok, &inv.OrphanNotesCount)
 	return inv
 }
@@ -72,20 +72,20 @@ func SessionRollupFor(sessionID string) SessionRollup {
 		FROM context_session_stats WHERE session_id = ?`, sessionID).
 		Scan(&r.NotesCount, &r.VirtualTokensStored, &r.VirtualTokensAccessed)
 	if r.NotesCount == 0 {
-		db.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
+		db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
 			Scan(&r.NotesCount, &r.VirtualTokensStored)
 	}
 	return r
 }
 
 func GlobalRollup() (notes, tokens int) {
-	db.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes`).Scan(&notes, &tokens)
+	db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes`).Scan(&notes, &tokens)
 	return notes, tokens
 }
 
 func QuotaForSession(sessionID string) (sessionNotes, sessionTokens, globalNotes, globalTokens int) {
 	if sessionID != "" {
-		db.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
+		db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
 			Scan(&sessionNotes, &sessionTokens)
 	}
 	globalNotes, globalTokens = GlobalRollup()
@@ -161,7 +161,7 @@ func RecordAccess(ref, sessionID, projectPath, toolName string, virtualTokens in
 	}
 	reason := normalizeRepairReason(repairReason)
 	now := time.Now().UTC().Format(time.RFC3339)
-	db.DB.Exec(`UPDATE context_notes SET access_count = access_count + 1,
+	db.ContextDB.Exec(`UPDATE context_notes SET access_count = access_count + 1,
 		tokens_fetched = tokens_fetched + ?,
 		last_accessed_at = ?
 		WHERE ref = ?`, virtualTokens, now, ref)
