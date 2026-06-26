@@ -3,21 +3,17 @@ package db
 import (
 	"log"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const (
-	walWarnBytes = 256 * 1024 * 1024
-	walHighBytes = 512 * 1024 * 1024
+	walModerateBytes = 64 * 1024 * 1024
+	walWarnBytes     = 128 * 1024 * 1024
+	walHighBytes     = 256 * 1024 * 1024
 )
 
-var (
-	dbLockStreak atomic.Int32
-	pressureMu   sync.Mutex
-	lastRelief   time.Time
-)
+var dbLockStreak atomic.Int32
 
 // WalPressure returns ok, warn, or high based on WAL file size.
 func WalPressure() string {
@@ -52,6 +48,10 @@ func ThrottledEmbedWorkers(requested int) int {
 		if requested > 4 {
 			return 4
 		}
+	case wal >= walModerateBytes:
+		if requested > 8 {
+			return 8
+		}
 	}
 	return requested
 }
@@ -78,36 +78,8 @@ func IsDBLocked(err error) bool {
 	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "sqlite_busy")
 }
 
-// StartPressureRelief runs periodic relief when the WAL is large.
-func StartPressureRelief() {
-	go func() {
-		ticker := time.NewTicker(2 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			relievePressure()
-		}
-	}()
-}
-
-func relievePressure() {
-	wal := WalFileBytes()
-	if wal < walWarnBytes {
-		return
-	}
-	pressureMu.Lock()
-	if time.Since(lastRelief) < time.Minute {
-		pressureMu.Unlock()
-		return
-	}
-	lastRelief = time.Now()
-	pressureMu.Unlock()
-	if busy, frames, ckpt, err := CheckpointWAL(true); err == nil && frames > 0 {
-		log.Printf("pressure relief: WAL checkpoint busy=%d log=%d checkpointed=%d wal=%s", busy, frames, ckpt, FormatFileSize(WalFileBytes()))
-	}
-	if wal >= walHighBytes {
-		retryQueryRetention("pressure")
-	}
-}
+// StartPressureRelief is deprecated; WAL maintenance runs from StartWALCheckpoint.
+func StartPressureRelief() {}
 
 func retryQueryRetention(label string) {
 	for attempt := 0; attempt < 6; attempt++ {

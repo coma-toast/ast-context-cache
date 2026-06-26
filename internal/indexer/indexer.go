@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -413,74 +414,64 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	}
 	defer tree.Close()
 
-	tx, err := db.DB.Begin()
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	defer tx.Rollback()
-	if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
-		return 0, 0, 0, err
-	}
-	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
-		return 0, 0, 0, err
-	}
-	if _, err = tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
-		return 0, 0, 0, err
-	}
-
-	lines := strings.Split(string(content), "\n")
-	root := tree.RootNode()
-
-	if lang == "yaml" {
-		n, fullT, skelT, err := indexYAMLTree(tx, root, content, lines, filePath, projectPath)
-		if err != nil {
-			return 0, 0, 0, err
+	err = db.IndexWrite(func(tx *sql.Tx) error {
+		if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
+			return err
 		}
-		if err := tx.Commit(); err != nil {
-			return 0, 0, 0, err
+		if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+			return err
 		}
-		search.Cache.DeleteByFile(filePath, projectPath)
-		notifyIndexCommitted()
-		return n, fullT, skelT, nil
-	}
+		if _, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+			return err
+		}
 
-	walkNodes := collectTopLevelNodes(root, lang)
-	for _, node := range walkNodes {
-		for _, imp := range extractImports(node, content, lang) {
-			if _, err := tx.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
-				filePath, imp, projectPath); err != nil {
-				return 0, 0, 0, err
+		lines := strings.Split(string(content), "\n")
+		root := tree.RootNode()
+
+		if lang == "yaml" {
+			var e error
+			count, fullTokens, skeletonTokens, e = indexYAMLTree(tx, root, content, lines, filePath, projectPath)
+			if e != nil {
+				return e
+			}
+			return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
+		}
+
+		walkNodes := collectTopLevelNodes(root, lang)
+		for _, node := range walkNodes {
+			for _, imp := range extractImports(node, content, lang) {
+				if _, err := tx.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
+					filePath, imp, projectPath); err != nil {
+					return err
+				}
+			}
+			sym := extractSymbol(node, content, lang)
+			if sym == nil || sym.Name == "" {
+				continue
+			}
+			start := node.StartPoint()
+			end := node.EndPoint()
+			code := ""
+			if int(start.Row) < len(lines) {
+				code = strings.TrimSpace(lines[start.Row])
+			}
+			fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Name)
+			skeleton := ""
+			if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
+				src := strings.Join(lines[start.Row:end.Row+1], "\n")
+				fullTokens += db.EstimateTokens(src)
+				skeleton = ExtractSkeleton(src, lang, sym.Kind)
+				skeletonTokens += db.EstimateTokens(skeleton)
+			}
+			embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
+			if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
+				count++
 			}
 		}
-		sym := extractSymbol(node, content, lang)
-		if sym == nil || sym.Name == "" {
-			continue
-		}
-		start := node.StartPoint()
-		end := node.EndPoint()
-		code := ""
-		if int(start.Row) < len(lines) {
-			code = strings.TrimSpace(lines[start.Row])
-		}
-		fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Name)
-		skeleton := ""
-		if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
-			src := strings.Join(lines[start.Row:end.Row+1], "\n")
-			fullTokens += db.EstimateTokens(src)
-			skeleton = ExtractSkeleton(src, lang, sym.Kind)
-			skeletonTokens += db.EstimateTokens(skeleton)
-		}
-		embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
-		_, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash)
-		if err == nil {
-			count++
-		}
-	}
-	if err := db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now()); err != nil {
-		return 0, 0, 0, err
-	}
-	if err := tx.Commit(); err != nil {
+		return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
+	})
+	if err != nil {
 		return 0, 0, 0, err
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
@@ -542,9 +533,9 @@ func GetIndexStats(projectPath string) (map[string]interface{}, error) {
 	var nodes, files int
 	var err error
 	if projectPath != "" {
-		err = db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectPath).Scan(&nodes, &files)
+		err = db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectPath).Scan(&nodes, &files)
 	} else {
-		err = db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&nodes, &files)
+		err = db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&nodes, &files)
 	}
 	if err != nil {
 		return nil, err

@@ -103,7 +103,7 @@ func FullSourceTokens(file, name, projectPath string, startLine, endLine int, fi
 		}
 	}
 	var code string
-	db.DB.QueryRow(
+	db.IndexDB.QueryRow(
 		"SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
 		file, name, projectPath, startLine).Scan(&code)
 	return db.EstimateTokens(code)
@@ -128,7 +128,7 @@ func WouldSendTokens(file, name, projectPath, mode string, startLine, endLine in
 
 func symbolKind(file, name, projectPath string, startLine int) string {
 	var kind string
-	db.DB.QueryRow(
+	db.IndexDB.QueryRow(
 		"SELECT COALESCE(kind,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
 		file, name, projectPath, startLine).Scan(&kind)
 	return kind
@@ -182,7 +182,7 @@ func hitFromScored(r search.ScoredResult, projectPath string) PackHit {
 	startLine := coerceInt(data["start_line"])
 	endLine := coerceInt(data["end_line"])
 	if startLine == 0 {
-		db.DB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
+		db.IndexDB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
 			file, name, projectPath).Scan(&startLine, &endLine)
 		data["start_line"] = startLine
 		data["end_line"] = endLine

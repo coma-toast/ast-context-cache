@@ -9,7 +9,7 @@ import (
 )
 
 func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) {
-	rows, err := db.DB.Query(
+	rows, err := db.IndexDB.Query(
 		"SELECT DISTINCT file FROM symbols WHERE project_path = ?", projectPath)
 	if err != nil {
 		log.Printf("embed: query files for %s: %v", projectPath, err)
@@ -34,7 +34,7 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 	if ShouldSkipEmbed(filePath) {
 		return nil
 	}
-	rows, err := db.DB.Query(
+	rows, err := db.IndexDB.Query(
 		"SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?",
 		filePath, projectPath)
 	if err != nil {

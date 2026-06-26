@@ -29,12 +29,12 @@ func EffectiveMode(mode string, score, maxScore float64, fullCount int) string {
 
 func LoadSummary(file, name, projectPath string) string {
 	var summary, storedHash string
-	err := db.DB.QueryRow(
+	err := db.IndexDB.QueryRow(
 		"SELECT summary_text, content_hash FROM summaries WHERE file_path = ? AND symbol_name = ? AND project_path = ?",
 		file, name, projectPath).Scan(&summary, &storedHash)
 	if err != nil || summary == "" {
 		if name != "" {
-			db.DB.QueryRow(
+			db.IndexDB.QueryRow(
 				"SELECT summary_text, content_hash FROM summaries WHERE file_path = ? AND (symbol_name IS NULL OR symbol_name = '') AND project_path = ?",
 				file, projectPath).Scan(&summary, &storedHash)
 		}
@@ -51,7 +51,7 @@ func LoadSummary(file, name, projectPath string) string {
 
 func symbolContentHash(file, name, projectPath string) string {
 	var code string
-	db.DB.QueryRow(
+	db.IndexDB.QueryRow(
 		"SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
 		file, name, projectPath).Scan(&code)
 	if code != "" {
@@ -70,7 +70,7 @@ func ApplyMode(data map[string]interface{}, effectiveMode, file, name, projectPa
 	switch effectiveMode {
 	case "skeleton":
 		var skeleton string
-		db.DB.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
+		db.IndexDB.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
 			file, name, projectPath, startLine).Scan(&skeleton)
 		if skeleton != "" {
 			data["skeleton"] = skeleton
@@ -82,7 +82,7 @@ func ApplyMode(data map[string]interface{}, effectiveMode, file, name, projectPa
 			data["summary"] = summary
 		} else {
 			var skeleton string
-			db.DB.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
+			db.IndexDB.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
 				file, name, projectPath, startLine).Scan(&skeleton)
 			if skeleton != "" {
 				data["skeleton"] = skeleton
@@ -99,7 +99,7 @@ func ApplyMode(data map[string]interface{}, effectiveMode, file, name, projectPa
 // SymbolContentForRetrieve picks chunk text for retrieve (skeleton vs full).
 func SymbolContentForRetrieve(file, name, projectPath string, startLine, endLine int, includeSource bool, mode string, score, maxScore float64, fullCount int, fileCache map[string][]string) string {
 	var code, skeleton string
-	db.DB.QueryRow(
+	db.IndexDB.QueryRow(
 		"SELECT COALESCE(code,''), COALESCE(skeleton,'') FROM symbols WHERE name = ? AND file = ? AND project_path = ? AND start_line = ? LIMIT 1",
 		name, file, projectPath, startLine).Scan(&code, &skeleton)
 	effective := mode

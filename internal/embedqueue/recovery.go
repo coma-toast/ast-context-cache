@@ -43,7 +43,7 @@ var (
 // SyncPendingFromDB marks indexed files that lack or have stale code vectors as pending retry.
 func SyncPendingFromDB() int {
 	type row struct{ file, projectPath string }
-	rows, err := db.DB.Query(missingVectorsSQL)
+	rows, err := db.IndexDB.Query(missingVectorsSQL)
 	if err != nil {
 		log.Printf("embedqueue: sync pending: %v", err)
 		return 0
@@ -147,7 +147,7 @@ func recoverPending() {
 
 func syncPendingFromDBLocked() int {
 	type row struct{ file, projectPath string }
-	rows, err := db.DB.Query(missingVectorsSQL)
+	rows, err := db.IndexDB.Query(missingVectorsSQL)
 	if err != nil {
 		log.Printf("embedqueue: sync pending: %v", err)
 		return 0
@@ -177,7 +177,7 @@ func syncPendingFromDBLocked() int {
 }
 
 func pruneStaleEmbedPending() int {
-	res, err := db.DB.Exec(`
+	res, err := db.IndexDB.Exec(`
 		DELETE FROM embed_pending
 		WHERE NOT EXISTS (
 			SELECT 1 FROM symbols s

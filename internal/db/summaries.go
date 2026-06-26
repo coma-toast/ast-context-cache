@@ -5,5 +5,5 @@ func InvalidateSummariesForFile(filePath, projectPath string) {
 	if filePath == "" || projectPath == "" {
 		return
 	}
-	DB.Exec("DELETE FROM summaries WHERE file_path = ? AND project_path = ?", filePath, projectPath)
+	IndexDB.Exec("DELETE FROM summaries WHERE file_path = ? AND project_path = ?", filePath, projectPath)
 }

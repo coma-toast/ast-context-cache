@@ -8,8 +8,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if db.DB != nil {
-		db.DB.Close()
+	if db.IndexDB != nil {
+		db.Close()
 	}
 	tmpHome, err := os.MkdirTemp("", "astcache-embedqueue-home-")
 	if err != nil {
@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	code := m.Run()
-	db.DB.Close()
+	db.Close()
 	os.RemoveAll(tmpHome)
 	os.Exit(code)
 }

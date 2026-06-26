@@ -118,8 +118,8 @@ templ ChannelBar(label string, used int, cap int, color string) {
 	</div>
 }
 
-templ WorkerStrip(active int, total int, live int, maxWorkers int) {
-	{{ displayTotal := workerStripDisplayTotal(total, live) }}
+templ WorkerStrip(active int, target int, effective int, live int, maxWorkers int) {
+	{{ displayTotal := workerStripDisplayTotal(target, effective, live) }}
 	{{ dots, showEllipsis := workerStripDotCount(displayTotal) }}
 	<div
 		class={
@@ -127,12 +127,12 @@ templ WorkerStrip(active int, total int, live int, maxWorkers int) {
 			templ.KV("worker-strip-compact", workerStripUsesCompact(maxWorkers)),
 			templ.KV("worker-strip-split", workerStripSplitClass(maxWorkers, displayTotal)),
 		}
-		title={ workerStripBusyLabel(active, total) }
+		title={ workerStripBusyLabel(active, target) }
 		role="img"
-		aria-label={ workerStripBusyLabel(active, total) }
+		aria-label={ workerStripBusyLabel(active, target) }
 	>
 		for i := 0; i < dots; i++ {
-			<span class={ workerPillClasses(i, active, total, live) }></span>
+			<span class={ workerPillClasses(i, active, target, effective, live) }></span>
 		}
 		if showEllipsis {
 			<span class="worker-pill worker-pill-ellipsis" aria-hidden="true">…</span>
@@ -140,22 +140,24 @@ templ WorkerStrip(active int, total int, live int, maxWorkers int) {
 	</div>
 }
 
-templ WorkerControls(active int, total int, live int, maxWorkers int) {
-	@workerControlsPool(active, total, live, "primary", maxWorkers)
+templ WorkerControls(active int, target int, effective int, live int, maxWorkers int, walActive bool, walDetail string) {
+	@workerControlsPool(active, target, effective, live, "primary", maxWorkers, walActive, walDetail)
 }
 
-templ AuxWorkerControls(active int, total int, live int, maxWorkers int) {
-	@workerControlsPool(active, total, live, "aux", maxWorkers)
+templ AuxWorkerControls(active int, target int, effective int, live int, maxWorkers int) {
+	@workerControlsPool(active, target, effective, live, "aux", maxWorkers, false, "")
 }
 
-templ workerControlsPool(active int, total int, live int, pool string, maxWorkers int) {
+templ workerControlsPool(active int, target int, effective int, live int, pool string, maxWorkers int, walActive bool, walDetail string) {
 	<div
-		class={ "worker-controls", templ.KV("worker-controls-paused", total == 0), templ.KV("worker-controls-aux", pool == "aux") }
+		class={ "worker-controls", templ.KV("worker-controls-paused", target == 0), templ.KV("worker-controls-aux", pool == "aux"), templ.KV("worker-controls-throttled", effective < target && target > 0) }
 		if pool == "aux" {
-			data-embed-aux-workers={ fmtInt(total) }
+			data-embed-aux-workers={ fmtInt(target) }
+			data-embed-aux-workers-effective={ fmtInt(effective) }
 			data-embed-aux-workers-live={ fmtInt(live) }
 		} else {
-			data-embed-workers={ fmtInt(total) }
+			data-embed-workers={ fmtInt(target) }
+			data-embed-workers-effective={ fmtInt(effective) }
 			data-embed-workers-live={ fmtInt(live) }
 		}
 		data-embed-active={ fmtInt(active) }
@@ -164,23 +166,35 @@ templ workerControlsPool(active int, total int, live int, pool string, maxWorker
 		data-worker-max={ fmtInt(maxWorkers) }
 		data-worker-per-row={ fmtInt(WorkerStripPerRow) }
 		data-worker-visible-max={ fmtInt(WorkerStripVisibleMax) }
-		title={ WorkerControlsTitle(active, total, live) }
+		title={ WorkerControlsTitle(active, target, effective, live) }
 	>
 		<div class="worker-step-col">
-			if total <= MinEmbedWorkers {
+			if target <= MinEmbedWorkers {
 				<button type="button" class="worker-step-btn" disabled aria-label="Decrease workers" data-worker-delta="-1">−</button>
 			} else {
 				<button type="button" class="worker-step-btn" aria-label="Decrease workers" data-worker-delta="-1">−</button>
 			}
-			if total >= maxWorkers {
+			if target >= maxWorkers {
 				<button type="button" class="worker-step-btn" disabled aria-label="Increase workers" data-worker-delta="1">+</button>
 			} else {
 				<button type="button" class="worker-step-btn" aria-label="Increase workers" data-worker-delta="1">+</button>
 			}
 		</div>
-		@WorkerStrip(active, total, live, maxWorkers)
-		<span class="worker-count-label">{ fmtInt(total) }</span>
+		@WorkerStrip(active, target, effective, live, maxWorkers)
+		<span class="worker-count-label">{ fmtInt(target) }</span>
+		if walActive && pool == "primary" {
+			<span class="worker-wal-badge worker-wal-badge-checkpoint" title={ walDetail }>checkpointing</span>
+		} else if effective < target && target > 0 {
+			<span class="worker-wal-badge" title={ WorkerWalTitle(target, effective) }>WAL { fmt.Sprintf("%d/%d", effective, target) }</span>
+		}
 	</div>
+}
+
+func WorkerWalTitle(target, effective int) string {
+	if effective >= target {
+		return ""
+	}
+	return fmt.Sprintf("SQLite WAL throttled: %d of %d worker goroutines running", effective, target)
 }
 
 templ EmbedderRetryButton() {
@@ -201,7 +215,11 @@ templ EmbedErrorBannerActions(showDismiss bool) {
 }
 
 templ EmbedPanel(h IndexHealth) {
-	<div class="card metric-card embed-panel">
+	<div
+		class="card metric-card embed-panel"
+		data-wal-maintenance-active={ fmt.Sprintf("%t", h.WALMaintenanceActive) }
+		data-wal-maintenance-detail={ h.WALMaintenanceDetail() }
+	>
 		<div class="card-title">Embeddings</div>
 		<div class="embed-active-row" title={ h.ActiveEmbedTitle() }>
 			<span class="embed-active-label">Active</span>
@@ -218,13 +236,33 @@ templ EmbedPanel(h IndexHealth) {
 				<span class="embed-active-pill degraded" title={ h.EmbedderError }>degraded</span>
 			} else if h.EmbedPanelBusy() {
 				<span class="embed-active-pill loaded">active</span>
+			} else if h.EmbedderState == "loading" {
+				<span class="embed-active-pill loading">starting</span>
 			} else if h.EmbedLoaded {
 				<span class="embed-active-pill loaded">ready</span>
 			} else {
 				<span class="embed-active-pill">idle</span>
 			}
 		</div>
-		if (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.EmbedderError != "" {
+		if h.ShowStartupBanner() {
+			<div class="embed-startup-banner" role="status">
+				<strong>Starting up</strong>
+				<span class="embed-startup-detail">{ h.StartupMessage() }</span>
+			</div>
+		} else if h.ShowWALMaintenanceBanner() {
+			<div class={ "embed-wal-banner", templ.KV("embed-wal-banner-indeterminate", h.WALMaintenanceIndeterminate()) } role="status">
+				<div class="embed-wal-banner-head">
+					<strong>{ h.WALMaintenanceHeadline() }</strong>
+					<span class="embed-wal-detail">{ h.WALMaintenanceDetail() }</span>
+				</div>
+				<div class="wal-progress-track">
+					<div class="wal-progress-fill" style={ fmt.Sprintf("width:%.1f%%", h.WALMaintenanceProgressPct()) }></div>
+				</div>
+				<div class="embed-wal-actions">
+					<button type="button" class="embed-wal-checkpoint-btn" data-wal-checkpoint disabled aria-disabled="true">Checkpoint running…</button>
+				</div>
+			</div>
+		} else if (h.EmbedderState == "error" || h.EmbedderState == "degraded") && h.EmbedderError != "" {
 			<div class={ "embed-error-banner", templ.KV("embed-warn-banner", h.EmbedderState == "degraded") } title={ h.EmbedderError }>
 				<div class="embed-error-banner-body">
 					<strong>{ h.EmbedderErrorHeadline() }</strong>
@@ -248,16 +286,16 @@ templ EmbedPanel(h IndexHealth) {
 			<div class="metric-stack">
 				@ChannelBar("Priority", h.EmbedHighQueued, h.EmbedHighCap, "#58a6ff")
 				@ChannelBar("Background", h.EmbedLowQueued, h.EmbedLowCap, "#bc8cff")
-				<div class="metric-row worker-metric-row">
+				<div class={ "metric-row", "worker-metric-row", templ.KV("worker-metric-row-throttled", h.EmbedWorkersEffective < h.EmbedWorkers && h.EmbedWorkers > 0) }>
 					<span class="metric-row-label">Workers</span>
-					@WorkerControls(h.EmbedActive, h.EmbedWorkers, h.EmbedWorkersLive, h.EmbedWorkerMax)
 					<span class="metric-row-value">{ h.EmbedWorkersStatus() }</span>
+					@WorkerControls(h.EmbedActive, h.EmbedWorkers, h.EmbedWorkersEffective, h.EmbedWorkersLive, h.EmbedWorkerMax, h.WALMaintenanceActive, h.WALMaintenanceHeadline()+" — "+h.WALMaintenanceDetail())
 				</div>
 				if h.EmbedAuxEnabled {
 					<div class="metric-row worker-metric-row worker-metric-row-aux">
 						<span class="metric-row-label">{ h.EmbedAuxWorkerLabel() }</span>
-						@AuxWorkerControls(h.EmbedActive, h.EmbedAuxWorkers, h.EmbedAuxWorkersLive, h.EmbedAuxWorkerMax)
 						<span class="metric-row-value">{ h.EmbedAuxWorkersStatus() }</span>
+						@AuxWorkerControls(h.EmbedActive, h.EmbedAuxWorkers, h.EmbedAuxWorkersEffective, h.EmbedAuxWorkersLive, h.EmbedAuxWorkerMax)
 					</div>
 				}
 				<div class="metric-row">
@@ -303,6 +341,15 @@ templ EmbedPanel(h IndexHealth) {
 				<div class="embed-stat-label">Pinned</div>
 			</div>
 		</div>
+		if !h.ShowWALMaintenanceBanner() && !h.ShowStartupBanner() {
+			<div class="embed-wal-actions embed-wal-actions-footer">
+				if h.WALCheckpointButtonDisabled() {
+					<button type="button" class="embed-wal-checkpoint-btn" data-wal-checkpoint disabled title="Unavailable during startup">Checkpoint WAL now</button>
+				} else {
+					<button type="button" class="embed-wal-checkpoint-btn" data-wal-checkpoint title="Force WAL checkpoint (pauses embed workers briefly)">Checkpoint WAL now</button>
+				}
+			</div>
+		}
 	</div>
 }
 

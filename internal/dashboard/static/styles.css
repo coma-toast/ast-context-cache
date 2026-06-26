@@ -769,8 +769,58 @@ header h1 .icon { font-size: 20px; }
   color: var(--text-dim);
   min-width: 1ch;
 }
+.worker-metric-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 6px;
+}
+.worker-metric-row .metric-row-label {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 64px;
+}
+.worker-metric-row .metric-row-value {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  margin-left: 0;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.worker-metric-row .worker-controls {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  flex: unset;
+  min-width: 0;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.worker-metric-row-throttled .metric-row-value {
+  color: var(--orange);
+}
+.worker-wal-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--orange);
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.worker-controls-throttled .worker-count-label {
+  color: var(--orange);
+}
 .worker-metric-row .metric-row-value { margin-left: 0; }
-.worker-controls-paused .worker-count-label { color: var(--orange); }
 .embed-error-banner-body strong {
   display: block;
   margin-bottom: 2px;
@@ -1754,6 +1804,98 @@ tr:hover td { background: var(--surface-hover); }
   color: var(--text-dim);
   background: rgba(139, 148, 158, 0.12);
   border: 1px solid rgba(139, 148, 158, 0.25);
+}
+.embed-startup-banner {
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(59, 130, 246, 0.1);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.embed-startup-banner strong {
+  display: block;
+  color: var(--accent);
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+.embed-startup-detail {
+  display: block;
+}
+.embed-wal-banner {
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(210, 153, 34, 0.45);
+  background: rgba(210, 153, 34, 0.12);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.embed-wal-banner-indeterminate .wal-progress-fill {
+  animation: walProgressPulse 1.4s ease-in-out infinite;
+  width: 35% !important;
+}
+.embed-wal-banner-head strong {
+  display: block;
+  color: #d29922;
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+.embed-wal-detail {
+  display: block;
+  line-height: 1.35;
+}
+.wal-progress-track {
+  margin-top: 8px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(139, 148, 158, 0.2);
+  overflow: hidden;
+}
+.wal-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #d29922;
+  transition: width 0.4s ease;
+}
+@keyframes walProgressPulse {
+  0%, 100% { transform: translateX(-30%); opacity: 0.55; }
+  50% { transform: translateX(220%); opacity: 1; }
+}
+.embed-wal-actions {
+  margin-top: 8px;
+}
+.embed-wal-actions-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.embed-wal-checkpoint-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(210, 153, 34, 0.45);
+  background: rgba(210, 153, 34, 0.08);
+  color: #d29922;
+  cursor: pointer;
+}
+.embed-wal-checkpoint-btn:hover:not(:disabled) {
+  background: rgba(210, 153, 34, 0.18);
+}
+.embed-wal-checkpoint-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.worker-wal-badge-checkpoint {
+  background: rgba(210, 153, 34, 0.2);
+  color: #d29922;
+  border-color: rgba(210, 153, 34, 0.45);
+}
+.embed-active-pill.loading {
+  color: var(--accent);
+  border-color: rgba(96, 165, 250, 0.45);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .health-bar-inline .health-item.health-embed-item {

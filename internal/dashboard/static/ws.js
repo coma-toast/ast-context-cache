@@ -144,6 +144,21 @@ document.addEventListener('alpine:init', () => {
 
     ws.onerror = () => {};
 
+    let lastOverviewPartialAt = Date.now();
+    window.addEventListener('dashboard-ws-partial', () => {
+        lastOverviewPartialAt = Date.now();
+    });
+    setInterval(async () => {
+        if (dashboardActiveTab() !== 'overview') return;
+        if (Date.now() - lastOverviewPartialAt < 6000) return;
+        const panels = [
+            ['#health-bar', '/partials/health'],
+            ['#index-health', '/partials/index-health'],
+        ];
+        await Promise.all(panels.map(([sel, path]) => fetchPartial(sel, path)));
+        lastOverviewPartialAt = Date.now();
+    }, 5000);
+
     Alpine.store('chart', {
         interval: 'daily',
         metric: 'queries',
@@ -522,9 +537,15 @@ function patchRecentPanel(container, html) {
     wrap.innerHTML = html;
     const srcPanel = wrap.querySelector('.recent-panel');
     if (!srcPanel) return false;
-    for (const sel of ['.pane-mcp', '.pane-indexing', '.pane-logs']) {
+    for (const sel of ['.pane-mcp', '.pane-indexing']) {
         const src = srcPanel.querySelector(sel);
         const dst = panel.querySelector(sel);
+        if (src && dst) dst.innerHTML = src.innerHTML;
+    }
+    const srcLogPath = srcPanel.querySelector('.pane-logs .recent-logs-path');
+    if (srcLogPath?.textContent?.trim()) {
+        const src = srcPanel.querySelector('.pane-logs');
+        const dst = panel.querySelector('.pane-logs');
         if (src && dst) dst.innerHTML = src.innerHTML;
     }
     for (const id of ['recent-tab-mcp', 'recent-tab-indexing', 'recent-tab-logs']) {
@@ -650,7 +671,7 @@ function mountRecentContent(el, preservedTab) {
     setRecentSubTab(tab, el);
     bindRecentLogsAutoscroll(el);
     if (tab === 'logs') {
-        requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+        void refreshRecentLogsOnly(true);
     }
     syncLogsPoll();
     if (el.dataset.recentTabBound) return;
@@ -660,7 +681,7 @@ function mountRecentContent(el, preservedTab) {
             const sub = recentSubTabFromRadio(e.target);
             sessionStorage.setItem(RECENT_SUBTAB_KEY, sub);
             if (sub === 'logs') {
-                requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
+                void refreshRecentLogsOnly(true);
             }
             syncLogsPoll();
         }
@@ -684,6 +705,16 @@ function mountHTMXContent(el) {
 
 function mountSettingsContent(el) {
     mountHTMXContent(el);
+    const list = el?.querySelector?.('.project-list[data-projects-loading="true"]');
+    if (list) {
+        setTimeout(async () => {
+            const r = await fetch('/partials/settings');
+            if (r.ok) {
+                el.innerHTML = await r.text();
+                mountSettingsContent(el);
+            }
+        }, 600);
+    }
 }
 
 async function watcherApiAction(action, projectPath, targetSel) {
@@ -1069,8 +1100,8 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
 window.addEventListener('dashboard-ws-partial', onWorkerPartialUpdated);
 
 const workerPoolState = {
-    primary: { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5, visibleMax: 20 },
-    aux: { target: null, server: { total: 0, live: 0, active: 0 }, min: 0, max: 10, perRow: 5, visibleMax: 20 },
+    primary: { target: null, server: { total: 0, effective: 0, live: 0, active: 0 }, min: 0, max: 15, perRow: 5, visibleMax: 20 },
+    aux: { target: null, server: { total: 0, effective: 0, live: 0, active: 0 }, min: 0, max: 10, perRow: 5, visibleMax: 20 },
 };
 const workerPoolAPI = { primary: '/api/embed-workers', aux: '/api/embed-aux-workers' };
 
@@ -1115,9 +1146,11 @@ function syncWorkerStateFromDOM(pool) {
     if (!el || !state) return false;
     if (pool === 'aux') {
         state.server.total = parseInt(el.dataset.embedAuxWorkers, 10) || 0;
+        state.server.effective = parseInt(el.dataset.embedAuxWorkersEffective, 10) || state.server.total;
         state.server.live = parseInt(el.dataset.embedAuxWorkersLive, 10) || 0;
     } else {
         state.server.total = parseInt(el.dataset.embedWorkers, 10) || 0;
+        state.server.effective = parseInt(el.dataset.embedWorkersEffective, 10) || state.server.total;
         state.server.live = parseInt(el.dataset.embedWorkersLive, 10) || 0;
     }
     state.server.active = parseInt(el.dataset.embedActive, 10) || 0;
@@ -1133,24 +1166,28 @@ function syncWorkerStateFromDOM(pool) {
 function getWorkerRenderPlan(pool) {
     const state = workerPoolState[pool];
     const target = state.target ?? state.server.total;
-    const serverTotal = state.server.total;
+    const effective = state.server.effective;
+    const serverTotal = effective;
     const serverLive = state.server.live;
     const active = state.server.active;
-    const rawTotal = Math.max(target, serverLive);
+    const rawTotal = Math.max(target, serverLive, effective);
     const hasEllipsis = rawTotal > state.visibleMax;
     const pillCount = hasEllipsis ? state.visibleMax - 1 : rawTotal;
     const visible = hasEllipsis ? state.visibleMax : pillCount;
     const compact = state.max > 15;
-    return { target, serverTotal, serverLive, active, rawTotal, pillCount, visible, hasEllipsis, compact, perRow: state.perRow };
+    return { target, effective, serverTotal, serverLive, active, rawTotal, pillCount, visible, hasEllipsis, compact, perRow: state.perRow };
 }
 
 function workerPillClass(index, plan) {
     const busy = index < plan.active;
-    if (index >= plan.target && index < plan.serverLive) {
+    const target = plan.target;
+    const serverTotal = plan.serverTotal;
+    const serverLive = plan.serverLive;
+    if (index >= target && index < serverLive) {
         return busy ? 'worker-pill draining draining-busy' : 'worker-pill draining';
     }
-    if (index >= plan.serverTotal && index < plan.target) {
-        if (index < plan.serverLive) {
+    if (index >= serverTotal && index < target) {
+        if (index < serverLive) {
             return busy ? 'worker-pill busy' : 'worker-pill idle';
         }
         return 'worker-pill pending';
@@ -1186,8 +1223,18 @@ function buildWorkerStrip(plan) {
 }
 
 function workerControlsTitle(plan, pool) {
+    const embedPanel = document.querySelector('.embed-panel');
+    const walActive = embedPanel?.dataset.walMaintenanceActive === 'true';
+    const walDetail = embedPanel?.dataset.walMaintenanceDetail || '';
     if (plan.target === 0) {
         return pool === 'aux' ? 'Aux workers off — click + to enable' : 'Workers paused — click + to resume';
+    }
+    if (plan.effective < plan.target) {
+        const label = pool === 'aux' ? 'Aux workers' : 'Workers';
+        if (pool === 'primary' && walActive) {
+            return `${label}: checkpointing WAL — ${walDetail || 'embed workers paused'}`;
+        }
+        return `${label}: ${plan.target} target · ${plan.effective} running (WAL throttled) · ${plan.active} busy`;
     }
     const pending = Math.max(0, plan.target - plan.serverTotal);
     const draining = Math.max(0, plan.serverLive - plan.target);
@@ -1210,6 +1257,7 @@ function renderWorkerUI(pool) {
     el.dataset.workerVisibleMax = String(state.visibleMax);
     const plan = getWorkerRenderPlan(pool);
     el.classList.toggle('worker-controls-paused', plan.target === 0);
+    el.classList.toggle('worker-controls-throttled', plan.effective < plan.target && plan.target > 0);
     el.title = workerControlsTitle(plan, pool);
     const label = el.querySelector('.worker-count-label');
     if (label) label.textContent = String(plan.target);
@@ -1225,14 +1273,39 @@ function renderWorkerUI(pool) {
     const plus = el.querySelector('[data-worker-delta="1"]');
     if (minus) minus.disabled = plan.target <= state.min;
     if (plus) plus.disabled = plan.target >= state.max;
+    let walBadge = el.querySelector('.worker-wal-badge');
+    const embedPanel = document.querySelector('.embed-panel');
+    const walActive = embedPanel?.dataset.walMaintenanceActive === 'true';
+    const walDetail = embedPanel?.dataset.walMaintenanceDetail || '';
+    if (pool === 'primary' && walActive) {
+        if (!walBadge) {
+            walBadge = document.createElement('span');
+            walBadge.className = 'worker-wal-badge worker-wal-badge-checkpoint';
+            el.appendChild(walBadge);
+        }
+        walBadge.className = 'worker-wal-badge worker-wal-badge-checkpoint';
+        walBadge.textContent = 'checkpointing';
+        walBadge.title = walDetail || 'WAL checkpoint in progress';
+    } else if (plan.effective < plan.target && plan.target > 0) {
+        if (!walBadge) {
+            walBadge = document.createElement('span');
+            walBadge.className = 'worker-wal-badge';
+            el.appendChild(walBadge);
+        }
+        walBadge.textContent = `WAL ${plan.effective}/${plan.target}`;
+        walBadge.title = `SQLite WAL throttled: ${plan.effective} of ${plan.target} worker goroutines running`;
+    } else if (walBadge) {
+        walBadge.remove();
+    }
     const row = el.closest('.worker-metric-row');
     const status = row?.querySelector('.metric-row-value');
     if (status) {
         if (pool === 'aux') {
             status.textContent = plan.target === 0 ? 'off' : `${plan.target} enabled`;
         } else {
-            status.textContent = plan.target === 0 ? 'paused' : `${plan.active} active`;
+            status.textContent = plan.target === 0 ? 'paused' : `${plan.active} busy`;
         }
+        row?.classList.toggle('worker-metric-row-throttled', pool === 'primary' && plan.effective < plan.target && plan.target > 0);
     }
     if (pool === 'primary') updateNavbarWorkers(plan);
 }
@@ -1336,6 +1409,50 @@ async function dismissEmbedderAlert(btn) {
     }
 }
 
+function showStatusToast(title, body, color = '#d29922') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.className = 'toast';
+    div.style.borderLeft = `3px solid ${color}`;
+    div.innerHTML = `
+        <div class="toast-header">
+            <span class="toast-title" style="color:${color}">${title}</span>
+            <span class="toast-time">${new Date().toLocaleTimeString()}</span>
+        </div>
+        <div class="toast-body">
+            <span class="toast-query">${body}</span>
+        </div>
+    `;
+    container.appendChild(div);
+    setTimeout(() => {
+        div.classList.add('removing');
+        setTimeout(() => div.remove(), 200);
+    }, 4000);
+}
+
+async function triggerWALCheckpoint(btn) {
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('htmx-request');
+    try {
+        const r = await fetch('/api/wal-checkpoint', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            showStatusToast('WAL checkpoint', data.error || 'Could not start checkpoint', '#f85149');
+            return;
+        }
+        showStatusToast('WAL checkpoint', 'Started — embed workers will pause briefly');
+        await refreshEmbedderPanels();
+    } catch (err) {
+        console.error('wal checkpoint:', err);
+        showStatusToast('WAL checkpoint', 'Request failed', '#f85149');
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('htmx-request');
+    }
+}
+
 async function refreshEmbedderPanels() {
     await Promise.all([refreshIndexHealthPartial(), refreshHealthBarPartial()]);
     const settings = document.getElementById('settings-content');
@@ -1383,7 +1500,14 @@ async function adjustEmbedWorkers(pool, delta) {
     if (data.max_workers != null) {
         workerPoolState[pool].max = parseWorkerLimit(data.max_workers, workerPoolState[pool].max);
     }
-    return data.workers;
+    const state = workerPoolState[pool];
+    const workers = data.workers ?? state.target ?? state.server.total;
+    state.server.total = workers;
+    state.server.effective = data.workers_effective ?? workers;
+    if (data.live != null) state.server.live = data.live;
+    state.target = workers;
+    renderWorkerUI(pool);
+    return workers;
 }
 
 document.body.addEventListener('click', async (e) => {
@@ -1397,13 +1521,12 @@ document.body.addEventListener('click', async (e) => {
         const gotMax = await refreshWorkerLimitsFromServer(pool);
         if (!gotMax) syncWorkerMaxFromDOM(pool);
         if (!syncWorkerStateFromDOM(pool)) return;
-        renderWorkerUI(pool);
-        const plan = getWorkerRenderPlan(pool);
         const state = workerPoolState[pool];
-        if (delta < 0 && plan.target <= state.min) return;
-        if (delta > 0 && plan.target >= state.max) return;
+        const cur = state.target ?? state.server.total;
+        const next = cur + delta;
+        if (next < state.min || next > state.max) return;
         applyWorkerDelta(pool, delta);
-        adjustEmbedWorkers(pool, delta);
+        await adjustEmbedWorkers(pool, delta);
         return;
     }
     const pagerBtn = e.target.closest('.doc-sources-pager-btn');
@@ -1450,6 +1573,12 @@ document.body.addEventListener('click', async (e) => {
     if (dismissBtn) {
         e.preventDefault();
         dismissEmbedderAlert(dismissBtn);
+        return;
+    }
+    const walBtn = e.target.closest('[data-wal-checkpoint]');
+    if (walBtn && !walBtn.disabled) {
+        e.preventDefault();
+        triggerWALCheckpoint(walBtn);
     }
 });
 

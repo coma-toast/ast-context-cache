@@ -26,7 +26,7 @@ func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 
 	symbolLower := strings.ToLower(symbol)
 
-	symbolRows, err := db.DB.Query(
+	symbolRows, err := db.IndexDB.Query(
 		"SELECT DISTINCT file FROM symbols WHERE project_path = ? AND LOWER(name) = ?",
 		projectPath, symbolLower)
 	if err != nil {
@@ -48,7 +48,7 @@ func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 	}
 	var impacts []impactEntry
 
-	edgeRows, err := db.DB.Query(
+	edgeRows, err := db.IndexDB.Query(
 		"SELECT source_file, target, kind FROM edges WHERE project_path = ? AND (LOWER(target) LIKE ? OR LOWER(target) LIKE ?)",
 		projectPath, "%"+symbolLower+"%", "%/"+symbolLower)
 	if err != nil {
@@ -67,7 +67,7 @@ func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 	}
 
 	for f := range symbolFiles {
-		depRows, _ := db.DB.Query(
+		depRows, _ := db.IndexDB.Query(
 			"SELECT source_file, target, kind FROM edges WHERE project_path = ? AND LOWER(target) LIKE ?",
 			projectPath, "%"+strings.ToLower(filepath.Base(f))+"%")
 		if depRows != nil {

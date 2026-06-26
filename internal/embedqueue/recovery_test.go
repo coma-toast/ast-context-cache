@@ -73,19 +73,19 @@ func TestRecoveryBeforeSyncRace(t *testing.T) {
 
 func TestPurgeOrphanCodeVectors(t *testing.T) {
 	project := "orphan-test"
-	db.DB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)
-	db.DB.Exec(`DELETE FROM symbols WHERE project_path = ?`, project)
-	res, err := db.DB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, embed_hash) VALUES ('f', 'function', '/x.go', 1, 1, '', 'x.f', ?, 'abc')`, project)
+	db.IndexDB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)
+	db.IndexDB.Exec(`DELETE FROM symbols WHERE project_path = ?`, project)
+	res, err := db.IndexDB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, embed_hash) VALUES ('f', 'function', '/x.go', 1, 1, '', 'x.f', ?, 'abc')`, project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	symID, _ := res.LastInsertId()
-	_, err = db.DB.Exec(`INSERT INTO vectors (symbol_id, content_hash, vector, doc_type, source_file, name, kind, project_path) VALUES (?, 'abc', ?, 'code', '/x.go', 'f', 'function', ?)`,
+	_, err = db.IndexDB.Exec(`INSERT INTO vectors (symbol_id, content_hash, vector, doc_type, source_file, name, kind, project_path) VALUES (?, 'abc', ?, 'code', '/x.go', 'f', 'function', ?)`,
 		symID, []byte{1, 2, 3}, project)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.DB.Exec(`DELETE FROM symbols WHERE id = ?`, symID)
+	db.IndexDB.Exec(`DELETE FROM symbols WHERE id = ?`, symID)
 	if n := search.PurgeOrphanCodeVectors(); n != 1 {
 		t.Fatalf("purged=%d", n)
 	}
@@ -94,14 +94,14 @@ func TestPurgeOrphanCodeVectors(t *testing.T) {
 func TestStaleVectorDetectedByEmbedHashSQL(t *testing.T) {
 	project := "stale-hash-test"
 	file := "/tmp/stale.go"
-	db.DB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)
-	db.DB.Exec(`DELETE FROM symbols WHERE project_path = ?`, project)
-	res, err := db.DB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, embed_hash) VALUES ('f', 'function', ?, 1, 1, '', 'stale.f', ?, 'newhash')`, file, project)
+	db.IndexDB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)
+	db.IndexDB.Exec(`DELETE FROM symbols WHERE project_path = ?`, project)
+	res, err := db.IndexDB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, embed_hash) VALUES ('f', 'function', ?, 1, 1, '', 'stale.f', ?, 'newhash')`, file, project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	symID, _ := res.LastInsertId()
-	_, err = db.DB.Exec(`INSERT INTO vectors (symbol_id, content_hash, vector, doc_type, source_file, name, kind, project_path) VALUES (?, 'oldhash', ?, 'code', ?, 'f', 'function', ?)`,
+	_, err = db.IndexDB.Exec(`INSERT INTO vectors (symbol_id, content_hash, vector, doc_type, source_file, name, kind, project_path) VALUES (?, 'oldhash', ?, 'code', ?, 'f', 'function', ?)`,
 		symID, []byte{1}, file, project)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestStaleVectorDetectedByEmbedHashSQL(t *testing.T) {
 
 func TestFlushPendingDBBatch(t *testing.T) {
 	project := "/proj-batch-test"
-	db.DB.Exec(`DELETE FROM embed_pending WHERE project_path = ?`, project)
+	db.IndexDB.Exec(`DELETE FROM embed_pending WHERE project_path = ?`, project)
 	pendingMu.Lock()
 	for k, j := range pending {
 		if j.projectPath == project {
@@ -129,17 +129,17 @@ func TestFlushPendingDBBatch(t *testing.T) {
 	}
 	FlushPendingDB()
 	var count int
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE project_path = ?`, project).Scan(&count); err != nil || count != 5 {
+	if err := db.IndexDB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE project_path = ?`, project).Scan(&count); err != nil || count != 5 {
 		t.Fatalf("batch count=%d err=%v", count, err)
 	}
 }
 
 func TestEmbedPendingPersistAndLoad(t *testing.T) {
-	db.DB.Exec(`DELETE FROM embed_pending`)
+	db.IndexDB.Exec(`DELETE FROM embed_pending`)
 	pendingMu.Lock()
 	pending = map[string]job{}
 	pendingMu.Unlock()
-	db.DB.Exec(`DELETE FROM embed_pending WHERE file = ?`, "/tmp/persist.go")
+	db.IndexDB.Exec(`DELETE FROM embed_pending WHERE file = ?`, "/tmp/persist.go")
 	pendingMu.Lock()
 	pending = map[string]job{}
 	pendingMu.Unlock()
@@ -148,15 +148,15 @@ func TestEmbedPendingPersistAndLoad(t *testing.T) {
 	}
 	FlushPendingDB()
 	var count int
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE file = ?`, "/tmp/persist.go").Scan(&count); err != nil || count != 1 {
+	if err := db.IndexDB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE file = ?`, "/tmp/persist.go").Scan(&count); err != nil || count != 1 {
 		t.Fatalf("persist row count=%d err=%v", count, err)
 	}
 	clearPending(job{file: "/tmp/persist.go", projectPath: "/proj"})
 	FlushPendingDB()
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE file = ?`, "/tmp/persist.go").Scan(&count); err != nil || count != 0 {
+	if err := db.IndexDB.QueryRow(`SELECT COUNT(*) FROM embed_pending WHERE file = ?`, "/tmp/persist.go").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("after clear count=%d err=%v", count, err)
 	}
-	db.DB.Exec(`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, ?, ?)`,
+	db.IndexDB.Exec(`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, ?, ?)`,
 		"/tmp/load.go", "/proj", pendingReasonFailed, time.Now().Unix())
 	pendingMu.Lock()
 	pending = map[string]job{}

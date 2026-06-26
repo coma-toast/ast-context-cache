@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"bufio"
 	"os"
 	"strconv"
 	"strings"
@@ -96,21 +95,50 @@ func tailFileLines(path string, maxLines int) ([]string, bool, error) {
 		return nil, false, err
 	}
 	defer f.Close()
-	var ring []string
-	truncated := false
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		if len(ring) >= maxLines {
-			truncated = true
-			ring = ring[1:]
-		}
-		ring = append(ring, sc.Text())
-	}
-	if err := sc.Err(); err != nil {
+	fi, err := f.Stat()
+	if err != nil {
 		return nil, false, err
 	}
-	return ring, truncated, nil
+	size := fi.Size()
+	if size == 0 {
+		return nil, false, nil
+	}
+	const chunkSize = 64 * 1024
+	var buf []byte
+	truncated := false
+	offset := size
+	for offset > 0 {
+		readAt := offset
+		readSize := int64(chunkSize)
+		if readSize > readAt {
+			readSize = readAt
+		}
+		offset -= readSize
+		chunk := make([]byte, readSize)
+		if _, err := f.ReadAt(chunk, offset); err != nil {
+			return nil, false, err
+		}
+		buf = append(chunk, buf...)
+		lineCount := strings.Count(string(buf), "\n")
+		if lineCount > maxLines+1 {
+			truncated = offset > 0
+			break
+		}
+		if offset == 0 {
+			break
+		}
+		truncated = true
+	}
+	text := string(buf)
+	if text == "" {
+		return nil, false, nil
+	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(lines) > maxLines {
+		truncated = true
+		lines = lines[len(lines)-maxLines:]
+	}
+	return lines, truncated, nil
 }
 
 func parseLogLine(raw string) components.RecentLogLine {

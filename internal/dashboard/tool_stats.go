@@ -20,6 +20,9 @@ const toolStatsSelect = `SELECT tool_name,
 FROM queries WHERE `
 
 func queryToolStats(projectID string) []components.ToolStat {
+	if db.DB == nil {
+		return nil
+	}
 	where, args := toolStatsWhere(projectID)
 	q := toolStatsSelect + where + " GROUP BY tool_name ORDER BY COUNT(*) DESC"
 	rows, err := db.DB.Query(q, args...)
