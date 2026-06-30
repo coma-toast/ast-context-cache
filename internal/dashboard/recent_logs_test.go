@@ -60,6 +60,8 @@ func TestServerLogPathDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	want := filepath.Join(home, ".astcache", "ast-mcp.log")
+	os.MkdirAll(filepath.Dir(want), 0755)
+	os.WriteFile(want, []byte("test\n"), 0o644)
 	if got := serverLogPath(); got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}

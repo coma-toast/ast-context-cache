@@ -82,6 +82,13 @@ func fmtInt64(n int64) string {
 	return result
 }
 
+func fmtBool(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
 func StatsCards(s Stats) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

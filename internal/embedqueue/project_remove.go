@@ -33,8 +33,8 @@ func RemoveProject(projectPath string) (queuedRemoved, pendingRemoved int) {
 	}
 	pendingMu.Unlock()
 	purgePendingDirtyForProject(projectPath)
-	if db.DB != nil {
-		if res, err := db.DB.Exec(`DELETE FROM embed_pending WHERE project_path = ?`, projectPath); err != nil {
+	if db.IndexDB != nil {
+		if res, err := db.IndexDB.Exec(`DELETE FROM embed_pending WHERE project_path = ?`, projectPath); err != nil {
 			log.Printf("embedqueue: delete embed_pending for %s: %v", projectPath, err)
 		} else if n, err := res.RowsAffected(); err == nil && int(n) > pendingRemoved {
 			pendingRemoved = int(n)

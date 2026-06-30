@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -243,11 +244,14 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			result = map[string]string{"error": "file, summary, and project_path required"}
 		} else {
 			contentHash := search.ContentHash(summary)
-			_, err := db.DB.Exec(
-				`INSERT INTO summaries (file_path, symbol_name, summary_text, content_hash, project_path) 
+			err := db.IndexWrite(func(tx *sql.Tx) error {
+				_, err := tx.Exec(
+					`INSERT INTO summaries (file_path, symbol_name, summary_text, content_hash, project_path) 
 				 VALUES (?, ?, ?, ?, ?)
 				 ON CONFLICT(file_path, symbol_name, project_path) DO UPDATE SET summary_text=excluded.summary_text, content_hash=excluded.content_hash, created_at=datetime('now')`,
-				file, symbol, summary, contentHash, projectPath)
+					file, symbol, summary, contentHash, projectPath)
+				return err
+			})
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
@@ -378,20 +382,30 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if pp == "" {
 			result = map[string]string{"error": "project_path required"}
 		} else {
-			_, err := db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", pp)
+			err := db.IndexWrite(func(tx *sql.Tx) error {
+				if _, err := tx.Exec("DELETE FROM symbols WHERE project_path = ?", pp); err != nil {
+					return err
+				}
+				_, err := tx.Exec("DELETE FROM edges WHERE project_path = ?", pp)
+				return err
+			})
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
-				db.DB.Exec("DELETE FROM edges WHERE project_path = ?", pp)
 				result = map[string]string{"status": "deleted", "project_path": pp}
 			}
 		}
 	case "reset_all":
-		_, err := db.DB.Exec("DELETE FROM symbols")
+		err := db.IndexWrite(func(tx *sql.Tx) error {
+			if _, err := tx.Exec("DELETE FROM symbols"); err != nil {
+				return err
+			}
+			_, err := tx.Exec("DELETE FROM edges")
+			return err
+		})
 		if err != nil {
 			result = map[string]string{"error": err.Error()}
 		} else {
-			db.DB.Exec("DELETE FROM edges")
 			result = map[string]string{"status": "deleted", "message": "All indexed data cleared"}
 		}
 	case "analyze_dead_code":

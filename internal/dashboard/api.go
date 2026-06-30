@@ -76,6 +76,8 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/context-stats", handleContextStats)
 	mux.HandleFunc("/api/kv-repair-stats", handleKvRepairStats)
 	mux.HandleFunc("/api/flush-context", handleFlushContextAPI)
+	mux.HandleFunc("/api/wal-checkpoint", handleWALCheckpoint)
+	mux.HandleFunc("/api/wal-status", handleWALStatus)
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
@@ -124,6 +126,11 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	var s stats
 	s.WindowDays = StatsWindowDays
+	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode(s)
+		return
+	}
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
@@ -137,7 +144,6 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	s.TodayTokensSaved = today.TodayTokens
 	s.TodaySessions = today.TodaySessions
 	s.TodayAvgDurationMs = today.TodayAvgDurationMs
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s)
 }
 
@@ -162,6 +168,11 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 	}
 	if lim > 500 {
 		lim = 500
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
 	}
 	var rows *sql.Rows
 	var err error
@@ -205,20 +216,30 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 
 func handleProjects(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() && !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	type symCount struct {
 		symbols int
 		files   int
 	}
 	symCounts := map[string]symCount{}
-	symRows, err := db.DB.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
-	if err == nil {
-		defer symRows.Close()
-		for symRows.Next() {
-			var pp string
-			var sc symCount
-			symRows.Scan(&pp, &sc.symbols, &sc.files)
-			symCounts[pp] = sc
+	if indexDBReady() {
+		symRows, err := db.IndexDB.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+		if err == nil {
+			defer symRows.Close()
+			for symRows.Next() {
+				var pp string
+				var sc symCount
+				symRows.Scan(&pp, &sc.symbols, &sc.files)
+				symCounts[pp] = sc
+			}
 		}
+	}
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
 	}
 	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL GROUP BY project_path")
 	if err != nil {
@@ -254,18 +275,18 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	projectPath := req["project_path"]
 
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
 
 	if projectPath == "all" {
-		_, err := db.DB.Exec("DELETE FROM symbols")
+		_, err := db.IndexDB.Exec("DELETE FROM symbols")
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		db.DB.Exec("DELETE FROM edges")
-		db.DB.Exec("DELETE FROM indexed_files")
-		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		db.IndexDB.Exec("DELETE FROM edges")
+		db.IndexDB.Exec("DELETE FROM indexed_files")
+		db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
@@ -273,14 +294,14 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 	} else if projectPath != "" {
 		projectPath = watcher.NormalizeProjectPath(projectPath)
 		embedqueue.RemoveProject(projectPath)
-		_, err := db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+		_, err := db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-		db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-		db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+		db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+		db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearProject(projectPath)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
@@ -305,12 +326,12 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	embedqueue.RemoveProject(projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
@@ -318,6 +339,11 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTimeseries(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !usageDBReady() {
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
 	pid := r.URL.Query().Get("project_id")
 	interval := r.URL.Query().Get("interval")
 	if interval == "" {
@@ -348,7 +374,6 @@ func handleTimeseries(w http.ResponseWriter, r *http.Request) {
 		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
 			FROM queries WHERE timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, days)
 	}
-	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -376,12 +401,14 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
 	var totalSymbols, totalFiles, totalEdges int
-	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
-	} else {
-		db.DB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
-		db.DB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
+	if indexDBReady() {
+		if pid != "" {
+			db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
+		} else {
+			db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
+		}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"total_symbols":    totalSymbols,
@@ -395,12 +422,16 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
+		rows, err = db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
 	} else {
-		rows, err = db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
+		rows, err = db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -420,6 +451,10 @@ func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	q := `SELECT CASE
 		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
 		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
@@ -429,9 +464,9 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
+		rows, err = db.IndexDB.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
 	} else {
-		rows, err = db.DB.Query(q + " GROUP BY language ORDER BY symbols DESC")
+		rows, err = db.IndexDB.Query(q + " GROUP BY language ORDER BY symbols DESC")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -451,12 +486,16 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 func handleTopImports(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
+		rows, err = db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
 	} else {
-		rows, err = db.DB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
+		rows, err = db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -486,10 +525,12 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	memoryMB := search.Cache.MemoryMB()
 
 	var dbVectors int
-	if pid != "" {
-		db.DB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
-	} else {
-		db.DB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
+	if indexDBReady() {
+		if pid != "" {
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
+		} else {
+			db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
+		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -555,10 +596,14 @@ func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error
 }
 
 func embedWorkersSnapshot() map[string]interface{} {
+	target := embedqueue.WorkerTarget()
+	effective := embedqueue.WorkerCount()
 	return map[string]interface{}{
-		"workers":     embedqueue.WorkerCount(),
-		"max_workers": embedqueue.MaxWorkers(),
-		"live":        embedqueue.WorkerLive(),
+		"workers":            target,
+		"workers_effective":  effective,
+		"workers_throttled":  effective < target,
+		"max_workers":        embedqueue.MaxWorkers(),
+		"live":               embedqueue.WorkerLive(),
 	}
 }
 
@@ -601,13 +646,17 @@ func handleEmbedWorkers(w http.ResponseWriter, r *http.Request) {
 
 func embedAuxWorkersSnapshot() map[string]interface{} {
 	backend, model := embedder.AuxSnapshot()
+	target := embedqueue.AuxWorkerTarget()
+	effective := embedqueue.AuxWorkerCount()
 	return map[string]interface{}{
-		"workers":     embedqueue.AuxWorkerCount(),
-		"max_workers": embedqueue.AuxMaxWorkers(),
-		"live":        embedqueue.AuxWorkerLive(),
-		"backend":     backend,
-		"model":       model,
-		"enabled":     backend != "" && !embedder.AuxSharesPrimary(),
+		"workers":           target,
+		"workers_effective": effective,
+		"workers_throttled": effective < target,
+		"max_workers":       embedqueue.AuxMaxWorkers(),
+		"live":              embedqueue.AuxWorkerLive(),
+		"backend":           backend,
+		"model":             model,
+		"enabled":           backend != "" && !embedder.AuxSharesPrimary(),
 	}
 }
 
@@ -1034,14 +1083,14 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 	projectPath = watcher.NormalizeProjectPath(projectPath)
 	embedqueue.RemoveProject(projectPath)
 
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
@@ -1139,15 +1188,15 @@ func deleteProjectData(projectPath string) {
 	}
 	embedqueue.RemoveProject(projectPath)
 	watcher.DeleteWatcher(projectPath)
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	db.DB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-	db.DB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
 	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
-	db.DB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-	db.DB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	db.IndexDB.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
+	db.IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
@@ -1282,5 +1331,47 @@ func handleDocSources(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"sources": sources,
 		"total":   len(sources),
+	})
+}
+
+func handleWALCheckpoint(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	started, errMsg := db.RunManualWALCheckpoint()
+	if !started {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"started": true, "status": "ok"})
+}
+
+func handleWALStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
+		return
+	}
+	s := db.GetWALSnapshot()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active":            s.Active,
+		"phase":             s.Phase,
+		"mode":              s.Mode,
+		"reason":            s.Reason,
+		"started_at":        s.StartedAt,
+		"wal_start_bytes":   s.WalStartBytes,
+		"wal_current_bytes": s.WalCurrentBytes,
+		"busy_streak":       s.BusyStreak,
+		"in_flight":         s.InFlight,
+		"last_busy":         s.LastBusy,
+		"last_frames":       s.LastFrames,
+		"last_checkpointed": s.LastCheckpointed,
+		"wal_size_bytes":    db.WalFileBytes(),
+		"wal_pressure":      db.WalPressure(),
 	})
 }

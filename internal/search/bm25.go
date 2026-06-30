@@ -31,7 +31,7 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 		q += `
 			ORDER BY f.rank
 			LIMIT 100`
-		rows, err := db.DB.Query(q, args...)
+		rows, err := db.IndexDB.Query(q, args...)
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -75,7 +75,7 @@ func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) 
 		where += " AND " + frag
 		sqlArgs = append(sqlArgs, extra...)
 	}
-	rows, err := db.DB.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
+	rows, err := db.IndexDB.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
 	if err != nil {
 		return nil
 	}

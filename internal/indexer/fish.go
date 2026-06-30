@@ -17,7 +17,7 @@ func IndexFishFile(filePath, projectPath string) (int, int, int, error) {
 		return 0, 0, 0, err
 	}
 
-	tx, err := db.DB.Begin()
+	tx, err := db.IndexDB.Begin()
 	if err != nil {
 		return 0, 0, 0, err
 	}

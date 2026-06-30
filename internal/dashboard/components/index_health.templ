@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 )
 
 type EmbedActivityItem struct {
@@ -49,11 +50,13 @@ type IndexHealth struct {
 	EmbedHighCap     int
 	EmbedLowCap      int
 	EmbedActive      int
-	EmbedWorkers     int
-	EmbedWorkersLive int
-	EmbedWorkerMax   int
-	EmbedAuxWorkers     int
-	EmbedAuxWorkersLive int
+	EmbedWorkers           int
+	EmbedWorkersEffective  int
+	EmbedWorkersLive       int
+	EmbedWorkerMax         int
+	EmbedAuxWorkers           int
+	EmbedAuxWorkersEffective  int
+	EmbedAuxWorkersLive       int
 	EmbedAuxWorkerMax   int
 	EmbedAuxBackend     string
 	EmbedAuxModel       string
@@ -75,6 +78,17 @@ type IndexHealth struct {
 	EmbedConfiguredBackend string
 	EmbedConfiguredModel   string
 	EmbedInSync            bool
+	WALMaintenanceActive   bool
+	WALMaintenancePhase    string
+	WALMaintenanceMode     string
+	WALMaintenanceReason   string
+	WALMaintenanceStarted  time.Time
+	WALWalStartBytes       int64
+	WALWalCurrentBytes     int64
+	WALBusyStreak          int32
+	WALInFlight            int64
+	WALLastBusy            int
+	WALPressure            string
 }
 
 type WatcherInfo struct {

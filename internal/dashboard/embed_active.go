@@ -5,6 +5,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/startup"
 )
 
 func applyActiveEmbedder(h *components.IndexHealth) {
@@ -14,7 +15,8 @@ func applyActiveEmbedder(h *components.IndexHealth) {
 	state, _ := mcp.EmbedderState()
 	h.EmbedderState = state
 	h.EmbedderError = mcp.EmbedderError()
-	h.EmbedLoaded = state == "ready"
+	overlayStartupEmbedder(&h.EmbedderState, &h.EmbedderError, &h.EmbedBackend)
+	h.EmbedLoaded = h.EmbedderState == "ready"
 	applyEmbedAlignmentToIndexHealth(h)
 }
 
@@ -36,7 +38,8 @@ func applyActiveEmbedderSettings(data *components.SettingsData) {
 	state, _ := mcp.EmbedderState()
 	data.EmbedderState = state
 	data.EmbedderError = mcp.EmbedderError()
-	data.EmbedActiveLoaded = state == "ready"
+	overlayStartupEmbedder(&data.EmbedderState, &data.EmbedderError, &data.EmbedActiveBackend)
+	data.EmbedActiveLoaded = data.EmbedderState == "ready"
 	applyEmbedAlignmentToSettings(data)
 }
 
@@ -57,4 +60,18 @@ func applyEmbedAlignmentToIndexHealth(h *components.IndexHealth) {
 
 func applyActiveEmbedderHealth(h *components.Health) {
 	h.EmbedBackend, h.EmbedModel, h.EmbedRuntime, _, h.EmbedDim = embedder.WiredSnapshot()
+}
+
+func overlayStartupEmbedder(state, err *string, backend *string) {
+	if startup.Starting() {
+		*state = "loading"
+		*backend = "…"
+		return
+	}
+	if startup.Failed() {
+		*state = "error"
+		if *err == "" {
+			*err = startup.Error()
+		}
+	}
 }

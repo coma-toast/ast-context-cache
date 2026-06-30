@@ -39,7 +39,15 @@ function ast-mcp
             cd $__ast_mcp_dir
             set -lx ONNXRUNTIME_LIB $__ast_mcp_ort
             nohup ./ast-mcp > $__ast_mcp_log 2>&1 &
-            sleep 2
+            set -l waited 0
+            while test $waited -lt 120
+                sleep 3
+                set waited (math $waited + 3)
+                if __ast_mcp_is_running
+                    echo "ast-mcp: started (MCP :$__ast_mcp_port  Dashboard :$__ast_mcp_dash)"
+                    return 0
+                end
+            end
             if __ast_mcp_is_running
                 echo "ast-mcp: started (MCP :$__ast_mcp_port  Dashboard :$__ast_mcp_dash)"
             else
@@ -51,7 +59,17 @@ function ast-mcp
             set -l pid (lsof -t -iTCP:$__ast_mcp_port -sTCP:LISTEN 2>/dev/null)
             if test -n "$pid"
                 kill $pid 2>/dev/null
-                echo "ast-mcp: stopped (pid $pid)"
+                set -l i 0
+                while test $i -lt 5
+                    sleep 1
+                    if not __ast_mcp_is_running
+                        echo "ast-mcp: stopped (pid $pid)"
+                        return 0
+                    end
+                    set i (math $i + 1)
+                end
+                kill -9 $pid 2>/dev/null
+                echo "ast-mcp: force stopped (pid $pid)"
             else
                 echo "ast-mcp: not running"
             end
@@ -81,7 +99,7 @@ function ast-mcp
                 return 1
             end
             set -l resp (curl -s -m 2 http://localhost:$__ast_mcp_port/health 2>/dev/null)
-            if echo $resp | grep -q '"healthy"'
+            if echo $resp | grep -qE '"status":"(healthy|starting)"'
                 set_color green; echo "ast-mcp: healthy"; set_color normal
                 echo "  $resp"
             else

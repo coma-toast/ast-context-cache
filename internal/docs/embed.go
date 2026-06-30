@@ -46,7 +46,7 @@ func EmbedSource(sourceID int) {
 		return
 	}
 	var sourceName string
-	db.DB.QueryRow("SELECT name FROM doc_sources WHERE id = ?", sourceID).Scan(&sourceName)
+	db.ContextDB.QueryRow("SELECT name FROM doc_sources WHERE id = ?", sourceID).Scan(&sourceName)
 	const batchSize = 32
 	for i := 0; i < len(entries); i += batchSize {
 		end := i + batchSize
@@ -95,6 +95,6 @@ func docVectorKey(sourceID, entryID int) string {
 
 func deleteDocVectors(sourceID int) {
 	prefix := fmt.Sprintf("doc:%d:%%", sourceID)
-	db.DB.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+	db.ContextDB.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
 	search.Cache.DeleteDocByPrefix(prefix)
 }

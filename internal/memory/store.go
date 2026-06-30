@@ -116,7 +116,7 @@ func Store(in StoreInput) (*StoreResult, error) {
 	if in.Kind == KindFact {
 		invalidated, _ = invalidateConflicting(scope, in.SessionID, in.ProjectPath, in.Subject, in.Predicate, ref)
 	}
-	_, err = db.DB.Exec(`INSERT INTO structured_memory
+	_, err = db.ContextDB.Exec(`INSERT INTO structured_memory
 		(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ref, string(entry.Kind), string(scope), nullIfEmpty(in.SessionID), nullIfEmpty(in.ProjectPath),
@@ -155,7 +155,7 @@ func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predica
 	case ScopeGlobal:
 		q += ` AND scope = 'global'`
 	}
-	rows, err := db.DB.Query(q, args...)
+	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predica
 		}
 	}
 	for _, ref := range refs {
-		db.DB.Exec(`UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ? WHERE ref = ?`, newRef, ref)
+		db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ? WHERE ref = ?`, newRef, ref)
 	}
 	return refs, nil
 }
@@ -246,7 +246,7 @@ func strVal(v interface{}) string {
 }
 
 func entryByRef(ref string) (Entry, error) {
-	row := db.DB.QueryRow(`SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
+	row := db.ContextDB.QueryRow(`SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
 		FROM structured_memory WHERE ref = ?`, ref)
 	return scanEntry(row)

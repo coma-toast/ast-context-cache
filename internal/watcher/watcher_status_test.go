@@ -20,7 +20,7 @@ func TestGetStatusIncludesIndexedProjectWithoutWatcher(t *testing.T) {
 	if err := os.WriteFile(file, []byte("package sample\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.DB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, project_path) VALUES (?, ?, ?, ?, ?, ?)`,
+	if _, err := db.IndexDB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, project_path) VALUES (?, ?, ?, ?, ?, ?)`,
 		"Foo", "function", file, 1, 1, projectPath); err != nil {
 		t.Fatalf("insert symbol: %v", err)
 	}

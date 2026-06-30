@@ -8,7 +8,10 @@ import (
 
 const defaultSwapDrainTimeout = 2 * time.Minute
 
-var swapRestoreWorkers int
+var (
+	swapRestoreWorkers int
+	swapPauseDepth     int
+)
 
 // PrepareForEmbedderSwap stops workers and waits for in-flight embeds before backend reload.
 func PrepareForEmbedderSwap(timeout time.Duration) {
@@ -19,12 +22,15 @@ func PrepareForEmbedderSwap(timeout time.Duration) {
 		timeout = defaultSwapDrainTimeout
 	}
 	workerMu.Lock()
-	swapRestoreWorkers = workerCount
-	if workerCount > 0 {
-		if err := applyWorkerCountLocked(0, false); err != nil {
-			log.Printf("embedqueue: swap prep pause workers: %v", err)
-		} else {
-			log.Printf("embedqueue: paused %d workers for embedder swap", swapRestoreWorkers)
+	swapPauseDepth++
+	if swapPauseDepth == 1 {
+		swapRestoreWorkers = workerCount
+		if workerCount > 0 {
+			if err := applyWorkerCountLocked(0, false); err != nil {
+				log.Printf("embedqueue: swap prep pause workers: %v", err)
+			} else {
+				log.Printf("embedqueue: paused %d workers for embedder swap", swapRestoreWorkers)
+			}
 		}
 	}
 	workerMu.Unlock()
@@ -44,17 +50,23 @@ func PrepareForEmbedderSwap(timeout time.Duration) {
 func RestoreWorkersAfterSwap() {
 	if !workersStarted() {
 		swapRestoreWorkers = 0
-		return
-	}
-	workerMu.Lock()
-	n := swapRestoreWorkers
-	swapRestoreWorkers = 0
-	workerMu.Unlock()
-	if n <= 0 {
+		swapPauseDepth = 0
 		return
 	}
 	workerMu.Lock()
 	defer workerMu.Unlock()
+	if swapPauseDepth <= 0 {
+		return
+	}
+	swapPauseDepth--
+	if swapPauseDepth > 0 {
+		return
+	}
+	n := swapRestoreWorkers
+	swapRestoreWorkers = 0
+	if n <= 0 {
+		return
+	}
 	max := MaxWorkers()
 	if n > max {
 		n = max

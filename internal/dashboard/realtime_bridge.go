@@ -1,38 +1,21 @@
 package dashboard
 
 import (
+	"log"
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 var (
-	partialLast   sync.Map // target string -> last HTML
-	notifyMu      sync.Mutex
-	pendingMask   realtime.Reason
-	notifyTimer   *time.Timer
-	debounceDelay = 150 * time.Millisecond
+	partialLast sync.Map // target string -> last HTML
 )
 
 func initRealtimeBridge() {
-	realtime.SetHandler(handleRealtimeNotify)
-}
-
-func handleRealtimeNotify(mask realtime.Reason) {
-	notifyMu.Lock()
-	defer notifyMu.Unlock()
-	pendingMask |= mask
-	if notifyTimer != nil {
-		notifyTimer.Stop()
-	}
-	notifyTimer = time.AfterFunc(debounceDelay, func() {
-		notifyMu.Lock()
-		m := pendingMask
-		pendingMask = 0
-		notifyMu.Unlock()
-		flushPartialBroadcast(m)
-	})
+	realtime.SetHandler(flushPartialBroadcast)
+	startLiveRefresh()
 }
 
 func flushPartialBroadcast(mask realtime.Reason) {
@@ -46,9 +29,15 @@ func flushPartialBroadcast(mask realtime.Reason) {
 		if !partialMatchesMask(p.name, mask) {
 			continue
 		}
-		html := p.render()
-		if last, ok := partialLast.Load(p.target); ok && last.(string) == html {
+		html := safeRenderPartial(p)
+		if html == "" {
 			continue
+		}
+		livePanel := p.name == "index-health" || p.name == "health-bar"
+		if !livePanel && !db.WALMaintenanceActive() {
+			if last, ok := partialLast.Load(p.target); ok && last.(string) == html {
+				continue
+			}
 		}
 		partialLast.Store(p.target, html)
 		hub.broadcast <- wsMsg{
@@ -60,6 +49,16 @@ func flushPartialBroadcast(mask realtime.Reason) {
 			},
 		}
 	}
+}
+
+func safeRenderPartial(p dashboardPartial) (html string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("dashboard partial %s: %v", p.name, r)
+			html = ""
+		}
+	}()
+	return p.render()
 }
 
 func invalidatePartialCache(target string) {
@@ -91,4 +90,28 @@ func partialMatchesMask(name string, mask realtime.Reason) bool {
 	default:
 		return false
 	}
+}
+
+func startLiveRefresh() {
+	go func() {
+		fast := time.NewTicker(2 * time.Second)
+		slow := time.NewTicker(10 * time.Second)
+		defer fast.Stop()
+		defer slow.Stop()
+		for {
+			select {
+			case <-fast.C:
+				if !db.PoolsReady() || db.WALMaintenanceActive() {
+					continue
+				}
+				invalidateIndexHealthCache()
+				flushPartialBroadcast(realtime.IndexHealth | realtime.HealthBar)
+			case <-slow.C:
+				if !db.PoolsReady() || db.WALMaintenanceActive() {
+					continue
+				}
+				flushPartialBroadcast(realtime.Stats)
+			}
+		}
+	}()
 }

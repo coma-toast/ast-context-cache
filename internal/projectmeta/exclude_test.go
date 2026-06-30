@@ -10,12 +10,19 @@ import (
 
 func testExcludeDB(t *testing.T) {
 	t.Helper()
-	if os.Getenv("HOME") == "" {
-		t.Setenv("HOME", t.TempDir())
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = t.TempDir()
+		t.Setenv("HOME", home)
 	}
+	cacheDir := filepath.Join(home, ".astcache-test")
+	os.MkdirAll(cacheDir, 0755)
+	t.Setenv("DB_PATH", filepath.Join(cacheDir, "usage.db"))
+	db.Close()
 	if err := db.Init(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(db.Close)
 }
 
 func TestIsExcludedBasenameAndPrefix(t *testing.T) {

@@ -26,6 +26,27 @@ func TestPrepareForEmbedderSwap_pausesWorkers(t *testing.T) {
 	SetWorkerCount(0)
 }
 
+func TestPrepareForEmbedderSwap_nestedPause(t *testing.T) {
+	Start(stubEmbedder{})
+	if _, err := SetWorkerCount(3); err != nil {
+		t.Fatal(err)
+	}
+	PrepareForEmbedderSwap(5 * time.Second)
+	PrepareForEmbedderSwap(5 * time.Second)
+	if WorkerCount() != 0 {
+		t.Fatalf("WorkerCount() = %d, want 0 during nested swap prep", WorkerCount())
+	}
+	RestoreWorkersAfterSwap()
+	if WorkerCount() != 0 {
+		t.Fatalf("WorkerCount() = %d, want 0 after first restore (still nested)", WorkerCount())
+	}
+	RestoreWorkersAfterSwap()
+	if WorkerCount() != 3 {
+		t.Fatalf("WorkerCount() = %d, want 3 after full restore", WorkerCount())
+	}
+	SetWorkerCount(0)
+}
+
 func TestEnqueuePendingRetry_nonBlocking(t *testing.T) {
 	Start(stubEmbedder{})
 	pendingCh = make(chan job, 1)

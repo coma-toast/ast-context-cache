@@ -235,7 +235,7 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 			continue
 		}
 		var startLine, endLine int
-		db.DB.QueryRow(
+		db.IndexDB.QueryRow(
 			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
 			name, file, projectPath).Scan(&startLine, &endLine)
 		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
@@ -277,7 +277,7 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 			absFile = projectPath + "/" + c.File
 		}
 		var startLine, endLine int
-		db.DB.QueryRow(
+		db.IndexDB.QueryRow(
 			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
 			c.Name, absFile, projectPath).Scan(&startLine, &endLine)
 		total += context.FullSourceTokens(absFile, c.Name, projectPath, startLine, endLine, fileCache)

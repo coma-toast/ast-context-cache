@@ -134,7 +134,9 @@ templ RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts Log
 			</div>
 		</div>
 		<div class="recent-logs-scroll">
-			if len(lines) == 0 {
+			if logPath == "" {
+				<div class="empty-state">Loading logs…</div>
+			} else if len(lines) == 0 {
 				<div class="empty-state">No log lines</div>
 			} else {
 				for _, line := range lines {

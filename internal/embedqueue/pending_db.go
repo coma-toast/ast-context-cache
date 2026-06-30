@@ -1,6 +1,7 @@
 package embedqueue
 
 import (
+	"database/sql"
 	"log"
 	"sync"
 	"time"
@@ -99,75 +100,65 @@ func FlushPendingDB() {
 	pendingDelete = map[string]job{}
 	pendingDirtyMu.Unlock()
 
-	tx, err := db.DB.Begin()
-	if err != nil {
-		requeuePendingFlush(upserts, deletes)
-		return
-	}
-	defer tx.Rollback()
-
-	upsertStmt, err := tx.Prepare(`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, ?, ?)`)
-	if err != nil {
-		requeuePendingFlush(upserts, deletes)
-		return
-	}
-	defer upsertStmt.Close()
-
-	now := time.Now().Unix()
 	locked := false
-	for _, row := range upserts {
-		if _, err := upsertStmt.Exec(row.j.file, row.j.projectPath, row.reason, now); err != nil {
-			if db.IsDBLocked(err) {
-				db.NoteDBLock()
-				locked = true
-				pendingDirtyMu.Lock()
-				if pendingDirty == nil {
-					pendingDirty = map[string]pendingDirtyRow{}
-				}
-				k := jobKey(row.j)
-				if _, ok := pendingDirty[k]; !ok {
-					pendingDirty[k] = row
-				}
-				pendingDirtyMu.Unlock()
-				continue
-			}
-			log.Printf("embedqueue: persist pending %s: %v", row.j.file, err)
+	err := db.IndexWrite(func(tx *sql.Tx) error {
+		upsertStmt, err := tx.Prepare(`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, ?, ?)`)
+		if err != nil {
+			return err
 		}
-	}
+		defer upsertStmt.Close()
 
-	delStmt, err := tx.Prepare(`DELETE FROM embed_pending WHERE file = ? AND project_path = ?`)
+		now := time.Now().Unix()
+		for _, row := range upserts {
+			if _, err := upsertStmt.Exec(row.j.file, row.j.projectPath, row.reason, now); err != nil {
+				if db.IsDBLocked(err) {
+					db.NoteDBLock()
+					locked = true
+					pendingDirtyMu.Lock()
+					if pendingDirty == nil {
+						pendingDirty = map[string]pendingDirtyRow{}
+					}
+					k := jobKey(row.j)
+					if _, ok := pendingDirty[k]; !ok {
+						pendingDirty[k] = row
+					}
+					pendingDirtyMu.Unlock()
+					continue
+				}
+				log.Printf("embedqueue: persist pending %s: %v", row.j.file, err)
+			}
+		}
+
+		delStmt, err := tx.Prepare(`DELETE FROM embed_pending WHERE file = ? AND project_path = ?`)
+		if err != nil {
+			return err
+		}
+		defer delStmt.Close()
+		for _, j := range deletes {
+			if _, err := delStmt.Exec(j.file, j.projectPath); err != nil {
+				if db.IsDBLocked(err) {
+					db.NoteDBLock()
+					locked = true
+					pendingDirtyMu.Lock()
+					if pendingDelete == nil {
+						pendingDelete = map[string]job{}
+					}
+					k := jobKey(j)
+					if _, ok := pendingDelete[k]; !ok {
+						pendingDelete[k] = j
+					}
+					pendingDirtyMu.Unlock()
+					continue
+				}
+				log.Printf("embedqueue: clear pending %s: %v", j.file, err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		requeuePendingFlush(upserts, deletes)
-		return
-	}
-	defer delStmt.Close()
-	for _, j := range deletes {
-		if _, err := delStmt.Exec(j.file, j.projectPath); err != nil {
-			if db.IsDBLocked(err) {
-				db.NoteDBLock()
-				locked = true
-				pendingDirtyMu.Lock()
-				if pendingDelete == nil {
-					pendingDelete = map[string]job{}
-				}
-				k := jobKey(j)
-				if _, ok := pendingDelete[k]; !ok {
-					pendingDelete[k] = j
-				}
-				pendingDirtyMu.Unlock()
-				continue
-			}
-			log.Printf("embedqueue: clear pending %s: %v", j.file, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
 		if db.IsDBLocked(err) {
 			db.NoteDBLock()
-			requeuePendingFlush(upserts, deletes)
-			return
 		}
-		log.Printf("embedqueue: pending batch commit: %v", err)
 		requeuePendingFlush(upserts, deletes)
 		return
 	}
@@ -199,10 +190,10 @@ func requeuePendingFlush(upserts map[string]pendingDirtyRow, deletes map[string]
 
 // LoadPendingFromDB hydrates the in-memory pending map from SQLite.
 func LoadPendingFromDB() int {
-	if db.DB == nil {
+	if db.IndexDB == nil {
 		return 0
 	}
-	rows, err := db.DB.Query(`SELECT file, project_path FROM embed_pending`)
+	rows, err := db.IndexDB.Query(`SELECT file, project_path FROM embed_pending`)
 	if err != nil {
 		log.Printf("embedqueue: load pending: %v", err)
 		return 0

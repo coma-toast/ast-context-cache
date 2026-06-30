@@ -123,6 +123,9 @@ func HumanizeEmbedError(msg string) string {
 	if msg == "" {
 		return ""
 	}
+	if strings.Contains(strings.ToLower(msg), "loading model") {
+		return "Embed model loading on backend — embeddings retry automatically"
+	}
 	code := findHTTPCode(msg)
 	if inner := extractAPIErrorField(msg, "message"); inner != "" {
 		msg = inner

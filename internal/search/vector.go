@@ -2,6 +2,7 @@ package search
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -62,7 +63,10 @@ func (vc *VectorCache) ensureLoaded() {
 }
 
 func (vc *VectorCache) loadFromDB() {
-	rows, err := db.DB.Query("SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors")
+	if db.IndexDB == nil {
+		return
+	}
+	rows, err := db.IndexDB.Query("SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors")
 	if err != nil {
 		log.Printf("WARNING: load vectors: %v", err)
 		return
@@ -100,6 +104,9 @@ func (vc *VectorCache) Unload() {
 }
 
 func (vc *VectorCache) idleTimeout() time.Duration {
+	if !db.PoolsReady() {
+		return time.Minute
+	}
 	val := db.GetSetting("idle_unload_minutes", "1")
 	mins, err := strconv.Atoi(val)
 	if err != nil || mins < 0 {
@@ -218,10 +225,10 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 
 func symbolLinesFromEntry(e VectorEntry) (start, end int) {
 	if e.SymbolID > 0 {
-		db.DB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
+		db.IndexDB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
 	}
 	if start == 0 {
-		db.DB.QueryRow(
+		db.IndexDB.QueryRow(
 			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
 			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end)
 	}
@@ -230,30 +237,23 @@ func symbolLinesFromEntry(e VectorEntry) (start, end int) {
 
 func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 	vc.ensureLoaded()
-	tx, err := db.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO vectors (content_hash, vector, doc_type, source_file, name, kind, project_path, symbol_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, e := range entries {
-		blob := float32ToBlob(e.Vector)
-		_, err := stmt.Exec(e.ContentHash, blob, e.DocType, e.SourceFile, e.Name, e.Kind, e.ProjectPath, e.SymbolID)
+	err := db.IndexWrite(func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO vectors (content_hash, vector, doc_type, source_file, name, kind, project_path, symbol_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
-			return fmt.Errorf("insert vector for %s: %w", e.Name, err)
+			return err
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
+		defer stmt.Close()
+		for _, e := range entries {
+			blob := float32ToBlob(e.Vector)
+			if _, err := stmt.Exec(e.ContentHash, blob, e.DocType, e.SourceFile, e.Name, e.Kind, e.ProjectPath, e.SymbolID); err != nil {
+				return fmt.Errorf("insert vector for %s: %w", e.Name, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
-
 	// Update in-memory cache
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
@@ -421,7 +421,7 @@ func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int
 }
 
 func (vc *VectorCache) DeleteNoteByRef(sourceFile string) {
-	db.DB.Exec("DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?", sourceFile)
+	db.IndexDB.Exec("DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?", sourceFile)
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	if !vc.loaded {
@@ -448,7 +448,7 @@ func docEntryIDFromSource(sourceFile string) int {
 
 func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
 	p := strings.TrimSuffix(prefix, "%")
-	db.DB.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+	db.IndexDB.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	if !vc.loaded {
@@ -467,10 +467,10 @@ func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
 
 // PurgeOrphanCodeVectors removes code vectors whose symbol_id no longer exists.
 func PurgeOrphanCodeVectors() int {
-	if db.DB == nil {
+	if db.IndexDB == nil {
 		return 0
 	}
-	res, err := db.DB.Exec(`
+	res, err := db.IndexDB.Exec(`
 		DELETE FROM vectors
 		WHERE COALESCE(doc_type, 'code') = 'code'
 		  AND symbol_id > 0
@@ -486,7 +486,7 @@ func PurgeOrphanCodeVectors() int {
 }
 
 func (vc *VectorCache) purgeOrphansFromMemory() {
-	rows, err := db.DB.Query(`SELECT id FROM symbols`)
+	rows, err := db.IndexDB.Query(`SELECT id FROM symbols`)
 	if err != nil {
 		return
 	}
@@ -520,7 +520,7 @@ func (vc *VectorCache) purgeOrphansFromMemory() {
 }
 
 func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
-	db.DB.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	db.IndexDB.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
 
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
@@ -556,9 +556,9 @@ func (vc *VectorCache) Count(projectPath string) int {
 	vc.mu.RUnlock()
 	var count int
 	if projectPath == "" {
-		db.DB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&count)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&count)
 	} else {
-		db.DB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", projectPath).Scan(&count)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", projectPath).Scan(&count)
 	}
 	return count
 }

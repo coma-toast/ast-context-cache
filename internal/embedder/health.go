@@ -83,6 +83,18 @@ func probeShouldDefer() bool {
 	return false
 }
 
+// MarkLoading sets embedder state while the runtime is still wiring.
+func MarkLoading() {
+	healthMu.Lock()
+	prev := healthState
+	healthState = "loading"
+	healthLastErr = ""
+	healthMu.Unlock()
+	if prev != "loading" {
+		realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
+	}
+}
+
 // MarkReady sets embedder state to ready (called when the process wires an embedder).
 func MarkReady() {
 	healthMu.Lock()

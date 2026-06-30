@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,9 +13,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
-	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
-	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/gorilla/websocket"
@@ -163,8 +159,9 @@ func renderHealthBar() string {
 		EmbedderState:    state,
 		EmbedderError:    embedErr,
 		EmbedderLast:    lastUse,
-		QueueWorkers:     eq.Workers,
-		QueueWorkersLive: eq.WorkersLive,
+		QueueWorkers:           eq.Workers,
+		QueueWorkersEffective:  eq.WorkersEffective,
+		QueueWorkersLive:       eq.WorkersLive,
 		QueueThroughput: eq.Throughput,
 		QueueQueued:     eq.Queued,
 		QueuePending:     eq.Pending,
@@ -179,6 +176,7 @@ func renderHealthBar() string {
 		Version:         version.Version,
 	}
 	applyActiveEmbedderHealth(&h)
+	overlayStartupEmbedder(&h.EmbedderState, &h.EmbedderError, &h.EmbedBackend)
 	var buf bytes.Buffer
 	components.HealthBar(h).Render(context.Background(), &buf)
 	return buf.String()
@@ -186,6 +184,11 @@ func renderHealthBar() string {
 
 func renderStats() string {
 	var s components.Stats
+	if db.DB == nil {
+		var buf bytes.Buffer
+		components.StatsCards(s).Render(context.Background(), &buf)
+		return buf.String()
+	}
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + ", " + dedupTokensSum + ", " + savingsVsFilesSum + " FROM queries WHERE "
@@ -200,15 +203,23 @@ func renderStats() string {
 }
 
 func renderRecent() string {
-	mcp, indexing := buildRecentQueries("", 50)
-	logs, logPath, logTrunc, logOpts := buildRecentLogsForDashboard()
+	var mcp, indexing []components.RecentQuery
+	if usageDBReady() {
+		mcp, indexing = buildRecentQueries("", 50)
+	}
+	logOpts := components.LogViewOpts{TailLines: 200, MaxLineChars: 500}
 	var buf bytes.Buffer
-	components.RecentPanel(mcp, indexing, logs, logPath, logTrunc, logOpts).Render(context.Background(), &buf)
+	components.RecentPanel(mcp, indexing, nil, "", false, logOpts).Render(context.Background(), &buf)
 	return buf.String()
 }
 
 func renderSymbolChart() string {
-	rows, err := db.DB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
+	if db.IndexDB == nil {
+		var buf bytes.Buffer
+		components.BarChart(nil, 0).Render(context.Background(), &buf)
+		return buf.String()
+	}
+	rows, err := db.IndexDB.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
 	if err != nil {
 		var buf bytes.Buffer
 		components.BarChart(nil, 0).Render(context.Background(), &buf)
@@ -228,13 +239,18 @@ func renderSymbolChart() string {
 }
 
 func renderLanguageChart() string {
+	if db.IndexDB == nil {
+		var buf bytes.Buffer
+		components.BarChart(nil, 3).Render(context.Background(), &buf)
+		return buf.String()
+	}
 	q := `SELECT CASE
 		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
 		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
 		WHEN file LIKE '%.ts' THEN 'TypeScript' WHEN file LIKE '%.tsx' THEN 'TSX'
 		WHEN file LIKE '%.sh' THEN 'Bash' WHEN file LIKE '%.fish' THEN 'Fish'
 		ELSE 'Other' END as language, COUNT(*) as symbols FROM symbols GROUP BY language ORDER BY symbols DESC`
-	rows, err := db.DB.Query(q)
+	rows, err := db.IndexDB.Query(q)
 	if err != nil {
 		var buf bytes.Buffer
 		components.BarChart(nil, 3).Render(context.Background(), &buf)
@@ -260,7 +276,12 @@ func renderToolChart() string {
 }
 
 func renderImportChart() string {
-	rows, err := db.DB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
+	if db.IndexDB == nil {
+		var buf bytes.Buffer
+		components.BarChart(nil, 5).Render(context.Background(), &buf)
+		return buf.String()
+	}
+	rows, err := db.IndexDB.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
 	if err != nil {
 		var buf bytes.Buffer
 		components.BarChart(nil, 5).Render(context.Background(), &buf)
@@ -280,89 +301,8 @@ func renderImportChart() string {
 }
 
 func renderSettings() string {
-	settings := db.GetAllSettings()
-	idleMinutes := 1
-	if v, ok := settings["idle_unload_minutes"]; ok {
-		if parsed, err := strconv.Atoi(v); err == nil {
-			idleMinutes = parsed
-		}
-	}
-	watcherIgn := ignorepatterns.JSONForSettings(settings["watcher_ignore_globs"])
-	projectExclude := projectmeta.ExcludeJSONForSettings(settings["project_exclude_paths"])
-	indexLog := settings["index_log_files"] == "true"
-	logRoots := settings["log_retention_roots"]
-	if logRoots == "" {
-		logRoots = "[]"
-	}
-	logRetentionMaxAge := 0
-	if v, ok := settings["log_retention_max_age_days"]; ok && v != "" {
-		logRetentionMaxAge, _ = strconv.Atoi(v)
-	}
-	logRetentionMaxMB := 0
-	if v, ok := settings["log_retention_max_total_mib"]; ok && v != "" {
-		logRetentionMaxMB, _ = strconv.Atoi(v)
-	}
-	logRetentionEn := settings["log_retention_enabled"] == "true"
-	logDry := settings["log_retention_dry_run"] == "true"
-	logLast := settings["log_retention_last_run"]
-	queryRetentionEn := settings["query_retention_enabled"] != "false"
-	queryRetentionMaxAge := 90
-	if v, ok := settings["query_retention_max_age_days"]; ok && v != "" {
-		queryRetentionMaxAge, _ = strconv.Atoi(v)
-	}
-	queryRetentionLast := settings["query_retention_last_run"]
-	projects := loadProjects("")
-	configs, _ := db.GetAgentConfigs()
-	var agents []components.AgentInfo
-	for _, sa := range supportedAgents {
-		a := components.AgentInfo{
-			Type:        sa.Type,
-			Name:        sa.Name,
-			GlobalPath:  sa.GlobalPath,
-			ProjectPath: sa.ProjectPath,
-			Description: sa.Description,
-		}
-		for _, c := range configs {
-			if c.AgentType == sa.Type {
-				if c.IsGlobal {
-					a.GlobalInstalled = true
-				} else {
-					a.ProjectInstalled = true
-				}
-			}
-		}
-		agents = append(agents, a)
-	}
-	data := components.SettingsData{
-		IdleUnloadMinutes:       idleMinutes,
-		WatcherIgnoreGlobs:     watcherIgn,
-		ProjectExcludePaths:    projectExclude,
-		IndexLogFiles:          indexLog,
-		LogRetentionEnabled:    logRetentionEn,
-		LogRetentionRoots:      logRoots,
-		LogRetentionMaxAgeDays: logRetentionMaxAge,
-		LogRetentionMaxTotalMB: logRetentionMaxMB,
-		LogRetentionDryRun:     logDry,
-		LogRetentionLastRun:    logLast,
-		QueryRetentionEnabled:   queryRetentionEn,
-		QueryRetentionMaxAgeDays: queryRetentionMaxAge,
-		QueryRetentionLastRun:   queryRetentionLast,
-		Projects:               projects,
-		Agents:                 agents,
-		EmbedWorkerMax:         embedqueue.MaxWorkers(),
-		EmbedAuxWorkerMax:      embedqueue.AuxMaxWorkers(),
-		EmbedAuxWorkers:        embedqueue.AuxWorkerCount(),
-		EmbedAuxBackend:        strings.TrimSpace(settings["EMBED_AUX_BACKEND"]),
-	}
-	if data.EmbedAuxBackend == "" {
-		data.EmbedAuxBackend = "onnx"
-	}
-	PopulateEmbedSettings(settings, &data)
-	populateContextSettings(settings, &data)
-	applyActiveEmbedderSettings(&data)
-	loadEmbedModels(&data)
 	var buf bytes.Buffer
-	components.Settings(data).Render(context.Background(), &buf)
+	components.Settings(buildSettingsData(settingsBuildOpts{loadEmbedModels: false})).Render(context.Background(), &buf)
 	return buf.String()
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 )
@@ -57,30 +58,90 @@ func main() {
 	log.Printf("Config: tier=%s code_mode=%v", cfg.ActiveTier, cfg.CodeMode)
 
 	log.Println("Initializing...")
+	startup.SetMessage("Opening databases…")
 
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 
-	if err := db.Init(); err != nil {
-		log.Fatalf("DB error: %v", err)
-	}
-	if embedqueue.BeginRunLock() {
-		log.Printf("embedqueue: previous run exited abnormally; will start with 0 workers unless overridden")
-	}
+	dashHandler := dashboard.NewHandler("")
+	dbReady := make(chan error, 1)
+
+	go func() {
+		if err := db.Init(); err != nil {
+			startup.MarkFailed(err.Error())
+			log.Printf("DB error: %v", err)
+			dbReady <- err
+			return
+		}
+		dbReady <- nil
+
+		db.BeforeForceCheckpoint = func() {
+			embedqueue.PauseAllForMaintenance(2 * time.Minute)
+			search.Cache.Unload()
+		}
+		db.AfterForceCheckpoint = embedqueue.RestoreAfterMaintenance
+		db.WALInFlightHook = embedqueue.InFlight
+		if embedqueue.BeginRunLock() {
+			log.Printf("embedqueue: previous run exited abnormally; using persisted worker count from DB")
+		}
+		watcher.EnsureDefaultIgnoreGlobs()
+		go db.StartWALCheckpoint()
+
+		mcpMux := http.NewServeMux()
+		mcpMux.HandleFunc("/mcp", mcp.NewHandler())
+		mcpMux.HandleFunc("/health", handleMCPHealth)
+		mcpMux.HandleFunc("/embed", handleEmbedHTTP)
+		mcpMux.HandleFunc("/embed/health", handleEmbedHealthHTTP)
+		mcpMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": fmt.Sprintf("http://localhost:%d", dashboardPort)})
+		})
+
+		go func() {
+			addr := fmt.Sprintf(":%d", mcpPort)
+			log.Printf("MCP: http://localhost%s/mcp (starting)", addr)
+			log.Fatal(http.ListenAndServe(addr, mcpMux))
+		}()
+
+		embedder.MarkLoading()
+		finishStartup(exeDir, *embedWorkersFlag)
+	}()
+
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
+		log.Println("ast-mcp: shutting down")
+		db.RequestShutdown()
 		embedqueue.EndRunLock()
 		os.Exit(0)
 	}()
-	watcher.EnsureDefaultIgnoreGlobs()
 
-	go db.StartWALCheckpoint()
-	go db.StartPressureRelief()
+	addr := fmt.Sprintf(":%d", dashboardPort)
+	log.Printf("Dashboard: http://localhost%s (starting)", addr)
+	log.Fatal(http.ListenAndServe(addr, dashHandler))
+}
 
-	for _, tbl := range []string{"symbols", "edges", "queries", "vectors", "summaries"} {
-		db.DB.Exec("DELETE FROM " + tbl + " WHERE project_path = '.'")
+func finishStartup(exeDir string, embedWorkersFlag int) {
+	defer func() {
+		if startup.Ready() {
+			return
+		}
+		if r := recover(); r != nil {
+			startup.MarkFailed(fmt.Sprint(r))
+			log.Printf("startup panic: %v", r)
+		}
+	}()
+
+	for _, tbl := range []string{"symbols", "edges", "vectors", "summaries"} {
+		if db.IndexDB != nil {
+			db.IndexDB.Exec("DELETE FROM "+tbl+" WHERE project_path = '.'")
+		}
+	}
+	if db.DB != nil {
+		db.DB.Exec("DELETE FROM queries WHERE project_path = '.'")
 	}
 
 	modelDir := strings.TrimSpace(embedder.EffectiveEnv("MODEL_DIR"))
@@ -102,16 +163,21 @@ func main() {
 	embedder.SetOnBeforeSwap(func() {
 		embedqueue.PrepareForEmbedderSwap(2 * time.Minute)
 	})
+
+	startup.SetMessage("Loading embedder…")
 	if err := embedder.InitRuntime(modelDir); err != nil {
-		log.Fatalf("embedder: %v", err)
+		startup.MarkFailed(err.Error())
+		log.Printf("embedder: %v (dashboard and MCP up; embeddings unavailable)", err)
+		return
 	}
 	emb := embedder.Tracked()
 	wb, wm, _, _, wd := embedder.WiredSnapshot()
 	log.Printf("Embedder configured: backend=%s model=%s dims=%d", wb, wm, wd)
-	if n := resolveStartupWorkers(*embedWorkersFlag); n >= 0 {
+	if n := resolveStartupWorkers(embedWorkersFlag); n >= 0 {
 		embedqueue.SetStartupWorkers(n)
 		log.Printf("embedqueue: startup workers override: %d", n)
 	}
+	startup.SetMessage("Starting embed queue…")
 	embedqueue.Start(emb)
 	if err := embedder.InitAuxRuntime(modelDir); err != nil {
 		log.Printf("aux embedder: %v (aux catch-up workers disabled)", err)
@@ -141,86 +207,109 @@ func main() {
 		}
 	}
 
-	mcpMux := http.NewServeMux()
-	mcpMux.HandleFunc("/mcp", mcp.NewHandler())
-	mcpMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	startup.SetMessage("Starting background services…")
+	startBackgroundServices()
+	startup.MarkReady()
+	log.Printf("Startup complete (MCP :%d  Dashboard :%d)", mcpPort, dashboardPort)
+}
+
+func handleMCPHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(buildHealthPayload())
+}
+
+func handleEmbedHealthHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	payload := buildHealthPayload()
+	embedState, _, embedErr := embedder.HealthSnapshot()
+	status := "ok"
+	if startup.Starting() {
+		status = "starting"
+		embedState = "loading"
+	} else if startup.Failed() {
+		status = "error"
+		if embedErr == "" {
+			embedErr = startup.Error()
+		}
+	} else if embedState == "error" {
+		status = "error"
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":          status,
+		"state":           embedState,
+		"error":           embedErr,
+		"model":           embedder.ActiveModel,
+		"dimensions":      embedder.ActiveDim,
+		"loaded":          embedder.IsLoaded(),
+		"backend":         embedder.ActiveBackend,
+		"runtime":         embedder.ActiveRuntime,
+		"startup_phase":   payload["startup_phase"],
+		"startup_message": payload["startup_message"],
+	})
+}
+
+func buildHealthPayload() map[string]interface{} {
+	embedState, _, embedErr := embedder.HealthSnapshot()
+	status := "healthy"
+	if startup.Starting() {
+		status = "starting"
+		embedState = "loading"
+	} else if startup.Failed() {
+		status = "failed"
+		if embedErr == "" {
+			embedErr = startup.Error()
+		}
+	} else if embedState == "error" {
+		status = "degraded"
+	}
+	embedBackend, embedModel, _, _, _ := embedder.WiredSnapshot()
+	return map[string]interface{}{
+		"status":          status,
+		"service":         "ast-context-cache",
+		"version":         version.Version,
+		"embedder":        embedder.IsLoaded(),
+		"embed_state":     embedState,
+		"embed_error":     embedErr,
+		"embed_mode":      embedBackend,
+		"embed_model":     embedModel,
+		"startup_phase":   string(startup.CurrentPhase()),
+		"startup_message": startup.Message(),
+	}
+}
+
+func handleEmbedHTTP(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Texts []string `json:"texts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Texts) == 0 {
 		w.Header().Set("Content-Type", "application/json")
-		embedState, _, embedErr := embedder.HealthSnapshot()
-		status := "healthy"
-		if embedState == "error" {
-			status = "degraded"
-		}
-		embedBackend, embedModel, _, _, _ := embedder.WiredSnapshot()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":         status,
-			"service":        "ast-context-cache",
-			"version":        version.Version,
-			"embedder":       embedder.IsLoaded(),
-			"embed_state":    embedState,
-			"embed_error":    embedErr,
-			"embed_mode":     embedBackend,
-			"embed_model":    embedModel,
-		})
-	})
-	mcpMux.HandleFunc("/embed", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Texts []string `json:"texts"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
-			return
-		}
-		if len(req.Texts) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"embeddings": [][]float32{}})
-			return
-		}
-		embeddings, err := emb.Embed(req.Texts)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"embeddings": embeddings})
-	})
-	mcpMux.HandleFunc("/embed/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		embedState, _, embedErr := embedder.HealthSnapshot()
-		status := "ok"
-		if embedState == "error" {
-			status = "error"
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":     status,
-			"state":      embedState,
-			"error":      embedErr,
-			"model":      embedder.ActiveModel,
-			"dimensions": embedder.ActiveDim,
-			"loaded":     embedder.IsLoaded(),
-			"backend":    embedder.ActiveBackend,
-			"runtime":    embedder.ActiveRuntime,
-		})
-	})
-	mcpMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": fmt.Sprintf("http://localhost:%d", dashboardPort)})
-	})
-
-	dashHandler := dashboard.NewHandler("")
-
-	go func() {
-		addr := fmt.Sprintf(":%d", mcpPort)
-		log.Printf("MCP: http://localhost%s/mcp", addr)
-		log.Fatal(http.ListenAndServe(addr, mcpMux))
-	}()
-
-	go startBackgroundServices()
-
-	addr := fmt.Sprintf(":%d", dashboardPort)
-	log.Printf("Dashboard: http://localhost%s", addr)
-	log.Fatal(http.ListenAndServe(addr, dashHandler))
+		json.NewEncoder(w).Encode(map[string]interface{}{"embeddings": [][]float32{}})
+		return
+	}
+	if startup.Starting() {
+		http.Error(w, `{"error":"embedder starting"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if startup.Failed() {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, startup.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	emb := embedder.Tracked()
+	if emb == nil {
+		http.Error(w, `{"error":"embedder not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	embeddings, err := emb.Embed(req.Texts)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"embeddings": embeddings})
 }
 
 func resolveStartupWorkers(flagVal int) int {
@@ -231,9 +320,6 @@ func resolveStartupWorkers(flagVal int) int {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
 			return n
 		}
-	}
-	if embedqueue.AbnormalPreviousRun() {
-		return 0
 	}
 	return -1
 }
@@ -254,18 +340,20 @@ func startBackgroundServices() {
 			docs.UpdateAllSources()
 		}
 	}()
-	restoreRows, err := db.DB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
 	seen := map[string]bool{}
-	if err == nil {
-		for restoreRows.Next() {
-			var pp string
-			restoreRows.Scan(&pp)
-			if projectmeta.IsExcluded(pp) {
-				continue
+	if db.IndexDB != nil {
+		restoreRows, err := db.IndexDB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
+		if err == nil {
+			for restoreRows.Next() {
+				var pp string
+				restoreRows.Scan(&pp)
+				if projectmeta.IsExcluded(pp) {
+					continue
+				}
+				seen[pp] = true
 			}
-			seen[pp] = true
+			restoreRows.Close()
 		}
-		restoreRows.Close()
 	}
 	for _, pp := range projectmeta.DiscoverPaths() {
 		if projectmeta.IsExcluded(pp) {
