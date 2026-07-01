@@ -749,6 +749,13 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "EMBED_AUX_BACKEND" {
 			value = normalizeEmbedBackendValue(value)
 		}
+		if key == embedder.ProbeIntervalSettingKey {
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 5 || n > 600 {
+				json.NewEncoder(w).Encode(map[string]string{"error": "embed_probe_interval_seconds must be 5–600"})
+				return
+			}
+		}
 		if key == "EMBED_BACKEND" {
 			value = normalizeEmbedBackendValue(value)
 			oldBackend := components.EmbedBackendUI(db.GetSetting("EMBED_BACKEND", ""))
@@ -801,6 +808,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			invalidatePartialCache("#index-health")
 		}
+		if key == embedder.ProbeIntervalSettingKey {
+			embedder.RestartConnectivityProbe()
+			invalidatePartialCache("#index-health")
+		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
 		reloadEmbed := embedder.IsSettingKey(key)
@@ -813,6 +824,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		} else if key == "embed_worker_max" {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		} else if key == "embed_aux_worker_max" || key == "EMBED_AUX_WORKERS" || key == "EMBED_AUX_BACKEND" {
+			mask |= realtime.IndexHealth | realtime.HealthBar
+		} else if key == embedder.ProbeIntervalSettingKey {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		}
 		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
@@ -852,6 +865,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"embed_aux_worker_max":          strconv.Itoa(embedqueue.DefaultAuxMaxWorkers),
 		"EMBED_AUX_WORKERS":             "0",
 		"EMBED_AUX_BACKEND":             "onnx",
+		embedder.ProbeIntervalSettingKey: "10",
 		"dashboard_log_tail_lines":      "200",
 		"dashboard_log_line_chars":      "500",
 	}
