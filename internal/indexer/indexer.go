@@ -11,6 +11,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/bash"
@@ -384,6 +385,10 @@ func getVarDeclName(node *sitter.Node, content []byte) string {
 }
 
 func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens int, err error) {
+	filePath = filepath.Clean(filePath)
+	if projectlinks.IsUnderLinkedChild(filePath, projectPath) {
+		return 0, 0, 0, nil
+	}
 	lang := GetLanguage(filePath)
 	if lang == "" {
 		return 0, 0, 0, fmt.Errorf("unsupported: %s", filePath)
@@ -502,6 +507,11 @@ func collectTopLevelNodes(root *sitter.Node, lang string) []*sitter.Node {
 }
 
 func IndexDirectory(dirPath, projectPath string) (int, error) {
+	dirPath = filepath.Clean(dirPath)
+	projectPath = projectlinks.NormalizePath(projectPath)
+	if dirPath == projectPath {
+		projectlinks.SyncAutoLinks(projectPath)
+	}
 	count := 0
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -509,6 +519,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		}
 		if info.IsDir() {
 			if ShouldSkipDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			if projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -530,17 +543,47 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 }
 
 func GetIndexStats(projectPath string) (map[string]interface{}, error) {
-	var nodes, files int
-	var err error
-	if projectPath != "" {
-		err = db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectPath).Scan(&nodes, &files)
-	} else {
-		err = db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&nodes, &files)
+	if projectPath == "" {
+		var nodes, files int
+		err := db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&nodes, &files)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"total_nodes": nodes, "total_files": files}, nil
 	}
+	var ownNodes, ownFiles int
+	err := db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectPath).Scan(&ownNodes, &ownFiles)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"total_nodes": nodes, "total_files": files}, nil
+	out := map[string]interface{}{
+		"total_nodes": ownNodes,
+		"total_files": ownFiles,
+		"own_nodes":   ownNodes,
+		"own_files":   ownFiles,
+	}
+	linked, _ := projectlinks.Links(projectPath)
+	if len(linked) > 0 {
+		out["linked_projects"] = linked
+		var linkedInfo []map[string]interface{}
+		var totalNodes, totalFiles int
+		totalNodes = ownNodes
+		totalFiles = ownFiles
+		for _, child := range linked {
+			sym, fil := projectlinks.LinkStats(child)
+			linkedInfo = append(linkedInfo, map[string]interface{}{
+				"path":         child,
+				"total_nodes":  sym,
+				"total_files":  fil,
+			})
+			totalNodes += sym
+			totalFiles += fil
+		}
+		out["linked"] = linkedInfo
+		out["total_nodes"] = totalNodes
+		out["total_files"] = totalFiles
+	}
+	return out, nil
 }
 
 func ReadSourceRange(file string, startLine, endLine int, cache map[string][]string) string {

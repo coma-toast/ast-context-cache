@@ -11,16 +11,18 @@ import templruntime "github.com/a-h/templ/runtime"
 import "time"
 
 type Project struct {
-	Path        string
-	Name        string
-	Label       string
-	Workspace   string
-	Branch      string
-	RepoKey     string
-	QueryCount  int
-	SymbolCount int
-	FileCount   int
-	Pinned      bool
+	Path           string
+	Name           string
+	Label          string
+	Workspace      string
+	Branch         string
+	RepoKey        string
+	QueryCount     int
+	SymbolCount    int
+	FileCount      int
+	Pinned         bool
+	LinkedChildren []string
+	LinkedParent   string
 }
 
 type HealthInfo struct {
@@ -61,7 +63,7 @@ func PageTemplate(projects []Project, health HealthInfo) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Path)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 83, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 85, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 			if templ_7745c5c3_Err != nil {
@@ -74,7 +76,7 @@ func PageTemplate(projects []Project, health HealthInfo) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 83, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 85, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -87,7 +89,7 @@ func PageTemplate(projects []Project, health HealthInfo) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(p.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 83, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/page.templ`, Line: 85, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {

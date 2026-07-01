@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 )
 
 type ScoredResult struct {
@@ -25,8 +26,10 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 			SELECT s.name, s.kind, s.file, s.start_line, s.end_line, f.rank
 			FROM symbols_fts f
 			JOIN symbols s ON f.rowid = s.id
-			WHERE s.project_path = ? AND symbols_fts MATCH ?`
-		args := []interface{}{projectPath, ftsQuery}
+			WHERE `
+		scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
+		q += scopeFrag + ` AND symbols_fts MATCH ?`
+		args := append(scopeArgs, ftsQuery)
 		if frag, extra := symbolFilterSQL(filters, projectPath); frag != "" {
 			q += " AND " + frag
 			args = append(args, extra...)
@@ -63,14 +66,15 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 
 func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) []ScoredResult {
 	var conditions []string
+	scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
 	var sqlArgs []interface{}
-	sqlArgs = append(sqlArgs, projectPath)
+	sqlArgs = append(sqlArgs, scopeArgs...)
 	for _, term := range terms {
 		pattern := "%" + term + "%"
 		conditions = append(conditions, "(LOWER(s.name) LIKE ? OR LOWER(s.fqn) LIKE ? OR LOWER(s.code) LIKE ?)")
 		sqlArgs = append(sqlArgs, pattern, pattern, pattern)
 	}
-	where := "s.project_path = ?"
+	where := scopeFrag
 	if len(conditions) > 0 {
 		where += " AND (" + strings.Join(conditions, " OR ") + ")"
 	}

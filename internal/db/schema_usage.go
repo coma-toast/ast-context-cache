@@ -102,4 +102,15 @@ func initUsageSchema(conn *sql.DB) {
 			last_access_at TEXT
 		);
 	`)
+	conn.Exec(`
+		CREATE TABLE IF NOT EXISTS project_links (
+			parent_path TEXT NOT NULL,
+			child_path TEXT NOT NULL,
+			auto_linked INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT DEFAULT (datetime('now')),
+			PRIMARY KEY (parent_path, child_path)
+		);
+		CREATE INDEX IF NOT EXISTS idx_project_links_parent ON project_links(parent_path);
+		CREATE INDEX IF NOT EXISTS idx_project_links_child ON project_links(child_path);
+	`)
 }

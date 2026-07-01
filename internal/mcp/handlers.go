@@ -13,6 +13,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/dop251/goja"
 )
 
@@ -26,9 +27,10 @@ func handleProjectMap(projectPath string, depth int) string {
 	if err != nil {
 		return indexDBErrJSON(err)
 	}
+	scopeFrag, scopeArgs := projectlinks.ScopeSQL("", projectPath)
 	rows, err := indexDB.Query(
-		"SELECT file, name, kind FROM symbols WHERE project_path = ? ORDER BY file, start_line",
-		projectPath)
+		"SELECT file, name, kind FROM symbols WHERE "+scopeFrag+" ORDER BY file, start_line",
+		scopeArgs...)
 	if err != nil {
 		data, _ := json.Marshal(map[string]string{"error": err.Error()})
 		return string(data)
@@ -127,9 +129,10 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 	if err != nil {
 		return fileContextResult{JSON: indexDBErrJSON(err)}
 	}
+	owner := projectlinks.OwningProject(file, projectPath)
 	rows, err := indexDB.Query(
 		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
-		file, projectPath)
+		file, owner)
 	if err != nil {
 		data, _ := json.Marshal(map[string]string{"error": err.Error()})
 		return fileContextResult{JSON: string(data)}
@@ -269,27 +272,29 @@ func handleAnalyzeDeadCode(args map[string]interface{}, projectPath string) map[
 	}
 
 	if kind == "" || kind == "function" {
+		scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
 		rows, err = indexDB.Query(`
 			SELECT s.name, s.file, s.kind 
 			FROM symbols s
-			WHERE s.project_path = ? AND s.kind IN ('function', 'method')
+			WHERE `+scopeFrag+` AND s.kind IN ('function', 'method')
 			AND NOT EXISTS (
 				SELECT 1 FROM edges e 
 				WHERE e.source_file = s.file AND e.source_symbol = s.name AND e.kind = 'call'
 			)
 			ORDER BY s.file, s.name
-		`, projectPath)
+		`, scopeArgs...)
 	} else {
+		scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
 		rows, err = indexDB.Query(`
 			SELECT s.name, s.file, s.kind 
 			FROM symbols s
-			WHERE s.project_path = ? AND s.kind = ?
+			WHERE `+scopeFrag+` AND s.kind = ?
 			AND NOT EXISTS (
 				SELECT 1 FROM edges e 
 				WHERE e.source_file = s.file AND e.source_symbol = s.name AND e.kind = 'import'
 			)
 			ORDER BY s.file, s.name
-		`, projectPath, kind)
+		`, append(scopeArgs, kind)...)
 	}
 
 	if err != nil {
@@ -329,13 +334,14 @@ func handleAnalyzeComplexity(args map[string]interface{}, projectPath string) ma
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}
 	}
+	scopeFrag, scopeArgs := projectlinks.ScopeSQL("", projectPath)
 	rows, err := indexDB.Query(`
 		SELECT name, file, kind, complexity 
 		FROM symbols 
-		WHERE project_path = ? AND complexity >= ?
+		WHERE `+scopeFrag+` AND complexity >= ?
 		ORDER BY complexity DESC
 		LIMIT ?
-	`, projectPath, threshold, limit)
+	`, append(scopeArgs, threshold, limit)...)
 
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}

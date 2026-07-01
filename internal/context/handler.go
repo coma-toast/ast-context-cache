@@ -8,6 +8,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -94,13 +95,14 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		file, _ := data["file"].(string)
 		name, _ := data["name"].(string)
 		startLine, endLine := hit.StartLine, hit.EndLine
+		owner := projectlinks.OwningProject(file, projectPath)
 		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
 			skipped++
-			dedupTokens += WouldSendTokens(file, name, projectPath, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
+			dedupTokens += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
 		}
 		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
-		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
+		ApplyMode(data, effectiveMode, file, name, owner, startLine, endLine, fileCache)
 		if effectiveMode == "full" {
 			fullCount++
 		}
@@ -110,7 +112,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
 			break
 		}
-		symbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
+		symbolBaseline += FullSourceTokens(file, name, owner, startLine, endLine, fileCache)
 		tokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
@@ -167,13 +169,14 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		file, _ := data["file"].(string)
 		name, _ := data["name"].(string)
 		startLine, endLine := hit.StartLine, hit.EndLine
+		owner := projectlinks.OwningProject(file, projectPath)
 		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
 			savings.DedupedCount++
-			savings.DedupTokensSaved += WouldSendTokens(file, name, projectPath, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
+			savings.DedupTokensSaved += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
 		}
 		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
-		ApplyMode(data, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
+		ApplyMode(data, effectiveMode, file, name, owner, startLine, endLine, fileCache)
 		if effectiveMode == "full" {
 			fullCount++
 		}
@@ -183,7 +186,7 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		if tokenBudget > 0 && savings.TokensUsed+resultTokens > tokenBudget {
 			break
 		}
-		savings.SymbolBaseline += FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
+		savings.SymbolBaseline += FullSourceTokens(file, name, owner, startLine, endLine, fileCache)
 		savings.TokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)

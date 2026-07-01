@@ -11,6 +11,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -171,12 +172,14 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 			if name == "" {
 				name = filepath.Base(pp)
 			}
+			linked, _ := projectlinks.Links(pp)
 			h.Watchers = append(h.Watchers, components.WatcherInfo{
 				ProjectPath: pp,
 				Name:        name,
 				Label:       label,
 				Workspace:   meta.Workspace,
 				Active:      active,
+				LinkedCount: len(linked),
 			})
 		}
 	}
