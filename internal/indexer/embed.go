@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -31,6 +32,9 @@ func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) 
 }
 
 func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) error {
+	if db.IndexReadQuiesced() {
+		return fmt.Errorf("index db quiesced for maintenance")
+	}
 	if ShouldSkipEmbed(filePath) {
 		return nil
 	}
@@ -87,6 +91,9 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 	if err != nil {
 		log.Printf("embed: generate embeddings for %s: %v", filePath, err)
 		return err
+	}
+	if db.IndexReadQuiesced() {
+		return fmt.Errorf("index db quiesced for maintenance")
 	}
 
 	for i := range entries {

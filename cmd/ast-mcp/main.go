@@ -58,6 +58,14 @@ func main() {
 	log.Printf("Config: tier=%s code_mode=%v", cfg.ActiveTier, cfg.CodeMode)
 
 	log.Println("Initializing...")
+	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+		logPath := db.DefaultLogPath()
+		_ = os.MkdirAll(filepath.Dir(logPath), 0755)
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+			log.SetOutput(f)
+			log.Printf("Logging to %s", logPath)
+		}
+	}
 	startup.SetMessage("Opening databases…")
 
 	exePath, _ := os.Executable()
@@ -81,6 +89,7 @@ func main() {
 		}
 		db.AfterForceCheckpoint = embedqueue.RestoreAfterMaintenance
 		db.WALInFlightHook = embedqueue.InFlight
+		db.EmbedQueueIdleHook = embedqueue.QueueIdleForWAL
 		if embedqueue.BeginRunLock() {
 			log.Printf("embedqueue: previous run exited abnormally; using persisted worker count from DB")
 		}

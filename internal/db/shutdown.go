@@ -16,5 +16,6 @@ func RequestShutdown() {
 	if AfterForceCheckpoint != nil {
 		AfterForceCheckpoint()
 	}
+	_ = restoreIndexPool()
 	endWALMaintenance()
 }

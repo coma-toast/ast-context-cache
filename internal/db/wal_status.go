@@ -33,6 +33,8 @@ type WALSnapshot struct {
 	LastFrames       int
 	LastCheckpointed int
 	LastError        string
+	SkipReason       string
+	NextAttemptAt    time.Time
 }
 
 // WALInFlightHook returns in-flight embed count during maintenance (set from main to avoid import cycles).
@@ -53,6 +55,8 @@ var (
 		lastFrames       int
 		lastCheckpointed int
 		lastError        string
+		skipReason       string
+		nextAttemptAt    time.Time
 	}
 	walHeartbeatStop chan struct{}
 )
@@ -82,6 +86,8 @@ func GetWALSnapshot() WALSnapshot {
 		LastFrames:       walStatus.lastFrames,
 		LastCheckpointed: walStatus.lastCheckpointed,
 		LastError:        walStatus.lastError,
+		SkipReason:       walStatus.skipReason,
+		NextAttemptAt:    walStatus.nextAttemptAt,
 	}
 	if s.Phase == "" {
 		s.Phase = WALPhaseIdle
@@ -96,7 +102,7 @@ func beginWALMaintenance(reason string) {
 	walStatus.mode = ""
 	walStatus.reason = reason
 	walStatus.startedAt = time.Now()
-	walStatus.walStartBytes = walFileBytes()
+	walStatus.walStartBytes = IndexWalBytes()
 	walStatus.walCurrentBytes = walStatus.walStartBytes
 	walStatus.lastBusy = 0
 	walStatus.lastFrames = 0
@@ -133,7 +139,7 @@ func recordWALCheckpointResult(busy, frames, checkpointed int, err error) {
 	walStatus.lastBusy = busy
 	walStatus.lastFrames = frames
 	walStatus.lastCheckpointed = checkpointed
-	walStatus.walCurrentBytes = walFileBytes()
+	walStatus.walCurrentBytes = IndexWalBytes()
 	if err != nil {
 		walStatus.lastError = err.Error()
 	}
@@ -146,7 +152,7 @@ func endWALMaintenance() {
 	walStatus.active = false
 	walStatus.phase = WALPhaseIdle
 	walStatus.mode = ""
-	walStatus.walCurrentBytes = walFileBytes()
+	walStatus.walCurrentBytes = IndexWalBytes()
 	stop := walHeartbeatStop
 	walHeartbeatStop = nil
 	walStatusMu.Unlock()
@@ -177,7 +183,7 @@ func walHeartbeatTick() {
 		walStatusMu.Unlock()
 		return
 	}
-	walStatus.walCurrentBytes = walFileBytes()
+	walStatus.walCurrentBytes = IndexWalBytes()
 	if WALInFlightHook != nil && (walStatus.phase == WALPhasePausing || walStatus.phase == WALPhaseDraining) {
 		walStatus.inFlight = WALInFlightHook()
 	}
@@ -194,4 +200,11 @@ func RunManualWALCheckpoint() (started bool, errMsg string) {
 		maintainWAL("manual", true)
 	}()
 	return true, ""
+}
+
+func setWalSkipReason(reason string, until time.Time) {
+	walStatusMu.Lock()
+	walStatus.skipReason = reason
+	walStatus.nextAttemptAt = until
+	walStatusMu.Unlock()
 }

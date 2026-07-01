@@ -210,7 +210,11 @@ func renderRecent() string {
 	logOpts := components.LogViewOpts{TailLines: 200, MaxLineChars: 500}
 	var buf bytes.Buffer
 	components.RecentPanel(mcp, indexing, nil, "", false, logOpts).Render(context.Background(), &buf)
-	return buf.String()
+	html := buf.String()
+	if mcp != nil || indexing != nil {
+		storeRecentPartialCache(html)
+	}
+	return html
 }
 
 func renderSymbolChart() string {

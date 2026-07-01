@@ -95,23 +95,25 @@ Cursor: skill `ast-context-cache-rebuild` in `.cursor/skills/ast-rebuild/`.
 
 ## SQLite WAL runbook
 
-The dashboard reads `~/.astcache/usage.db` (WAL mode). If the WAL file grows very large, HTTP handlers can block while SQLite scans frames — MCP may still respond while the dashboard hangs.
+The code index lives in **`index.db`** (WAL mode). **`index.db-wal`** is the file that grows under embed load — not `usage.db-wal` (typically small). Large index WAL can block TRUNCATE checkpoints and make `ast-mcp stop` appear hung.
 
-**Symptoms:** Dashboard at http://localhost:7830 stops loading; `usage.db-wal` is hundreds of MB or GB.
+**Symptoms:** Dashboard shows **Compacting database WAL** for minutes; `index.db-wal` is hundreds of MB or GB; `GET /api/wal-status` shows `last_busy=1`; logs repeat TRUNCATE with `busy=1`.
 
-**Emergency fix:**
+**Emergency fix (server stopped):**
 
 ```bash
-ast-mcp stop
-sqlite3 ~/.astcache/usage.db "PRAGMA wal_checkpoint(TRUNCATE);"
+ast-mcp stop   # waits 5s then SIGKILL if checkpoint stuck
+sqlite3 ~/.astcache/index.db "PRAGMA wal_checkpoint(TRUNCATE);"
 ast-mcp start
 ```
 
-**Prevention (built-in):** `PRAGMA wal_autocheckpoint=200`; PASSIVE every 30s when WAL &gt; 32 MB; TRUNCATE (with embed worker pause) when WAL &gt; 64 MB every 90s; force RESTART+TRUNCATE at 128 MB or after 3 busy streaks. Worker throttle: 64 MB → 8 workers, 128 MB → 4, 256 MB → 2. **Query retention** (Settings → Query history retention, default 90 days) prunes old `queries` rows daily and checkpoints after deletes.
+If `ast-mcp stop` hangs, kill the listener: `kill -9 $(lsof -t -iTCP:7821 -sTCP:LISTEN)` then run the offline checkpoint above.
 
-**Dashboard progress:** When a checkpoint runs, the Embeddings panel shows an amber **Compacting database WAL** banner with phase (pausing → checkpoint → restoring), elapsed time, WAL size shrink, and a progress bar. Worker badge reads **checkpointing** instead of a frozen `0/N`. Database row shows live `512 MB → 480 MB` during compaction. Use **Checkpoint WAL now** (embed panel footer) or `POST /api/wal-checkpoint`; status via `GET /api/wal-status`.
+**Prevention (built-in):** Per-DB WAL metrics on dashboard/API (`index_wal_bytes`, `usage_wal_bytes`, `context_wal_bytes`). PASSIVE on **index** every 30s when index WAL &gt; 32 MB; TRUNCATE when index WAL &gt; 64 MB (quiesces index pool — closes readers, fresh conn); defer TRUNCATE until embed queue idle (up to 2 min); force RESTART+TRUNCATE at 128 MB or after 3 busy streaks; **5m/15m backoff** when TRUNCATE stays busy (no 90s retry storm). Worker throttle uses **index** WAL: 128 MB → 4 workers, 256 MB → 2.
 
-**Logs:** Default server log is `~/.astcache/ast-mcp.log` (`ast-mcp start`). **mcp-local** logs to `~/.mcp-local/ast-context-cache.log`; the dashboard Logs tab auto-picks the newest log file. Override with `AST_MCP_LOG_PATH`.
+**Dashboard progress:** Amber **Compacting database WAL** banner with phase, elapsed time, index WAL shrink, progress bar. After 2 min with `busy=1`, shows **TRUNCATE blocked — deferring until readers idle**. **Checkpoint WAL now** or `POST /api/wal-checkpoint`; status via `GET /api/wal-status` (includes per-DB WAL bytes).
+
+**Logs:** When started from a TTY, ast-mcp logs to `~/.astcache/ast-mcp.log` by default. **mcp-local** may log to `~/.mcp-local/ast-context-cache.log`; dashboard Logs tab picks the newest file. Override with `AST_MCP_LOG_PATH`.
 
 ## WTG / multi-worktree projects
 

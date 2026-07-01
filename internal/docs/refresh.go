@@ -32,7 +32,7 @@ func ForceRefreshSource(id int) {
 	refreshMu.Unlock()
 	notifyDocPanels()
 	go func() {
-		if err := UpdateSource(id); err != nil {
+		if _, err := UpdateSource(id); err != nil {
 			log.Printf("doc source %d force refresh: %v", id, err)
 		}
 		refreshMu.Lock()

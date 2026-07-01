@@ -88,6 +88,13 @@ func shortProject(path string) string {
 	return path
 }
 
+func recentLogsCountLabel(logs []RecentLogLine, logPath string) string {
+	if logPath != "" || len(logs) > 0 {
+		return fmtInt(len(logs))
+	}
+	return "…"
+}
+
 templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine, logPath string, logTruncated bool, logOpts LogViewOpts) {
 	<div class="recent-panel">
 		<input type="radio" id="recent-tab-mcp" name="recent-tab" class="recent-tab-radio"/>
@@ -96,7 +103,7 @@ templ RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLin
 		<div class="recent-tab-bar toggle-group">
 			<label for="recent-tab-mcp" class="toggle-btn">MCP tool calls <span class="recent-count">{ fmtInt(len(mcp)) }</span></label>
 			<label for="recent-tab-indexing" class="toggle-btn">Indexing <span class="recent-count">{ fmtInt(len(indexing)) }</span></label>
-			<label for="recent-tab-logs" class="toggle-btn">Logs <span class="recent-count">{ fmtInt(len(logs)) }</span></label>
+			<label for="recent-tab-logs" class="toggle-btn">Logs <span class="recent-count">{ recentLogsCountLabel(logs, logPath) }</span></label>
 		</div>
 		<div class="recent-tab-pane pane-mcp">
 			@RecentTable(mcp)

@@ -11,6 +11,26 @@ var (
 	maintenanceAuxDepth   int
 )
 
+// MaintenancePaused reports whether embed workers are paused for DB maintenance or swap.
+func MaintenancePaused() bool {
+	if SwapPaused() {
+		return true
+	}
+	auxWorkerMu.Lock()
+	defer auxWorkerMu.Unlock()
+	return maintenanceAuxDepth > 0
+}
+
+// QueueIdleForWAL is true when no embed work is queued, pending, or in-flight.
+func QueueIdleForWAL() bool {
+	s := Snapshot()
+	pendingQueued := 0
+	if pendingCh != nil {
+		pendingQueued = len(pendingCh)
+	}
+	return s.InFlight == 0 && s.Queued == 0 && s.Pending == 0 && pendingQueued == 0
+}
+
 // PauseAllForMaintenance stops primary and aux embed workers and waits for in-flight work.
 func PauseAllForMaintenance(timeout time.Duration) {
 	PrepareForEmbedderSwap(timeout)

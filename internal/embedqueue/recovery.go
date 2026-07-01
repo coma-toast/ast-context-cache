@@ -98,6 +98,9 @@ func FlushPendingIfReady() {
 }
 
 func flushPendingIfReady() {
+	if MaintenancePaused() {
+		return
+	}
 	state, _ := embedder.HealthState()
 	if state == "error" {
 		return

@@ -22,7 +22,11 @@ func handleProjectMap(projectPath string, depth int) string {
 		symbols []map[string]string
 	}
 
-	rows, err := db.IndexDB.Query(
+	indexDB, err := indexDBOrErr()
+	if err != nil {
+		return indexDBErrJSON(err)
+	}
+	rows, err := indexDB.Query(
 		"SELECT file, name, kind FROM symbols WHERE project_path = ? ORDER BY file, start_line",
 		projectPath)
 	if err != nil {
@@ -119,7 +123,11 @@ func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget in
 }
 
 func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenBudget int) fileContextResult {
-	rows, err := db.IndexDB.Query(
+	indexDB, err := indexDBOrErr()
+	if err != nil {
+		return fileContextResult{JSON: indexDBErrJSON(err)}
+	}
+	rows, err := indexDB.Query(
 		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
 		file, projectPath)
 	if err != nil {
@@ -255,8 +263,13 @@ func handleAnalyzeDeadCode(args map[string]interface{}, projectPath string) map[
 	var rows *sql.Rows
 	var err error
 
+	indexDB, err := indexDBOrErr()
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
 	if kind == "" || kind == "function" {
-		rows, err = db.IndexDB.Query(`
+		rows, err = indexDB.Query(`
 			SELECT s.name, s.file, s.kind 
 			FROM symbols s
 			WHERE s.project_path = ? AND s.kind IN ('function', 'method')
@@ -267,7 +280,7 @@ func handleAnalyzeDeadCode(args map[string]interface{}, projectPath string) map[
 			ORDER BY s.file, s.name
 		`, projectPath)
 	} else {
-		rows, err = db.IndexDB.Query(`
+		rows, err = indexDB.Query(`
 			SELECT s.name, s.file, s.kind 
 			FROM symbols s
 			WHERE s.project_path = ? AND s.kind = ?
@@ -312,7 +325,11 @@ func handleAnalyzeComplexity(args map[string]interface{}, projectPath string) ma
 		limit = int(l)
 	}
 
-	rows, err := db.IndexDB.Query(`
+	indexDB, err := indexDBOrErr()
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	rows, err := indexDB.Query(`
 		SELECT name, file, kind, complexity 
 		FROM symbols 
 		WHERE project_path = ? AND complexity >= ?

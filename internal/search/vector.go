@@ -45,6 +45,9 @@ func init() {
 }
 
 func (vc *VectorCache) ensureLoaded() {
+	if db.IndexReadQuiesced() {
+		return
+	}
 	vc.mu.RLock()
 	if vc.loaded {
 		vc.lastUsed = time.Now()
@@ -57,6 +60,9 @@ func (vc *VectorCache) ensureLoaded() {
 	defer vc.mu.Unlock()
 	if vc.loaded {
 		vc.lastUsed = time.Now()
+		return
+	}
+	if db.IndexReadQuiesced() || db.IndexDB == nil {
 		return
 	}
 	vc.loadFromDB()

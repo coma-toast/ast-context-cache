@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/codescripts"
@@ -477,21 +478,23 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if name == "" || docType == "" || docURL == "" {
 			result = map[string]string{"error": "name, type, and url are required"}
 		} else {
+			wantRender := renderJS || strings.EqualFold(docType, "webpage")
 			storedType := docs.NormalizeDocType(docType, renderJS)
-			id, entries, refreshed, err := docs.FetchAndCache(name, docType, docURL, version, force, renderJS)
+			id, entries, refreshed, usedPlaywright, err := docs.FetchAndCache(name, docType, docURL, version, force, renderJS)
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
 				result = map[string]interface{}{
-					"id":        id,
-					"name":      name,
-					"url":       docURL,
-					"type":      storedType,
-					"rendered":  storedType == "webpage",
-					"cached":    true,
-					"refreshed": refreshed,
-					"entries":   entries,
-					"total":     len(entries),
+					"id":              id,
+					"name":            name,
+					"url":             docURL,
+					"type":            storedType,
+					"rendered":        usedPlaywright,
+					"render_fallback": wantRender && !usedPlaywright,
+					"cached":          true,
+					"refreshed":       refreshed,
+					"entries":         entries,
+					"total":           len(entries),
 				}
 			}
 		}
@@ -507,7 +510,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
-				go docs.UpdateSource(id)
+				go func() { _, _ = docs.UpdateSource(id) }()
 				result = map[string]interface{}{
 					"status": "added",
 					"id":     id,
@@ -545,7 +548,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if id == 0 {
 			result = map[string]string{"error": "id is required"}
 		} else {
-			err := docs.UpdateSource(id)
+			_, err := docs.UpdateSource(id)
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {

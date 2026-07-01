@@ -31,6 +31,12 @@ func TestWALMaintenanceDetailPhases(t *testing.T) {
 	if !strings.Contains(d, "busy") || !strings.Contains(d, "streak 3") {
 		t.Fatalf("busy detail=%q", d)
 	}
+
+	h.WALMaintenanceStarted = time.Now().Add(-3 * time.Minute)
+	d = h.WALMaintenanceDetail()
+	if !strings.Contains(d, "deferring until readers idle") {
+		t.Fatalf("deferred detail=%q", d)
+	}
 }
 
 func TestWALMaintenanceProgressPct(t *testing.T) {
