@@ -18,6 +18,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/fsnotify/fsnotify"
 )
@@ -154,6 +155,9 @@ func StartWatcher(projectPath string) {
 			if indexer.ShouldSkipDir(info.Name()) {
 				return filepath.SkipDir
 			}
+			if projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
+				return filepath.SkipDir
+			}
 			w.Add(path)
 		}
 		return nil
@@ -195,6 +199,12 @@ func catchUp(projectPath string) {
 			if indexer.ShouldSkipDir(info.Name()) {
 				return filepath.SkipDir
 			}
+			if projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if projectlinks.IsUnderLinkedChild(path, projectPath) {
 			return nil
 		}
 		if !indexer.IsCodeFile(path) {
@@ -249,9 +259,12 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 	lastActivity[projectPath] = time.Now()
 	mu.Unlock()
 	path := event.Name
+	if projectlinks.IsUnderLinkedChild(path, projectPath) {
+		return
+	}
 
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		if event.Has(fsnotify.Create) && !indexer.ShouldSkipDir(info.Name()) {
+		if event.Has(fsnotify.Create) && !indexer.ShouldSkipDir(info.Name()) && !projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
 			w.Add(path)
 		}
 		return

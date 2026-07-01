@@ -13,6 +13,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -234,18 +235,19 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 		if file == "" || name == "" {
 			continue
 		}
+		owner := projectlinks.OwningProject(file, projectPath)
 		var startLine, endLine int
 		if indexDB, err := db.IndexReader(); err == nil {
 			indexDB.QueryRow(
 				"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
-				name, file, projectPath).Scan(&startLine, &endLine)
+				name, file, owner).Scan(&startLine, &endLine)
 		}
 		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
 			meta.dedupCount++
-			meta.dedupTokens += context.WouldSendTokens(file, name, projectPath, mode, startLine, endLine, r.Score, maxScore, fullCount, fileCache)
+			meta.dedupTokens += context.WouldSendTokens(file, name, owner, mode, startLine, endLine, r.Score, maxScore, fullCount, fileCache)
 			continue
 		}
-		content := context.SymbolContentForRetrieve(file, name, projectPath, startLine, endLine, includeSource, mode, r.Score, maxScore, fullCount, fileCache)
+		content := context.SymbolContentForRetrieve(file, name, owner, startLine, endLine, includeSource, mode, r.Score, maxScore, fullCount, fileCache)
 		if content == "" {
 			continue
 		}
@@ -278,13 +280,14 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 		if projectPath != "" && !strings.HasPrefix(absFile, "/") {
 			absFile = projectPath + "/" + c.File
 		}
+		owner := projectlinks.OwningProject(absFile, projectPath)
 		var startLine, endLine int
 		if indexDB, err := db.IndexReader(); err == nil {
 			indexDB.QueryRow(
 				"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
-				c.Name, absFile, projectPath).Scan(&startLine, &endLine)
+				c.Name, absFile, owner).Scan(&startLine, &endLine)
 		}
-		total += context.FullSourceTokens(absFile, c.Name, projectPath, startLine, endLine, fileCache)
+		total += context.FullSourceTokens(absFile, c.Name, owner, startLine, endLine, fileCache)
 	}
 	return total
 }

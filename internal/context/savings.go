@@ -6,6 +6,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -182,8 +183,9 @@ func hitFromScored(r search.ScoredResult, projectPath string) PackHit {
 	startLine := coerceInt(data["start_line"])
 	endLine := coerceInt(data["end_line"])
 	if startLine == 0 {
+		owner := projectlinks.OwningProject(file, projectPath)
 		db.IndexDB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
-			file, name, projectPath).Scan(&startLine, &endLine)
+			file, name, owner).Scan(&startLine, &endLine)
 		data["start_line"] = startLine
 		data["end_line"] = endLine
 	}
