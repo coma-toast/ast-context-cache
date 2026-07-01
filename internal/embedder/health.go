@@ -14,7 +14,6 @@ import (
 var probeFailed atomic.Bool
 
 const (
-	probeIntervalOK       = 10 * time.Second
 	probeRecoveryInterval = 30 * time.Second
 	probeRecoveryTimeout  = 120 * time.Second
 	probeRetryDelay       = 2 * time.Second
@@ -380,7 +379,7 @@ func StartConnectivityProbe(e Interface) {
 			if state == "error" {
 				switch runRecoveryCycle(e) {
 				case probeOK:
-					sleep(probeIntervalOK, stop)
+					sleep(ProbeInterval(), stop)
 				default:
 					sleep(probeRecoveryInterval, stop)
 				}
@@ -392,7 +391,7 @@ func StartConnectivityProbe(e Interface) {
 			}
 			switch runConnectivityProbeCycle(e) {
 			case probeOK, probeSkipped:
-				sleep(probeIntervalOK, stop)
+				sleep(ProbeInterval(), stop)
 			case probeFail:
 				sleep(probeRecoveryInterval, stop)
 			}

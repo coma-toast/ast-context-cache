@@ -6,6 +6,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
@@ -95,6 +96,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 	if data.EmbedAuxBackend == "" {
 		data.EmbedAuxBackend = "onnx"
 	}
+	data.EmbedProbeIntervalSec = int(embedder.ProbeInterval().Seconds())
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)
