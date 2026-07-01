@@ -397,6 +397,15 @@ func handleRecentPartial(w http.ResponseWriter, r *http.Request) {
 	var mcp, indexing []components.RecentQuery
 	if usageDBReady() {
 		mcp, indexing = buildRecentQueries(pid, lim)
+		if mcp == nil && indexing == nil {
+			if cached := loadRecentPartialCache(); cached != "" {
+				w.Header().Set("X-Recent-Stale", "1")
+				w.Write([]byte(cached))
+				return
+			}
+		} else {
+			storeRecentPartialCache(renderRecentPanelHTML(mcp, indexing))
+		}
 	}
 	includeLogs := r.URL.Query().Get("include_logs") == "1"
 	var logs []components.RecentLogLine

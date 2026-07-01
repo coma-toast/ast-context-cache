@@ -17,12 +17,45 @@ var (
 	renderScriptOnce sync.Once
 	renderScriptPath string
 	renderScriptErr  error
+
+	playwrightProbeOnce sync.Once
+	playwrightAvailable bool
 )
 
-// RenderEnabled reports whether the Playwright render script is available.
+// RenderDisabled reports whether DOC_RENDER_DISABLE opts out of Playwright rendering.
+func RenderDisabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("DOC_RENDER_DISABLE")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// RenderEnabled reports whether JS rendering via Playwright is available.
 func RenderEnabled() bool {
-	_, err := findRenderScript()
-	return err == nil
+	if RenderDisabled() {
+		return false
+	}
+	if _, err := findRenderScript(); err != nil {
+		return false
+	}
+	return probePlaywrightImport()
+}
+
+func probePlaywrightImport() bool {
+	playwrightProbeOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, renderPython(), "-c", "import playwright")
+		playwrightAvailable = cmd.Run() == nil
+	})
+	return playwrightAvailable
+}
+
+// ResetRenderProbeForTest clears cached Playwright availability (tests only).
+func ResetRenderProbeForTest() {
+	playwrightProbeOnce = sync.Once{}
+	playwrightAvailable = false
+	renderScriptOnce = sync.Once{}
+	renderScriptPath = ""
+	renderScriptErr = nil
 }
 
 func findRenderScript() (string, error) {
@@ -96,16 +129,25 @@ func fetchRenderedURL(raw string) ([]byte, error) {
 }
 
 // NormalizeDocType maps render_js requests to webpage for persistent caching.
+// When Playwright is unavailable, webpage/render_js requests downgrade to html.
 func NormalizeDocType(docType string, renderJS bool) string {
 	docType = strings.ToLower(strings.TrimSpace(docType))
-	if renderJS {
-		return "webpage"
+	wantRender := renderJS || docType == "webpage"
+	if wantRender {
+		if RenderEnabled() {
+			return "webpage"
+		}
+		if docType == "webpage" || docType == "" || renderJS {
+			return "html"
+		}
 	}
 	switch docType {
 	case "md":
 		return "markdown"
 	case "api":
 		return "json"
+	case "":
+		return "markdown"
 	default:
 		return docType
 	}

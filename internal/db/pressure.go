@@ -15,9 +15,9 @@ const (
 
 var dbLockStreak atomic.Int32
 
-// WalPressure returns ok, warn, or high based on WAL file size.
+// WalPressure returns ok, warn, or high based on index.db WAL size (primary growth source).
 func WalPressure() string {
-	wal := WalFileBytes()
+	wal := IndexWalBytes()
 	switch {
 	case wal >= walHighBytes:
 		return "high"
@@ -28,9 +28,9 @@ func WalPressure() string {
 	}
 }
 
-// ShouldThrottleHeavyWork is true when SQLite WAL is large enough to risk lock contention.
+// ShouldThrottleHeavyWork is true when index.db WAL is large enough to risk lock contention.
 func ShouldThrottleHeavyWork() bool {
-	return WalFileBytes() >= walWarnBytes
+	return IndexWalBytes() >= walWarnBytes
 }
 
 // ThrottledEmbedWorkers caps worker count under WAL pressure.
@@ -38,7 +38,7 @@ func ThrottledEmbedWorkers(requested int) int {
 	if requested < 1 {
 		return requested
 	}
-	wal := WalFileBytes()
+	wal := IndexWalBytes()
 	switch {
 	case wal >= walHighBytes:
 		if requested > 2 {
@@ -60,7 +60,7 @@ func ThrottledEmbedWorkers(requested int) int {
 func NoteDBLock() {
 	n := dbLockStreak.Add(1)
 	if n == 5 || n%20 == 0 {
-		log.Printf("db pressure: database locked streak=%d wal=%s", n, FormatFileSize(WalFileBytes()))
+		log.Printf("db pressure: database locked streak=%d index_wal=%s", n, FormatFileSize(IndexWalBytes()))
 	}
 }
 

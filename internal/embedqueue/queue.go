@@ -158,6 +158,10 @@ func runWithEmbedder(j job, e embedder.Interface) {
 		atomic.AddInt64(&inFlight, -1)
 		realtime.Notify(realtime.EmbedFinished)
 	}()
+	if db.IndexReadQuiesced() {
+		markPending(j)
+		return
+	}
 	if isProjectCancelled(j.projectPath) {
 		return
 	}
@@ -194,6 +198,13 @@ func SubmitPriority(file, projectPath string, high bool) {
 	if isProjectCancelled(projectPath) {
 		return
 	}
+	j := job{file: file, projectPath: projectPath}
+	if MaintenancePaused() {
+		if markPendingIfNew(j, pendingReasonDrained) {
+			realtime.Notify(realtime.EmbedFinished)
+		}
+		return
+	}
 	if highCh == nil {
 		e := queueEmbedder()
 		if e != nil {
@@ -216,7 +227,6 @@ func SubmitPriority(file, projectPath string, high bool) {
 		}
 		return
 	}
-	j := job{file: file, projectPath: projectPath}
 	if state, _ := embedder.HealthState(); state == "error" {
 		if markPendingIfNew(j, pendingReasonDrained) {
 			realtime.Notify(realtime.EmbedFinished)
@@ -378,6 +388,9 @@ func trackPendingPeak(n int) {
 }
 
 func enqueuePendingRetry(j job) bool {
+	if MaintenancePaused() {
+		return false
+	}
 	k := jobKey(j)
 	pendingMu.Lock()
 	if pending == nil {

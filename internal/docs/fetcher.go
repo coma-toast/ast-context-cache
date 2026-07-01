@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -99,26 +100,26 @@ func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
 	return sources, total, page, nil
 }
 
-func UpdateSource(id int) error {
+func UpdateSource(id int) (usedPlaywright bool, err error) {
 	var name, docType, docURL string
-	err := db.ContextDB.QueryRow("SELECT name, type, url FROM doc_sources WHERE id = ?", id).Scan(&name, &docType, &docURL)
+	err = db.ContextDB.QueryRow("SELECT name, type, url FROM doc_sources WHERE id = ?", id).Scan(&name, &docType, &docURL)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	content, err := fetchDocs(docURL, docType)
+	content, usedPlaywright, err := fetchDocs(docURL, docType)
 	if err != nil {
-		return fmt.Errorf("fetch failed: %w", err)
+		return false, fmt.Errorf("fetch failed: %w", err)
 	}
 
 	deleteDocVectors(id)
 	db.ContextDB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
 	if err := storeEntries(id, content); err != nil {
-		return err
+		return false, err
 	}
 	db.ContextDB.Exec("UPDATE doc_sources SET last_updated = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
 	go EmbedSource(id)
-	return nil
+	return usedPlaywright, nil
 }
 
 func storeEntries(sourceID int, entries []DocEntry) error {
@@ -148,7 +149,9 @@ func UpdateAllSources() {
 		if !SourceNeedsRefresh(s.LastUpdated) {
 			continue
 		}
-		UpdateSource(s.ID)
+		if _, err := UpdateSource(s.ID); err != nil {
+			log.Printf("doc source %d refresh: %v", s.ID, err)
+		}
 	}
 }
 
@@ -165,27 +168,28 @@ func SourceNeedsRefresh(lastUpdated string) bool {
 }
 
 // FetchAndCache registers a doc source, fetches when missing/stale/forced, and returns cached entries.
-// When renderJS is true, the stored type becomes webpage so background refresh keeps using Playwright.
-func FetchAndCache(name, docType, docURL, version string, force, renderJS bool) (id int, entries []DocEntry, refreshed bool, err error) {
+// When renderJS is true, the stored type becomes webpage when Playwright is available; otherwise html.
+func FetchAndCache(name, docType, docURL, version string, force, renderJS bool) (id int, entries []DocEntry, refreshed, usedPlaywright bool, err error) {
 	docType = NormalizeDocType(docType, renderJS)
 	id, err = AddSource(name, docType, docURL, version)
 	if err != nil {
-		return 0, nil, false, err
+		return 0, nil, false, false, err
 	}
 	var lastUpdated string
 	if err = db.ContextDB.QueryRow("SELECT COALESCE(last_updated,'') FROM doc_sources WHERE id = ?", id).Scan(&lastUpdated); err != nil {
-		return id, nil, false, err
+		return id, nil, false, false, err
 	}
 	if force || SourceNeedsRefresh(lastUpdated) {
-		if err = UpdateSource(id); err != nil {
-			return id, nil, false, err
+		usedPlaywright, err = UpdateSource(id)
+		if err != nil {
+			return id, nil, false, false, err
 		}
 		refreshed = true
 	} else {
 		go EmbedSource(id)
 	}
 	entries, err = ListEntriesBySource(id)
-	return id, entries, refreshed, err
+	return id, entries, refreshed, usedPlaywright, err
 }
 
 func ListEntriesBySource(sourceID int) ([]DocEntry, error) {
@@ -205,23 +209,26 @@ func ListEntriesBySource(sourceID int) ([]DocEntry, error) {
 	return entries, nil
 }
 
-func fetchDocs(docURL, docType string) ([]DocEntry, error) {
+func fetchDocs(docURL, docType string) ([]DocEntry, bool, error) {
 	parsedURL, err := url.Parse(docURL)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	switch docType {
 	case "markdown", "md":
-		return fetchMarkdown(parsedURL)
+		entries, err := fetchMarkdown(parsedURL)
+		return entries, false, err
 	case "html":
 		return fetchHTML(parsedURL, false)
 	case "webpage":
 		return fetchHTML(parsedURL, true)
 	case "json", "api":
-		return fetchJSONDocs(parsedURL)
+		entries, err := fetchJSONDocs(parsedURL)
+		return entries, false, err
 	default:
-		return fetchMarkdown(parsedURL)
+		entries, err := fetchMarkdown(parsedURL)
+		return entries, false, err
 	}
 }
 
@@ -233,30 +240,33 @@ func fetchMarkdown(u *url.URL) ([]DocEntry, error) {
 	return chunkMarkdown(string(body), u.Path), nil
 }
 
-func fetchHTML(u *url.URL, renderJS bool) ([]DocEntry, error) {
-	if renderJS {
+func fetchHTML(u *url.URL, renderJS bool) ([]DocEntry, bool, error) {
+	if renderJS && RenderEnabled() {
 		body, err := fetchRenderedURL(u.String())
-		if err != nil {
-			return nil, fmt.Errorf("render fetch: %w", err)
+		if err == nil {
+			entries, err := htmlEntriesFromBody(string(body), u)
+			return entries, true, err
 		}
-		return htmlEntriesFromBody(string(body), u)
+		log.Printf("docs: playwright render failed for %s: %v — falling back to plain HTTP", u.String(), err)
+	} else if renderJS && !RenderEnabled() {
+		log.Printf("docs: playwright unavailable — fetching %s as plain HTML", u.String())
 	}
 	body, err := fetchURL(u.String())
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	entries := chunkHTML(string(body), u.Path)
 	if entriesSparse(entries) && RenderEnabled() {
 		if rendered, rerr := fetchRenderedURL(u.String()); rerr == nil {
 			if ren, rerr := htmlEntriesFromBody(string(rendered), u); rerr == nil && !entriesSparse(ren) {
-				return ren, nil
+				return ren, true, nil
 			}
 		}
 	}
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("no extractable content from %s", u.String())
+		return nil, false, fmt.Errorf("no extractable content from %s", u.String())
 	}
-	return entries, nil
+	return entries, false, nil
 }
 
 func htmlEntriesFromBody(body string, u *url.URL) ([]DocEntry, error) {

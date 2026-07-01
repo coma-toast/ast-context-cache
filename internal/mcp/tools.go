@@ -478,7 +478,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "fetch_doc",
-			Description: "Fetch a documentation URL, register it in the local doc cache, and return stored entries. Prefer this over WebFetch for external library/framework docs so future search_docs queries hit the cache. Use type 'webpage' or render_js=true for JS-rendered SPAs (Playwright Firefox).",
+			Description: "Fetch a documentation URL, register it in the local doc cache, and return stored entries. Prefer this over WebFetch for external library/framework docs so future search_docs queries hit the cache. Use type 'webpage' or render_js=true for JS-rendered SPAs when Playwright is installed; otherwise falls back to plain HTTP (type html).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

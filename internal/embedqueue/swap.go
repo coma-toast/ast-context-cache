@@ -13,6 +13,13 @@ var (
 	swapPauseDepth     int
 )
 
+// SwapPaused reports whether workers are paused for embedder swap or WAL maintenance.
+func SwapPaused() bool {
+	workerMu.Lock()
+	defer workerMu.Unlock()
+	return swapPauseDepth > 0
+}
+
 // PrepareForEmbedderSwap stops workers and waits for in-flight embeds before backend reload.
 func PrepareForEmbedderSwap(timeout time.Duration) {
 	if !workersStarted() {
@@ -39,7 +46,7 @@ func PrepareForEmbedderSwap(timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if n := atomic.LoadInt64(&inFlight); n > 0 {
-		log.Printf("embedqueue: swap prep timed out with %d in-flight embeds", n)
+		log.Printf("embedqueue: swap prep timed out with %d in-flight embed(s) still running", n)
 	}
 	if n := DrainQueueToPending(); n > 0 {
 		log.Printf("embedqueue: drained %d queued jobs before embedder swap", n)

@@ -96,6 +96,13 @@ func shortProject(path string) string {
 	return path
 }
 
+func recentLogsCountLabel(logs []RecentLogLine, logPath string) string {
+	if logPath != "" || len(logs) > 0 {
+		return fmtInt(len(logs))
+	}
+	return "…"
+}
+
 func RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine, logPath string, logTruncated bool, logOpts LogViewOpts) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -124,7 +131,7 @@ func RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(len(mcp)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 97, Col: 110}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 104, Col: 110}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -137,7 +144,7 @@ func RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(len(indexing)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 98, Col: 114}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 105, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -148,9 +155,9 @@ func RecentPanel(mcp []RecentQuery, indexing []RecentQuery, logs []RecentLogLine
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(len(logs)))
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(recentLogsCountLabel(logs, logPath))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 99, Col: 102}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 106, Col: 120}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -216,7 +223,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(logPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 116, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 123, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -229,7 +236,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(logPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 116, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 123, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -242,7 +249,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmtInt(opts.TailLines))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 121, Col: 124}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 128, Col: 124}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 		if templ_7745c5c3_Err != nil {
@@ -255,7 +262,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmtInt(opts.MaxLineChars))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 127, Col: 128}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 134, Col: 128}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 		if templ_7745c5c3_Err != nil {
@@ -317,7 +324,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(line.Timestamp)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 145, Col: 60}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 152, Col: 60}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -336,7 +343,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.ResolveAttributeValue(line.Raw)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 148, Col: 57}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 155, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
 					if templ_7745c5c3_Err != nil {
@@ -349,7 +356,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 					var templ_7745c5c3_Var14 string
 					templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(line.Message)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 148, Col: 74}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 155, Col: 74}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 					if templ_7745c5c3_Err != nil {
@@ -367,7 +374,7 @@ func RecentLogs(lines []RecentLogLine, logPath string, truncated bool, opts LogV
 					var templ_7745c5c3_Var15 string
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(line.Message)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 150, Col: 55}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 157, Col: 55}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -431,7 +438,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(q.TimestampTitle)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 177, Col: 52}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 184, Col: 52}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 				if templ_7745c5c3_Err != nil {
@@ -444,7 +451,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(q.Timestamp)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 177, Col: 68}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 184, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -480,7 +487,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var21 string
 					templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(q.Event)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 180, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 187, Col: 71}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 					if templ_7745c5c3_Err != nil {
@@ -503,7 +510,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var22 string
 				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(q.FileTitle)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 185, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 192, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 				if templ_7745c5c3_Err != nil {
@@ -517,7 +524,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var23 string
 					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(q.File)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 187, Col: 17}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 194, Col: 17}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 					if templ_7745c5c3_Err != nil {
@@ -536,7 +543,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(q.Project)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 192, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 199, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 				if templ_7745c5c3_Err != nil {
@@ -549,7 +556,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(shortProject(q.Project))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 192, Col: 69}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 199, Col: 69}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -563,7 +570,7 @@ func IndexingTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var26 string
 					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.0fms", q.DurationMs))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 195, Col: 46}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 202, Col: 46}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 					if templ_7745c5c3_Err != nil {
@@ -635,7 +642,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(q.TimestampTitle)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 238, Col: 52}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 245, Col: 52}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 				if templ_7745c5c3_Err != nil {
@@ -648,7 +655,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var29 string
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(q.Timestamp)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 238, Col: 68}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 245, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 				if templ_7745c5c3_Err != nil {
@@ -683,7 +690,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(q.ToolName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 239, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 246, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 				if templ_7745c5c3_Err != nil {
@@ -696,7 +703,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var33 string
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(formatToolLabel(q.ToolName))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 239, Col: 112}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 246, Col: 112}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 				if templ_7745c5c3_Err != nil {
@@ -709,7 +716,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var34 string
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(q.Query)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 240, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 247, Col: 39}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 				if templ_7745c5c3_Err != nil {
@@ -723,7 +730,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var35 string
 					templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(truncQuery(q.Query))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 242, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 249, Col: 30}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 					if templ_7745c5c3_Err != nil {
@@ -743,7 +750,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var36 string
 					templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(q.Mode)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 249, Col: 17}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 256, Col: 17}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 					if templ_7745c5c3_Err != nil {
@@ -763,7 +770,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var37 string
 					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(q.Budget))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 256, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 263, Col: 27}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 					if templ_7745c5c3_Err != nil {
@@ -784,7 +791,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 						var templ_7745c5c3_Var38 string
 						templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%s (+%s dedup)", fmtInt(q.Saved), fmtInt(q.DedupTokensSaved)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 264, Col: 86}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 271, Col: 86}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 						if templ_7745c5c3_Err != nil {
@@ -794,7 +801,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 						var templ_7745c5c3_Var39 string
 						templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(fmtInt(q.Saved))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 266, Col: 27}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 273, Col: 27}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 						if templ_7745c5c3_Err != nil {
@@ -814,7 +821,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var40 string
 				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue(q.Project)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 272, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 279, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 				if templ_7745c5c3_Err != nil {
@@ -827,7 +834,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(shortProject(q.Project))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 272, Col: 69}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 279, Col: 69}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 				if templ_7745c5c3_Err != nil {
@@ -841,7 +848,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var42 string
 					templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.0fms", q.DurationMs))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 275, Col: 46}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 282, Col: 46}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 					if templ_7745c5c3_Err != nil {
@@ -861,7 +868,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var43 string
 					templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(fmtToolCpu(q.CpuMs))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 282, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 289, Col: 30}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 					if templ_7745c5c3_Err != nil {
@@ -898,7 +905,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var45 string
 					templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("err-%d", i))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 290, Col: 64}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 297, Col: 64}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 					if templ_7745c5c3_Err != nil {
@@ -911,7 +918,7 @@ func RecentTable(queries []RecentQuery) templ.Component {
 					var templ_7745c5c3_Var46 string
 					templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(q.Error)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 290, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/recent.templ`, Line: 297, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 					if templ_7745c5c3_Err != nil {

@@ -48,9 +48,6 @@ func Init() error {
 	if err != nil {
 		return fmtOpenErr("usage", usePath, err)
 	}
-	if err := openCheckpointPools(); err != nil {
-		return err
-	}
 	initIndexSchema(IndexDB)
 	initUsageSchema(DB)
 	initContextSchema(ContextDB)
@@ -214,23 +211,17 @@ func FormatFileSize(bytes int64) string {
 // deferredStartupWALCheckpoint runs after init so ForceCheckpointWAL does not contend with embedder startup.
 func deferredStartupWALCheckpoint(walAtStart int64) {
 	time.Sleep(2 * time.Minute)
-	wal := walFileBytes()
-	if wal <= walTruncateBytes {
+	indexWal := IndexWalBytes()
+	if indexWal <= walTruncateBytes {
 		return
 	}
-	if wal >= walForceBytes {
-		log.Printf("Startup deferred WAL force checkpoint (wal=%s, was %s at boot)", FormatFileSize(wal), FormatFileSize(walAtStart))
-		ForceCheckpointWAL()
-		return
-	}
-	if busy, frames, ckpt, err := CheckpointWAL(true); err == nil {
-		log.Printf("Startup WAL checkpoint: busy=%d log=%d checkpointed=%d wal=%s", busy, frames, ckpt, FormatFileSize(WalFileBytes()))
-	}
+	log.Printf("Startup deferred WAL checkpoint (index_wal=%s, was %s at boot)", FormatFileSize(indexWal), FormatFileSize(walAtStart))
+	maintainWAL("startup", true)
 }
 
 func StartWALCheckpoint() {
-	if wal := walFileBytes(); wal > walTruncateBytes {
-		log.Printf("Large WAL at startup (%s) — deferring checkpoint until server is up", FormatFileSize(wal))
+	if wal := IndexWalBytes(); wal > walTruncateBytes {
+		log.Printf("Large index WAL at startup (%s) — deferring checkpoint until server is up", FormatFileSize(wal))
 		go deferredStartupWALCheckpoint(wal)
 	}
 	passiveTicker := time.NewTicker(30 * time.Second)
@@ -245,20 +236,21 @@ func StartWALCheckpoint() {
 	for {
 		select {
 		case <-passiveTicker.C:
-			if wal := walFileBytes(); wal >= walPassiveBytes && wal <= walTruncateBytes {
+			if wal := IndexWalBytes(); wal >= walPassiveBytes && wal <= walTruncateBytes {
 				runPassiveCheckpoint()
 			}
 		case <-maintTicker.C:
 			runWALMaintenanceCycle("periodic")
 		case <-truncateTicker.C:
-			wal := walFileBytes()
+			wal := IndexWalBytes()
 			if wal <= walTruncateBytes {
 				continue
 			}
-			if maybeForceCheckpoint(wal, "scheduled") {
-				continue
+			if shouldForceCheckpoint(wal) {
+				maintainWAL("scheduled", true)
+			} else {
+				runWALMaintenanceCycle("scheduled")
 			}
-			runWALMaintenanceCycle("scheduled")
 		case <-retentionTicker.C:
 			retryQueryRetention("daily")
 		case <-vacuumTicker.C:

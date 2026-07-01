@@ -18,6 +18,15 @@ func initRealtimeBridge() {
 	startLiveRefresh()
 }
 
+func partialUsesIndexDB(name string) bool {
+	switch name {
+	case "symbol-chart", "language-chart", "import-chart", "memory", "settings":
+		return true
+	default:
+		return false
+	}
+}
+
 func flushPartialBroadcast(mask realtime.Reason) {
 	if hub == nil {
 		return
@@ -25,8 +34,12 @@ func flushPartialBroadcast(mask realtime.Reason) {
 	if mask&realtime.IndexHealth != 0 {
 		invalidateIndexHealthCache()
 	}
+	indexBlocked := db.WALMaintenanceActive() || db.IndexReadQuiesced()
 	for _, p := range dashboardPartials {
 		if !partialMatchesMask(p.name, mask) {
+			continue
+		}
+		if indexBlocked && partialUsesIndexDB(p.name) {
 			continue
 		}
 		html := safeRenderPartial(p)

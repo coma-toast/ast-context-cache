@@ -147,7 +147,7 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	} else {
 		h.DiskSize = "-"
 	}
-	walBytes := db.WalFileBytes()
+	walBytes := db.IndexWalBytes()
 	h.WalMB = float64(walBytes) / (1024 * 1024)
 	h.WalSize = db.FormatFileSize(walBytes)
 

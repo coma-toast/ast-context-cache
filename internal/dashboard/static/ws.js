@@ -107,22 +107,9 @@ document.addEventListener('alpine:init', () => {
                 const target = document.querySelector(targetSel);
                 if (target) {
                     if (targetSel === '#recent-queries') {
-                        const preservedRecentTab = getRecentSubTab(target);
-                        if (patchRecentPanel(target, msg.data.html)) {
-                            if (preservedRecentTab === 'logs') {
-                                requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
-                            }
-                            syncLogsPoll();
-                        } else {
-                            target.innerHTML = msg.data.html;
-                            Alpine.flushSync();
-                            mountRecentContent(target, preservedRecentTab);
-                            syncLogsPoll();
-                        }
+                        applyRecentPartialHTML(target, msg.data.html, getRecentSubTab(target));
                     } else {
-                        target.innerHTML = msg.data.html;
-                        Alpine.flushSync();
-                        mountHTMXContent(target);
+                        applyPartialHTML(target, msg.data.html);
                     }
                     if (target.id === 'settings-content') {
                         mountSettingsContent(target);
@@ -548,9 +535,14 @@ function patchRecentPanel(container, html) {
         const dst = panel.querySelector('.pane-logs');
         if (src && dst) dst.innerHTML = src.innerHTML;
     }
-    for (const id of ['recent-tab-mcp', 'recent-tab-indexing', 'recent-tab-logs']) {
+    for (const id of ['recent-tab-mcp', 'recent-tab-indexing']) {
         const newCount = srcPanel.querySelector(`label[for="${id}"] .recent-count`);
         const oldCount = panel.querySelector(`label[for="${id}"] .recent-count`);
+        if (newCount && oldCount) oldCount.textContent = newCount.textContent;
+    }
+    if (srcLogPath?.textContent?.trim()) {
+        const newCount = srcPanel.querySelector('label[for="recent-tab-logs"] .recent-count');
+        const oldCount = panel.querySelector('label[for="recent-tab-logs"] .recent-count');
         if (newCount && oldCount) oldCount.textContent = newCount.textContent;
     }
     mountHTMXContent(panel);
@@ -637,7 +629,16 @@ function syncLogsPoll() {
 async function refreshRecentLogsOnly(forceScroll) {
     const el = document.getElementById('recent-queries');
     if (!el) return;
-    const r = await fetch('/partials/recent-logs');
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    let r;
+    try {
+        r = await fetch('/partials/recent-logs', { signal: ctrl.signal });
+    } catch (e) {
+        clearTimeout(timer);
+        return;
+    }
+    clearTimeout(timer);
     if (!r.ok) return;
     const html = await r.text();
     if (!patchRecentLogsCard(el, html)) {
@@ -645,6 +646,27 @@ async function refreshRecentLogsOnly(forceScroll) {
         return;
     }
     requestAnimationFrame(() => scrollRecentLogsToBottom(el, !!forceScroll));
+}
+
+function recentFetchErrorHTML(msg) {
+    return '<div class="card" style="padding:12px"><p class="empty-state">' + msg + '</p></div>';
+}
+
+async function fetchRecentPartialHTML() {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 12000);
+        try {
+            const r = await fetch('/partials/recent', { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (r.ok) return { html: await r.text(), stale: r.headers.get('X-Recent-Stale') === '1' };
+        } catch (e) {
+            clearTimeout(timer);
+            if (attempt === 1) throw e;
+            await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+    }
+    throw new Error('recent fetch failed');
 }
 
 async function refreshRecentPartial(forceScroll) {
@@ -655,13 +677,22 @@ async function refreshRecentPartial(forceScroll) {
         await refreshRecentLogsOnly(forceScroll);
         return;
     }
-    const r = await fetch('/partials/recent');
-    if (!r.ok) return;
-    const html = await r.text();
-    if (!patchRecentPanel(el, html)) {
-        el.innerHTML = html;
-        mountRecentContent(el, preserved);
+    let html, stale;
+    try {
+        ({ html, stale } = await fetchRecentPartialHTML());
+    } catch (e) {
+        el.innerHTML = recentFetchErrorHTML('Recent queries timed out — database may be busy. Try Logs sub-tab or tail ~/.astcache/ast-mcp.log');
+        return;
     }
+    if (stale && !el.querySelector('.recent-stale-hint')) {
+        html = html.replace('<div class="recent-panel">', '<div class="recent-panel"><p class="recent-stale-hint dim">Showing cached results — database was busy</p>');
+    }
+    if (patchRecentPanel(el, html)) {
+        syncLogsPoll();
+        return;
+    }
+    applyPartialHTML(el, html);
+    mountRecentContent(el, preserved);
 }
 
 function mountRecentContent(el, preservedTab) {
@@ -696,6 +727,33 @@ function mountRecentContent(el, preservedTab) {
             requestAnimationFrame(() => scrollRecentLogsToBottom(el, true));
         }
     });
+}
+
+function safeAlpineFlushSync() {
+    try {
+        if (typeof Alpine !== 'undefined' && typeof Alpine.flushSync === 'function') {
+            Alpine.flushSync();
+        }
+    } catch (_) {}
+}
+
+function applyPartialHTML(target, html) {
+    target.innerHTML = html;
+    safeAlpineFlushSync();
+    mountHTMXContent(target);
+}
+
+function applyRecentPartialHTML(target, html, preservedRecentTab) {
+    if (patchRecentPanel(target, html)) {
+        if (preservedRecentTab === 'logs') {
+            requestAnimationFrame(() => scrollRecentLogsToBottom(target, false));
+        }
+        syncLogsPoll();
+        return;
+    }
+    applyPartialHTML(target, html);
+    mountRecentContent(target, preservedRecentTab);
+    syncLogsPoll();
 }
 
 function mountHTMXContent(el) {

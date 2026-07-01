@@ -13,6 +13,9 @@ type ScoredResult struct {
 }
 
 func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResult {
+	if db.IndexDB == nil || db.IndexReadQuiesced() {
+		return nil
+	}
 	terms := strings.Fields(strings.ToLower(query))
 	var scored []ScoredResult
 

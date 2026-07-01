@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
@@ -16,34 +15,11 @@ func serverLogPath() string {
 }
 
 func logViewOpts() components.LogViewOpts {
-	opts := components.LogViewOpts{TailLines: 200, MaxLineChars: 500}
-	if v := strings.TrimSpace(db.GetSetting("dashboard_log_tail_lines", "200")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			opts.TailLines = n
-		}
-	}
-	if v := strings.TrimSpace(db.GetSetting("dashboard_log_line_chars", "500")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			opts.MaxLineChars = n
-		}
-	}
-	if opts.TailLines < 50 {
-		opts.TailLines = 50
-	}
-	if opts.TailLines > 500 {
-		opts.TailLines = 500
-	}
-	if opts.MaxLineChars < 80 {
-		opts.MaxLineChars = 80
-	}
-	if opts.MaxLineChars > 8000 {
-		opts.MaxLineChars = 8000
-	}
-	return opts
+	return logViewOptsFast()
 }
 
 func buildRecentLogsForDashboard() (lines []components.RecentLogLine, path string, fileTruncated bool, opts components.LogViewOpts) {
-	opts = logViewOpts()
+	opts = logViewOptsFast()
 	lines, path, fileTruncated = buildRecentLogs(opts.TailLines)
 	for i := range lines {
 		lines[i] = truncateLogDisplay(lines[i], opts.MaxLineChars)

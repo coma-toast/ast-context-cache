@@ -63,7 +63,6 @@ func Close() {
 			c.Close()
 		}
 	}
-	closeCheckpointPools()
 	IndexDB, ContextDB, DB = nil, nil, nil
 }
 

@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -30,8 +32,20 @@ func buildRecentQueries(projectID string, limit int) (mcp, indexing []components
 }
 
 func queryRecent(projectID string, limit int, toolFilter string) []components.RecentQuery {
+	for attempt := 0; attempt < 2; attempt++ {
+		if out, ok := queryRecentOnce(projectID, limit, toolFilter); ok {
+			return out
+		}
+		if attempt == 0 {
+			time.Sleep(75 * time.Millisecond)
+		}
+	}
+	return nil
+}
+
+func queryRecentOnce(projectID string, limit int, toolFilter string) ([]components.RecentQuery, bool) {
 	if db.DB == nil {
-		return nil
+		return nil, false
 	}
 	if limit > 500 {
 		limit = 500
@@ -44,9 +58,12 @@ func queryRecent(projectID string, limit int, toolFilter string) []components.Re
 	}
 	args = append(args, limit)
 	q := recentSelect + " WHERE " + where + " ORDER BY timestamp DESC LIMIT ?"
-	rows, err := db.DB.Query(q, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	rows, err := db.DB.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil
+		log.Printf("dashboard recent: query timeout or error: %v", err)
+		return nil, false
 	}
 	defer rows.Close()
 	var out []components.RecentQuery
@@ -59,7 +76,7 @@ func queryRecent(projectID string, limit int, toolFilter string) []components.Re
 		}
 		out = append(out, parseRecentRow(ts, toolName, pp, errMsg, argsJSON, saved, dedupSaved, dm, cpuMs))
 	}
-	return out
+	return out, true
 }
 
 func parseRecentRow(ts, toolName, pp, errMsg, argsJSON string, saved, dedupSaved int, dm, cpuMs float64) components.RecentQuery {

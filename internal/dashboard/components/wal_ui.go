@@ -42,7 +42,10 @@ func walCheckpointDetail(h IndexHealth, elapsed string) string {
 		mode = "TRUNCATE"
 	}
 	if h.WALLastBusy == 1 {
-		return fmt.Sprintf("Waiting for DB readers (busy) · %s → %s · streak %d · %s", start, cur, h.WALBusyStreak, elapsed)
+		if !h.WALMaintenanceStarted.IsZero() && time.Since(h.WALMaintenanceStarted) > 2*time.Minute {
+			return fmt.Sprintf("TRUNCATE blocked — deferring until readers idle · %s → %s · streak %d · %s", start, cur, h.WALBusyStreak, elapsed)
+		}
+		return fmt.Sprintf("Waiting for DB readers (busy) · %s → %s · streak %d · %s · logs: tail %s", start, cur, h.WALBusyStreak, elapsed, db.DefaultLogPath())
 	}
 	if h.WALWalStartBytes > 0 && h.WALWalCurrentBytes < h.WALWalStartBytes {
 		return fmt.Sprintf("Checkpoint %s · %s → %s · %s", mode, start, cur, elapsed)

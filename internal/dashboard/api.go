@@ -1262,6 +1262,7 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 		"disk": map[string]interface{}{
 			"db_size_bytes":   diskSize,
 			"wal_size_bytes":  db.WalFileBytes(),
+			"index_wal_bytes": db.IndexWalBytes(),
 			"read_mbps":       diskIO.ReadMBps,
 			"write_mbps":      diskIO.WriteMBps,
 			"ssd_model":       ssd.Model,
@@ -1372,6 +1373,12 @@ func handleWALStatus(w http.ResponseWriter, r *http.Request) {
 		"last_frames":       s.LastFrames,
 		"last_checkpointed": s.LastCheckpointed,
 		"wal_size_bytes":    db.WalFileBytes(),
+		"index_wal_bytes":   db.IndexWalBytes(),
+		"usage_wal_bytes":   db.UsageWalBytes(),
+		"context_wal_bytes": db.ContextWalBytes(),
 		"wal_pressure":      db.WalPressure(),
+		"skip_reason":       s.SkipReason,
+		"next_attempt_at":   s.NextAttemptAt,
+		"log_path":          db.ResolveServerLogPath(),
 	})
 }
