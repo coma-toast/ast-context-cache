@@ -1,6 +1,6 @@
-# AST Context Cache Dashboard (React)
+# AST Context Cache Dashboard (Preact)
 
-Operator UI built with **React + Vite + MUI**, embedded in the Go binary at `/dashboard/`.
+Operator UI built with **Preact + Vite + MUI** (via `preact/compat`), embedded in the Go binary at `/dashboard/`.
 
 ## Development
 

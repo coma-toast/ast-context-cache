@@ -35,7 +35,7 @@ See [README — Embedding backends](../../README.md#embedding-backends).
 
 ## Dashboard (http://localhost:7830/dashboard/)
 
-Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedded at `/dashboard/` (root `/` redirects). Updates use **WebSocket `/ws`** (`refresh` panel events + MCP toasts), not SSE or HTMX partials.
+Open after `make run` or `ast-mcp dash`. The UI is a **Preact + MUI** SPA embedded at `/dashboard/` (root `/` redirects). Updates use **WebSocket `/ws`** (`refresh` panel events + MCP toasts), not SSE or HTMX partials.
 
 **Dev:** `make ui-dev` (Vite on :5173, proxies API/WS) while ast-mcp runs on :7830.
 
