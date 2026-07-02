@@ -149,19 +149,6 @@ func loadProjectsFresh() []components.Project {
 	return ps
 }
 
-func handleDashboardPage(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	projects, _ := loadProjectsForPage()
-	h := components.HealthInfo{
-		Version:    version.Version,
-		StartTime: serverStartTime,
-	}
-	components.PageTemplate(projects, h).Render(r.Context(), w)
-}
-
 func handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	s := components.Stats{}
