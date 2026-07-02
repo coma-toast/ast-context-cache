@@ -202,3 +202,11 @@ export interface MCPTier {
   tools_json_path: string
   tools_json_exists: boolean
 }
+
+export interface RecentLogLine {
+  Timestamp?: string
+  Level: string
+  Message: string
+  Raw?: string
+  MsgTruncated?: boolean
+}

@@ -49,6 +49,10 @@ export const api = {
     get<{ mcp: import('./types').RecentQuery[]; indexing: import('./types').RecentQuery[] }>(
       `/api/dashboard/recent-split${qs(projectId)}`,
     ),
+  recentLogs: () =>
+    get<{ lines: import('./types').RecentLogLine[]; path: string; file_truncated: boolean; tail_lines: number }>(
+      '/api/dashboard/recent-logs',
+    ),
   tools: (projectId?: string) => get<ToolStat[]>(`/api/tools${qs(projectId)}`),
   symbolKinds: (projectId?: string) => get<{ kind: string; count: number }[]>(`/api/symbol-kinds${qs(projectId)}`),
   languageStats: (projectId?: string) =>

@@ -1,8 +1,10 @@
-import { useState, Fragment } from 'react'
+import { useState, Fragment, useEffect, useRef, useCallback } from 'react'
 import {
   Box,
   Button,
+  Card,
   Collapse,
+  Stack,
   Tab,
   Tabs,
   Table,
@@ -12,7 +14,14 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import type { RecentQuery } from '../api/types'
+import type { RecentQuery, RecentLogLine } from '../api/types'
+import { api } from '../api/client'
+
+const LOG_LEVEL_COLOR: Record<string, string> = {
+  error: '#f85149',
+  warn: '#d29922',
+  info: '#8b949e',
+}
 
 export function RecentTab({
   mcp,
@@ -24,15 +33,34 @@ export function RecentTab({
   const [sub, setSub] = useState(0)
   const [expanded, setExpanded] = useState<number | null>(null)
 
-  const rows = sub === 0 ? mcp : sub === 1 ? indexing : []
-
   return (
     <Box>
       <Tabs value={sub} onChange={(_, v) => setSub(v)} sx={{ mb: 2 }}>
         <Tab label="MCP tool calls" />
         <Tab label="Indexing activity" />
+        <Tab label="Server logs" />
       </Tabs>
-      <Table size="small" stickyHeader sx={{ display: { overflowX: 'auto' } }}>
+      {sub === 2 ? (
+        <LogsPane />
+      ) : (
+        <QueryTable rows={sub === 0 ? mcp : indexing} expanded={expanded} setExpanded={setExpanded} />
+      )}
+    </Box>
+  )
+}
+
+function QueryTable({
+  rows,
+  expanded,
+  setExpanded,
+}: {
+  rows: RecentQuery[] | null
+  expanded: number | null
+  setExpanded: (v: number | null) => void
+}) {
+  return (
+    <Card variant="outlined" sx={{ overflowX: 'auto' }}>
+      <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
             <TableCell>Time</TableCell>
@@ -83,7 +111,19 @@ export function RecentTab({
                 <TableRow>
                   <TableCell colSpan={6} sx={{ py: 0, border: 0 }}>
                     <Collapse in={expanded === i}>
-                      <Box sx={{ p: 1, bgcolor: 'background.paper', fontFamily: 'monospace', fontSize: 12 }}>
+                      <Box
+                        sx={{
+                          p: 1.5,
+                          my: 0.5,
+                          bgcolor: 'action.hover',
+                          borderLeft: '3px solid',
+                          borderColor: 'error.main',
+                          fontFamily: 'ui-monospace, monospace',
+                          fontSize: 12,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                        }}
+                      >
                         {q.Error}
                       </Box>
                     </Collapse>
@@ -94,6 +134,73 @@ export function RecentTab({
           ))}
         </TableBody>
       </Table>
-    </Box>
+    </Card>
+  )
+}
+
+function LogsPane() {
+  const [data, setData] = useState<{ lines: RecentLogLine[]; path: string; file_truncated: boolean } | null>(null)
+  const [autoscroll, setAutoscroll] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api.recentLogs()
+      setData(d)
+    } catch {
+      setData({ lines: [], path: '', file_truncated: false })
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+    const t = setInterval(load, 3000)
+    return () => clearInterval(t)
+  }, [load])
+
+  useEffect(() => {
+    if (autoscroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [data, autoscroll])
+
+  return (
+    <Card variant="outlined" sx={{ overflow: 'hidden' }}>
+      <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis' }} title={data?.path}>
+          {data?.path || 'Loading log path…'}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {data?.lines?.length ?? 0} lines{data?.file_truncated ? ' (truncated)' : ''}
+        </Typography>
+        <Button size="small" variant={autoscroll ? 'contained' : 'outlined'} onClick={() => setAutoscroll((v) => !v)}>
+          Autoscroll {autoscroll ? 'on' : 'off'}
+        </Button>
+      </Stack>
+      <Box
+        ref={scrollRef}
+        sx={{
+          maxHeight: 480,
+          overflowY: 'auto',
+          p: 1.5,
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: 11,
+          lineHeight: 1.45,
+          bgcolor: '#0d1117',
+        }}
+      >
+        {!data?.lines?.length && <Typography color="text.secondary">No log lines</Typography>}
+        {data?.lines?.map((line, i) => (
+          <Box key={i} sx={{ color: LOG_LEVEL_COLOR[line.Level] || LOG_LEVEL_COLOR.info, mb: 0.25 }}>
+            {line.Timestamp && (
+              <Box component="span" sx={{ color: 'text.secondary', mr: 1 }}>
+                {line.Timestamp}
+              </Box>
+            )}
+            {line.Message}
+          </Box>
+        ))}
+      </Box>
+    </Card>
   )
 }

@@ -24,7 +24,19 @@ func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/memory", handleDashboardMemoryJSON)
 	mux.HandleFunc("/api/dashboard/settings", handleDashboardSettingsJSON)
 	mux.HandleFunc("/api/dashboard/recent-split", handleDashboardRecentSplitJSON)
+	mux.HandleFunc("/api/dashboard/recent-logs", handleDashboardRecentLogsJSON)
 	mux.HandleFunc("/api/dashboard/mcp-tier", handleDashboardMCPTierJSON)
+}
+
+func handleDashboardRecentLogsJSON(w http.ResponseWriter, r *http.Request) {
+	logs, path, truncated, opts := buildRecentLogsForDashboard()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"lines":          logs,
+		"path":           path,
+		"file_truncated": truncated,
+		"tail_lines":     opts.TailLines,
+	})
 }
 
 func handleDashboardHealthJSON(w http.ResponseWriter, r *http.Request) {

@@ -37,14 +37,6 @@ export function OverviewTab({ stats }: { stats: Stats | null }) {
           <StatCard title="Orphans" value={formatStat(stats.VirtualOrphanCount)} sub={`stored ${formatStat(stats.VirtualStored30d)}`} />
         </Grid>
       </Grid>
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
-        <Box sx={{ width: 12, height: 12, bgcolor: '#58a6ff', borderRadius: 0.5 }} title="avg" />
-        <Typography variant="caption">avg queries</Typography>
-        <Box sx={{ width: 12, height: 12, bgcolor: '#f85149', borderRadius: 0.5 }} />
-        <Typography variant="caption">today</Typography>
-        <Box sx={{ width: 12, height: 12, bgcolor: '#4a2468', borderRadius: 0.5 }} />
-        <Typography variant="caption">overlap</Typography>
-      </Box>
     </Box>
   )
 }

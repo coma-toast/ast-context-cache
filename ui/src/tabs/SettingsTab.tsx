@@ -59,13 +59,23 @@ export function SettingsTab({
 
   return (
     <Box>
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 3, position: 'sticky', top: 0, zIndex: 1, py: 1, bgcolor: 'background.default' }}>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{
+        mb: 3,
+        position: 'sticky',
+        top: { xs: 56, md: 56 },
+        zIndex: 10,
+        py: 1,
+        bgcolor: 'rgba(13,17,23,0.85)',
+        backdropFilter: 'blur(10px)',
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+      }}>
         {SECTIONS.map((s) => (
           <Chip key={s.id} label={s.label} component="a" href={`#settings-${s.id}`} clickable variant="outlined" size="small" />
         ))}
       </Stack>
 
-      <Card variant="outlined" id="settings-performance" sx={{ mb: 2 }}>
+      <Card variant="outlined" id="settings-performance" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Performance
@@ -176,11 +186,17 @@ export function SettingsTab({
           )}
           <Stack spacing={2}>
             {projects.map((p) => (
-              <Box key={p.Path} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
-                  <Box>
+              <Box key={p.Path} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, minWidth: 0 }}>
+                <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'flex-start' }} gap={2}>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography fontWeight={600}>{p.Label}</Typography>
-                    <Typography variant="caption" fontFamily="monospace" display="block">
+                    <Typography
+                      variant="caption"
+                      fontFamily="monospace"
+                      display="block"
+                      sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={p.Path}
+                    >
                       {p.Path}
                     </Typography>
                     {(p.SymbolCount > 0 || p.QueryCount > 0) && (
@@ -212,7 +228,7 @@ export function SettingsTab({
                       </Stack>
                     ))}
                   </Box>
-                  <Stack direction="row" spacing={1}>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }}>
                     <Button size="small" onClick={async () => {
                       try {
                         await api.pinProject(p.Path, !p.Pinned)

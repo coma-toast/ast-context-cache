@@ -35,7 +35,18 @@ const NAV = [
   { id: 'settings', label: 'Settings' },
 ] as const
 
+const DRAWER_WIDTH = 240
+
 type TabId = (typeof NAV)[number]['id']
+
+const TAB_HINTS: Record<TabId, string> = {
+  overview: 'Query activity, virtual context summary, and index health',
+  memory: 'Virtual context inventory and cached documentation sources',
+  activity: 'Query volume and token savings over time',
+  analytics: 'Tool performance, symbol mix, and import graph',
+  recent: 'MCP calls, indexing events, and server logs',
+  settings: 'Embedding, watchers, retention, projects, and agent integration',
+}
 
 function DashboardInner() {
   const { showToast } = useToast()
@@ -50,7 +61,7 @@ function DashboardInner() {
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [mcpTier, setMcpTier] = useState<MCPTier | null>(null)
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[] | null>(null)
-  const [timeseriesInterval] = useState<'daily' | 'hourly'>('daily')
+  const [timeseriesInterval, setTimeseriesInterval] = useState<'daily' | 'hourly'>('daily')
   const [tools, setTools] = useState<ToolStat[] | null>(null)
   const [symbols, setSymbols] = useState<{ kind: string; count: number }[] | null>(null)
   const [imports, setImports] = useState<{ target: string; count: number }[] | null>(null)
@@ -115,7 +126,7 @@ function DashboardInner() {
   )
 
   const drawer = (
-    <Box sx={{ width: 240, p: 2 }}>
+    <Box sx={{ width: DRAWER_WIDTH, p: 2, boxSizing: 'border-box' }}>
       <Typography variant="h6" fontWeight={700} gutterBottom>
         AST Context Cache
       </Typography>
@@ -135,27 +146,75 @@ function DashboardInner() {
   const title = useMemo(() => NAV.find((n) => n.id === tab)?.label ?? 'Dashboard', [tab])
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
       <Drawer variant="temporary" open={mobileOpen} onClose={() => setMobileOpen(false)} ModalProps={{ keepMounted: true }} sx={{ display: { xs: 'block', md: 'none' } }}>
         {drawer}
       </Drawer>
-      <Drawer variant="permanent" sx={{ display: { xs: 'none', md: 'block' }, '& .MuiDrawer-paper': { width: 240, boxSizing: 'border-box', borderRight: '1px solid', borderColor: 'divider' } }} open>
+      <Drawer
+        variant="permanent"
+        open
+        sx={{
+          display: { xs: 'none', md: 'block' },
+          width: DRAWER_WIDTH,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            borderRight: '1px solid',
+            borderColor: 'divider',
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            height: '100vh',
+            overflowY: 'auto',
+          },
+        }}
+      >
         {drawer}
       </Drawer>
-      <Box component="main" sx={{ flex: 1, minWidth: 0 }}>
-        <Toolbar sx={{ gap: 2, flexWrap: 'wrap', borderBottom: '1px solid', borderColor: 'divider', minHeight: 56 }}>
-          <IconButton edge="start" sx={{ display: { md: 'none' } }} onClick={() => setMobileOpen(true)} aria-label="Open navigation">
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          width: { xs: '100%', md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          ml: { xs: 0, md: `${DRAWER_WIDTH}px` },
+          overflowX: 'hidden',
+        }}
+      >
+        <Toolbar
+          sx={{
+            gap: 2,
+            flexWrap: 'nowrap',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            minHeight: 56,
+            position: 'sticky',
+            top: 0,
+            zIndex: 200,
+            bgcolor: 'rgba(13,17,23,0.92)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <IconButton edge="start" sx={{ display: { md: 'none' }, flexShrink: 0 }} onClick={() => setMobileOpen(true)} aria-label="Open navigation">
             <MenuIcon />
           </IconButton>
-          <Box sx={{ flex: 1, minWidth: 200 }}>
+          <Box sx={{ flex: 1, minWidth: 0, maxWidth: '100%' }}>
             <HealthBar health={health} />
           </Box>
-          <FormControl size="small" sx={{ minWidth: { xs: 140, md: 220 } }}>
+          <FormControl size="small" sx={{ minWidth: { xs: 120, md: 160 }, maxWidth: { md: 200 }, flexShrink: 0 }}>
             <Select
               displayEmpty
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              renderValue={(v) => (v ? projects.find((p) => p.path === v)?.name || v : 'All projects')}
+              renderValue={(v) => {
+                const label = v ? projects.find((p) => p.path === v)?.name || v : 'All projects'
+                return (
+                  <Typography component="span" noWrap sx={{ maxWidth: 160, display: 'block' }}>
+                    {label}
+                  </Typography>
+                )
+              }}
             >
               <MenuItem value="">All projects</MenuItem>
               {projects.map((p) => (
@@ -172,9 +231,14 @@ function DashboardInner() {
           )}
         </Toolbar>
         <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
-          <Typography variant="h5" fontWeight={600} gutterBottom>
-            {title}
-          </Typography>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="h5" fontWeight={600}>
+              {title}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {TAB_HINTS[tab]}
+            </Typography>
+          </Box>
           {tab === 'overview' && (
             <>
               <OverviewTab stats={stats} />
@@ -182,7 +246,9 @@ function DashboardInner() {
             </>
           )}
           {tab === 'memory' && <MemoryTab data={memory} onRefresh={() => load(['memory'])} />}
-          {tab === 'activity' && <ActivityTab data={timeseries} />}
+          {tab === 'activity' && (
+            <ActivityTab data={timeseries} interval={timeseriesInterval} onIntervalChange={setTimeseriesInterval} />
+          )}
           {tab === 'analytics' && <AnalyticsTab tools={tools} symbols={symbols} imports={imports} />}
           {tab === 'recent' && <RecentTab mcp={recentMcp} indexing={recentIdx} />}
           {tab === 'settings' && <SettingsTab data={settings} mcpTier={mcpTier} onRefresh={() => load(['settings', 'indexHealth'])} />}

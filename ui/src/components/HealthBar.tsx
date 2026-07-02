@@ -10,30 +10,62 @@ export function HealthBar({ health }: { health: Health | null }) {
   const queuePct = queueCap > 0 ? Math.min(100, ((health.QueueQueued + health.QueuePending) / queueCap) * 100) : 0
   const queueColor = queuePct > 75 ? 'error' : queuePct > 40 ? 'warning' : 'success'
   const uptimeNs = typeof health.Uptime === 'number' ? health.Uptime : 0
+  const embedColor = health.EmbedderState === 'healthy' ? 'success' : health.EmbedderState === 'error' ? 'error' : 'default'
   return (
-    <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center" useFlexGap sx={{ flex: 1, minWidth: 0 }}>
-      <Chip size="small" label={`Embed: ${health.EmbedderState || 'unknown'}`} color={health.EmbedderState === 'healthy' ? 'success' : 'default'} />
-      <Chip size="small" label={`Queue ${health.QueueQueued + health.QueuePending}`} color={queueColor} />
-      <Chip size="small" variant="outlined" label={`${health.QueueThroughput?.toFixed(1) || 0}/s`} />
-      <Chip size="small" variant="outlined" label={`Cache ${((health.CacheHitRatio || 0) * 100).toFixed(0)}%`} />
-      <Chip size="small" variant="outlined" label={`Heap ${health.HeapMB?.toFixed(0)}MB`} />
-      <Chip size="small" variant="outlined" label={`CPU ${health.CPUPercent?.toFixed(0)}%`} />
-      <Chip size="small" variant="outlined" label={formatUptime(uptimeNs)} />
-      <Box sx={{ flex: 1 }} />
-      <Typography variant="caption" color="text.secondary">
-        v{health.Version}
-      </Typography>
-    </Stack>
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        minWidth: 0,
+        maxWidth: '100%',
+        flex: 1,
+        px: 1.75,
+        py: 0.75,
+        bgcolor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 999,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        scrollbarWidth: 'thin',
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'nowrap', minWidth: 'min-content' }}>
+        <Chip size="small" label={`Embed: ${health.EmbedderState || 'unknown'}`} color={embedColor} sx={{ flexShrink: 0 }} />
+        <Chip size="small" label={`Queue ${health.QueueQueued + health.QueuePending}`} color={queueColor} sx={{ flexShrink: 0 }} />
+        <Chip size="small" variant="outlined" label={`${health.QueueThroughput?.toFixed(1) || 0}/s`} sx={{ flexShrink: 0 }} />
+        <Chip size="small" variant="outlined" label={`Cache ${((health.CacheHitRatio || 0) * 100).toFixed(0)}%`} sx={{ flexShrink: 0, display: { xs: 'none', sm: 'flex' } }} />
+        <Chip size="small" variant="outlined" label={`Heap ${health.HeapMB?.toFixed(0)}MB`} sx={{ flexShrink: 0, display: { xs: 'none', lg: 'flex' } }} />
+        <Chip size="small" variant="outlined" label={`CPU ${health.CPUPercent?.toFixed(0)}%`} sx={{ flexShrink: 0, display: { xs: 'none', lg: 'flex' } }} />
+        <Chip size="small" variant="outlined" label={formatUptime(uptimeNs)} sx={{ flexShrink: 0, display: { xs: 'none', md: 'flex' } }} />
+        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, pl: 0.5 }}>
+          v{health.Version}
+        </Typography>
+      </Stack>
+    </Box>
   )
 }
 
 export function StatCard({ title, value, sub }: { title: string; value: string; sub?: string }) {
   return (
-    <Box sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-      <Typography variant="caption" color="text.secondary" textTransform="uppercase">
+    <Box
+      sx={{
+        p: 2,
+        bgcolor: 'background.paper',
+        borderRadius: 1,
+        border: '1px solid',
+        borderColor: 'divider',
+        transition: 'border-color 0.15s, background 0.15s',
+        '&:hover': {
+          borderColor: 'primary.dark',
+          bgcolor: 'rgba(88,166,255,0.04)',
+        },
+      }}
+    >
+      <Typography variant="overline" color="text.secondary" display="block">
         {title}
       </Typography>
-      <Typography variant="h5" fontWeight={600}>
+      <Typography variant="h4" fontWeight={700} sx={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 28, lineHeight: 1.2 }}>
         {value}
       </Typography>
       {sub && (

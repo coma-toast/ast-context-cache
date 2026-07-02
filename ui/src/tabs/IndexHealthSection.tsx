@@ -76,27 +76,49 @@ export function IndexHealthSection({ data }: { data: IndexHealth | null }) {
           <Card variant="outlined">
             <CardContent>
               <Typography variant="subtitle2" gutterBottom>
-                File watchers
+                File watchers ({data.Watchers?.length || 0})
               </Typography>
               {data.Watchers?.length === 0 && (
                 <Typography variant="body2" color="text.secondary">
                   No active watchers
                 </Typography>
               )}
-              <Stack spacing={1}>
+              <Stack spacing={1} sx={{ maxHeight: 320, overflowY: 'auto', pr: 0.5 }}>
                 {data.Watchers?.map((w) => (
-                  <Stack key={w.ProjectPath} direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                    <Typography variant="body2" fontWeight={500}>
-                      {w.Label || w.Name}
-                    </Typography>
-                    <Chip size="small" label={w.Active ? 'active' : 'paused'} color={w.Active ? 'success' : 'default'} />
-                    {w.LinkedCount > 0 && (
-                      <Chip size="small" variant="outlined" label={`${w.LinkedCount} linked`} component="a" href="#settings-projects" />
-                    )}
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                  <Box
+                    key={w.ProjectPath}
+                    sx={{
+                      p: 1.25,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
+                      <Typography variant="body2" fontWeight={600} sx={{ minWidth: 0 }}>
+                        {w.Label || w.Name}
+                      </Typography>
+                      <Chip size="small" label={w.Active ? 'active' : 'paused'} color={w.Active ? 'success' : 'default'} />
+                      {w.LinkedCount > 0 && (
+                        <Chip size="small" variant="outlined" label={`${w.LinkedCount} linked`} component="a" href="#settings-projects" />
+                      )}
+                    </Stack>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{
+                        fontFamily: 'ui-monospace, monospace',
+                        display: 'block',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={w.ProjectPath}
+                    >
                       {w.ProjectPath}
                     </Typography>
-                  </Stack>
+                  </Box>
                 ))}
               </Stack>
             </CardContent>
