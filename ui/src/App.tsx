@@ -160,12 +160,10 @@ function DashboardInner() {
           '& .MuiDrawer-paper': {
             width: DRAWER_WIDTH,
             boxSizing: 'border-box',
+            position: 'relative',
+            height: '100vh',
             borderRight: '1px solid',
             borderColor: 'divider',
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            height: '100vh',
             overflowY: 'auto',
           },
         }}
@@ -175,10 +173,8 @@ function DashboardInner() {
       <Box
         component="main"
         sx={{
-          flexGrow: 1,
+          flex: '1 1 auto',
           minWidth: 0,
-          width: { xs: '100%', md: `calc(100% - ${DRAWER_WIDTH}px)` },
-          ml: { xs: 0, md: `${DRAWER_WIDTH}px` },
           overflowX: 'hidden',
         }}
       >
