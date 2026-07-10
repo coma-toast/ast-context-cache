@@ -5,18 +5,20 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 ## Features
 
 - **Multi-language** -- Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML
-- **BM25-ranked full-text search** -- FTS5 virtual table with fallback LIKE scoring
-- **Semantic embeddings** -- Default ONNX (all-mpnet, 768-d) or pluggable Ollama / HTTP / OpenAI-compatible remote (must stay 768-d to match the index)
-- **Dependency graph** -- Import/call edges stored in an `edges` table; query blast radius with `get_impact_graph`
-- **Source code in results** -- Search results include the actual source, not just file pointers
-- **File watcher** -- `fsnotify`-based incremental re-indexing with debounce; dashboard **ignore globs** skip high-churn code paths after `IsCodeFile`
-- **Logs** -- Plain `.log` / `.txt` are not indexed by default; enable in dashboard for FTS-only search (no embeddings). Optional **log retention** deletes only `.log` under absolute roots you configure
-- **Virtual context compaction** -- Offload bulky conversation notes to local SQLite with stable `ctx_*` refs; recover after host compaction via `fetch_context` / `search_context` (separate metrics from code **Tokens saved**)
-- **Dashboard** -- Web UI on port 7830: real-time stats, **Virtual context** card, embed-queue gauge, project filter, MCP vs indexing in Recent; tool performance includes CPU and latency per MCP tool. Component fixtures and Storybook MCP: [`dashboard-storybook/`](dashboard-storybook/README.md) (`make storybook` → http://localhost:6008, MCP at `/mcp`).
-
-  ![Operator dashboard — embeddings queue, health bar, and token stats (Storybook fixture)](docs/images/dashboard-overview.png)
-
-- **WAL mode** -- SQLite write-ahead logging + busy timeout for concurrency; **synchronous=NORMAL** and a **32 MiB page cache** reduce fsync pressure; **PASSIVE WAL checkpoints** every 10 minutes (less write amplification than aggressive truncate). Per-file indexing uses **one transaction** per file; MCP **query** and **session** dedup rows are **batched** before insert.
+- **Hybrid search** -- BM25 (FTS5) + semantic vector search with configurable embed backends (local ONNX, Ollama, OpenAI-compatible, generic HTTP, Docker Model Runner)
+- **Dependency graph** -- Import/call edges; query blast radius with `get_impact_graph`
+- **Source code in results** -- Results include actual source or skeleton signatures (~90% token savings)
+- **File watcher** -- `fsnotify`-based incremental re-indexing with debounce and ignore globs
+- **Virtual context** -- Offload bulky conversation notes to local SQLite with stable `ctx_*` refs; recover after host compaction via `fetch_context` / `search_context`
+- **Structured memory** -- Mem0/Zep-style temporal facts and LangMem procedural rules (`store_memory` / `recall_memory` / `forget_memory`); auto-invalidate, `as_of` temporal queries, scope to session/project/global
+- **RAG retrieval** -- Hybrid search + reranking + context assembly in one call (`retrieve`); optional structured memory injection
+- **Dashboard** -- Web UI on port 7830: health bar, embed queue, token savings, virtual context, KV repair observability, WAL status, project management, agent config, 40+ API endpoints, WebSocket live updates
+- **3-database architecture** -- Split across `index.db` (symbols/vectors/edges), `context.db` (docs/virtual context / structured memory), and `usage.db` (queries/sessions/settings); WAL mode with per-DB pressure monitoring and manual checkpoint
+- **Auxiliary embedder pool** -- Separate worker pool with independent backend for catch-up embedding, live-adjustable from dashboard
+- **Code-mode scripts** -- JS sandbox (`execute_code`) shrinks search results into compact output; repo scripts at `scripts/code-mode/`
+- **Tool tiers** -- `core` (read-only search), `extended` (indexing + memory + analysis), `complete` (sandbox execution); per-tool enable/tier overrides via `~/.astcache/tools.json`
+- **KV repair** -- Observability and recovery for KV cache quality issues; `report_kv_repair_event` signals, golden-text archives via `store_context(kind=kv_repair)`, dashboard stats with success rate
+- **Doc caching** -- Fetch, cache, and FTS-search library/framework docs offline (`fetch_doc` / `search_docs`); Playwright JS-rendering support
 
 ## Quick Start
 
@@ -48,13 +50,11 @@ Dashboard: http://localhost:7830
 
 ### After `git pull`
 
-Generated files are **not** committed (avoids merge conflicts between machines). Run once after pulling changes that touch dashboard templates:
+If the pull modifies `*.templ` files or `VERSION`, regenerate:
 
 ```bash
 make generate   # or: make build  (runs generate automatically)
 ```
-
-This creates `internal/dashboard/components/*_templ.go` and copies `VERSION` → `internal/version/VERSION` for the embed.
 
 ## Embedding backends
 
@@ -216,7 +216,7 @@ If the shell function is installed (`make install`), use `ast-mcp start` instead
 curl -s http://localhost:7821/health
 ```
 
-Expected response: `{"service":"ast-context-cache","status":"healthy","version":"1.0.0"}`
+Expected response: `{"service":"ast-context-cache","status":"healthy","version":"2.0.24"}`
 
 ### Crash Recovery
 
@@ -382,10 +382,11 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation by title or content (FTS). Try before WebFetch for library docs. |
 | `list_doc_sources` | List tracked documentation URLs (read-only). |
-| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly. Returns formatted context ready for LLM. |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (markdown/xml/json output). |
 | `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). Primary path after host compaction. |
 | `list_context` | List stored virtual context refs for a session (metadata only, no full content). |
 | `search_context` | Find stored virtual context by keyword/meaning when refs are lost. |
+| `recall_memory` | Retrieve structured temporal memory (facts + procedures) within token budget; supports `as_of` temporal queries. |
 
 ### Extended
 
@@ -393,16 +394,18 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 |------|-------------|
 | `index_files` | Index a file or directory using tree-sitter AST parsing. Starts a file watcher. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
-| `store_context` | Offload conversation/code notes before compaction; returns stable `ctx_*` refs and quota stats. |
+| `store_context` | Offload conversation/code notes before compaction; returns stable `ctx_*` refs and quota stats. Supports `kind=kv_repair` for KV repair archives and `extract_memory` for auto-parsing FACT:/RULE: lines. |
 | `flush_context` | Delete stored virtual context (by session, refs, or `all=true`). Frees quota; invalidates stubs. |
+| `report_kv_repair_event` | Report a KV repair signal (cache_miss, quality, manual, proactive) for observability. |
+| `store_memory` | Store a structured temporal fact or procedural rule (`mem_*` ref). Auto-invalidates prior same subject+predicate (Mem0/Zep-style). |
+| `forget_memory` | Soft-delete structured memory via `valid_until`. Scope: refs, subject+predicate, or all. |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
 | `import_bundle` | Import a previously exported bundle without re-indexing. |
-| `fetch_doc` | Fetch a doc URL, register it in the cache, and return stored entries (prefer over WebFetch). |
+| `fetch_doc` | Fetch a doc URL, register it in the cache, and return stored entries (prefer over WebFetch). Supports `render_js=true` for JS-rendered SPAs. |
 | `add_doc_source` | Track a doc URL for async background caching. |
 | `remove_doc_source` | Remove a tracked documentation source. |
-| `list_doc_sources` | List all tracked documentation sources. |
 | `update_doc_source` | Manually refresh a documentation source. |
 
 ### Complete
@@ -430,25 +433,24 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
                                    └──────────────────┘
 ```
 
-## Database Schema
+## Database Architecture
 
-- **symbols** -- `name`, `kind`, `file`, `start_line`, `end_line`, `code`, `fqn`, `project_path`
-- **symbols_fts** -- FTS5 virtual table over `name`, `fqn`, `code`
-- **vectors** -- Vector embeddings for semantic search (if model loaded)
-- **edges** -- `source_file`, `source_symbol`, `target`, `kind`, `project_path`
-- **queries** -- Tool call log with timestamps, durations, token savings
-- **summaries** -- Cached summaries for files/symbols
-- **doc_sources** -- Tracked documentation URLs with type, version, content hash
-- **doc_content** -- Cached documentation entries (title, content, section)
-- **docs_fts** -- FTS5 virtual table over `doc_content` for full-text doc search
-- **context_notes** -- Offloaded virtual context (`ref`, `session_id`, `content`, `token_est`, labels, tags)
-- **context_notes_fts** -- FTS over note content for `search_context`
-- **context_note_access** -- Per-ref access log (fetch/search counts)
-- **context_session_stats** -- Per-session virtual token rollups
+Three separate SQLite databases (WAL mode, each with per-DB pressure monitoring):
+
+**`index.db`** — Code index
+- `symbols`, `symbols_fts` (FTS5), `vectors`, `edges`, `summaries`, `indexed_files`, `embed_pending`
+
+**`context.db`** — External knowledge
+- `doc_sources`, `doc_content`, `docs_fts` (FTS5), `context_notes`, `context_notes_fts` (FTS5), `kv_repair_events`, `structured_memory`, `structured_memory_fts` (FTS5)
+
+**`usage.db`** — Telemetry + config
+- `queries`, `sessions`, `settings`, `agent_configs`, `context_note_access`, `memory_access`, `context_session_stats`
+
+Migration from the old monolithic `usage.db` is automatic on startup.
 
 ## Configuration
 
-The database is stored at `~/.astcache/usage.db`. The dashboard frontend is served from a `dist/` directory relative to the binary.
+Databases are stored in `~/.astcache/` (`index.db`, `context.db`, `usage.db`). The dashboard frontend is served from a `dist/` directory relative to the binary.
 
 ### Environment Variables
 
@@ -456,7 +458,9 @@ The database is stored at `~/.astcache/usage.db`. The dashboard frontend is serv
 |----------|-------------|---------|
 | `ONNXRUNTIME_LIB` | Path to ONNX Runtime library | Auto-detected from brew/system |
 | `MODEL_DIR` | Path to model files | `./model` (next to binary) |
-| `DB_PATH` | Path to SQLite database | `~/.astcache/usage.db` |
+| `DB_PATH` | Base path for all databases | `~/.astcache/usage.db` (sets directory; individual db files derive from it) |
+| `EMBED_AUX_BACKEND` | Auxiliary embedder pool backend | `onnx` (must differ from primary to activate) |
+| `EMBED_AUX_WORKERS` | Auxiliary embedder pool workers (0 = disabled) | `0` |
 | `AST_CONTEXT_MAX_NOTES_SESSION` | Max virtual notes per session | `50` (or dashboard `context_max_notes_session`) |
 | `AST_CONTEXT_MAX_TOKENS_SESSION` | Max virtual tokens per session | `32000` |
 | `AST_CONTEXT_MAX_NOTES_GLOBAL` | Max virtual notes server-wide | `500` |
