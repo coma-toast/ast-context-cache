@@ -1,24 +1,42 @@
 package dashboard
 
 import (
-	"log"
-	"sync"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
-var (
-	partialLast sync.Map // target string -> last HTML
-)
-
 func initRealtimeBridge() {
-	realtime.SetHandler(flushPartialBroadcast)
+	realtime.SetHandler(flushRefreshBroadcast)
 	startLiveRefresh()
 }
 
-func partialUsesIndexDB(name string) bool {
+func flushRefreshBroadcast(mask realtime.Reason) {
+	if hub == nil {
+		return
+	}
+	if mask&realtime.IndexHealth != 0 {
+		invalidateIndexHealthCache()
+	}
+	indexBlocked := db.WALMaintenanceActive() || db.IndexReadQuiesced()
+	var panels []string
+	for _, p := range dashboardPanels {
+		if !panelMatchesMask(p.name, mask) {
+			continue
+		}
+		if indexBlocked && panelUsesIndexDB(p.name) {
+			continue
+		}
+		panels = append(panels, p.name)
+	}
+	if len(panels) == 0 {
+		return
+	}
+	broadcastRefresh(panels)
+}
+
+func panelUsesIndexDB(name string) bool {
 	switch name {
 	case "symbol-chart", "language-chart", "import-chart", "memory", "settings":
 		return true
@@ -27,58 +45,7 @@ func partialUsesIndexDB(name string) bool {
 	}
 }
 
-func flushPartialBroadcast(mask realtime.Reason) {
-	if hub == nil {
-		return
-	}
-	if mask&realtime.IndexHealth != 0 {
-		invalidateIndexHealthCache()
-	}
-	indexBlocked := db.WALMaintenanceActive() || db.IndexReadQuiesced()
-	for _, p := range dashboardPartials {
-		if !partialMatchesMask(p.name, mask) {
-			continue
-		}
-		if indexBlocked && partialUsesIndexDB(p.name) {
-			continue
-		}
-		html := safeRenderPartial(p)
-		if html == "" {
-			continue
-		}
-		livePanel := p.name == "index-health" || p.name == "health-bar"
-		if !livePanel && !db.WALMaintenanceActive() {
-			if last, ok := partialLast.Load(p.target); ok && last.(string) == html {
-				continue
-			}
-		}
-		partialLast.Store(p.target, html)
-		hub.broadcast <- wsMsg{
-			Type:      "partial",
-			Timestamp: time.Now().Format(time.RFC3339),
-			Data: map[string]string{
-				"target": p.target,
-				"html":   html,
-			},
-		}
-	}
-}
-
-func safeRenderPartial(p dashboardPartial) (html string) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("dashboard partial %s: %v", p.name, r)
-			html = ""
-		}
-	}()
-	return p.render()
-}
-
-func invalidatePartialCache(target string) {
-	partialLast.Delete(target)
-}
-
-func partialMatchesMask(name string, mask realtime.Reason) bool {
+func panelMatchesMask(name string, mask realtime.Reason) bool {
 	switch name {
 	case "index-health":
 		return mask&realtime.IndexHealth != 0
@@ -118,13 +85,15 @@ func startLiveRefresh() {
 					continue
 				}
 				invalidateIndexHealthCache()
-				flushPartialBroadcast(realtime.IndexHealth | realtime.HealthBar)
+				flushRefreshBroadcast(realtime.IndexHealth | realtime.HealthBar)
 			case <-slow.C:
 				if !db.PoolsReady() || db.WALMaintenanceActive() {
 					continue
 				}
-				flushPartialBroadcast(realtime.Stats)
+				flushRefreshBroadcast(realtime.Stats)
 			}
 		}
 	}()
 }
+
+func invalidatePartialCache(_ string) {}

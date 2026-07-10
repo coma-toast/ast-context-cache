@@ -32,7 +32,13 @@ else
   ORT_DYLIB := $(ORT_DYLIB_LINUX)
 endif
 
-.PHONY: help setup deps generate build run clean install uninstall test storybook build-storybook dashboard-screenshot
+.PHONY: help setup deps generate build run clean install uninstall test storybook build-storybook dashboard-screenshot ui-build ui-dev
+
+ui-build:
+	cd ui && npm ci && npm run build
+
+ui-dev:
+	cd ui && npm run dev
 
 help:
 	@echo "ast-context-cache"
@@ -153,7 +159,7 @@ generate:
 internal/version/VERSION: VERSION
 	cp VERSION internal/version/VERSION
 
-build: download-model download-tokenizer-lib generate internal/version/VERSION
+build: download-model download-tokenizer-lib ui-build internal/version/VERSION
 	@echo "Building ast-mcp..."
 	$(CGO_FLAGS) go build -tags sqlite_fts5 -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ast-mcp/
 	@echo "Built: ./$(BINARY)"

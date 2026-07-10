@@ -39,7 +39,8 @@ var staticFS, _ = fs.Sub(staticAssets, "static")
 
 func NewHandler(_ string) http.Handler {
 	mux := http.NewServeMux()
-
+	initUIAssets()
+	registerReactAPI(mux)
 	// JSON APIs (kept for backward compatibility + MCP tools)
 	mux.HandleFunc("/api/stats", handleStats)
 	mux.HandleFunc("/api/tools", handleTools)
@@ -102,11 +103,17 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/dashboard/partials/health", handleHealthPartial)
 	mux.HandleFunc("/dashboard/partials/activity", handleActivityPartial)
 
-	// Static assets (CSS, JS)
+	// Static assets (CSS, JS) — legacy templ static
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Dashboard page (templ-rendered)
-	mux.HandleFunc("/", handleDashboardPage)
+	// React SPA
+	mux.HandleFunc("/dashboard/", handleUISPA)
+	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/", http.StatusFound)
+	})
+
+	// Root redirects to React dashboard
+	mux.HandleFunc("/", handleRootRedirect)
 
 	return mux
 }
@@ -1305,12 +1312,37 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 func handleDocSources(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		var req struct {
-			Action string `json:"action"`
-			ID     int    `json:"id"`
+			Action  string `json:"action"`
+			ID      int    `json:"id"`
+			Name    string `json:"name"`
+			Type    string `json:"type"`
+			URL     string `json:"url"`
+			Version string `json:"version"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if req.Action == "add" {
+			if req.Name == "" || req.URL == "" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"error": "name and url required"})
+				return
+			}
+			docType := req.Type
+			if docType == "" {
+				docType = "markdown"
+			}
+			id, err := docs.AddSource(req.Name, docType, req.URL, req.Version)
+			w.Header().Set("Content-Type", "application/json")
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			docs.ForceRefreshSource(id)
+			realtime.Notify(realtime.IndexHealth)
+			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "id": id})
 			return
 		}
 		if req.ID <= 0 {

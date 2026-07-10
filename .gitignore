@@ -10,7 +10,8 @@ libtokenizers.tar.gz
 .DS_Store
 cmd/ast-mcp/dist/
 internal/dashboard/react/
-ui/
+ui/node_modules/
+ui/dist/
 *.zip
 *.tar.gz
 outputs/

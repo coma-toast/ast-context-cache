@@ -33,36 +33,38 @@ See [`docker/README.md`](../../docker/README.md): enable Model Runner + TCP 1243
 
 See [README — Embedding backends](../../README.md#embedding-backends).
 
-## Dashboard (http://localhost:7830)
+## Dashboard (http://localhost:7830/dashboard/)
 
-Open after `make run` or `ast-mcp dash`. Panels update automatically when queries run or indexing changes.
+Open after `make run` or `ast-mcp dash`. The UI is a **Preact + MUI** SPA embedded at `/dashboard/` (root `/` redirects). Updates use **WebSocket `/ws`** (`refresh` panel events + MCP toasts), not SSE or HTMX partials.
+
+**Dev:** `make ui-dev` (Vite on :5173, proxies API/WS) while ast-mcp runs on :7830.
 
 ### Header
 
 | Element | Meaning |
 |---------|---------|
-| Health bar (center) | Embedder state, **queue** mini-gauge, throughput, cache hit %, heap, uptime |
-| Project dropdown | Filters stats, charts, index health, and recent **MCP** activity to one repo |
-| Settings (gear) | Embedding backend, ignore globs, log indexing, log retention, pin/unpin, doc sources |
+| Health bar | Embedder state, queue depth, throughput, cache hit %, heap, uptime, version |
+| Project filter | Filters stats, index health, memory, recent, and charts to one repo |
 
-### Sections (top to bottom)
+### Sidebar tabs
 
-| Section | What it shows |
-|---------|----------------|
-| **Query activity** | MCP query counts, **tokens saved** (code-context tools only; sublabel: 30d total, avg/day, dedup, vs files), **Virtual context** (active inventory, 30d stored vs accessed, utilization, orphans), avg duration, sessions |
-| **Index & runtime** | Corpus scale bars; **embed queue** ring gauge + priority/background bars + worker dots; vectors; watchers (pause/start/delete); disk/memory (server-wide) |
+| Tab | What it shows |
+|-----|----------------|
+| **Overview** | Query activity, virtual context summary, index & runtime (embed queue, corpus, watchers) |
+| **Memory** | Virtual context stats, doc sources (add/refresh/delete) |
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
-| **Symbol / language / tool / imports** | **Tool performance** table + charts (calls, **CPU**, avg latency, tokens saved); Top imports |
-| **Recent activity** | Collapsible **MCP tool calls** vs **Indexing activity** (fsnotify reindex/delete) |
+| **Analytics** | Tool performance table, symbol/language/import charts |
+| **Recent** | MCP tool calls vs indexing activity (accessible error expand) |
+| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **projects (link/unlink subprojects)**, agent install, MCP tier (read-only) |
 
 ### Settings (operators)
 
-- **Pin project** — priority embedding queue, watchers stay warm longer, slower vector unload when idle
-- **Virtual context** — max notes/tokens per session and globally; limit policy (`reject` / `lru_session`); **Flush all virtual context** button; env `AST_CONTEXT_*` overrides non-empty values on restart
-- **Watcher ignore globs** — JSON array; applied after `IsCodeFile`
-- **Index .log / .txt** — FTS/BM25 only, no embeddings
-- **Log retention** — optional `.log` cleanup under absolute roots (dry-run first)
-- **Embedding backend** — persists env-equivalent keys (env wins on restart)
+- **Link subproject** — container parent + child picker (`POST /api/project-links`); auto-link still runs on index
+- **Pin project** — priority embedding queue, watchers stay warm longer
+- **Virtual context** — limits + **Flush all**; per-session flush via API `POST /api/flush-context` with `session_id`
+- **Watcher ignore globs** — JSON array
+- **Embedding backend** — persisted to SQLite; env overrides on restart
+- **MCP tier** — read-only card (`AST_MCP_TIER`, `~/.astcache/tools.json`)
 
 ### Helping users interpret gauges
 
