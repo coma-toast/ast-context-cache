@@ -125,4 +125,6 @@ When using [wtg](https://github.com/coma-toast/wtg) with `~/spaces/<workspace>/<
 
 Each worktree path is a separate `project_path` for MCP — pass the absolute checkout root (e.g. `~/spaces/nightly/slapi`). Override config with `WTG_CONFIG`.
 
+- **Container linking:** indexing a parent folder (e.g. `~/git`) auto-links already-indexed sub-repos; parent skips duplicate indexing and search includes linked children. Manage links in Settings → Projects (Unlink per child).
+
 Full detail: [README](../../README.md).

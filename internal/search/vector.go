@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
@@ -181,7 +182,7 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 			if docType != "doc" {
 				continue
 			}
-		} else if projectPath != "" && e.ProjectPath != projectPath {
+		} else if projectPath != "" && !projectlinks.ScopeContains(projectPath, e.ProjectPath) {
 			continue
 		}
 		if docType != "" && e.DocType != docType {
@@ -553,7 +554,7 @@ func (vc *VectorCache) Count(projectPath string) int {
 		}
 		count := 0
 		for _, e := range vc.entries {
-			if e.ProjectPath == projectPath {
+			if projectlinks.ScopeContains(projectPath, e.ProjectPath) {
 				count++
 			}
 		}
@@ -564,7 +565,8 @@ func (vc *VectorCache) Count(projectPath string) int {
 	if projectPath == "" {
 		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&count)
 	} else {
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", projectPath).Scan(&count)
+		frag, args := projectlinks.ScopeSQL("", projectPath)
+		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE "+frag, args...).Scan(&count)
 	}
 	return count
 }

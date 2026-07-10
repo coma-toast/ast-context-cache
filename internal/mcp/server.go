@@ -18,6 +18,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -206,7 +207,11 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if indexErr != nil {
 					result = map[string]string{"error": indexErr.Error()}
 				} else {
-					result = map[string]int{"indexed": n}
+					out := map[string]interface{}{"indexed": n}
+					if linked, _ := projectlinks.Links(projectPath); len(linked) > 0 {
+						out["linked_projects"] = linked
+					}
+					result = out
 				}
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 )
 
 type impactEntryOut struct {
@@ -25,10 +26,11 @@ func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 	}
 
 	symbolLower := strings.ToLower(symbol)
+	scopeFrag, scopeArgs := projectlinks.ScopeSQL("", projectPath)
 
 	symbolRows, err := db.IndexDB.Query(
-		"SELECT DISTINCT file FROM symbols WHERE project_path = ? AND LOWER(name) = ?",
-		projectPath, symbolLower)
+		"SELECT DISTINCT file FROM symbols WHERE "+scopeFrag+" AND LOWER(name) = ?",
+		append(scopeArgs, symbolLower)...)
 	if err != nil {
 		return fmt.Sprintf(`{"error": "%s"}`, err.Error())
 	}
@@ -49,8 +51,8 @@ func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 	var impacts []impactEntry
 
 	edgeRows, err := db.IndexDB.Query(
-		"SELECT source_file, target, kind FROM edges WHERE project_path = ? AND (LOWER(target) LIKE ? OR LOWER(target) LIKE ?)",
-		projectPath, "%"+symbolLower+"%", "%/"+symbolLower)
+		"SELECT source_file, target, kind FROM edges WHERE "+scopeFrag+" AND (LOWER(target) LIKE ? OR LOWER(target) LIKE ?)",
+		append(scopeArgs, "%"+symbolLower+"%", "%/"+symbolLower)...)
 	if err != nil {
 		return fmt.Sprintf(`{"error": "%s"}`, err.Error())
 	}
@@ -68,8 +70,8 @@ func HandleImpactGraph(args map[string]interface{}, projectPath string) string {
 
 	for f := range symbolFiles {
 		depRows, _ := db.IndexDB.Query(
-			"SELECT source_file, target, kind FROM edges WHERE project_path = ? AND LOWER(target) LIKE ?",
-			projectPath, "%"+strings.ToLower(filepath.Base(f))+"%")
+			"SELECT source_file, target, kind FROM edges WHERE "+scopeFrag+" AND LOWER(target) LIKE ?",
+			append(scopeArgs, "%"+strings.ToLower(filepath.Base(f))+"%")...)
 		if depRows != nil {
 			for depRows.Next() {
 				var srcFile, target, kind string
