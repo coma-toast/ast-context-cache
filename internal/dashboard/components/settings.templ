@@ -69,6 +69,7 @@ type SettingsData struct {
 	EmbedAuxWorkerMax       int
 	EmbedAuxWorkers         int
 	EmbedAuxBackend         string
+	EmbedProbeIntervalSec   int
 }
 
 templ Settings(data SettingsData) {
@@ -111,6 +112,12 @@ templ Settings(data SettingsData) {
 				<option value="docker" selected?={ data.EmbedAuxBackend == "docker" }>docker (DMR)</option>
 			</select>
 			<span class="perf-hint">Backend for the aux worker pool. Must differ from the primary backend to show aux controls on overview.</span>
+		</form>
+		<form class="perf-setting" hx-post="/api/settings" hx-trigger="change" hx-swap="none">
+			<label for="embedProbeIntervalSec">Connectivity probe interval (seconds)</label>
+			<input type="number" id="embedProbeIntervalSec" min="5" max="600" step="1" class="perf-input" value={ fmt.Sprint(data.EmbedProbeIntervalSec) }
+				hx-vals='{"key":"embed_probe_interval_seconds"}' hx-include="this" name="value"/>
+			<span class="perf-hint">How often remote embed backends (ollama, http, openai, docker) are probed when healthy. Recovery retries while in error stay at 30s. Use Retry now on the overview card for an immediate probe.</span>
 		</form>
 	</div>
 
