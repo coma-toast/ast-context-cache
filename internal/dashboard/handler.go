@@ -19,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
@@ -127,16 +128,18 @@ func loadProjectsFresh() []components.Project {
 			label = filepath.Base(pp)
 		}
 		ps = append(ps, components.Project{
-			Path:        pp,
-			Name:        meta.RepoName,
-			Label:       label,
-			Workspace:   meta.Workspace,
-			Branch:      meta.Branch,
-			RepoKey:     meta.RepoKey,
-			QueryCount:  queryCounts[pp],
-			SymbolCount: sc.symbols,
-			FileCount:   sc.files,
-			Pinned:      pinned[pp],
+			Path:           pp,
+			Name:           meta.RepoName,
+			Label:          label,
+			Workspace:      meta.Workspace,
+			Branch:         meta.Branch,
+			RepoKey:        meta.RepoKey,
+			QueryCount:     queryCounts[pp],
+			SymbolCount:    sc.symbols,
+			FileCount:      sc.files,
+			Pinned:         pinned[pp],
+			LinkedChildren: linkedChildrenFor(pp),
+			LinkedParent:   linkedParentFor(pp),
 		})
 	}
 	sort.Slice(ps, func(i, j int) bool {
@@ -147,6 +150,22 @@ func loadProjectsFresh() []components.Project {
 		return ps[i].Path < ps[j].Path
 	})
 	return ps
+}
+
+func linkedChildrenFor(parent string) []string {
+	linked, err := projectlinks.Links(parent)
+	if err != nil {
+		return nil
+	}
+	return linked
+}
+
+func linkedParentFor(child string) string {
+	parents, err := projectlinks.Parents(child)
+	if err != nil || len(parents) == 0 {
+		return ""
+	}
+	return parents[0]
 }
 
 func handleDashboardPage(w http.ResponseWriter, r *http.Request) {

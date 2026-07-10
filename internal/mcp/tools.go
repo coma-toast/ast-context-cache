@@ -130,7 +130,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "index_files",
-			Description: "Index source files using tree-sitter AST parsing. Extracts symbols and import edges for dependency tracking. Supports Python (.py), JS (.js/.jsx), TS (.ts/.tsx), Go (.go), Bash (.sh), Fish (.fish). Automatically deduplicates on re-index.",
+			Description: "Index source files using tree-sitter AST parsing. Container projects auto-link already-indexed subdirectories and skip duplicate indexing; search includes linked subprojects.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -143,7 +143,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "index_status",
-			Description: "Get statistics about indexed symbols in a project. Returns total files and symbol count. Use to check if a project needs indexing.",
+			Description: "Get statistics about indexed symbols in a project. Returns own and linked subproject counts when container links exist.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

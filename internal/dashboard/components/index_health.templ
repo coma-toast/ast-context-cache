@@ -92,11 +92,12 @@ type IndexHealth struct {
 }
 
 type WatcherInfo struct {
-	ProjectPath string
-	Name        string
-	Label       string
-	Workspace   string
-	Active      bool
+	ProjectPath  string
+	Name         string
+	Label        string
+	Workspace    string
+	Active       bool
+	LinkedCount  int
 }
 
 type IndexDocSource struct {
@@ -233,6 +234,9 @@ templ WatcherRow(w WatcherInfo) {
 			{ w.Label }
 		} else {
 			{ w.Name }
+		}
+		if w.LinkedCount > 0 {
+			<span class="badge badge-blue" title="Linked subprojects">{ fmt.Sprint(w.LinkedCount) } linked</span>
 		}
 		<span class="watcher-actions">
 			<button type="button" class="watcher-action" title="Re-index project and queue embeddings" data-watcher-action="index" data-project-path={ w.ProjectPath }>&#x21BB;</button>

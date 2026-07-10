@@ -23,6 +23,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
@@ -200,6 +201,9 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 	embedder.SetOnRecovery(embedqueue.RecoverAfterEmbedder)
 	embedder.SetOnReady(embedqueue.FlushPendingIfReady)
 	embedder.SetOnError(embedqueue.OnEmbedderError)
+	projectlinks.SetOnLinkCleanup(func(parent, child string) {
+		embedqueue.RemoveProjectFilesUnder(parent, child)
+	})
 	embedqueue.StartErrorScanLoop()
 	embedqueue.StartPendingReconciler()
 	watcher.PostIndexHook = func(filePath, projectPath string, removed bool) {

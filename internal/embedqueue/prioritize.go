@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
@@ -30,6 +31,12 @@ func EnsureProjectEmbeddings(projectPath string) {
 	if projectPath == "" {
 		return
 	}
+	for _, pp := range projectlinks.ResolveScope(projectPath) {
+		boostOneProject(pp)
+	}
+}
+
+func boostOneProject(projectPath string) {
 	queryBoostMu.Lock()
 	defer queryBoostMu.Unlock()
 	if promoted := promoteProjectToHigh(projectPath); promoted > 0 {

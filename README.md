@@ -255,7 +255,7 @@ The server may crash or stop unexpectedly. Follow these steps to recover:
 
 ```
 1. index_status  →  check if project is indexed
-2. index_files   →  index if needed (starts file watcher)
+2. index_files   →  index if needed (starts file watcher; container projects auto-link indexed subfolders)
 3. get_project_map depth=2  →  orient yourself (~200 tokens)
 4. get_context_capsule mode=auto  →  search code (top 3 full, rest skeleton)
 5. get_file_context  →  all symbols in a specific file

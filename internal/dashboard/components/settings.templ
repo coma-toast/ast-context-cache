@@ -435,6 +435,18 @@ templ Settings(data SettingsData) {
 							if p.SymbolCount == 0 && p.QueryCount == 0 {
 								<div class="perf-hint">Discovered — not indexed yet</div>
 							}
+							if len(p.LinkedChildren) > 0 {
+								<div class="perf-hint">{ fmt.Sprintf("%d linked subproject(s)", len(p.LinkedChildren)) }</div>
+								for _, child := range p.LinkedChildren {
+									<div class="perf-hint mono" style="display:flex;gap:8px;align-items:center">
+										<span>{ child }</span>
+										<button class="action-btn" style="padding:2px 8px;font-size:11px" hx-delete="/api/project-links" hx-vals={ fmt.Sprintf(`{"parent_path":"%s","child_path":"%s"}`, p.Path, child) } hx-target="#settings-content" hx-get="/partials/settings" hx-swap="innerHTML" hx-headers='{"Content-Type":"application/json"}'>Unlink</button>
+									</div>
+								}
+							}
+							if p.LinkedParent != "" {
+								<div class="perf-hint">Linked under container: <span class="mono">{ p.LinkedParent }</span></div>
+							}
 						</div>
 						<div class="actions">
 							if p.Pinned {

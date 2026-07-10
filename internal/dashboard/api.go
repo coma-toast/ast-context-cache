@@ -26,6 +26,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -66,6 +67,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
+	mux.HandleFunc("/api/project-links", handleProjectLinks)
 	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
 	mux.HandleFunc("/api/embed-aux-workers", handleEmbedAuxWorkers)
 	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
@@ -1200,6 +1202,7 @@ func deleteProjectData(projectPath string) {
 	if projectPath == "" {
 		return
 	}
+	projectlinks.RemoveLinksForPath(projectPath)
 	embedqueue.RemoveProject(projectPath)
 	watcher.DeleteWatcher(projectPath)
 	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
@@ -1395,4 +1398,38 @@ func handleWALStatus(w http.ResponseWriter, r *http.Request) {
 		"next_attempt_at":   s.NextAttemptAt,
 		"log_path":          db.ResolveServerLogPath(),
 	})
+}
+
+func handleProjectLinks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		ParentPath string `json:"parent_path"`
+		ChildPath  string `json:"child_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	parent := watcher.NormalizeProjectPath(req.ParentPath)
+	child := watcher.NormalizeProjectPath(req.ChildPath)
+	if parent == "" || child == "" {
+		http.Error(w, "parent_path and child_path required", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch r.Method {
+	case http.MethodPost:
+		err = projectlinks.CreateLink(parent, child, false)
+	case http.MethodDelete:
+		err = projectlinks.Unlink(parent, child)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	realtime.Notify(realtime.IndexHealth | realtime.SettingsChanged)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "parent_path": parent, "child_path": child})
 }
