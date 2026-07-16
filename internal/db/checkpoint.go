@@ -37,6 +37,37 @@ var (
 	AfterForceCheckpoint  func()
 )
 
+func logPoolStats(name string, pool *sql.DB) {
+	if pool == nil {
+		log.Printf("WAL diagnostics: pool=%s unavailable", name)
+		return
+	}
+	s := pool.Stats()
+	log.Printf(
+		"WAL diagnostics: pool=%s open=%d in_use=%d idle=%d wait_count=%d wait_dur=%s max_idle_closed=%d max_idle_time_closed=%d max_lifetime_closed=%d",
+		name, s.OpenConnections, s.InUse, s.Idle, s.WaitCount, s.WaitDuration, s.MaxIdleClosed, s.MaxIdleTimeClosed, s.MaxLifetimeClosed,
+	)
+}
+
+func logBusyCheckpointDiagnostics(path, mode string, walFrames, checkpointed int) {
+	label := dbLabel(path)
+	inFlight := int64(-1)
+	if WALInFlightHook != nil {
+		inFlight = WALInFlightHook()
+	}
+	embedIdle := true
+	if EmbedQueueIdleHook != nil {
+		embedIdle = EmbedQueueIdleHook()
+	}
+	log.Printf(
+		"WAL diagnostics: busy checkpoint db=%s mode=%s log=%d checkpointed=%d index_wal=%s usage_wal=%s context_wal=%s index_read_quiesced=%t embed_idle=%t in_flight=%d",
+		label, mode, walFrames, checkpointed, FormatFileSize(IndexWalBytes()), FormatFileSize(UsageWalBytes()), FormatFileSize(ContextWalBytes()), IndexReadQuiesced(), embedIdle, inFlight,
+	)
+	logPoolStats("index", IndexDB)
+	logPoolStats("usage", DB)
+	logPoolStats("context", ContextDB)
+}
+
 func shouldDeferMaint() bool {
 	return time.Now().Before(maintBackoffUntil)
 }
@@ -105,6 +136,9 @@ func checkpointFile(path, mode string) (busy, walFrames, checkpointed int, err e
 	}
 	if WALMaintenanceActive() {
 		recordWALCheckpointResult(busy, walFrames, checkpointed, err)
+	}
+	if busy == 1 {
+		logBusyCheckpointDiagnostics(path, mode, walFrames, checkpointed)
 	}
 	return
 }
