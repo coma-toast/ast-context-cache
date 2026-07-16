@@ -20,6 +20,12 @@ func SwapPaused() bool {
 	return swapPauseDepth > 0
 }
 
+func cancelInFlightEmbedderRequests(e interface{}) {
+	if c, ok := e.(interface{ CancelInFlight() }); ok {
+		c.CancelInFlight()
+	}
+}
+
 // PrepareForEmbedderSwap stops workers and waits for in-flight embeds before backend reload.
 func PrepareForEmbedderSwap(timeout time.Duration) {
 	if !workersStarted() {
@@ -41,6 +47,7 @@ func PrepareForEmbedderSwap(timeout time.Duration) {
 		}
 	}
 	workerMu.Unlock()
+	cancelInFlightEmbedderRequests(queueEmbedder())
 	deadline := time.Now().Add(timeout)
 	for atomic.LoadInt64(&inFlight) > 0 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)

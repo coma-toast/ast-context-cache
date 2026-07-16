@@ -10,7 +10,10 @@ export function HealthBar({ health }: { health: Health | null }) {
   const queuePct = queueCap > 0 ? Math.min(100, ((health.QueueQueued + health.QueuePending) / queueCap) * 100) : 0
   const queueColor = queuePct > 75 ? 'error' : queuePct > 40 ? 'warning' : 'success'
   const uptimeNs = typeof health.Uptime === 'number' ? health.Uptime : 0
-  const embedColor = health.EmbedderState === 'healthy' ? 'success' : health.EmbedderState === 'error' ? 'error' : 'default'
+  const embedState = health.EmbedderState || 'unknown'
+  const embedOk = embedState === 'healthy' || embedState === 'ready' || embedState === 'ok'
+  const embedColor =
+    embedState === 'error' ? 'error' : embedOk ? 'success' : embedState === 'degraded' ? 'warning' : 'default'
   return (
     <Box
       sx={{
@@ -31,7 +34,7 @@ export function HealthBar({ health }: { health: Health | null }) {
       }}
     >
       <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'nowrap', minWidth: 'min-content' }}>
-        <Chip size="small" label={`Embed: ${health.EmbedderState || 'unknown'}`} color={embedColor} sx={{ flexShrink: 0 }} />
+        <Chip size="small" label={`Embed: ${embedState}`} color={embedColor} sx={{ flexShrink: 0 }} />
         <Chip size="small" label={`Queue ${health.QueueQueued + health.QueuePending}`} color={queueColor} sx={{ flexShrink: 0 }} />
         <Chip size="small" variant="outlined" label={`${health.QueueThroughput?.toFixed(1) || 0}/s`} sx={{ flexShrink: 0 }} />
         <Chip size="small" variant="outlined" label={`Cache ${((health.CacheHitRatio || 0) * 100).toFixed(0)}%`} sx={{ flexShrink: 0, display: { xs: 'none', sm: 'flex' } }} />

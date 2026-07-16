@@ -1,10 +1,13 @@
 package embedder
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestOpenAIEmbedder_Success(t *testing.T) {
@@ -101,4 +104,39 @@ func TestOpenAIEmbedder_RequestIncludesDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestOpenAIEmbedder_CancelInFlight(t *testing.T) {
+	started := make(chan struct{})
+	o := NewOpenAIEmbedder("http://example.test/v1", "", "m", 0)
+	o.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		close(started)
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := o.Embed([]string{"blocked"})
+		errCh <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("request did not start")
+	}
+	o.CancelInFlight()
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("in-flight request was not canceled")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

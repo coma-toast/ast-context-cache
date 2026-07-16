@@ -68,6 +68,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/embedder/models", handleEmbedModels)
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
+	mux.HandleFunc("/api/project-label", handleProjectLabel)
 	mux.HandleFunc("/api/project-links", handleProjectLinks)
 	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
 	mux.HandleFunc("/api/embed-aux-workers", handleEmbedAuxWorkers)
@@ -551,6 +552,52 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func invalidateProjectsCache() {
+	projectsCacheMu.Lock()
+	projectsCache = nil
+	projectsCacheAt = time.Time{}
+	projectsCacheMu.Unlock()
+}
+
+func handleProjectLabel(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	var req struct {
+		ProjectPath string `json:"project_path"`
+		Label       string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	projectPath := watcher.NormalizeProjectPath(req.ProjectPath)
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+	if err := db.SetProjectDisplayName(projectPath, req.Label); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	projectmeta.Invalidate(projectPath)
+	invalidateProjectsCache()
+	realtime.Notify(realtime.SettingsChanged | realtime.IndexHealth)
+	label := projectmeta.Enrich(projectPath).Label
+	if label == "" {
+		label = filepath.Base(projectPath)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":       "ok",
+		"project_path": projectPath,
+		"label":        label,
+		"custom":       strings.TrimSpace(req.Label) != "",
+	})
+}
+
 func handlePinProject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
@@ -575,6 +622,7 @@ func handlePinProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	realtime.Notify(realtime.SettingsChanged | realtime.IndexHealth)
+	invalidateProjectsCache()
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "pinned": req.Pinned})
 }
 
@@ -1136,6 +1184,24 @@ func parseProjectPathFromRequest(r *http.Request) string {
 	return watcher.NormalizeProjectPath(r.FormValue("project_path"))
 }
 
+func prefersJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json") && !strings.Contains(r.Header.Get("HX-Request"), "true")
+}
+
+func respondWatcherAction(w http.ResponseWriter, r *http.Request, status, projectPath string, extra map[string]interface{}) {
+	if prefersJSON(r) {
+		w.Header().Set("Content-Type", "application/json")
+		out := map[string]interface{}{"status": status, "project_path": projectPath}
+		for k, v := range extra {
+			out[k] = v
+		}
+		json.NewEncoder(w).Encode(out)
+		return
+	}
+	respondHTMXPartial(w, r)
+}
+
 func respondHTMXPartial(w http.ResponseWriter, r *http.Request) {
 	target := r.Header.Get("HX-Target")
 	if strings.Contains(target, "settings-content") {
@@ -1158,7 +1224,8 @@ func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
 	if projectPath != "" {
 		_ = watcher.StopWatcher(projectPath)
 	}
-	respondHTMXPartial(w, r)
+	realtime.Notify(realtime.IndexHealth)
+	respondWatcherAction(w, r, "stopped", projectPath, nil)
 }
 
 func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
@@ -1170,7 +1237,8 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 	if projectPath != "" {
 		watcher.EnsureWatcher(projectPath)
 	}
-	respondHTMXPartial(w, r)
+	realtime.Notify(realtime.IndexHealth)
+	respondWatcherAction(w, r, "started", projectPath, nil)
 }
 
 func handleIndexProject(w http.ResponseWriter, r *http.Request) {
@@ -1180,18 +1248,42 @@ func handleIndexProject(w http.ResponseWriter, r *http.Request) {
 	}
 	projectPath := parseProjectPathFromRequest(r)
 	if projectPath == "" {
+		if prefersJSON(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+			return
+		}
 		http.Error(w, "project_path required", http.StatusBadRequest)
 		return
 	}
 	if info, err := os.Stat(projectPath); err != nil {
+		if prefersJSON(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "path not found: " + err.Error()})
+			return
+		}
 		http.Error(w, "path not found: "+err.Error(), http.StatusBadRequest)
 		return
 	} else if !info.IsDir() {
+		if prefersJSON(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "project_path must be a directory"})
+			return
+		}
 		http.Error(w, "project_path must be a directory", http.StatusBadRequest)
 		return
 	}
 	n, err := indexer.IndexDirectory(projectPath, projectPath)
 	if err != nil {
+		if prefersJSON(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1201,7 +1293,7 @@ func handleIndexProject(w http.ResponseWriter, r *http.Request) {
 	}
 	realtime.Notify(realtime.IndexCommitted | realtime.IndexHealth)
 	w.Header().Set("X-Indexed-Symbols", strconv.Itoa(n))
-	respondHTMXPartial(w, r)
+	respondWatcherAction(w, r, "indexed", projectPath, map[string]interface{}{"symbols": n})
 }
 
 func deleteProjectData(projectPath string) {
@@ -1212,6 +1304,9 @@ func deleteProjectData(projectPath string) {
 	projectlinks.RemoveLinksForPath(projectPath)
 	embedqueue.RemoveProject(projectPath)
 	watcher.DeleteWatcher(projectPath)
+	_ = db.SetProjectDisplayName(projectPath, "")
+	projectmeta.Invalidate(projectPath)
+	invalidateProjectsCache()
 	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
 	db.IndexDB.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
 	db.IndexDB.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
@@ -1233,12 +1328,12 @@ func handleDeleteWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 	projectPath := parseProjectPathFromRequest(r)
 	if projectPath == "" {
-		respondHTMXPartial(w, r)
+		respondWatcherAction(w, r, "ok", "", nil)
 		return
 	}
 	deleteProjectData(projectPath)
 	realtime.Notify(realtime.EmbedFinished | realtime.IndexHealth)
-	respondHTMXPartial(w, r)
+	respondWatcherAction(w, r, "deleted", projectPath, nil)
 }
 
 func handleSystemResources(w http.ResponseWriter, r *http.Request) {

@@ -80,14 +80,70 @@ export function SettingsTab({
           <Typography variant="subtitle1" gutterBottom>
             Performance
           </Typography>
-          <TextField
-            label="Idle unload (minutes)"
-            type="number"
-            size="small"
-            defaultValue={data.IdleUnloadMinutes}
-            onBlur={(e) => save('idle_unload_minutes', e.target.value)}
-            sx={{ mr: 2, mb: 1 }}
-          />
+          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+            <TextField
+              label="Idle unload (minutes)"
+              type="number"
+              size="small"
+              defaultValue={data.IdleUnloadMinutes}
+              onBlur={(e) => save('idle_unload_minutes', e.target.value)}
+            />
+            <TextField
+              label="Max embed workers"
+              type="number"
+              size="small"
+              inputProps={{ min: 1, max: 64 }}
+              defaultValue={data.EmbedWorkerMax ?? 15}
+              onBlur={(e) => save('embed_worker_max', e.target.value)}
+              helperText="Primary pool +/− cap"
+            />
+            <TextField
+              label="Max aux embed workers"
+              type="number"
+              size="small"
+              inputProps={{ min: 1, max: 32 }}
+              defaultValue={data.EmbedAuxWorkerMax ?? 10}
+              onBlur={(e) => save('embed_aux_worker_max', e.target.value)}
+              helperText="Aux catch-up pool cap"
+            />
+            <TextField
+              label="Aux embed workers"
+              type="number"
+              size="small"
+              inputProps={{ min: 0, max: data.EmbedAuxWorkerMax ?? 10 }}
+              defaultValue={data.EmbedAuxWorkers ?? 0}
+              onBlur={(e) => save('EMBED_AUX_WORKERS', e.target.value)}
+              helperText="Also adjustable on Overview"
+            />
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel id="embed-aux-backend">Aux embed backend</InputLabel>
+              <Select
+                labelId="embed-aux-backend"
+                label="Aux embed backend"
+                defaultValue={data.EmbedAuxBackend || 'onnx'}
+                onChange={(e) => save('EMBED_AUX_BACKEND', String(e.target.value))}
+              >
+                <MenuItem value="onnx">onnx (local)</MenuItem>
+                <MenuItem value="http">http</MenuItem>
+                <MenuItem value="ollama">ollama</MenuItem>
+                <MenuItem value="openai">openai / litellm</MenuItem>
+                <MenuItem value="docker">docker (DMR)</MenuItem>
+              </Select>
+            </FormControl>
+            {data.EmbedProbeIntervalSec != null && (
+              <TextField
+                label="Probe interval (sec)"
+                type="number"
+                size="small"
+                inputProps={{ min: 5, max: 600 }}
+                defaultValue={data.EmbedProbeIntervalSec}
+                onBlur={(e) => save('embed_probe_interval_seconds', e.target.value)}
+              />
+            )}
+          </Stack>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
+            Aux controls appear on the embeddings card when the aux backend differs from the primary backend.
+          </Typography>
         </CardContent>
       </Card>
 
@@ -229,6 +285,22 @@ export function SettingsTab({
                     ))}
                   </Box>
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }}>
+                    <Button
+                      size="small"
+                      onClick={async () => {
+                        const next = window.prompt('Display name (empty restores auto name)', p.Label || p.Name || '')
+                        if (next == null) return
+                        try {
+                          await api.setProjectLabel(p.Path, next)
+                          showToast(next.trim() ? 'Name updated' : 'Name reset to auto', 'success')
+                          onRefresh()
+                        } catch (e) {
+                          showToast(String(e), 'error')
+                        }
+                      }}
+                    >
+                      Rename
+                    </Button>
                     <Button size="small" onClick={async () => {
                       try {
                         await api.pinProject(p.Path, !p.Pinned)

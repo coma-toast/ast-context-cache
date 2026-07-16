@@ -52,17 +52,61 @@ func Enrich(projectPath string) Info {
 		return Info{}
 	}
 	enrichMu.Lock()
-	if e, ok := enrichCache[path]; ok && time.Since(e.at) < enrichCacheTTL {
-		info := e.info
+	e, ok := enrichCache[path]
+	fresh := ok && time.Since(e.at) < enrichCacheTTL
+	var info Info
+	if fresh {
+		info = e.info
 		enrichMu.Unlock()
-		return info
+	} else {
+		enrichMu.Unlock()
+		info = enrichFresh(path)
+		enrichMu.Lock()
+		enrichCache[path] = enrichCacheEntry{at: time.Now(), info: info}
+		enrichMu.Unlock()
 	}
-	enrichMu.Unlock()
-	info := enrichFresh(path)
-	enrichMu.Lock()
-	enrichCache[path] = enrichCacheEntry{at: time.Now(), info: info}
-	enrichMu.Unlock()
+	if custom := displayNameOverride(path); custom != "" {
+		info.Label = custom
+	} else if fresh {
+		// Custom may have been cleared while cache still holds an old overridden label;
+		// rebuild auto label from cached repo metadata.
+		info.Label = autoLabel(info.RepoName, info.Workspace, info.Branch)
+	}
 	return info
+}
+
+// Invalidate clears cached enrich metadata for a path (or all if path is empty).
+func Invalidate(projectPath string) {
+	path := watcher.NormalizeProjectPath(projectPath)
+	enrichMu.Lock()
+	defer enrichMu.Unlock()
+	if path == "" {
+		enrichCache = map[string]enrichCacheEntry{}
+		return
+	}
+	delete(enrichCache, path)
+}
+
+// SetDisplayNameOverrideFunc registers how custom labels are loaded (set from db at init).
+func SetDisplayNameOverrideFunc(fn func(projectPath string) string) {
+	displayNameMu.Lock()
+	displayNameFn = fn
+	displayNameMu.Unlock()
+}
+
+var (
+	displayNameMu sync.Mutex
+	displayNameFn func(string) string
+)
+
+func displayNameOverride(path string) string {
+	displayNameMu.Lock()
+	fn := displayNameFn
+	displayNameMu.Unlock()
+	if fn == nil {
+		return ""
+	}
+	return strings.TrimSpace(fn(path))
 }
 
 func enrichFresh(path string) Info {
@@ -89,6 +133,19 @@ func enrichFresh(path string) Info {
 		RepoKey:   repoKey,
 		Label:     label,
 	}
+}
+
+func autoLabel(repoName, workspace, branch string) string {
+	if repoName == "" {
+		return ""
+	}
+	if workspace != "" {
+		return repoName + " · " + workspace
+	}
+	if branch != "" && branch != "HEAD" {
+		return repoName + " · " + branch
+	}
+	return repoName
 }
 
 // DiscoverPaths returns repo roots from WTG spaces and the configured discovery root.

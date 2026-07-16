@@ -7,8 +7,17 @@ import (
 
 type stubEmbedder struct{}
 
-func (stubEmbedder) Embed(texts []string) ([][]float32, error) { return nil, nil }
+func (stubEmbedder) Embed(texts []string) ([][]float32, error)  { return nil, nil }
 func (stubEmbedder) EmbedSingle(text string) ([]float32, error) { return nil, nil }
+
+type cancelingEmbedder struct {
+	stubEmbedder
+	canceled bool
+}
+
+func (c *cancelingEmbedder) CancelInFlight() {
+	c.canceled = true
+}
 
 func TestPrepareForEmbedderSwap_pausesWorkers(t *testing.T) {
 	Start(stubEmbedder{})
@@ -65,4 +74,18 @@ func TestEnqueuePendingRetry_nonBlocking(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("enqueuePendingRetry blocked on full pendingCh")
 	}
+}
+
+func TestPrepareForEmbedderSwap_cancelsInFlightRemoteRequests(t *testing.T) {
+	Start(stubEmbedder{})
+	c := &cancelingEmbedder{}
+	SetEmbedder(c)
+	if _, err := SetWorkerCount(0); err != nil {
+		t.Fatal(err)
+	}
+	PrepareForEmbedderSwap(10 * time.Millisecond)
+	if !c.canceled {
+		t.Fatal("expected swap prep to cancel in-flight embedder requests")
+	}
+	RestoreWorkersAfterSwap()
 }

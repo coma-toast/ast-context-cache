@@ -22,6 +22,7 @@ type OpenAIEmbedder struct {
 	jsonDimensions int // if > 0, include "dimensions" in request JSON; 0 = omit
 	errLabel       string
 	client         *http.Client
+	canceler       *requestCanceler
 }
 
 // NewOpenAIEmbedder builds a remote embedder. baseURL is the API root including /v1, e.g.
@@ -55,13 +56,14 @@ func newOpenAIEmbedder(baseURL, apiKey, model string, jsonDimensions int, label 
 		jsonDimensions: jsonDimensions,
 		errLabel:       label,
 		client:         &http.Client{Timeout: timeout},
+		canceler:       newRequestCanceler(),
 	}
 }
 
 type openAIEmbedAPIRequest struct {
-	Model       string      `json:"model"`
-	Input       []string    `json:"input"`
-	Dimensions  *int        `json:"dimensions,omitempty"`
+	Model      string   `json:"model"`
+	Input      []string `json:"input"`
+	Dimensions *int     `json:"dimensions,omitempty"`
 }
 
 type openAIEmbedAPIResponse struct {
@@ -103,7 +105,7 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, o.embeddingsURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(o.canceler.Context(), http.MethodPost, o.embeddingsURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +145,10 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		return nil, err
 	}
 	return vecs, nil
+}
+
+func (o *OpenAIEmbedder) CancelInFlight() {
+	o.canceler.CancelInFlight()
 }
 
 func (o *OpenAIEmbedder) EmbedSingle(text string) ([]float32, error) {

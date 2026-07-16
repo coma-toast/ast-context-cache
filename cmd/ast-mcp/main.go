@@ -82,6 +82,7 @@ func main() {
 			dbReady <- err
 			return
 		}
+		projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
 		dbReady <- nil
 
 		db.BeforeForceCheckpoint = func() {

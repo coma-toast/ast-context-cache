@@ -202,6 +202,9 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.EmbedAuxWorkersLive = eq.AuxWorkersLive
 	h.EmbedAuxWorkerMax = embedqueue.AuxMaxWorkers()
 	h.EmbedAuxBackend, h.EmbedAuxModel = embedder.AuxSnapshot()
+	if h.EmbedAuxBackend == "" {
+		h.EmbedAuxBackend = embedder.AuxBackend()
+	}
 	h.EmbedAuxEnabled = h.EmbedAuxBackend != "" && !embedder.AuxSharesPrimary()
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput

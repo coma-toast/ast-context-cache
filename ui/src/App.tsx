@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Alert,
   Box,
+  Button,
   Drawer,
   FormControl,
   IconButton,
@@ -16,8 +18,10 @@ import MenuIcon from '@mui/icons-material/Menu'
 import { api } from './api/client'
 import type { Health, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat } from './api/types'
 import { HealthBar } from './components/HealthBar'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
 import { panelsToKeys, useWebSocket } from './hooks/useWebSocket'
+import { useResizableSidebar } from './hooks/useResizableSidebar'
 import { OverviewTab } from './tabs/OverviewTab'
 import { IndexHealthSection } from './tabs/IndexHealthSection'
 import { MemoryTab } from './tabs/MemoryTab'
@@ -35,8 +39,6 @@ const NAV = [
   { id: 'settings', label: 'Settings' },
 ] as const
 
-const DRAWER_WIDTH = 240
-
 type TabId = (typeof NAV)[number]['id']
 
 const TAB_HINTS: Record<TabId, string> = {
@@ -50,6 +52,7 @@ const TAB_HINTS: Record<TabId, string> = {
 
 function DashboardInner() {
   const { showToast } = useToast()
+  const { width: sidebarWidth, onPointerDown: onSidebarResize } = useResizableSidebar()
   const [tab, setTab] = useState<TabId>('overview')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [projectId, setProjectId] = useState('')
@@ -67,25 +70,34 @@ function DashboardInner() {
   const [imports, setImports] = useState<{ target: string; count: number }[] | null>(null)
   const [recentMcp, setRecentMcp] = useState<import('./api/types').RecentQuery[] | null>(null)
   const [recentIdx, setRecentIdx] = useState<import('./api/types').RecentQuery[] | null>(null)
+  const [loadErrors, setLoadErrors] = useState<string[]>([])
 
   const pid = projectId || undefined
 
   const load = useCallback(
     async (keys: string[]) => {
+      const failures: string[] = []
+      const run = <T,>(label: string, task: Promise<T>, apply: (v: T) => void) =>
+        task
+          .then(apply)
+          .catch((e) => {
+            failures.push(`${label}: ${e instanceof Error ? e.message : String(e)}`)
+          })
+
       const tasks: Promise<void>[] = []
-      if (keys.includes('health')) tasks.push(api.health().then(setHealth))
-      if (keys.includes('stats')) tasks.push(api.stats(pid).then(setStats))
-      if (keys.includes('indexHealth')) tasks.push(api.indexHealth(pid).then(setIndexHealth))
-      if (keys.includes('memory')) tasks.push(api.memory(pid).then(setMemory))
-      if (keys.includes('settings')) tasks.push(api.settings().then(setSettings))
-      if (keys.includes('mcpTier')) tasks.push(api.mcpTier().then(setMcpTier))
-      if (keys.includes('timeseries')) tasks.push(api.timeseries(pid, timeseriesInterval).then(setTimeseries))
-      if (keys.includes('tools')) tasks.push(api.tools(pid).then(setTools))
-      if (keys.includes('symbolKinds')) tasks.push(api.symbolKinds(pid).then(setSymbols))
-      if (keys.includes('topImports')) tasks.push(api.topImports(pid).then(setImports))
+      if (keys.includes('health')) tasks.push(run('health', api.health(), setHealth))
+      if (keys.includes('stats')) tasks.push(run('stats', api.stats(pid), setStats))
+      if (keys.includes('indexHealth')) tasks.push(run('indexHealth', api.indexHealth(pid), setIndexHealth))
+      if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid), setMemory))
+      if (keys.includes('settings')) tasks.push(run('settings', api.settings(), setSettings))
+      if (keys.includes('mcpTier')) tasks.push(run('mcpTier', api.mcpTier(), setMcpTier))
+      if (keys.includes('timeseries')) tasks.push(run('timeseries', api.timeseries(pid, timeseriesInterval), setTimeseries))
+      if (keys.includes('tools')) tasks.push(run('tools', api.tools(pid), setTools))
+      if (keys.includes('symbolKinds')) tasks.push(run('symbolKinds', api.symbolKinds(pid), setSymbols))
+      if (keys.includes('topImports')) tasks.push(run('topImports', api.topImports(pid), setImports))
       if (keys.includes('recent')) {
         tasks.push(
-          api.recentSplit(pid).then((r) => {
+          run('recent', api.recentSplit(pid), (r) => {
             setRecentMcp(r.mcp)
             setRecentIdx(r.indexing)
           }),
@@ -93,14 +105,24 @@ function DashboardInner() {
       }
       if (keys.includes('projects')) {
         tasks.push(
-          api.projects().then((list) => {
-            setProjects(list.map((p) => ({ path: p.path, name: p.name || p.path })))
+          run('projects', api.projects(), (list) => {
+            const rows = Array.isArray(list) ? list : []
+            setProjects(
+              rows.map((p) => ({
+                path: p.path ?? p.Path ?? '',
+                name: p.name ?? p.Name ?? p.path ?? p.Path ?? '',
+              })),
+            )
           }),
         )
       }
-      await Promise.allSettled(tasks)
+      await Promise.all(tasks)
+      setLoadErrors(failures)
+      if (failures.length) {
+        failures.forEach((f) => showToast(f, 'error'))
+      }
     },
-    [pid, timeseriesInterval],
+    [pid, timeseriesInterval, showToast],
   )
 
   const loadAll = useCallback(() => {
@@ -110,6 +132,13 @@ function DashboardInner() {
   useEffect(() => {
     loadAll()
   }, [loadAll])
+
+  useEffect(() => {
+    const starting = health?.EmbedderState === 'loading' || health?.EmbedderState === 'starting'
+    if (!starting) return
+    const id = window.setInterval(() => load(['health', 'stats', 'indexHealth', 'memory', 'settings']), 2500)
+    return () => window.clearInterval(id)
+  }, [health, load])
 
   useEffect(() => {
     load(['timeseries'])
@@ -126,7 +155,7 @@ function DashboardInner() {
   )
 
   const drawer = (
-    <Box sx={{ width: DRAWER_WIDTH, p: 2, boxSizing: 'border-box' }}>
+    <Box sx={{ width: '100%', p: 2, boxSizing: 'border-box', height: '100%' }}>
       <Typography variant="h6" fontWeight={700} gutterBottom>
         AST Context Cache
       </Typography>
@@ -155,20 +184,41 @@ function DashboardInner() {
         open
         sx={{
           display: { xs: 'none', md: 'block' },
-          width: DRAWER_WIDTH,
+          width: sidebarWidth,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
-            width: DRAWER_WIDTH,
+            width: sidebarWidth,
             boxSizing: 'border-box',
             position: 'relative',
             height: '100vh',
             borderRight: '1px solid',
             borderColor: 'divider',
             overflowY: 'auto',
+            overflowX: 'hidden',
           },
         }}
       >
         {drawer}
+        <Box
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onPointerDown={onSidebarResize}
+          sx={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            width: 6,
+            height: '100%',
+            cursor: 'col-resize',
+            zIndex: 1200,
+            touchAction: 'none',
+            '&:hover, &:active': {
+              bgcolor: 'primary.main',
+              opacity: 0.35,
+            },
+          }}
+        />
       </Drawer>
       <Box
         component="main"
@@ -227,6 +277,24 @@ function DashboardInner() {
           )}
         </Toolbar>
         <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
+          {loadErrors.length > 0 && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="inherit" size="small" onClick={() => { setLoadErrors([]); loadAll() }}>
+                  Retry
+                </Button>
+              }
+            >
+              Some dashboard APIs failed. Ensure ast-mcp is running on port 7830 ({window.location.origin}).
+              {loadErrors.slice(0, 2).map((e) => (
+                <Box component="div" key={e} sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, mt: 0.5 }}>
+                  {e}
+                </Box>
+              ))}
+            </Alert>
+          )}
           <Box sx={{ mb: 2 }}>
             <Typography variant="h5" fontWeight={600}>
               {title}
@@ -236,18 +304,36 @@ function DashboardInner() {
             </Typography>
           </Box>
           {tab === 'overview' && (
-            <>
+            <ErrorBoundary label="Overview">
               <OverviewTab stats={stats} />
-              <IndexHealthSection data={indexHealth} />
-            </>
+              <IndexHealthSection data={indexHealth} onRefresh={() => load(['indexHealth', 'health', 'projects', 'settings'])} />
+            </ErrorBoundary>
           )}
-          {tab === 'memory' && <MemoryTab data={memory} onRefresh={() => load(['memory'])} />}
+          {tab === 'memory' && (
+            <ErrorBoundary label="Memory">
+              <MemoryTab data={memory} onRefresh={() => load(['memory'])} />
+            </ErrorBoundary>
+          )}
           {tab === 'activity' && (
-            <ActivityTab data={timeseries} interval={timeseriesInterval} onIntervalChange={setTimeseriesInterval} />
+            <ErrorBoundary label="Activity">
+              <ActivityTab data={timeseries} interval={timeseriesInterval} onIntervalChange={setTimeseriesInterval} />
+            </ErrorBoundary>
           )}
-          {tab === 'analytics' && <AnalyticsTab tools={tools} symbols={symbols} imports={imports} />}
-          {tab === 'recent' && <RecentTab mcp={recentMcp} indexing={recentIdx} />}
-          {tab === 'settings' && <SettingsTab data={settings} mcpTier={mcpTier} onRefresh={() => load(['settings', 'indexHealth'])} />}
+          {tab === 'analytics' && (
+            <ErrorBoundary label="Analytics">
+              <AnalyticsTab tools={tools} symbols={symbols} imports={imports} />
+            </ErrorBoundary>
+          )}
+          {tab === 'recent' && (
+            <ErrorBoundary label="Recent">
+              <RecentTab mcp={recentMcp} indexing={recentIdx} />
+            </ErrorBoundary>
+          )}
+          {tab === 'settings' && (
+            <ErrorBoundary label="Settings">
+              <SettingsTab data={settings} mcpTier={mcpTier} onRefresh={() => load(['settings', 'indexHealth', 'projects'])} />
+            </ErrorBoundary>
+          )}
         </Box>
       </Box>
     </Box>
