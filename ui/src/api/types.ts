@@ -29,6 +29,9 @@ export interface Stats {
   SavingsVsFiles: number
   AvgDurationMs: number
   TodayAvgDurationMs: number
+  TotalChars?: number
+  AvgDurationMs?: number
+  VirtualFlushed30d?: number
   Sessions: number
   TodaySessions: number
   VirtualInventoryTokens: number
@@ -55,34 +58,104 @@ export interface WatcherInfo {
   LinkedCount: number
 }
 
+export interface EmbedActivityItem {
+  File: string
+  ProjectPath: string
+}
+
 export interface IndexHealth {
   TotalSymbols: number
   TotalFiles: number
   TotalEdges: number
   TotalVectors: number
   VectorMemMB: number
+  MemoryMB?: number
+  DiskMB?: number
+  WalMB?: number
+  WalSize?: string
+  CPUPercent: number
+  HeapMB?: number
+  LoadAvgAvailable?: boolean
+  LoadAvg1?: number
+  LoadAvg5?: number
+  LoadAvg15?: number
+  DiskSize?: string
+  DiskReadMBps?: number
+  DiskWriteMBps?: number
+  SSDModel?: string
+  SSDSmartStatus?: string
+  SSDProtocol?: string
+  SSDCapacity?: string
+  SSDSolidState?: boolean
+  SSDTrim?: boolean
+  SSDAvailable?: boolean
+  SSDWearUsedPct?: number
+  SSDSparePct?: number
+  SSDDataWrittenTB?: number
+  SSDTemperatureC?: number
   EmbedQueued: number
   EmbedPending: number
+  EmbedPendingPeak?: number
+  EmbedFailed?: number
+  EmbedHighQueued?: number
+  EmbedLowQueued?: number
+  EmbedHighCap?: number
+  EmbedLowCap?: number
+  EmbedActive?: number
   EmbedWorkers: number
+  EmbedWorkersEffective?: number
+  EmbedWorkersLive?: number
   EmbedWorkerMax: number
-  EmbedThroughput: number
+  EmbedAuxWorkers?: number
+  EmbedAuxWorkersEffective?: number
+  EmbedAuxWorkersLive?: number
+  EmbedAuxWorkerMax?: number
+  EmbedAuxBackend?: string
+  EmbedAuxModel?: string
+  EmbedAuxEnabled?: boolean
   EmbedComplete: number
+  EmbedThroughput: number
   PinnedCount: number
-  Watchers: WatcherInfo[]
-  CPUPercent: number
-  HeapMB: number
-  WALMaintenanceActive: boolean
-  WALPressure: number
   FilteredProject: string
+  EmbedBackend?: string
+  EmbedModel?: string
+  EmbedRuntime?: string
+  EmbedEndpoint?: string
+  EmbedDim?: number
+  EmbedderState?: string
+  EmbedderError?: string
+  EmbedLoaded?: boolean
+  EmbedRecent?: EmbedActivityItem[]
+  EmbedInProgress?: EmbedActivityItem[]
+  EmbedConfiguredBackend?: string
+  EmbedConfiguredModel?: string
+  EmbedInSync?: boolean
+  WALMaintenanceActive: boolean
+  WALMaintenancePhase?: string
+  WALMaintenanceMode?: string
+  WALMaintenanceReason?: string
+  WALWalStartBytes?: number
+  WALWalCurrentBytes?: number
+  WALBusyStreak?: number
+  WALInFlight?: number
+  WALLastBusy?: number
+  WALPressure?: string | number
+  Watchers: WatcherInfo[]
 }
 
 export interface Project {
   Path: string
-  Label: string
+  path?: string
+  Label?: string
+  label?: string
   Name: string
+  name?: string
   QueryCount: number
+  query_count?: number
   SymbolCount: number
+  symbol_count?: number
   FileCount: number
+  file_count?: number
   Pinned: boolean
   LinkedChildren: string[]
   LinkedParent: string
@@ -90,6 +163,11 @@ export interface Project {
 
 export interface SettingsData {
   IdleUnloadMinutes: number
+  EmbedWorkerMax?: number
+  EmbedAuxWorkerMax?: number
+  EmbedAuxWorkers?: number
+  EmbedAuxBackend?: string
+  EmbedProbeIntervalSec?: number
   WatcherIgnoreGlobs: string
   ProjectExcludePaths: string
   IndexLogFiles: boolean

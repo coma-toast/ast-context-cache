@@ -47,6 +47,7 @@ func PauseAllForMaintenance(timeout time.Duration) {
 		}
 	}
 	auxWorkerMu.Unlock()
+	cancelInFlightEmbedderRequests(queueAuxEmbedder())
 	deadline := time.Now().Add(timeout)
 	for atomic.LoadInt64(&inFlight) > 0 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)

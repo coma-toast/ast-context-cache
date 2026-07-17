@@ -13,9 +13,10 @@ import (
 // OllamaEmbedder uses Ollama’s POST /api/embed. Default model nomic-embed-text is 768-dim, matching the vector store.
 // See: https://docs.ollama.com/api/embed
 type OllamaEmbedder struct {
-	BaseURL string
-	Model   string
-	client  *http.Client
+	BaseURL  string
+	Model    string
+	client   *http.Client
+	canceler *requestCanceler
 }
 
 // NewOllamaEmbedder builds a client. baseURL is e.g. http://127.0.0.1:11434 (no path).
@@ -37,9 +38,10 @@ func newOllamaEmbedder(baseURL, model string, timeout time.Duration) *OllamaEmbe
 		timeout = DefaultHTTPEmbedTimeout
 	}
 	return &OllamaEmbedder{
-		BaseURL: b,
-		Model:   m,
-		client:  &http.Client{Timeout: timeout},
+		BaseURL:  b,
+		Model:    m,
+		client:   &http.Client{Timeout: timeout},
+		canceler: newRequestCanceler(),
 	}
 }
 
@@ -81,7 +83,7 @@ func (o *OllamaEmbedder) postEmbed(texts []string) ([][]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, o.embedURL(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(o.canceler.Context(), http.MethodPost, o.embedURL(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -120,4 +122,8 @@ func (o *OllamaEmbedder) EmbedSingle(text string) ([]float32, error) {
 		return nil, fmt.Errorf("ollama: empty result")
 	}
 	return vecs[0], nil
+}
+
+func (o *OllamaEmbedder) CancelInFlight() {
+	o.canceler.CancelInFlight()
 }

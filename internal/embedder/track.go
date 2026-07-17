@@ -32,3 +32,9 @@ func (t *healthTracker) EmbedSingle(text string) ([]float32, error) {
 	}
 	return vec, err
 }
+
+func (t *healthTracker) CancelInFlight() {
+	if c, ok := t.inner.(interface{ CancelInFlight() }); ok {
+		c.CancelInFlight()
+	}
+}

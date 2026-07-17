@@ -13,9 +13,10 @@ import (
 // HTTPEmbedder calls a service that matches ast-mcp’s POST /embed JSON: request {"texts":[...]} response {"embeddings":[[...float32]...]}.
 // Use with a local sidecar, a proxy to OpenAI, Text Embeddings Inference, etc. Vectors must be 768 dimensions to match the vector index.
 type HTTPEmbedder struct {
-	URL    string
-	Bearer string
-	client *http.Client
+	URL      string
+	Bearer   string
+	client   *http.Client
+	canceler *requestCanceler
 }
 
 // NewHTTPEmbedder creates a remote embedder. url should be a full URL (e.g. http://127.0.0.1:9000/embed).
@@ -32,9 +33,10 @@ func newHTTPEmbedder(url, bearer string, timeout time.Duration) *HTTPEmbedder {
 		timeout = DefaultHTTPEmbedTimeout
 	}
 	return &HTTPEmbedder{
-		URL:    u,
-		Bearer: strings.TrimSpace(bearer),
-		client: &http.Client{Timeout: timeout},
+		URL:      u,
+		Bearer:   strings.TrimSpace(bearer),
+		client:   &http.Client{Timeout: timeout},
+		canceler: newRequestCanceler(),
 	}
 }
 
@@ -54,7 +56,7 @@ func (h *HTTPEmbedder) Embed(texts []string) ([][]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, h.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(h.canceler.Context(), http.MethodPost, h.URL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +98,10 @@ func (h *HTTPEmbedder) EmbedSingle(text string) ([]float32, error) {
 		return nil, fmt.Errorf("embed: empty result")
 	}
 	return vecs[0], nil
+}
+
+func (h *HTTPEmbedder) CancelInFlight() {
+	h.canceler.CancelInFlight()
 }
 
 func truncateForErr(b []byte, n int) string {
