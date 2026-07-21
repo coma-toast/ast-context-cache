@@ -141,6 +141,9 @@ func rebuildDocsFTS() {
 }
 
 func UpdateAllSources() {
+	if db.ContextDB == nil {
+		return
+	}
 	sources, err := ListSources()
 	if err != nil {
 		return

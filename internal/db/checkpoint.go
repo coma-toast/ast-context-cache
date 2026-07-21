@@ -16,7 +16,8 @@ const (
 
 	checkpointOpTimeout  = 20 * time.Second
 	checkpointMaxElapsed = 90 * time.Second
-	embedDeferDuration   = 2 * time.Minute
+	embedDeferDuration     = 2 * time.Minute
+	quietWALCooldown        = 5 * time.Minute
 )
 
 var (
@@ -35,6 +36,9 @@ var (
 
 	BeforeForceCheckpoint func()
 	AfterForceCheckpoint  func()
+
+	quietWALMu     sync.Mutex
+	lastQuietWALAt time.Time
 )
 
 func logPoolStats(name string, pool *sql.DB) {
@@ -364,6 +368,48 @@ func ForceCheckpointWAL() (busy, walFrames, checkpointed int, err error) {
 	return maintainWAL("force", true)
 }
 
+// TryQuietWALTruncate schedules a forced WAL TRUNCATE during a quiet period
+// (embedder error, workers paused, queue idle). Debounced and size-gated.
+func TryQuietWALTruncate(reason string) {
+	indexWal := IndexWalBytes()
+	quietWALMu.Lock()
+	ok := shouldAttemptQuietWAL(time.Now(), indexWal, WALMaintenanceActive(), lastQuietWALAt)
+	if ok {
+		lastQuietWALAt = time.Now()
+	}
+	quietWALMu.Unlock()
+	if !ok {
+		return
+	}
+	go func() {
+		log.Printf("WAL: quiet period (%s) — attempting TRUNCATE (index_wal=%s)", reason, FormatFileSize(indexWal))
+		maintainWAL(reason, true)
+	}()
+}
+
+// TryMaintainWALOnEmbedderError is kept as an alias for older call sites.
+func TryMaintainWALOnEmbedderError() {
+	TryQuietWALTruncate("embedder_error")
+}
+
+func shouldAttemptQuietWAL(now time.Time, indexWal int64, maintActive bool, lastAttempt time.Time) bool {
+	if indexWal < walTruncateBytes {
+		return false
+	}
+	if maintActive {
+		return false
+	}
+	if !lastAttempt.IsZero() && now.Sub(lastAttempt) < quietWALCooldown {
+		return false
+	}
+	return true
+}
+
+// Deprecated: use shouldAttemptQuietWAL.
+func shouldAttemptWALOnEmbedderError(now time.Time, indexWal int64, maintActive bool, lastAttempt time.Time) bool {
+	return shouldAttemptQuietWAL(now, indexWal, maintActive, lastAttempt)
+}
+
 func shouldForceCheckpoint(wal int64) bool {
 	streak := walBusyStreak.Load()
 	return wal >= walForceBytes || streak >= 3
@@ -458,6 +504,9 @@ func ResetMaintBackoffForTest() {
 	maintBackoffUntil = time.Time{}
 	truncateDeferUntil = time.Time{}
 	truncateDeferLogged = false
+	quietWALMu.Lock()
+	lastQuietWALAt = time.Time{}
+	quietWALMu.Unlock()
 }
 
 // TruncateDeferUntilForTest exposes embed defer deadline (tests only).

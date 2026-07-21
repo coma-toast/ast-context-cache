@@ -109,3 +109,22 @@ func TestPrepCheckpointAbortsWhenInFlight(t *testing.T) {
 		t.Fatal("expected prepCheckpoint to abort when in-flight > 0")
 	}
 }
+
+func TestShouldAttemptWALOnEmbedderError(t *testing.T) {
+	now := time.Now()
+	if shouldAttemptWALOnEmbedderError(now, walTruncateBytes-1, false, time.Time{}) {
+		t.Fatal("should skip when WAL below truncate threshold")
+	}
+	if shouldAttemptWALOnEmbedderError(now, walTruncateBytes, true, time.Time{}) {
+		t.Fatal("should skip when maintenance already active")
+	}
+	if !shouldAttemptWALOnEmbedderError(now, walTruncateBytes, false, time.Time{}) {
+		t.Fatal("should attempt when WAL large and idle")
+	}
+	if shouldAttemptWALOnEmbedderError(now, walTruncateBytes, false, now.Add(-time.Minute)) {
+		t.Fatal("should skip during cooldown")
+	}
+	if !shouldAttemptWALOnEmbedderError(now, walTruncateBytes, false, now.Add(-quietWALCooldown-time.Second)) {
+		t.Fatal("should attempt after cooldown expires")
+	}
+}
