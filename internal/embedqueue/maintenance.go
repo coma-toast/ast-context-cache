@@ -32,26 +32,47 @@ func QueueIdleForWAL() bool {
 }
 
 // PauseAllForMaintenance stops primary and aux embed workers and waits for in-flight work.
+// Aux is paused first so it cannot keep feeding jobs while primary drains.
 func PauseAllForMaintenance(timeout time.Duration) {
-	PrepareForEmbedderSwap(timeout)
-	auxWorkerMu.Lock()
-	maintenanceAuxDepth++
-	if maintenanceAuxDepth == 1 {
-		maintenanceRestoreAux = auxWorkerCount
-		if auxWorkerCount > 0 {
-			if err := applyAuxWorkerCountLocked(0, false); err != nil {
-				log.Printf("embedqueue: maintenance pause aux workers: %v", err)
-			} else {
-				log.Printf("embedqueue: paused %d aux workers for DB maintenance", maintenanceRestoreAux)
-			}
-		}
+	if timeout <= 0 {
+		timeout = defaultSwapDrainTimeout
 	}
-	auxWorkerMu.Unlock()
+	pauseAuxForMaintenance()
 	cancelInFlightEmbedderRequests(queueAuxEmbedder())
+	PrepareForEmbedderSwap(timeout)
 	deadline := time.Now().Add(timeout)
-	for atomic.LoadInt64(&inFlight) > 0 && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt64(&inFlight) == 0 && WorkerLive() == 0 && AuxWorkerLive() == 0 {
+			break
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	if n := atomic.LoadInt64(&inFlight); n > 0 {
+		log.Printf("embedqueue: maintenance drain timed out with %d in-flight embed(s) (primary_live=%d aux_live=%d)", n, WorkerLive(), AuxWorkerLive())
+	}
+}
+
+func pauseAuxForMaintenance() {
+	auxWorkerMu.Lock()
+	defer auxWorkerMu.Unlock()
+	maintenanceAuxDepth++
+	if maintenanceAuxDepth != 1 {
+		return
+	}
+	// Prefer target so restore brings back the configured pool, not a mid-drain live count.
+	maintenanceRestoreAux = auxWorkerTarget
+	if auxWorkerStop == nil {
+		return
+	}
+	if auxWorkerCount == 0 && auxWorkerTarget == 0 {
+		return
+	}
+	prev := auxWorkerCount
+	if err := applyAuxWorkerCountLocked(0, false); err != nil {
+		log.Printf("embedqueue: maintenance pause aux workers: %v", err)
+		return
+	}
+	log.Printf("embedqueue: paused %d aux workers for DB maintenance (target was %d)", prev, maintenanceRestoreAux)
 }
 
 // RestoreAfterMaintenance resumes workers paused by PauseAllForMaintenance.

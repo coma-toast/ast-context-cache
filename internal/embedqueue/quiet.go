@@ -46,14 +46,17 @@ func StartQuietPeriodLoop() {
 }
 
 // maybeQuietOnWorkersPaused runs quiet maintenance when the primary worker target hits 0.
+// Aux is paused too so it cannot keep writing while we wait for a quiet WAL window.
 func maybeQuietOnWorkersPaused(n int) {
 	if n != 0 {
 		return
 	}
 	go func() {
+		pauseAuxForMaintenance()
+		defer RestoreAfterMaintenance()
 		deadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(deadline) {
-			if QueueIdleForWAL() && WorkerLive() == 0 {
+			if QueueIdleForWAL() && WorkerLive() == 0 && AuxWorkerLive() == 0 {
 				runQuietPeriod("workers_paused")
 				return
 			}
