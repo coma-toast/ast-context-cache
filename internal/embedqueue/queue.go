@@ -108,6 +108,7 @@ func Start(e embedder.Interface) {
 		LoadPendingFromDB()
 		go flushPendingIfReady()
 		startPressureBackoff()
+		StartQuietPeriodLoop()
 	})
 }
 
@@ -459,12 +460,14 @@ func DrainQueueToPending() int {
 	return n
 }
 
-// OnEmbedderError drains in-flight queue work into pending so the dashboard reflects backlog.
+// OnEmbedderError drains queued work into pending and runs quiet-period maintenance
+// (WAL truncate + stale doc cache refresh) while embed writers are quiet.
 func OnEmbedderError() {
 	if n := DrainQueueToPending(); n > 0 {
 		log.Printf("embedqueue: drained %d queued jobs to pending", n)
 		realtime.Notify(realtime.EmbedFinished)
 	}
+	runQuietPeriod("embedder_error")
 }
 
 // FlushPending re-queues all pending embed jobs (e.g. after embedder recovery).

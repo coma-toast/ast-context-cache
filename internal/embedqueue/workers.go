@@ -134,6 +134,7 @@ func applyWorkerCountLocked(n int, persist bool) error {
 		workerTarget = workerCount
 		persistWorkerCount(workerCount)
 		log.Printf("embed queue: workers set to %d", workerCount)
+		maybeQuietOnWorkersPaused(workerCount)
 	}
 	realtime.Notify(realtime.EmbedFinished | realtime.IndexHealth)
 	return nil

@@ -14,3 +14,9 @@ func TestIsRefreshing(t *testing.T) {
 		t.Fatal("expected id 99 not refreshing")
 	}
 }
+
+func TestTryQuietRefreshSkipsWhenNoStale(t *testing.T) {
+	ResetQuietRefreshForTest()
+	// With empty/no DB sources ListSources may error or return empty — should not panic.
+	TryQuietRefresh("test")
+}
