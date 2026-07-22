@@ -87,6 +87,8 @@ func StartErrorScanLoop() {
 				if n := SyncPendingFromDB(); n > 0 {
 					log.Printf("embedqueue: error-scan marked %d files pending", n)
 				}
+				// Primary is down; still re-queue for aux (onnx) catch-up when available.
+				flushPendingIfReady()
 			}
 		}()
 	})
@@ -102,14 +104,18 @@ func flushPendingIfReady() {
 		return
 	}
 	state, _ := embedder.HealthState()
-	if state == "error" {
+	if state == "error" && !auxCanCatchUp() {
 		return
 	}
 	if PendingCount() == 0 {
 		return
 	}
 	s := Snapshot()
-	log.Printf("embedqueue: flush pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+	if state == "error" {
+		log.Printf("embedqueue: flush pending via aux catch-up pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+	} else {
+		log.Printf("embedqueue: flush pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+	}
 	FlushPending()
 }
 
@@ -121,7 +127,7 @@ func StartPendingReconciler() {
 			defer ticker.Stop()
 			for range ticker.C {
 				state, _ := embedder.HealthState()
-				if state == "error" {
+				if state == "error" && !auxCanCatchUp() {
 					continue
 				}
 				s := Snapshot()

@@ -44,6 +44,21 @@ func queueAuxEmbedder() embedder.Interface {
 	return auxEmb
 }
 
+// auxCanCatchUp reports whether the aux (e.g. onnx) pool can process embed jobs
+// while the primary remote embedder is unhealthy.
+func auxCanCatchUp() bool {
+	if queueAuxEmbedder() == nil {
+		return false
+	}
+	auxWorkerMu.Lock()
+	n := auxWorkerTarget
+	if auxWorkerCount > n {
+		n = auxWorkerCount
+	}
+	auxWorkerMu.Unlock()
+	return n > 0
+}
+
 // AuxMaxWorkers returns the upper limit for aux embed workers.
 func AuxMaxWorkers() int {
 	raw := db.GetSetting(embedAuxWorkerMaxSetting, strconv.Itoa(DefaultAuxMaxWorkers))

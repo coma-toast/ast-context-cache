@@ -1,6 +1,7 @@
 package embedqueue
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -23,6 +24,117 @@ func TestFlushPendingIfReadyQueuesJobs(t *testing.T) {
 	case <-pendingCh:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("expected pending job queued")
+	}
+}
+
+func TestFlushPendingBlockedOnPrimaryErrorWithoutAux(t *testing.T) {
+	t.Cleanup(func() {
+		embedder.SetOnError(nil)
+		embedder.MarkReady()
+		SetAuxEmbedder(nil)
+		auxWorkerMu.Lock()
+		auxWorkerTarget = 0
+		auxWorkerCount = 0
+		auxWorkerMu.Unlock()
+	})
+	pendingCh = make(chan job, 4)
+	highCh = make(chan job, 4)
+	lowCh = make(chan job, 4)
+	emb = &noopEmbedder{}
+	SetAuxEmbedder(nil)
+	auxWorkerMu.Lock()
+	auxWorkerTarget = 0
+	auxWorkerCount = 0
+	auxWorkerMu.Unlock()
+	pendingMu.Lock()
+	pending = map[string]job{jobKey(job{file: "/tmp/a.go", projectPath: "/proj"}): {file: "/tmp/a.go", projectPath: "/proj"}}
+	pendingMu.Unlock()
+	embedder.SetOnError(nil)
+	embedder.MarkError(errors.New("connectivity probe: timeout after 2m0s"))
+	flushPendingIfReady()
+	select {
+	case <-pendingCh:
+		t.Fatal("expected no flush while primary error and aux unavailable")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestFlushPendingIfReadyDuringPrimaryErrorWithAux(t *testing.T) {
+	t.Cleanup(func() {
+		embedder.SetOnError(nil)
+		embedder.MarkReady()
+		SetAuxEmbedder(nil)
+		auxWorkerMu.Lock()
+		auxWorkerTarget = 0
+		auxWorkerCount = 0
+		auxWorkerMu.Unlock()
+	})
+	pendingCh = make(chan job, 4)
+	highCh = make(chan job, 4)
+	lowCh = make(chan job, 4)
+	emb = &noopEmbedder{}
+	SetAuxEmbedder(&noopEmbedder{})
+	auxWorkerMu.Lock()
+	auxWorkerTarget = 2
+	auxWorkerCount = 0
+	auxWorkerMu.Unlock()
+	pendingMu.Lock()
+	pending = map[string]job{jobKey(job{file: "/tmp/aux.go", projectPath: "/proj"}): {file: "/tmp/aux.go", projectPath: "/proj"}}
+	pendingMu.Unlock()
+	embedder.SetOnError(nil)
+	embedder.MarkError(errors.New("connectivity probe: timeout after 2m0s"))
+	if !auxCanCatchUp() {
+		t.Fatal("expected auxCanCatchUp")
+	}
+	if primaryShouldProcess() {
+		t.Fatal("primary should yield to aux while in error")
+	}
+	flushPendingIfReady()
+	select {
+	case j := <-pendingCh:
+		if j.file != "/tmp/aux.go" {
+			t.Fatalf("queued %s", j.file)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected pending flush for aux catch-up while primary error")
+	}
+}
+
+func TestSubmitPriorityDuringPrimaryErrorWithAux(t *testing.T) {
+	t.Cleanup(func() {
+		embedder.SetOnError(nil)
+		embedder.MarkReady()
+		SetAuxEmbedder(nil)
+		auxWorkerMu.Lock()
+		auxWorkerTarget = 0
+		auxWorkerCount = 0
+		auxWorkerMu.Unlock()
+	})
+	pendingCh = make(chan job, 4)
+	highCh = make(chan job, 4)
+	lowCh = make(chan job, 4)
+	emb = &noopEmbedder{}
+	SetAuxEmbedder(&noopEmbedder{})
+	auxWorkerMu.Lock()
+	auxWorkerTarget = 1
+	auxWorkerCount = 1
+	auxWorkerMu.Unlock()
+	pendingMu.Lock()
+	pending = map[string]job{}
+	pendingMu.Unlock()
+	embedder.SetOnError(nil)
+	embedder.MarkError(errors.New("connectivity probe: timeout after 2m0s"))
+	SubmitPriority("/tmp/new.go", "/proj", false)
+	select {
+	case j := <-lowCh:
+		if j.file != "/tmp/new.go" {
+			t.Fatalf("queued %s", j.file)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected submit to enqueue for aux while primary error")
+	}
+	if PendingCount() != 0 {
+		t.Fatalf("pending=%d want 0", PendingCount())
 	}
 }
 

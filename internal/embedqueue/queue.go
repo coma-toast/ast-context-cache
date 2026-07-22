@@ -125,6 +125,15 @@ func worker() {
 			return
 		default:
 		}
+		// When primary is in error but aux can catch up, leave channel jobs for aux.
+		if !primaryShouldProcess() {
+			select {
+			case <-workerStop:
+				return
+			case <-time.After(200 * time.Millisecond):
+				continue
+			}
+		}
 		select {
 		case <-workerStop:
 			return
@@ -143,6 +152,16 @@ func worker() {
 			}
 		}
 	}
+}
+
+// primaryShouldProcess is false when the primary embedder is unhealthy and aux
+// workers can drain the queue instead (avoids re-pending jobs primary cannot run).
+func primaryShouldProcess() bool {
+	state, _ := embedder.HealthState()
+	if state != "error" {
+		return true
+	}
+	return !auxCanCatchUp()
 }
 
 func run(j job) {
@@ -228,7 +247,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 		}
 		return
 	}
-	if state, _ := embedder.HealthState(); state == "error" {
+	if state, _ := embedder.HealthState(); state == "error" && !auxCanCatchUp() {
 		if markPendingIfNew(j, pendingReasonDrained) {
 			realtime.Notify(realtime.EmbedFinished)
 		}
@@ -462,12 +481,16 @@ func DrainQueueToPending() int {
 
 // OnEmbedderError drains queued work into pending and runs quiet-period maintenance
 // (WAL truncate + stale doc cache refresh) while embed writers are quiet.
+// When aux workers are available, pending is re-queued so onnx can keep embedding.
 func OnEmbedderError() {
 	if n := DrainQueueToPending(); n > 0 {
 		log.Printf("embedqueue: drained %d queued jobs to pending", n)
 		realtime.Notify(realtime.EmbedFinished)
 	}
 	runQuietPeriod("embedder_error")
+	if auxCanCatchUp() {
+		flushPendingIfReady()
+	}
 }
 
 // FlushPending re-queues all pending embed jobs (e.g. after embedder recovery).

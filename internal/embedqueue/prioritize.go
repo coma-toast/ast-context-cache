@@ -24,7 +24,7 @@ func EnsureProjectEmbeddings(projectPath string) {
 		return
 	}
 	state, _ := embedder.HealthState()
-	if state == "error" {
+	if state == "error" && !auxCanCatchUp() {
 		return
 	}
 	projectPath = watcher.NormalizeProjectPath(projectPath)
