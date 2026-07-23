@@ -16,6 +16,7 @@ func initQueryLogBridge() {
 }
 
 func onQueryLogFlush(rows []db.QueryLogSnapshot) {
+	observeQueryLogMetrics(rows)
 	for _, r := range rows {
 		notifyQueryLogged(r.ToolName, r.ArgsJSON, r.Timestamp, r.ProjectPath, r.TokensSaved, r.DurationMs, r.CpuMs)
 	}

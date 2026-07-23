@@ -27,6 +27,7 @@ export function MemoryTab({ data, onRefresh }: { data: MemoryData | null; onRefr
   const [docName, setDocName] = useState('')
   const [docUrl, setDocUrl] = useState('')
   const [docType, setDocType] = useState('markdown')
+  const [packBusy, setPackBusy] = useState(false)
 
   if (!data) return <Typography color="text.secondary">Loading memory…</Typography>
 
@@ -73,9 +74,28 @@ export function MemoryTab({ data, onRefresh }: { data: MemoryData | null; onRefr
             >
               Add source
             </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              disabled={packBusy}
+              onClick={async () => {
+                setPackBusy(true)
+                try {
+                  const r = await api.installDocPack()
+                  showToast(`Starter pack: ${r.added ?? 0} sources queued`, 'success')
+                  onRefresh()
+                } catch (e) {
+                  showToast(String(e), 'error')
+                } finally {
+                  setPackBusy(false)
+                }
+              }}
+            >
+              Add starter doc pack
+            </Button>
           </Stack>
           {data.DocSources?.length === 0 ? (
-            <Typography color="text.secondary">No doc sources — add one above</Typography>
+            <Typography color="text.secondary">No doc sources — add one above or use Add starter doc pack</Typography>
           ) : (
             <Table size="small">
               <TableHead>

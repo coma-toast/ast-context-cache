@@ -51,7 +51,7 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 | Tab | What it shows |
 |-----|----------------|
 | **Overview** | Query activity, virtual context summary, index & runtime (embed queue, corpus, watchers) |
-| **Memory** | Virtual context stats, doc sources (add/refresh/delete) |
+| **Memory** | Virtual context stats, doc sources (add/refresh/delete, **Add starter doc pack**) |
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
 | **Analytics** | Tool performance table, symbol/language/import charts |
 | **Recent** | MCP tool calls vs indexing activity (accessible error expand) |
@@ -76,13 +76,55 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 
 MCP coding agents normally use MCP tools only; mention the dashboard when the user asks about indexing progress, embeddings, or server health.
 
+### Prometheus scrape
+
+Dashboard exposes Prometheus metrics at **`http://localhost:7830/metrics`** (prefix `astcache_`: process up, embed queue/workers, embedder state, index WAL bytes, tokens saved today, MCP tool call counts + duration). Example scrape job:
+
+```yaml
+- job_name: ast-context-cache
+  static_configs:
+    - targets: ["localhost:7830"]
+  metrics_path: /metrics
+```
+
 ## Shell helper
 
 After `make install`:
 
 ```bash
-ast-mcp start|stop|restart|status|health|log|build|dash
+ast-mcp start|start-safe|supervise|stop|restart|status|health|log|build|dash
 ```
+
+## Keep-alive
+
+For a long-running local process that restarts on crash:
+
+```bash
+ast-mcp supervise
+```
+
+Backoff is 1s → 2s → 5s (cap). Stop with **Ctrl+C** in that terminal, or `ast-mcp stop` from another shell (kills the child and ends the supervise loop).
+
+Docker equivalent (`restart: unless-stopped`), separate from DMR embeddings:
+
+```bash
+docker compose -f docker/ast-mcp/compose.yml up -d --build
+```
+
+See [`docker/ast-mcp/README.md`](../../docker/ast-mcp/README.md). Parent [`docker/README.md`](../../docker/README.md) is only for Docker Model Runner embeddings.
+
+## Failure modes (embed & process)
+
+| Symptom | Likely cause | What to expect / do |
+|---------|--------------|---------------------|
+| **Workers = 0 (intentional)** | Operator set target to 0 (Embeddings −/− or Settings) | Queue pauses by design. **Auto-recover does not fire** while target is 0. Raise workers when you want indexing again. |
+| **Workers = 0 (stuck)** | Target &gt; 0 but live/effective count stayed 0 after a failed restore or bug | After **≥ 5 minutes**, stuck-worker **auto-recover** restores primary (and aux if target &gt; 0). Log: `embedqueue: auto-recovered workers after stuck pause`. Dashboard may show `LastAutoRecoverUnix`. |
+| **WAL throttle** | Large `index.db-wal` | Effective workers drop (e.g. 128 MB → 4, 256 MB → 2) while **target** stays high. UI: “WAL throttled”. Not a pause — backlog drains slower. See [SQLite WAL runbook](#sqlite-wal-runbook). |
+| **Maintenance pause** | Quiet/forced maintenance or swap (WAL TRUNCATE, embed backend swap) | Writers paused; UI may show compacting/maintenance. On success, workers restore. **Auto-recover ignores active maintenance.** If restore fails and workers stay stuck at 0 with target &gt; 0, the 5m auto-recover path applies after maintenance ends. |
+| **Embedder error + aux catch-up** | Primary embedder health = `error` | Primary workers idle; if aux (e.g. ONNX) can catch up, pending files still flush via aux. Log: `flush pending via aux catch-up`. Fix primary (`GET /embed/health`, Settings → Retry), or rely on aux until healthy. |
+| **Process down** | Crash or kill | Without keep-alive, MCP/dashboard stop. Use **`ast-mcp supervise`** (1s→2s→5s backoff) or Docker Compose `restart: unless-stopped`. Abnormal prior exit may show a crash/restart banner on next start. |
+
+**Auto-recover (5m):** Restores workers only when target &gt; 0, live count is 0, and **not** intentional pause / **not** maintenance. Does not override workers=0 you set on purpose.
 
 ## Rebuild after source changes
 

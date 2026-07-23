@@ -97,6 +97,7 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 	h.EmbedAuxWorkersLive = eq.AuxWorkersLive
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
+	h.LastAutoRecoverUnix = eq.LastAutoRecoverUnix
 	return h
 }
 
@@ -208,6 +209,7 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.EmbedAuxEnabled = h.EmbedAuxBackend != "" && !embedder.AuxSharesPrimary()
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
+	h.LastAutoRecoverUnix = eq.LastAutoRecoverUnix
 	h.PinnedCount = db.PinnedProjectCount()
 	h.FilteredProject = projectID
 	walSnap := db.GetWALSnapshot()

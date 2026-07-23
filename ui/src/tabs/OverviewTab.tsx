@@ -1,15 +1,52 @@
-import { Box, Card, CardContent, Grid, Typography } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Card,
+  CardContent,
+  Chip,
+  Grid,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material'
+import { useState } from 'react'
 import { RingGauge } from '../components/charts/RingGauge'
-import type { Stats } from '../api/types'
+import type { ContextSessionsResponse, Stats, WeeklyDigest } from '../api/types'
 import { formatStat } from '../components/HealthBar'
 import { MetricStatCard } from '../components/charts/MetricStatCard'
 import { chartColors } from '../lib/chartColors'
 import { fmtDailyAvg, meterFillSegments, todayMeterFill } from '../lib/statMeters'
 
-export function OverviewTab({ stats }: { stats: Stats | null }) {
+export function OverviewTab({
+  stats,
+  weeklyDigest,
+  contextSessions,
+  abnormalPreviousRun,
+}: {
+  stats: Stats | null
+  weeklyDigest?: WeeklyDigest | null
+  contextSessions?: ContextSessionsResponse | null
+  abnormalPreviousRun?: boolean
+}) {
+  const [abnormalDismissed, setAbnormalDismissed] = useState(false)
   if (!stats) return <Typography color="text.secondary">Loading stats…</Typography>
+
+  const baseline = stats.ApproxBaselineTokens ?? 0
+  const returned = stats.ApproxTokensReturned ?? 0
+  const rounds = stats.ApproxRoundsAvoided ?? 0
+  const heuristicLabel = stats.HeuristicLabel || 'approximate'
+
   return (
     <Box>
+      {abnormalPreviousRun && !abnormalDismissed && (
+        <Alert severity="warning" onClose={() => setAbnormalDismissed(true)} sx={{ mb: 2 }}>
+          Restarted after abnormal exit
+        </Alert>
+      )}
       <Typography variant="overline" color="text.secondary">
         Query activity
       </Typography>
@@ -53,6 +90,39 @@ export function OverviewTab({ stats }: { stats: Stats | null }) {
       </Grid>
 
       <Typography variant="overline" color="text.secondary">
+        Value estimate ({heuristicLabel})
+      </Typography>
+      <Grid container spacing={2} sx={{ mt: 0.5, mb: 3 }}>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <MetricStatCard
+            title="Approx baseline"
+            value={formatStat(baseline)}
+            accent={chartColors.accent}
+            fill={todayMeterFill(returned, Math.max(baseline, 1))}
+            sub={`≈ full-source tokens before mode/dedup · 30d · ${heuristicLabel}`}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <MetricStatCard
+            title="Approx returned"
+            value={formatStat(returned)}
+            accent={chartColors.orange}
+            fill={todayMeterFill(returned, Math.max(baseline, 1))}
+            sub={`tokens actually returned · saved ${formatStat(stats.TokensSaved)}`}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <MetricStatCard
+            title="Rounds avoided"
+            value={rounds.toFixed(1)}
+            accent={chartColors.green}
+            fill={meterFillSegments(rounds, Math.max(rounds, 1))}
+            sub={`≈ tokens saved ÷ 4000 · ${heuristicLabel}`}
+          />
+        </Grid>
+      </Grid>
+
+      <Typography variant="overline" color="text.secondary">
         Context memory (summary)
       </Typography>
       <Grid container spacing={2} sx={{ mt: 0.5, mb: 3 }}>
@@ -82,6 +152,188 @@ export function OverviewTab({ stats }: { stats: Stats | null }) {
           />
         </Grid>
       </Grid>
+
+      <WeeklyDigestSection digest={weeklyDigest ?? null} />
+      <ContextSessionsSection data={contextSessions ?? null} />
+    </Box>
+  )
+}
+
+function WeeklyDigestSection({ digest }: { digest: WeeklyDigest | null }) {
+  if (!digest) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Loading weekly digest…
+      </Typography>
+    )
+  }
+  const emb = digest.EmbedReliability
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Typography variant="overline" color="text.secondary">
+        Weekly digest ({digest.WindowDays}d)
+      </Typography>
+      <Grid container spacing={2} sx={{ mt: 0.5 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <MetricStatCard
+            title="Tokens saved"
+            value={formatStat(digest.TokensSaved)}
+            accent={chartColors.green}
+            fill={todayMeterFill(digest.TokensSaved, Math.max(digest.TokensSaved, 1))}
+            sub={`${formatStat(digest.Queries)} queries`}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <MetricStatCard
+            title="VC stored"
+            value={formatStat(digest.VirtualStored)}
+            accent={chartColors.purple}
+            fill={todayMeterFill(digest.VirtualStored, Math.max(digest.VirtualStored + digest.VirtualAccessed, 1))}
+            sub={`accessed ${formatStat(digest.VirtualAccessed)}`}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <MetricStatCard
+            title="Rounds avoided"
+            value={(digest.Heuristic?.ApproxRoundsAvoided ?? 0).toFixed(1)}
+            accent={chartColors.accent}
+            fill={meterFillSegments(digest.Heuristic?.ApproxRoundsAvoided ?? 0, Math.max(digest.Heuristic?.ApproxRoundsAvoided ?? 1, 1))}
+            sub={`${digest.Heuristic?.HeuristicLabel || 'approximate'} · 7d`}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card variant="outlined" sx={{ height: '100%' }}>
+            <CardContent>
+              <Typography variant="overline" color="text.secondary" display="block">
+                Embed reliability
+              </Typography>
+              {emb?.Available ? (
+                <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'ui-monospace, monospace' }}>
+                    Pending failures: {formatStat(emb.PendingFailures ?? 0)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {emb.LastAutoRecoverUnix
+                      ? `Last auto-recover: ${new Date(emb.LastAutoRecoverUnix * 1000).toLocaleString()}`
+                      : 'No stuck-worker auto-recover this process'}
+                  </Typography>
+                  {emb.AbnormalPreviousRun && <Chip size="small" color="warning" label="Abnormal prior exit" />}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Embed reliability unavailable
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12 }}>
+          <Card variant="outlined">
+            <CardContent sx={{ pb: '16px !important' }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Top tools (7d)
+              </Typography>
+              {(digest.TopTools?.length ?? 0) === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No tool activity in the last week.
+                </Typography>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Tool</TableCell>
+                      <TableCell align="right">Calls</TableCell>
+                      <TableCell align="right">Tokens saved</TableCell>
+                      <TableCell align="right">Avg ms</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {digest.TopTools.map((t) => (
+                      <TableRow key={t.ToolName}>
+                        <TableCell sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 13 }}>{t.ToolName}</TableCell>
+                        <TableCell align="right">{formatStat(t.Calls)}</TableCell>
+                        <TableCell align="right">{formatStat(t.TokensSaved)}</TableCell>
+                        <TableCell align="right">{(t.AvgDurationMs ?? 0).toFixed(1)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+    </Box>
+  )
+}
+
+function ContextSessionsSection({ data }: { data: ContextSessionsResponse | null }) {
+  if (!data) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Loading session stories…
+      </Typography>
+    )
+  }
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Typography variant="overline" color="text.secondary">
+        Virtual context sessions (~{data.WindowDays}d)
+      </Typography>
+      <Card variant="outlined" sx={{ mt: 1 }}>
+        <CardContent sx={{ pb: '16px !important' }}>
+          {(data.Sessions?.length ?? 0) === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No virtual-context sessions with store/access activity in this window.
+            </Typography>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Session</TableCell>
+                  <TableCell align="right">Notes</TableCell>
+                  <TableCell align="right">Stored</TableCell>
+                  <TableCell align="right">Accessed</TableCell>
+                  <TableCell>Recovered</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {data.Sessions.map((s) => (
+                  <TableRow key={s.SessionID}>
+                    <TableCell sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, maxWidth: 220 }}>
+                      <Typography noWrap title={s.SessionID} sx={{ fontFamily: 'inherit', fontSize: 'inherit' }}>
+                        {s.SessionID}
+                      </Typography>
+                      {s.ProjectPath ? (
+                        <Typography variant="caption" color="text.secondary" noWrap display="block" title={s.ProjectPath}>
+                          {s.ProjectPath}
+                        </Typography>
+                      ) : null}
+                    </TableCell>
+                    <TableCell align="right">
+                      {formatStat(s.NotesCount)}
+                      {s.ActiveNotes > 0 ? (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {s.ActiveNotes} active
+                        </Typography>
+                      ) : null}
+                    </TableCell>
+                    <TableCell align="right">{formatStat(s.VirtualTokensStored)}</TableCell>
+                    <TableCell align="right">{formatStat(s.VirtualTokensAccessed)}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        color={s.FetchedAfterStore ? 'success' : 'default'}
+                        label={s.FetchedAfterStore ? 'fetch after store' : 'store only'}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </Box>
   )
 }

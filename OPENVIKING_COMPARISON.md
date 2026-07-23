@@ -36,8 +36,8 @@ This document compares two context management systems for AI agents: **OpenVikin
 ### Context Types Managed
 | Feature | OpenViking | ast-context-cache |
 |---------|------------|-------------------|
-| **Memories** | ✅ Agent experiences and interactions | ❌ Not focused on agent memory |
-| **Resources** | ✅ Project docs, repos, web pages | ❌ Limited to codebase files |
+| **Memories** | ✅ Agent experiences and interactions | ✅ Structured memory (`store_memory` / `recall_memory` / `forget_memory`, `mem_*`) + virtual context (`store_context` / `fetch_context`, `ctx_*`) for compaction survival |
+| **Resources** | ✅ Project docs, repos, web pages | ✅ Indexed codebase + cached library/framework docs (`fetch_doc` / `search_docs`) |
 | **Skills** | ✅ Agent capabilities and tools | ❌ Not designed for skill management |
 | **Code Symbols** | ❌ Indirect through resources | ✅ Functions, classes, variables with full source |
 | **Dependencies** | ❌ Limited | ✅ Import/call edges with impact analysis |
@@ -101,6 +101,6 @@ This document compares two context management systems for AI agents: **OpenVikin
 While both systems address the challenge of providing context to AI agents, they serve different niches:
 
 - **OpenViking** is a **general-purpose context platform** for sophisticated AI agents needing unified management of all context types (beyond just code).
-- **ast-context-cache** is a **specialized code intelligence tool** optimized specifically for helping coding agents understand and navigate codebases efficiently.
+- **ast-context-cache** is a **specialized code intelligence tool** optimized for coding agents: AST search, token-efficient retrieval, plus compact agent memory and virtual context for host compaction.
 
-For coding agent enhancement specifically, ast-context-cache offers a more focused, lightweight, and private solution. OpenViking provides broader context management capabilities suitable for complex agent architectures that extend beyond code understanding.
+For coding agent enhancement specifically, ast-context-cache offers a focused, lightweight, local-only solution (code + docs + memory). OpenViking provides broader context management for complex agent architectures that extend beyond code understanding.

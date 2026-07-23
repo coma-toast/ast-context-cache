@@ -18,6 +18,7 @@ export interface Health {
   CPUPercent: number
   Uptime: number
   Version: string
+  AbnormalPreviousRun?: boolean
 }
 
 export interface Stats {
@@ -47,6 +48,64 @@ export interface Stats {
   KvRepairArchivesActive: number
   KvRepairRepairsTotal30d: number
   KvRepairUtilPct30d: number
+  /** Approximate full-source baseline (tokens-first heuristic). */
+  ApproxBaselineTokens?: number
+  ApproxTokensReturned?: number
+  ApproxRoundsAvoided?: number
+  HeuristicApproximate?: boolean
+  HeuristicLabel?: string
+}
+
+export interface WeeklyDigestTool {
+  ToolName: string
+  Calls: number
+  TokensSaved: number
+  AvgDurationMs: number
+}
+
+export interface WeeklyDigestEmbedReliability {
+  PendingFailures: number
+  LastAutoRecoverUnix: number
+  AbnormalPreviousRun: boolean
+  Available: boolean
+  Note?: string
+}
+
+export interface WeeklyDigest {
+  WindowDays: number
+  TokensSaved: number
+  Queries: number
+  VirtualStored: number
+  VirtualAccessed: number
+  TopTools: WeeklyDigestTool[]
+  EmbedReliability: WeeklyDigestEmbedReliability
+  Heuristic: {
+    ApproxBaselineTokens: number
+    ApproxTokensReturned: number
+    ApproxTokensSaved: number
+    ApproxRoundsAvoided: number
+    HeuristicApproximate: boolean
+    HeuristicLabel: string
+    WindowDays: number
+  }
+}
+
+export interface ContextSessionStory {
+  SessionID: string
+  ProjectPath?: string
+  NotesCount: number
+  VirtualTokensStored: number
+  VirtualTokensAccessed: number
+  ActiveNotes: number
+  ActiveTokens: number
+  FetchedAfterStore: boolean
+  LastStoreAt?: string
+  LastAccessAt?: string
+}
+
+export interface ContextSessionsResponse {
+  WindowDays: number
+  Sessions: ContextSessionStory[]
 }
 
 export interface WatcherInfo {
@@ -134,12 +193,16 @@ export interface IndexHealth {
   WALMaintenancePhase?: string
   WALMaintenanceMode?: string
   WALMaintenanceReason?: string
+  /** RFC3339 from Go time.Time; zero time may be "0001-01-01T00:00:00Z". */
+  WALMaintenanceStarted?: string
   WALWalStartBytes?: number
   WALWalCurrentBytes?: number
   WALBusyStreak?: number
   WALInFlight?: number
   WALLastBusy?: number
   WALPressure?: string | number
+  /** Unix seconds of last stuck-worker auto-recover, or 0. */
+  LastAutoRecoverUnix?: number
   Watchers: WatcherInfo[]
 }
 

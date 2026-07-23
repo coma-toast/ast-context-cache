@@ -278,16 +278,17 @@ func buildHealthPayload() map[string]interface{} {
 	}
 	embedBackend, embedModel, _, _, _ := embedder.WiredSnapshot()
 	return map[string]interface{}{
-		"status":          status,
-		"service":         "ast-context-cache",
-		"version":         version.Version,
-		"embedder":        embedder.IsLoaded(),
-		"embed_state":     embedState,
-		"embed_error":     embedErr,
-		"embed_mode":      embedBackend,
-		"embed_model":     embedModel,
-		"startup_phase":   string(startup.CurrentPhase()),
-		"startup_message": startup.Message(),
+		"status":                status,
+		"service":               "ast-context-cache",
+		"version":               version.Version,
+		"embedder":              embedder.IsLoaded(),
+		"embed_state":           embedState,
+		"embed_error":           embedErr,
+		"embed_mode":            embedBackend,
+		"embed_model":           embedModel,
+		"startup_phase":         string(startup.CurrentPhase()),
+		"startup_message":       startup.Message(),
+		"abnormal_previous_run": embedqueue.AbnormalPreviousRun(),
 	}
 }
 

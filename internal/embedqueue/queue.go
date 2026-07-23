@@ -108,6 +108,7 @@ func Start(e embedder.Interface) {
 		LoadPendingFromDB()
 		go flushPendingIfReady()
 		startPressureBackoff()
+		startStuckWorkerWatchdog()
 		StartQuietPeriodLoop()
 	})
 }
@@ -321,6 +322,8 @@ type QueueSnapshot struct {
 	Completed   int64
 	Failed      int64
 	Throughput  int64
+	// LastAutoRecoverUnix is unix seconds of the last stuck-worker auto-recover, or 0.
+	LastAutoRecoverUnix int64
 }
 
 // InFlight returns embed jobs currently running.
@@ -337,6 +340,7 @@ func Snapshot() QueueSnapshot {
 	s.Pending = PendingCount()
 	s.PendingPeak = PendingPeak()
 	s.Throughput = ThroughputLast5s()
+	s.LastAutoRecoverUnix = lastAutoRecoverAt.Load()
 	if highCh == nil {
 		return s
 	}
@@ -506,7 +510,9 @@ func FlushPending() {
 	}
 	pendingMu.Unlock()
 	s := Snapshot()
-	log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+	if shouldLogFlush(len(jobs), s.InFlight) {
+		log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+	}
 	for _, j := range jobs {
 		enqueuePendingRetry(j)
 	}

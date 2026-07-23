@@ -2,7 +2,7 @@
 
 ## Goals
 
-Serve **token-efficient, precise code context** over MCP and **preserve conversation state across host compaction** using virtual context (`store_context` / `fetch_context`). All data stays local (`~/.astcache`).
+Serve **token-efficient, precise code context** over MCP, **preserve conversation state across host compaction** with virtual context (`store_context` / `fetch_context`, `ctx_*`), and **remember compact prefs/rules** with structured memory (`store_memory` / `recall_memory`, `mem_*`). All data stays local (`~/.astcache`).
 
 ## When to Use
 
@@ -17,6 +17,7 @@ Use this skill when the user asks to:
 - Share indexed code with another machine (bundles)
 - Run code analysis against search results
 - Offload bulky conversation context before host compaction (virtual context)
+- Store or recall user prefs / coding conventions (structured memory)
 
 **Not for server config** (embeddings, dashboard settings, log retention, virtual context limits) — use [operator/SKILL.md](../operator/SKILL.md).
 
@@ -30,10 +31,10 @@ Use this skill when the user asks to:
 5. get_file_context(file="...", project_path="...", mode="skeleton")  # one file; default skeleton
 6. search_semantic(query="...", project_path="...", session_id="...")  # intent / exploration
 7. get_impact_graph(symbol="...", project_path="...")                   # before edits
-8. retrieve(query="...", project_path="...", session_id="...")          # RAG code + docs
+8. retrieve(query="...", project_path="...", session_id="...", include_memory=true)  # RAG ± memory
 ```
 
-Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, **`get_file_context`**, and **virtual context tools** (`store_context`, `fetch_context`, `list_context`, `search_context`, `flush_context`) so symbols and notes stay scoped to the thread.
+Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, **`get_file_context`**, **virtual context tools** (`store_context`, `fetch_context`, `list_context`, `search_context`, `flush_context`), and **memory tools** (`store_memory`, `recall_memory`, `forget_memory`) so symbols and notes stay scoped to the thread.
 
 ## Quick Reference
 
@@ -71,7 +72,9 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | List doc URLs | `list_doc_sources` | Core tier |
 | Portable index | `export_bundle` / `import_bundle` | Extended tier |
 | Transform results in JS | `execute_code` | Complete tier; optional `script_id`; check `code_script_hints` first |
-| Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id` |
+| Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id`; bulky `ctx_*` notes |
+| Prefs / rules (compact) | `store_memory` / `recall_memory` / `forget_memory` | Extended write; core read; `mem_*` — not bulky notes |
+| KV repair signal | `report_kv_repair_event` | Extended; before/after `fetch_context` on `kind=kv_repair` |
 
 ## Virtual context compaction
 
@@ -164,6 +167,25 @@ Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule
 - **`fetch_context`**, **`list_context`**, **`search_context`** are **core** — agents can recover after compaction even in read-only profiles if an operator stored notes earlier.
 
 If `store_context` is missing from `tools/list`, ask the user to set `AST_MCP_TIER=extended` and restart ast-mcp.
+
+## Structured memory (facts & procedures)
+
+**Virtual context** (`ctx_*`) = bulky notes/plans/diffs. **Structured memory** (`mem_*`) = compact prefs and rules — much smaller than `store_context`. Prefer **`recall_memory`** over **`fetch_context`** when you need preferences or procedures, not full notes.
+
+| Tool | Tier | Role |
+|------|------|------|
+| `store_memory` | extended | Fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope `session` / `project` / `global` |
+| `recall_memory` | core | Retrieve within `token_budget` (default 800); optional `query`, `as_of` |
+| `forget_memory` | extended | Invalidate by `refs`, `subject`+`predicate`, or `all=true` |
+
+```
+store_memory(kind="fact", session_id="conv-uuid", subject="user.shell", predicate="is", object="fish")
+store_memory(kind="procedure", session_id="conv-uuid", rule="Always run make test before committing")
+recall_memory(session_id="conv-uuid", query="shell", token_budget=800)
+forget_memory(refs=["mem_..."])  # or subject+predicate, or all=true
+```
+
+Facts auto-invalidate prior same subject+predicate in scope (`invalidate_previous` default true). Optional: `store_context(..., extract_memory=true)` parses `FACT:` / `RULE:` lines into `mem_*`. RAG: `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
 
 ## KV repair archives (quantized KV recovery)
 

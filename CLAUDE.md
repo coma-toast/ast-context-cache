@@ -9,6 +9,7 @@
 | Token-efficient code | `get_context_capsule` `mode=auto`, `get_file_context` `skeleton`, session dedup, `execute_code` + `code_script_hints` |
 | Accurate edits | `get_impact_graph`, `retrieve`, optional filters (`path_prefix`, `language`, `kinds`) |
 | Long threads | **`store_context`** → `[ctx_…]` stubs → **`fetch_context`** / **`search_context`** (same `session_id`) |
+| Prefs / rules | **`store_memory`** → `mem_*` → **`recall_memory`** (not bulky `ctx_*` notes) |
 
 # MCP Server for This Project
 
@@ -40,6 +41,17 @@ Read `skills/<name>/SKILL.md` when not using Cursor project skills.
 
 Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compaction).
 
+### Structured memory (agents)
+
+**Virtual context** (`ctx_*`) = bulky notes/plans. **Structured memory** (`mem_*`) = compact facts and procedures.
+
+1. **`store_memory`** (extended) — fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope `session` / `project` / `global`.
+2. **`recall_memory`** (core) — prefer over `fetch_context` for prefs/rules; optional `as_of`, `token_budget` (default 800).
+3. **`forget_memory`** (extended) — invalidate by refs, subject+predicate, or `all=true`.
+4. Optional: `retrieve(..., include_memory=true)`; `store_context(..., extract_memory=true)` parses `FACT:`/`RULE:` lines into `mem_*`.
+
+**KV repair:** **`report_kv_repair_event`** (extended) before/after `fetch_context` on `kind=kv_repair` archives.
+
 # Available Tools
 
 ## Core
@@ -51,16 +63,20 @@ Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compac
 - **index_status** - Check if a project is indexed
 - **search_docs** - Search cached library/framework documentation
 - **list_doc_sources** - List tracked documentation sources (core, read-only)
-- **retrieve** - RAG-style retrieval: hybrid search + reranking + context assembly (code + docs)
+- **retrieve** - RAG-style retrieval: hybrid search + reranking + context assembly (code + docs); optional `include_memory`
 - **fetch_context** - Retrieve offloaded virtual context by `ctx_*` ref(s) after host compaction
 - **list_context** - List stored virtual context refs for a session (metadata only)
 - **search_context** - Find stored virtual context by keyword/meaning when refs are lost
+- **recall_memory** - Compact structured facts/procedures (`mem_*`); prefer over `fetch_context` for prefs/rules
 
 ## Extended
 - **index_files** - Index a file or directory (starts file watcher)
 - **cache_summary** - Cache summaries for future queries
-- **store_context** - Offload conversation/code notes with stable `ctx_*` refs before compaction
+- **store_context** - Offload conversation/code notes with stable `ctx_*` refs before compaction; `kind=kv_repair`, `extract_memory`
 - **flush_context** - Delete stored virtual context to free quota
+- **store_memory** - Compact temporal facts / procedural rules → `mem_*` refs
+- **forget_memory** - Invalidate structured memory (refs, subject+predicate, or all)
+- **report_kv_repair_event** - Report KV cache miss/quality signal (observability)
 - **analyze_dead_code** - Find unused functions, classes, imports
 - **analyze_complexity** - Find hard-to-maintain code by cyclomatic complexity
 - **export_bundle** / **import_bundle** - Portable code bundles without re-indexing
@@ -146,18 +162,27 @@ Search tools may return **`code_script_hints`**. If non-empty: `execute_code(scr
 
 Use the **same `session_id`** as code search tools. Example chat stub: `[ctx_a1b2c3d4e5f6] auth design`.
 
+### 12. Structured memory vs virtual context
+
+| Need | Use | Refs |
+|------|-----|------|
+| Long plans, diffs, analysis | `store_context` / `fetch_context` | `ctx_*` |
+| Prefs, conventions, short rules | `store_memory` / `recall_memory` | `mem_*` |
+
+`recall_memory` is **core**; `store_memory` / `forget_memory` / `report_kv_repair_event` are **extended**. Pass the same **`session_id`**.
+
 ### Recommended Workflow
 1. index_status → index_files if needed
 2. get_project_map (depth=2)
 3. get_context_capsule with mode='auto' and session_id
 4. get_file_context with default mode='skeleton' (not full) unless implementing
-5. search_semantic for intent; retrieve for RAG bundles
+5. search_semantic for intent; retrieve for RAG bundles (`include_memory=true` when prefs matter)
 6. cache_summary on key symbols; use mode='summary' later
 7. get_impact_graph before changing exports
 8. search_docs for library/framework questions; fetch_doc when not cached
-9. store_context before host compaction — keep ctx_* stubs; fetch_context after compaction
+9. store_memory for prefs/rules; store_context before host compaction — keep ctx_* stubs; fetch_context / recall_memory after compaction
 
-**Dashboard (operators):** http://localhost:7830 — embed queue gauge, project filter, MCP vs indexing in Recent, tool performance (CPU/latency). See [skills/operator/SKILL.md](skills/operator/SKILL.md).
+**Dashboard (operators):** http://localhost:7830 — React Overview (value heuristics, weekly digest), embed queue gauge, Prometheus `/metrics`, project filter, tool performance. See [skills/operator/SKILL.md](skills/operator/SKILL.md).
 
 ### Optional search filters (get_context_capsule, search_semantic, retrieve)
 
