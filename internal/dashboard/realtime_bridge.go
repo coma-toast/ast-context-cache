@@ -95,5 +95,3 @@ func startLiveRefresh() {
 		}
 	}()
 }
-
-func invalidatePartialCache(_ string) {}

@@ -1,6 +1,6 @@
-# AST Context Cache Dashboard (Preact)
+# AST Context Cache Dashboard (React)
 
-Operator UI built with **Preact + Vite + MUI** (via `preact/compat`), embedded in the Go binary at `/dashboard/`.
+Operator UI built with **React + Vite + MUI**, embedded in the Go binary at `/dashboard/`.
 
 ## Development
 
@@ -24,4 +24,4 @@ Root `/` redirects to `/dashboard/`. Realtime updates use WebSocket `/ws` with `
 
 ## API
 
-JSON endpoints under `/api/dashboard/*` plus existing `/api/*` routes. See `internal/dashboard/react_api.go`.
+JSON endpoints under `/api/dashboard/*` plus existing `/api/*` routes. See `internal/dashboard/react_api.go`. Prometheus scrape endpoint: `GET /metrics` on the same port (:7830).

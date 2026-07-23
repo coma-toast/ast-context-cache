@@ -50,11 +50,14 @@ Dashboard: http://localhost:7830
 
 ### After `git pull`
 
-If the pull modifies `*.templ` files or `VERSION`, regenerate:
+If the pull modifies `VERSION`, sync the embedded copy (also happens during `make build`):
 
 ```bash
-make generate   # or: make build  (runs generate automatically)
+cp VERSION internal/version/VERSION
+# or: make build
 ```
+
+The React dashboard (`ui/`) is rebuilt as part of `make build` via `ui-build`.
 
 ## Embedding backends
 
@@ -95,15 +98,18 @@ make install
 This installs an `ast-mcp` function into your shell config (fish, bash, and/or zsh — whichever it finds).
 
 ```bash
-ast-mcp start      # start the server (background, logs to ~/.astcache/ast-mcp.log)
-ast-mcp stop       # stop the server
-ast-mcp restart    # restart
-ast-mcp status     # show running status + URLs
-ast-mcp health     # hit the /health endpoint
-ast-mcp log        # tail the log file
-ast-mcp build      # rebuild the binary
-ast-mcp dash       # open the dashboard in a browser
+ast-mcp start       # start the server (background, logs to ~/.astcache/ast-mcp.log)
+ast-mcp supervise   # keep-alive loop: restart on crash (backoff 1s→2s→5s); Ctrl+C or stop to exit
+ast-mcp stop        # stop the server (also ends a supervise loop)
+ast-mcp restart     # restart
+ast-mcp status      # show running status + URLs
+ast-mcp health      # hit the /health endpoint
+ast-mcp log         # tail the log file
+ast-mcp build       # rebuild the binary
+ast-mcp dash        # open the dashboard in a browser
 ```
+
+**Docker keep-alive:** `docker compose -f docker/ast-mcp/compose.yml up -d --build` (`restart: unless-stopped`). See [`docker/ast-mcp/README.md`](docker/ast-mcp/README.md). (Separate from Docker Model Runner embeddings in [`docker/README.md`](docker/README.md).)
 
 To uninstall: `make uninstall`
 
@@ -119,8 +125,8 @@ The MCP server can expose a **subset** of tools. Tiers are cumulative: `complete
 
 | Tier | Typical tools |
 |------|----------------|
-| **core** | Search, status, maps, docs, `retrieve`, **`fetch_context` / `list_context` / `search_context`** (read-only) |
-| **extended** | core + `index_files`, `cache_summary`, **`store_context` / `flush_context`**, bundles, doc sources, analysis |
+| **core** | Search, status, maps, docs, `retrieve`, **`fetch_context` / `list_context` / `search_context`**, **`recall_memory`** (read-only) |
+| **extended** | core + `index_files`, `cache_summary`, **`store_context` / `flush_context`**, **`store_memory` / `forget_memory`**, **`report_kv_repair_event`**, bundles, doc sources, analysis |
 | **complete** | extended + `execute_code` (requires code mode) |
 
 **Global controls (environment):**
@@ -216,7 +222,7 @@ If the shell function is installed (`make install`), use `ast-mcp start` instead
 curl -s http://localhost:7821/health
 ```
 
-Expected response: `{"service":"ast-context-cache","status":"healthy","version":"2.0.24"}`
+Expected response: `{"service":"ast-context-cache","status":"healthy","version":"3.0.0"}`
 
 ### Crash Recovery
 
@@ -414,6 +420,20 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
 |------|-------------|
 | `execute_code` | Run JS in a sandbox against search JSON (`data`). Optional `script_id` loads built-in or repo scripts; response includes `tokens_saved`. |
 
+## Migrating to 3.0
+
+Breaking / operator-facing changes from the 2.x line:
+
+| Change | What to do |
+|--------|------------|
+| **Removed MCP ghost tools** | `sync_remote`, `reset_project`, and `reset_all` are gone from MCP dispatch (`REMOTE_VECTORDB_*` / remote VectorDB sync removed). Use the local index only; project reset/delete remains on the **dashboard** APIs, not MCP. |
+| **React-only dashboard** | Operator UI is the **React + MUI** SPA at `http://localhost:7830/dashboard/` (`ui/`). Realtime updates use WebSocket `/ws`. Do not rely on legacy HTMX/templ HTML partials. |
+| **Process keep-alive** | Prefer `ast-mcp supervise` (shell loop with backoff) or Docker Compose `restart: unless-stopped` via [`docker/ast-mcp/compose.yml`](docker/ast-mcp/compose.yml). |
+| **Prometheus metrics** | Scrape **`http://localhost:7830/metrics`** (same port as the dashboard; prefix `astcache_`). Local-trust binding — control scrape access yourself. |
+| **Overview confidence** | Overview shows value heuristics (approx baseline / returned / rounds avoided), weekly digest (tokens saved, virtual context, embed reliability), and per-session virtual-context stories. |
+
+Version file: root [`VERSION`](VERSION) is **`3.0.0`**. Rebuild after upgrade (`make build` / `ast-mcp build`).
+
 ## Architecture
 
 ```
@@ -428,8 +448,8 @@ When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (
                                            │
                                    ┌───────┴────────┐
                                    │ Dashboard :7830 │
-                                   │ (self-contained │
-                                   │  HTML + JS)     │
+                                   │ React SPA +     │
+                                   │ /metrics        │
                                    └──────────────────┘
 ```
 

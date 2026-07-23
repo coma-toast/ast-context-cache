@@ -40,10 +40,17 @@ func beginProcessingWindow() {
 }
 
 func waitForProcessingReady() {
-	if processingReadyAt.IsZero() {
-		return
-	}
-	if d := time.Until(processingReadyAt); d > 0 {
+	for {
+		if processingReadyAt.IsZero() {
+			return
+		}
+		d := time.Until(processingReadyAt)
+		if d <= 0 {
+			return
+		}
+		if d > 50*time.Millisecond {
+			d = 50 * time.Millisecond
+		}
 		time.Sleep(d)
 	}
 }

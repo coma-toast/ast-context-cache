@@ -1,5 +1,7 @@
 /** Gauge width helpers — mirror internal/dashboard/components/metrics.go soft caps. */
 
+import { formatFileSize } from './walUi'
+
 export function cpuGaugePct(p: number) {
   return Math.min(100, Math.max(0, p))
 }
@@ -45,13 +47,8 @@ export function diskSizeLabel(
 ): string {
   if (diskSize === '-' || !diskSize) return '-'
   if (walMaintenance && walStart && walStart > 0 && walCurrent != null) {
-    const fmt = (b: number) => {
-      if (b >= 1024 * 1024 * 1024) return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`
-      if (b >= 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`
-      return `${b} B`
-    }
-    const start = fmt(walStart)
-    const cur = fmt(walCurrent)
+    const start = formatFileSize(walStart)
+    const cur = formatFileSize(walCurrent)
     if (cur !== start) return `${diskSize} · WAL ${start} → ${cur}`
     return `${diskSize} · WAL ${cur} · compacting`
   }

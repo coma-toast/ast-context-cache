@@ -378,42 +378,6 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			logToolQuery(toolName, args, len(fc.JSON), 0, outTokens, fc.Savings, start, cpuStart, projectPath, "")
 			loggedToolCall = true
 		}
-	case "sync_remote":
-		result = json.RawMessage(handleSyncRemote(toolArgs, projectPath))
-	case "reset_project":
-		pp := ""
-		if p, ok := toolArgs["project_path"].(string); ok {
-			pp = p
-		}
-		if pp == "" {
-			result = map[string]string{"error": "project_path required"}
-		} else {
-			err := db.IndexWrite(func(tx *sql.Tx) error {
-				if _, err := tx.Exec("DELETE FROM symbols WHERE project_path = ?", pp); err != nil {
-					return err
-				}
-				_, err := tx.Exec("DELETE FROM edges WHERE project_path = ?", pp)
-				return err
-			})
-			if err != nil {
-				result = map[string]string{"error": err.Error()}
-			} else {
-				result = map[string]string{"status": "deleted", "project_path": pp}
-			}
-		}
-	case "reset_all":
-		err := db.IndexWrite(func(tx *sql.Tx) error {
-			if _, err := tx.Exec("DELETE FROM symbols"); err != nil {
-				return err
-			}
-			_, err := tx.Exec("DELETE FROM edges")
-			return err
-		})
-		if err != nil {
-			result = map[string]string{"error": err.Error()}
-		} else {
-			result = map[string]string{"status": "deleted", "message": "All indexed data cleared"}
-		}
 	case "analyze_dead_code":
 		result = handleAnalyzeDeadCode(toolArgs, projectPath)
 	case "analyze_complexity":

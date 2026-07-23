@@ -20,7 +20,7 @@ From the repository root (where `Makefile` lives):
 make build
 ```
 
-`make build` runs **`make generate`** (templ → `*_templ.go`) and copies `VERSION` → `internal/version/VERSION`. Those files are gitignored — after `git pull`, always use `make build`, not bare `go build`.
+`make build` rebuilds the React dashboard (`ui-build`) and copies `VERSION` → `internal/version/VERSION`. After `git pull`, prefer `make build` over bare `go build` so the SPA assets stay in sync.
 
 If the build fails, stop and show errors. Do not kill the running server until build succeeds.
 

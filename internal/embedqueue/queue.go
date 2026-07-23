@@ -39,7 +39,9 @@ var (
 	highCh        chan job
 	lowCh         chan job
 	started       sync.Once
-	inFlight     int64
+	inFlight         int64
+	inFlightPrimary  int64
+	inFlightAux      int64
 	completed    int64
 	failed       int64
 	throughput   [throughputSlots]int64
@@ -108,6 +110,7 @@ func Start(e embedder.Interface) {
 		LoadPendingFromDB()
 		go flushPendingIfReady()
 		startPressureBackoff()
+		startStuckWorkerWatchdog()
 		StartQuietPeriodLoop()
 	})
 }
@@ -165,16 +168,22 @@ func primaryShouldProcess() bool {
 }
 
 func run(j job) {
-	runWithEmbedder(j, queueEmbedder())
+	runWithEmbedder(j, queueEmbedder(), false)
 }
 
-func runWithEmbedder(j job, e embedder.Interface) {
+func runWithEmbedder(j job, e embedder.Interface, aux bool) {
 	atomic.AddInt64(&inFlight, 1)
+	pool := &inFlightPrimary
+	if aux {
+		pool = &inFlightAux
+	}
+	atomic.AddInt64(pool, 1)
 	trackJobStart(j.file, j.projectPath)
 	realtime.Notify(realtime.EmbedFinished)
 	defer func() {
 		unmarkPendingChQueued(j)
 		trackJobEnd(j.file)
+		atomic.AddInt64(pool, -1)
 		atomic.AddInt64(&inFlight, -1)
 		realtime.Notify(realtime.EmbedFinished)
 	}()
@@ -317,10 +326,14 @@ type QueueSnapshot struct {
 	AuxWorkers          int
 	AuxWorkersEffective int
 	AuxWorkersLive      int
-	InFlight    int64
-	Completed   int64
-	Failed      int64
-	Throughput  int64
+	InFlight        int64
+	InFlightPrimary int64
+	InFlightAux     int64
+	Completed       int64
+	Failed          int64
+	Throughput      int64
+	// LastAutoRecoverUnix is unix seconds of the last stuck-worker auto-recover, or 0.
+	LastAutoRecoverUnix int64
 }
 
 // InFlight returns embed jobs currently running.
@@ -332,11 +345,14 @@ func InFlight() int64 {
 func Snapshot() QueueSnapshot {
 	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: WorkerTarget(), WorkersEffective: WorkerCount(), WorkersLive: WorkerLive(), AuxWorkers: AuxWorkerTarget(), AuxWorkersEffective: AuxWorkerCount(), AuxWorkersLive: AuxWorkerLive()}
 	s.InFlight = atomic.LoadInt64(&inFlight)
+	s.InFlightPrimary = atomic.LoadInt64(&inFlightPrimary)
+	s.InFlightAux = atomic.LoadInt64(&inFlightAux)
 	s.Completed = atomic.LoadInt64(&completed)
 	s.Failed = atomic.LoadInt64(&failed)
 	s.Pending = PendingCount()
 	s.PendingPeak = PendingPeak()
 	s.Throughput = ThroughputLast5s()
+	s.LastAutoRecoverUnix = lastAutoRecoverAt.Load()
 	if highCh == nil {
 		return s
 	}
@@ -506,7 +522,9 @@ func FlushPending() {
 	}
 	pendingMu.Unlock()
 	s := Snapshot()
-	log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+	if shouldLogFlush(len(jobs), s.InFlight) {
+		log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+	}
 	for _, j := range jobs {
 		enqueuePendingRetry(j)
 	}

@@ -16,7 +16,7 @@ import {
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import { api } from './api/client'
-import type { Health, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat } from './api/types'
+import type { ContextSessionsResponse, Health, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
 import { HealthBar } from './components/HealthBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
@@ -42,7 +42,7 @@ const NAV = [
 type TabId = (typeof NAV)[number]['id']
 
 const TAB_HINTS: Record<TabId, string> = {
-  overview: 'Query activity, virtual context summary, and index health',
+  overview: 'Query activity, value estimate, weekly digest, virtual context sessions, and index health',
   memory: 'Virtual context inventory and cached documentation sources',
   activity: 'Query volume and token savings over time',
   analytics: 'Tool performance, symbol mix, and import graph',
@@ -59,6 +59,8 @@ function DashboardInner() {
   const [projects, setProjects] = useState<{ path: string; name: string }[]>([])
   const [health, setHealth] = useState<Health | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [weeklyDigest, setWeeklyDigest] = useState<WeeklyDigest | null>(null)
+  const [contextSessions, setContextSessions] = useState<ContextSessionsResponse | null>(null)
   const [indexHealth, setIndexHealth] = useState<IndexHealth | null>(null)
   const [memory, setMemory] = useState<MemoryData | null>(null)
   const [settings, setSettings] = useState<SettingsData | null>(null)
@@ -71,6 +73,7 @@ function DashboardInner() {
   const [recentMcp, setRecentMcp] = useState<import('./api/types').RecentQuery[] | null>(null)
   const [recentIdx, setRecentIdx] = useState<import('./api/types').RecentQuery[] | null>(null)
   const [loadErrors, setLoadErrors] = useState<string[]>([])
+  const [abnormalDismissed, setAbnormalDismissed] = useState(false)
 
   const pid = projectId || undefined
 
@@ -87,6 +90,10 @@ function DashboardInner() {
       const tasks: Promise<void>[] = []
       if (keys.includes('health')) tasks.push(run('health', api.health(), setHealth))
       if (keys.includes('stats')) tasks.push(run('stats', api.stats(pid), setStats))
+      if (keys.includes('weeklyDigest')) tasks.push(run('weeklyDigest', api.weeklyDigest(pid), setWeeklyDigest))
+      if (keys.includes('contextSessions')) {
+        tasks.push(run('contextSessions', api.contextSessions(pid), setContextSessions))
+      }
       if (keys.includes('indexHealth')) tasks.push(run('indexHealth', api.indexHealth(pid), setIndexHealth))
       if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid), setMemory))
       if (keys.includes('settings')) tasks.push(run('settings', api.settings(), setSettings))
@@ -126,7 +133,7 @@ function DashboardInner() {
   )
 
   const loadAll = useCallback(() => {
-    load(['health', 'stats', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'topImports', 'recent', 'projects'])
+    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'topImports', 'recent', 'projects'])
   }, [load])
 
   useEffect(() => {
@@ -305,8 +312,17 @@ function DashboardInner() {
           </Box>
           {tab === 'overview' && (
             <ErrorBoundary label="Overview">
-              <OverviewTab stats={stats} />
+              {!!health?.AbnormalPreviousRun && !abnormalDismissed && (
+                <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setAbnormalDismissed(true)}>
+                  Restarted after abnormal exit
+                </Alert>
+              )}
               <IndexHealthSection data={indexHealth} onRefresh={() => load(['indexHealth', 'health', 'projects', 'settings'])} />
+              <OverviewTab
+                stats={stats}
+                weeklyDigest={weeklyDigest}
+                contextSessions={contextSessions}
+              />
             </ErrorBoundary>
           )}
           {tab === 'memory' && (

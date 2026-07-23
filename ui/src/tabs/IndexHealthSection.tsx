@@ -8,7 +8,7 @@ import { WatchersPanel } from '../components/WatchersPanel'
 export function IndexHealthSection({ data, onRefresh }: { data: IndexHealth | null; onRefresh?: () => void }) {
   if (!data) return <Typography color="text.secondary">Loading index health…</Typography>
   return (
-    <Box sx={{ mt: 3 }}>
+    <Box sx={{ mb: 3 }}>
       <Typography variant="overline" color="text.secondary">
         Index & runtime
       </Typography>

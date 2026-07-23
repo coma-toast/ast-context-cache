@@ -1,10 +1,20 @@
-import { Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, LinearProgress, Stack, Typography } from '@mui/material'
 import { useState } from 'react'
 import type { IndexHealth } from '../api/types'
 import { api, formatNum } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { chartColors } from '../lib/chartColors'
 import { pendingRingCap, throughputPct } from '../lib/embedGauges'
+import {
+  formatAutoRecoverAgo,
+  walCheckpointButtonDisabled,
+  walMaintenanceDetail,
+  walMaintenanceHeadline,
+  walMaintenanceIndeterminate,
+  walMaintenanceProgressPct,
+  workerWalBadgeText,
+  workerWalBadgeTitle,
+} from '../lib/walUi'
 import { ChannelBar } from './charts/ChannelBar'
 import { RingGauge } from './charts/RingGauge'
 import { WorkerControls } from './WorkerControls'
@@ -16,13 +26,17 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
   const embedOk = embedState === 'healthy' || embedState === 'ready' || embedState === 'ok'
   const stateColor =
     embedState === 'error' ? 'error' : embedOk ? 'success' : embedState === 'degraded' ? 'warning' : 'default'
-  const walBadge =
-    data.EmbedWorkers > 0 && (data.EmbedWorkersEffective ?? data.EmbedWorkers) < data.EmbedWorkers
-      ? `WAL ${data.EmbedWorkersEffective}/${data.EmbedWorkers}`
-      : undefined
+  const startupBusy = embedState === 'loading' || embedState === 'starting'
+  const showWalBanner = Boolean(data.WALMaintenanceActive)
+  const checkpointDisabled = walCheckpointButtonDisabled(showWalBanner, startupBusy)
+  const effective = data.EmbedWorkersEffective ?? data.EmbedWorkers
+  const walBadge = workerWalBadgeText(showWalBanner, data.EmbedWorkers, effective) || undefined
+  const walTitle = walBadge ? workerWalBadgeTitle(data, data.EmbedWorkers, effective) || undefined : undefined
   const hasError = Boolean(data.EmbedderError)
+  // While WAL is compacting, the maintenance banner owns the alert slot (matches templ).
   const showAlert =
-    hasError || embedState === 'error' || embedState === 'degraded' || embedState === 'loading'
+    !showWalBanner &&
+    (hasError || embedState === 'error' || embedState === 'degraded' || embedState === 'loading')
   const panelBusy = (data.EmbedActive ?? 0) > 0 || data.EmbedQueued > 0
   // Match HTMX ShowEmbedDismiss, plus lingering alert after recovery (ready + error text).
   const showDismiss =
@@ -34,6 +48,7 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
     (data.EmbedThroughput ?? 0) === 0 &&
     (embedState === 'error' || embedState === 'degraded') &&
     (data.EmbedPending ?? 0) > 0
+  const autoRecoverAgo = formatAutoRecoverAgo(data.LastAutoRecoverUnix ?? 0)
 
   return (
     <Card variant="outlined" sx={{ height: '100%' }}>
@@ -53,6 +68,8 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
           )}
           <Chip size="small" label={embedState} color={stateColor} />
         </Stack>
+
+        {showWalBanner && <WALMaintenanceBanner data={data} />}
 
         {showAlert && (
           <EmbedderAlertBanner
@@ -79,22 +96,18 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
                 Workers
               </Typography>
               <Typography variant="caption">
-                {(data.EmbedWorkers ?? 0) === 0 ? 'paused' : `${data.EmbedActive ?? 0} active`}
+                {(data.EmbedWorkers ?? 0) === 0 ? 'paused' : `${data.EmbedActivePrimary ?? 0} active`}
               </Typography>
             </Box>
             <WorkerControls
               workers={data.EmbedWorkers}
-              active={data.EmbedActive ?? 0}
+              active={data.EmbedActivePrimary ?? 0}
               max={data.EmbedWorkerMax}
               effective={data.EmbedWorkersEffective}
               live={data.EmbedWorkersLive}
               pool="primary"
               walBadge={walBadge}
-              walTitle={
-                walBadge
-                  ? `SQLite WAL throttled: ${data.EmbedWorkersEffective} of ${data.EmbedWorkers} worker goroutines running`
-                  : undefined
-              }
+              walTitle={walTitle}
               onChange={onRefresh}
             />
             {data.EmbedAuxEnabled && (
@@ -104,12 +117,16 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
                     {data.EmbedAuxBackend ? `Aux (${data.EmbedAuxBackend})` : 'Aux workers'}
                   </Typography>
                   <Typography variant="caption" title={data.EmbedAuxModel || undefined}>
-                    {(data.EmbedAuxWorkers ?? 0) === 0 ? 'off' : `${data.EmbedAuxWorkers} enabled`}
+                    {(data.EmbedAuxWorkers ?? 0) === 0
+                      ? 'off'
+                      : (data.EmbedAuxActive ?? 0) > 0
+                        ? `${data.EmbedAuxActive} active`
+                        : `${data.EmbedAuxWorkers} enabled`}
                   </Typography>
                 </Box>
                 <WorkerControls
                   workers={data.EmbedAuxWorkers ?? 0}
-                  active={Math.min(data.EmbedActive ?? 0, data.EmbedAuxWorkers ?? 0)}
+                  active={data.EmbedAuxActive ?? 0}
                   max={data.EmbedAuxWorkerMax ?? 10}
                   effective={data.EmbedAuxWorkersEffective}
                   live={data.EmbedAuxWorkersLive}
@@ -184,9 +201,92 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
           <EmbedStat value={String(data.PinnedCount)} label="Pinned" />
         </Stack>
 
-        {data.WALMaintenanceActive && <Chip size="small" color="warning" label="WAL maintenance" sx={{ mt: 1.5 }} />}
+        {autoRecoverAgo && (
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            Last auto-recover · {autoRecoverAgo}
+          </Typography>
+        )}
+
+        {!showWalBanner && (
+          <Box sx={{ mt: 1.5, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+            <WALCheckpointButton
+              disabled={checkpointDisabled}
+              title={startupBusy ? 'Unavailable during startup' : undefined}
+              onRefresh={onRefresh}
+            />
+          </Box>
+        )}
       </CardContent>
     </Card>
+  )
+}
+
+function WALMaintenanceBanner({ data }: { data: IndexHealth }) {
+  const pct = walMaintenanceProgressPct(data)
+  const indeterminate = walMaintenanceIndeterminate(data)
+  return (
+    <Alert severity="warning" sx={{ mb: 1.5, py: 0.75, alignItems: 'flex-start' }} role="status">
+      <Typography variant="subtitle2" component="div">
+        {walMaintenanceHeadline()}
+      </Typography>
+      <Typography
+        variant="caption"
+        component="div"
+        sx={{ mt: 0.25, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-word' }}
+      >
+        {walMaintenanceDetail(data)}
+      </Typography>
+      <LinearProgress
+        variant={indeterminate ? 'indeterminate' : 'determinate'}
+        value={indeterminate ? undefined : pct}
+        color="warning"
+        sx={{ mt: 1, height: 6, borderRadius: 1 }}
+      />
+      <Box sx={{ mt: 1 }}>
+        <Button color="inherit" size="small" variant="outlined" disabled aria-disabled>
+          Checkpoint running…
+        </Button>
+      </Box>
+    </Alert>
+  )
+}
+
+function WALCheckpointButton({
+  disabled,
+  title,
+  onRefresh,
+}: {
+  disabled?: boolean
+  title?: string
+  onRefresh?: () => void
+}) {
+  const { showToast } = useToast()
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    if (busy || disabled) return
+    setBusy(true)
+    try {
+      await api.walCheckpoint()
+      showToast('WAL checkpoint started — embed workers will pause briefly', 'info')
+      onRefresh?.()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not start checkpoint', 'error')
+      onRefresh?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Button
+      size="small"
+      variant="outlined"
+      color="warning"
+      disabled={busy || disabled}
+      title={title || 'Force WAL checkpoint (pauses embed workers briefly)'}
+      onClick={() => void run()}
+    >
+      Checkpoint WAL now
+    </Button>
   )
 }
 

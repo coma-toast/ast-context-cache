@@ -1,5 +1,7 @@
 # Docker Model Runner (embeddings)
 
+> For running **ast-mcp itself** in Docker (`restart: unless-stopped`), see [`ast-mcp/README.md`](ast-mcp/README.md). This file is only about the DMR embedding backend.
+
 The `EMBED_BACKEND=docker` path uses [Docker Model Runner](https://docs.docker.com/ai/model-runner/) (DMR), not Ollama or TEI containers.
 
 ## Setup

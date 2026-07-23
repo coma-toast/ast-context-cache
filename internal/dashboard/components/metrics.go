@@ -158,7 +158,7 @@ func (h IndexHealth) EmbedWorkersStatus() string {
 	if h.EmbedWorkers == 0 {
 		return "paused"
 	}
-	return fmt.Sprintf("%d busy", h.EmbedActive)
+	return fmt.Sprintf("%d busy", h.EmbedActivePrimary)
 }
 
 func (h IndexHealth) EmbedWorkersWalBadge() string {
@@ -178,6 +178,9 @@ func (h IndexHealth) EmbedWorkersWalTitle() string {
 func (h IndexHealth) EmbedAuxWorkersStatus() string {
 	if h.EmbedAuxWorkers == 0 {
 		return "off"
+	}
+	if h.EmbedAuxActive > 0 {
+		return fmt.Sprintf("%d active", h.EmbedAuxActive)
 	}
 	return fmt.Sprintf("%d enabled", h.EmbedAuxWorkers)
 }

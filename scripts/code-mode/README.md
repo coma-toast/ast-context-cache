@@ -2,12 +2,27 @@
 
 Per-repo JavaScript scripts for `execute_code`. Search tools (`get_context_capsule`, `search_semantic`, `retrieve`) may attach **`code_script_hints`** when a script matches the query and result count.
 
+## Canonical builtins (source of truth)
+
+**Built-in scripts ship with ast-mcp** under [`internal/codescripts/builtin/`](../../internal/codescripts/builtin/). That directory is the **canonical** set: `manifest.json` plus one `.js` file per entry. Agents and operators should treat those six scripts as the default code-mode surface.
+
+| id | Typical use |
+|----|-------------|
+| `compact-symbol-list` | Many hits — names/kinds/files/line ranges only |
+| `group-by-file` | Broad exploration / structure queries |
+| `filter-by-kind` | Query mentions function/method/class |
+| `exports-only` | Export / public API surface queries |
+| `dedupe-by-file` | Duplicate files in results |
+| `impact-candidates` | Before `get_impact_graph` |
+
+This repo’s `scripts/code-mode/` tree is **examples only** — a thin optional override sample for projects that want custom scripts. Prefer the builtins; do not treat `scripts/code-mode/` as the full catalog.
+
 ## Requirements
 
 - MCP tier: **complete**
 - `AST_MCP_CODE_MODE=true` (or enabled in dashboard policy)
 
-## Layout
+## Layout (optional per-repo overrides)
 
 ```
 {project_root}/scripts/code-mode/
@@ -15,7 +30,7 @@ Per-repo JavaScript scripts for `execute_code`. Search tools (`get_context_capsu
   my-filter.js
 ```
 
-Built-in scripts ship with ast-mcp under `internal/codescripts/builtin/`. Repo entries with the same `id` override built-ins.
+Repo entries with the same `id` as a built-in **override** that built-in. Use `extends` to inherit metadata while swapping `code_file`.
 
 ## Manifest schema
 
@@ -34,20 +49,19 @@ Built-in scripts ship with ast-mcp under `internal/codescripts/builtin/`. Repo e
 
 \* Or inherit code from `extends` built-in when `code_file` omitted.
 
-### Example
+### Example (repo override)
 
 ```json
 {
-  "id": "group-by-file",
-  "title": "Group hits by file",
-  "description": "Return file → symbol names instead of full payloads",
+  "id": "compact-symbol-list",
+  "title": "Compact symbol list (repo example)",
+  "description": "Example repo manifest entry; overrides built-in when id matches",
   "match": {
     "tools": ["get_context_capsule", "search_semantic", "retrieve"],
-    "query_regex": "(?i)(overview|structure|files)",
-    "min_results": 8
+    "min_results": 15
   },
-  "code_file": "group-by-file.js",
-  "extends": "group-by-file"
+  "code_file": "compact-symbol-list.js",
+  "extends": "compact-symbol-list"
 }
 ```
 
@@ -61,17 +75,6 @@ Built-in scripts ship with ast-mcp under `internal/codescripts/builtin/`. Repo e
 
 - `code_file` is resolved under `scripts/code-mode/` with a path jail (`..` rejected).
 - Max script size: **32 KiB**.
-
-## Built-in script ids
-
-| id | Typical use |
-|----|-------------|
-| `compact-symbol-list` | Many hits — names/files/lines only |
-| `group-by-file` | Broad exploration / structure queries |
-| `filter-by-kind` | Query mentions function/method/class |
-| `exports-only` | Export / public API surface queries |
-| `dedupe-by-file` | Duplicate files in results |
-| `impact-candidates` | Before `get_impact_graph` |
 
 ## Agent workflow
 
