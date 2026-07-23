@@ -46,6 +46,8 @@ type IndexHealth struct {
 	EmbedHighCap             int
 	EmbedLowCap              int
 	EmbedActive              int
+	EmbedActivePrimary       int
+	EmbedAuxActive           int
 	EmbedWorkers             int
 	EmbedWorkersEffective    int
 	EmbedWorkersLive         int

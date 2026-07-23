@@ -96,12 +96,12 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
                 Workers
               </Typography>
               <Typography variant="caption">
-                {(data.EmbedWorkers ?? 0) === 0 ? 'paused' : `${data.EmbedActive ?? 0} active`}
+                {(data.EmbedWorkers ?? 0) === 0 ? 'paused' : `${data.EmbedActivePrimary ?? 0} active`}
               </Typography>
             </Box>
             <WorkerControls
               workers={data.EmbedWorkers}
-              active={data.EmbedActive ?? 0}
+              active={data.EmbedActivePrimary ?? 0}
               max={data.EmbedWorkerMax}
               effective={data.EmbedWorkersEffective}
               live={data.EmbedWorkersLive}
@@ -117,12 +117,16 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
                     {data.EmbedAuxBackend ? `Aux (${data.EmbedAuxBackend})` : 'Aux workers'}
                   </Typography>
                   <Typography variant="caption" title={data.EmbedAuxModel || undefined}>
-                    {(data.EmbedAuxWorkers ?? 0) === 0 ? 'off' : `${data.EmbedAuxWorkers} enabled`}
+                    {(data.EmbedAuxWorkers ?? 0) === 0
+                      ? 'off'
+                      : (data.EmbedAuxActive ?? 0) > 0
+                        ? `${data.EmbedAuxActive} active`
+                        : `${data.EmbedAuxWorkers} enabled`}
                   </Typography>
                 </Box>
                 <WorkerControls
                   workers={data.EmbedAuxWorkers ?? 0}
-                  active={Math.min(data.EmbedActive ?? 0, data.EmbedAuxWorkers ?? 0)}
+                  active={data.EmbedAuxActive ?? 0}
                   max={data.EmbedAuxWorkerMax ?? 10}
                   effective={data.EmbedAuxWorkersEffective}
                   live={data.EmbedAuxWorkersLive}

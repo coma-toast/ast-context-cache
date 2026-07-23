@@ -161,6 +161,8 @@ export interface IndexHealth {
   EmbedHighCap?: number
   EmbedLowCap?: number
   EmbedActive?: number
+  EmbedActivePrimary?: number
+  EmbedAuxActive?: number
   EmbedWorkers: number
   EmbedWorkersEffective?: number
   EmbedWorkersLive?: number
