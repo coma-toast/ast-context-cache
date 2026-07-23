@@ -213,6 +213,11 @@ func prepCheckpoint(pauseWriters bool) (restore func(), ready bool) {
 	if BeforeForceCheckpoint != nil {
 		BeforeForceCheckpoint()
 	}
+	// Bind restore immediately so an abort after pause still unpauses embed workers
+	// (maintainWAL defers restore(); previously an in-flight abort left workers stuck at 0).
+	if AfterForceCheckpoint != nil {
+		restore = AfterForceCheckpoint
+	}
 	if WALInFlightHook != nil {
 		if n := WALInFlightHook(); n > 0 {
 			log.Printf("WAL: checkpoint blocked — %d embed job(s) still in-flight after drain", n)
@@ -224,9 +229,6 @@ func prepCheckpoint(pauseWriters bool) (restore func(), ready bool) {
 	FlushWriteBuffers()
 	FlushIndexWriter()
 	time.Sleep(300 * time.Millisecond)
-	if AfterForceCheckpoint != nil {
-		restore = AfterForceCheckpoint
-	}
 	return restore, true
 }
 

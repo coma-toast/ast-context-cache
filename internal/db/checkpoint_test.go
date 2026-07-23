@@ -103,10 +103,27 @@ func TestEmbedDeferClearsWhenIdle(t *testing.T) {
 func TestPrepCheckpointAbortsWhenInFlight(t *testing.T) {
 	ResetMaintBackoffForTest()
 	WALInFlightHook = func() int64 { return 2 }
-	defer func() { WALInFlightHook = nil }()
-	_, ready := prepCheckpoint(true)
+	paused, restored := false, false
+	BeforeForceCheckpoint = func() { paused = true }
+	AfterForceCheckpoint = func() { restored = true }
+	defer func() {
+		WALInFlightHook = nil
+		BeforeForceCheckpoint = nil
+		AfterForceCheckpoint = nil
+	}()
+	restore, ready := prepCheckpoint(true)
 	if ready {
 		t.Fatal("expected prepCheckpoint to abort when in-flight > 0")
+	}
+	if !paused {
+		t.Fatal("expected BeforeForceCheckpoint to run before abort")
+	}
+	if restore == nil {
+		t.Fatal("expected restore func")
+	}
+	restore()
+	if !restored {
+		t.Fatal("expected AfterForceCheckpoint restore after in-flight abort")
 	}
 }
 
