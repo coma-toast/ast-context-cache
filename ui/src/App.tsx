@@ -73,6 +73,7 @@ function DashboardInner() {
   const [recentMcp, setRecentMcp] = useState<import('./api/types').RecentQuery[] | null>(null)
   const [recentIdx, setRecentIdx] = useState<import('./api/types').RecentQuery[] | null>(null)
   const [loadErrors, setLoadErrors] = useState<string[]>([])
+  const [abnormalDismissed, setAbnormalDismissed] = useState(false)
 
   const pid = projectId || undefined
 
@@ -311,13 +312,17 @@ function DashboardInner() {
           </Box>
           {tab === 'overview' && (
             <ErrorBoundary label="Overview">
+              {!!health?.AbnormalPreviousRun && !abnormalDismissed && (
+                <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setAbnormalDismissed(true)}>
+                  Restarted after abnormal exit
+                </Alert>
+              )}
+              <IndexHealthSection data={indexHealth} onRefresh={() => load(['indexHealth', 'health', 'projects', 'settings'])} />
               <OverviewTab
                 stats={stats}
                 weeklyDigest={weeklyDigest}
                 contextSessions={contextSessions}
-                abnormalPreviousRun={!!health?.AbnormalPreviousRun}
               />
-              <IndexHealthSection data={indexHealth} onRefresh={() => load(['indexHealth', 'health', 'projects', 'settings'])} />
             </ErrorBoundary>
           )}
           {tab === 'memory' && (

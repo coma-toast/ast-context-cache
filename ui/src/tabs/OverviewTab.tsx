@@ -1,5 +1,4 @@
 import {
-  Alert,
   Box,
   Card,
   CardContent,
@@ -13,7 +12,6 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { useState } from 'react'
 import { RingGauge } from '../components/charts/RingGauge'
 import type { ContextSessionsResponse, Stats, WeeklyDigest } from '../api/types'
 import { formatStat } from '../components/HealthBar'
@@ -25,14 +23,11 @@ export function OverviewTab({
   stats,
   weeklyDigest,
   contextSessions,
-  abnormalPreviousRun,
 }: {
   stats: Stats | null
   weeklyDigest?: WeeklyDigest | null
   contextSessions?: ContextSessionsResponse | null
-  abnormalPreviousRun?: boolean
 }) {
-  const [abnormalDismissed, setAbnormalDismissed] = useState(false)
   if (!stats) return <Typography color="text.secondary">Loading stats…</Typography>
 
   const baseline = stats.ApproxBaselineTokens ?? 0
@@ -41,12 +36,7 @@ export function OverviewTab({
   const heuristicLabel = stats.HeuristicLabel || 'approximate'
 
   return (
-    <Box>
-      {abnormalPreviousRun && !abnormalDismissed && (
-        <Alert severity="warning" onClose={() => setAbnormalDismissed(true)} sx={{ mb: 2 }}>
-          Restarted after abnormal exit
-        </Alert>
-      )}
+    <Box sx={{ mt: 3 }}>
       <Typography variant="overline" color="text.secondary">
         Query activity
       </Typography>
