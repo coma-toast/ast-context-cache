@@ -45,6 +45,7 @@ func RemoveProjectFilesUnder(parent, child string) (queuedRemoved, pendingRemove
 		if match(f, pp) {
 			delete(activeJobs, f)
 			delete(activeProjects, f)
+			delete(activePools, f)
 		}
 	}
 	activeMu.Unlock()

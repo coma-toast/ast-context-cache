@@ -165,11 +165,31 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
               In progress
             </Typography>
             <Stack spacing={0.5}>
-              {data.EmbedInProgress?.slice(0, 4).map((item) => (
-                <Typography key={`${item.ProjectPath}-${item.File}`} variant="caption" sx={{ fontFamily: 'ui-monospace, monospace' }} noWrap>
-                  {shortProject(item.ProjectPath)} · {item.File}
-                </Typography>
-              ))}
+              {data.EmbedInProgress?.map((item) => {
+                const accent = item.Pool === 'aux' ? chartColors.purple : chartColors.orange
+                return (
+                  <Box
+                    key={`${item.ProjectPath}-${item.File}`}
+                    title={item.Pool === 'aux' ? 'Aux embedder' : 'Primary embedder'}
+                    sx={{
+                      pl: 1,
+                      py: 0.35,
+                      borderLeft: '3px solid',
+                      borderColor: accent,
+                      bgcolor: `${accent}22`,
+                      borderRadius: '0 4px 4px 0',
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
+                      sx={{ fontFamily: 'ui-monospace, monospace', color: 'text.primary', display: 'block' }}
+                      noWrap
+                    >
+                      {shortProject(item.ProjectPath)} · {item.File}
+                    </Typography>
+                  </Box>
+                )
+              })}
             </Stack>
           </Box>
         )}

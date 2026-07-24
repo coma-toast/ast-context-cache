@@ -120,6 +120,8 @@ export interface WatcherInfo {
 export interface EmbedActivityItem {
   File: string
   ProjectPath: string
+  /** "primary" | "aux" for in-progress rows; omitted/empty for recent */
+  Pool?: string
 }
 
 export interface IndexHealth {

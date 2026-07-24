@@ -5,6 +5,7 @@ import "time"
 type EmbedActivityItem struct {
 	File        string
 	ProjectPath string
+	Pool        string // "primary" | "aux" for in-progress; empty for recent
 }
 
 type IndexHealth struct {

@@ -27,9 +27,11 @@ type job struct {
 }
 
 // ActivityEntry is one embed queue activity row (file + owning project).
+// Pool is "primary" or "aux" for in-progress jobs; empty for recent history.
 type ActivityEntry struct {
 	File        string
 	ProjectPath string
+	Pool        string
 }
 
 var (
@@ -54,9 +56,10 @@ var (
 	recentActivityCount int
 	recentActivityMu    sync.Mutex
 
-	activeMu        sync.Mutex
-	activeJobs      map[string]struct{}
-	activeProjects  map[string]string
+	activeMu       sync.Mutex
+	activeJobs     map[string]struct{}
+	activeProjects map[string]string
+	activePools    map[string]string // file → "primary" | "aux"
 
 	pendingMu        sync.Mutex
 	pending          map[string]job
@@ -178,7 +181,7 @@ func runWithEmbedder(j job, e embedder.Interface, aux bool) {
 		pool = &inFlightAux
 	}
 	atomic.AddInt64(pool, 1)
-	trackJobStart(j.file, j.projectPath)
+	trackJobStart(j.file, j.projectPath, aux)
 	realtime.Notify(realtime.EmbedFinished)
 	defer func() {
 		unmarkPendingChQueued(j)
@@ -238,7 +241,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 		e := queueEmbedder()
 		if e != nil {
 			go func() {
-				trackJobStart(file, projectPath)
+				trackJobStart(file, projectPath, false)
 				realtime.Notify(realtime.EmbedFinished)
 				defer func() {
 					trackJobEnd(file)
@@ -546,7 +549,7 @@ func recordActivity(file, projectPath string) {
 	}
 }
 
-func trackJobStart(file, projectPath string) {
+func trackJobStart(file, projectPath string, aux bool) {
 	activeMu.Lock()
 	if activeJobs == nil {
 		activeJobs = map[string]struct{}{}
@@ -554,9 +557,17 @@ func trackJobStart(file, projectPath string) {
 	if activeProjects == nil {
 		activeProjects = map[string]string{}
 	}
+	if activePools == nil {
+		activePools = map[string]string{}
+	}
 	activeJobs[file] = struct{}{}
 	if projectPath != "" {
 		activeProjects[file] = projectPath
+	}
+	if aux {
+		activePools[file] = "aux"
+	} else {
+		activePools[file] = "primary"
 	}
 	activeMu.Unlock()
 }
@@ -565,6 +576,7 @@ func trackJobEnd(file string) {
 	activeMu.Lock()
 	delete(activeJobs, file)
 	delete(activeProjects, file)
+	delete(activePools, file)
 	activeMu.Unlock()
 }
 
@@ -577,7 +589,7 @@ func CurrentJobs() []ActivityEntry {
 	}
 	out := make([]ActivityEntry, 0, len(activeJobs))
 	for f := range activeJobs {
-		out = append(out, ActivityEntry{File: f, ProjectPath: activeProjects[f]})
+		out = append(out, ActivityEntry{File: f, ProjectPath: activeProjects[f], Pool: activePools[f]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	return out

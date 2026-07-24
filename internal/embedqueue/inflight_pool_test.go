@@ -20,3 +20,36 @@ func TestSnapshotInFlightPools(t *testing.T) {
 		t.Fatalf("snapshot pools: total=%d primary=%d aux=%d", s.InFlight, s.InFlightPrimary, s.InFlightAux)
 	}
 }
+
+func TestCurrentJobsIncludesPool(t *testing.T) {
+	activeMu.Lock()
+	prevJobs, prevProj, prevPools := activeJobs, activeProjects, activePools
+	activeJobs = map[string]struct{}{}
+	activeProjects = map[string]string{}
+	activePools = map[string]string{}
+	activeMu.Unlock()
+	defer func() {
+		activeMu.Lock()
+		activeJobs, activeProjects, activePools = prevJobs, prevProj, prevPools
+		activeMu.Unlock()
+	}()
+
+	trackJobStart("/a.go", "/proj", false)
+	trackJobStart("/b.go", "/proj", true)
+	jobs := CurrentJobs()
+	if len(jobs) != 2 {
+		t.Fatalf("jobs=%d want 2", len(jobs))
+	}
+	byFile := map[string]string{}
+	for _, j := range jobs {
+		byFile[j.File] = j.Pool
+	}
+	if byFile["/a.go"] != "primary" || byFile["/b.go"] != "aux" {
+		t.Fatalf("pools=%v", byFile)
+	}
+	trackJobEnd("/a.go")
+	trackJobEnd("/b.go")
+	if len(CurrentJobs()) != 0 {
+		t.Fatal("expected empty after end")
+	}
+}
