@@ -92,21 +92,17 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 		var entries []search.VectorEntry
 		for _, s := range batch {
 			src := ReadSourceRange(filePath, s.startLine, s.endLine, fileCache)
-			if len(src) > 500 {
-				src = src[:500]
-			}
-			hash := ExpectedEmbedHash(s.kind, s.name, filePath, s.startLine, s.endLine)
-			text := s.kind + " " + s.name + ": " + src
-			texts = append(texts, text)
+			text := BuildEmbedText(s.kind, s.name, src)
 			entries = append(entries, search.VectorEntry{
 				SymbolID:    s.id,
-				ContentHash: hash,
+				ContentHash: search.ContentHash(text),
 				DocType:     "code",
 				SourceFile:  filePath,
 				Name:        s.name,
 				Kind:        s.kind,
 				ProjectPath: projectPath,
 			})
+			texts = append(texts, text)
 		}
 		embeddings, err := emb.Embed(texts)
 		if err != nil {

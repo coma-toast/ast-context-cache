@@ -52,7 +52,11 @@ func (h *HTTPEmbedder) Embed(texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	body, err := json.Marshal(httpEmbedReq{Texts: texts})
+	trimmed := make([]string, len(texts))
+	for i, t := range texts {
+		trimmed[i] = TruncateRemoteEmbedInput(t)
+	}
+	body, err := json.Marshal(httpEmbedReq{Texts: trimmed})
 	if err != nil {
 		return nil, err
 	}
@@ -80,8 +84,8 @@ func (h *HTTPEmbedder) Embed(texts []string) ([][]float32, error) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("embed response json: %w", err)
 	}
-	if len(out.Embeddings) != len(texts) {
-		return nil, fmt.Errorf("embed: got %d vectors for %d inputs", len(out.Embeddings), len(texts))
+	if len(out.Embeddings) != len(trimmed) {
+		return nil, fmt.Errorf("embed: got %d vectors for %d inputs", len(out.Embeddings), len(trimmed))
 	}
 	if err := checkDims(out.Embeddings, ActiveDim); err != nil {
 		return nil, err
