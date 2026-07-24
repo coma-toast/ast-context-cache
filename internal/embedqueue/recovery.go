@@ -38,7 +38,28 @@ var (
 	recoveryMu        sync.Mutex
 	errorScanOnce     sync.Once
 	pendingReconOnce  sync.Once
+
+	flushLogMu        sync.Mutex
+	lastFlushLogAt    time.Time
+	lastFlushPending  int
+	lastFlushInFlight int64
 )
+
+// shouldLogFlush rate-limits identical flush logs while work is in flight.
+// Skip when pending/inFlight are unchanged, inFlight > 0, and last log was <10s ago.
+func shouldLogFlush(pending int, inFlight int64) bool {
+	flushLogMu.Lock()
+	defer flushLogMu.Unlock()
+	now := time.Now()
+	same := pending == lastFlushPending && inFlight == lastFlushInFlight
+	if same && inFlight > 0 && now.Sub(lastFlushLogAt) < 10*time.Second {
+		return false
+	}
+	lastFlushLogAt = now
+	lastFlushPending = pending
+	lastFlushInFlight = inFlight
+	return true
+}
 
 // SyncPendingFromDB marks indexed files that lack or have stale code vectors as pending retry.
 func SyncPendingFromDB() int {
@@ -111,10 +132,12 @@ func flushPendingIfReady() {
 		return
 	}
 	s := Snapshot()
-	if state == "error" {
-		log.Printf("embedqueue: flush pending via aux catch-up pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
-	} else {
-		log.Printf("embedqueue: flush pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+	if shouldLogFlush(s.Pending, s.InFlight) {
+		if state == "error" {
+			log.Printf("embedqueue: flush pending via aux catch-up pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+		} else {
+			log.Printf("embedqueue: flush pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+		}
 	}
 	FlushPending()
 }

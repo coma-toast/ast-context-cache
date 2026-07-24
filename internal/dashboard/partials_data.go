@@ -89,6 +89,8 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 	h.EmbedHighQueued = eq.HighUsed
 	h.EmbedLowQueued = eq.LowUsed
 	h.EmbedActive = int(eq.InFlight)
+	h.EmbedActivePrimary = int(eq.InFlightPrimary)
+	h.EmbedAuxActive = int(eq.InFlightAux)
 	h.EmbedWorkers = eq.Workers
 	h.EmbedWorkersEffective = eq.WorkersEffective
 	h.EmbedWorkersLive = eq.WorkersLive
@@ -97,6 +99,7 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 	h.EmbedAuxWorkersLive = eq.AuxWorkersLive
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
+	h.LastAutoRecoverUnix = eq.LastAutoRecoverUnix
 	return h
 }
 
@@ -193,6 +196,8 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.EmbedHighCap = eq.HighCap
 	h.EmbedLowCap = eq.LowCap
 	h.EmbedActive = int(eq.InFlight)
+	h.EmbedActivePrimary = int(eq.InFlightPrimary)
+	h.EmbedAuxActive = int(eq.InFlightAux)
 	h.EmbedWorkers = eq.Workers
 	h.EmbedWorkersEffective = eq.WorkersEffective
 	h.EmbedWorkersLive = eq.WorkersLive
@@ -208,6 +213,7 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.EmbedAuxEnabled = h.EmbedAuxBackend != "" && !embedder.AuxSharesPrimary()
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
+	h.LastAutoRecoverUnix = eq.LastAutoRecoverUnix
 	h.PinnedCount = db.PinnedProjectCount()
 	h.FilteredProject = projectID
 	walSnap := db.GetWALSnapshot()

@@ -1,0 +1,38 @@
+# Run ast-mcp with Docker restart policy (keep-alive).
+# Not related to Docker Model Runner embeddings — see ../README.md for DMR.
+#
+# Prerequisites:
+#   1. Copy a Linux `ast-mcp` into this directory (docker/ast-mcp/ast-mcp)
+#   2. Optional: put libonnxruntime.so* in lib/ for EMBED_BACKEND=onnx
+#   3. Or set EMBED_BACKEND to ollama/http/openai/docker and point at a reachable embedder
+#
+#   cp ast-mcp docker/ast-mcp/ast-mcp
+#   docker compose -f docker/ast-mcp/compose.yml up -d --build
+
+services:
+  ast-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ast-mcp:local
+    restart: unless-stopped
+    ports:
+      - "7821:7821"
+      - "7830:7830"
+    environment:
+      HOME: /data
+      ONNXRUNTIME_LIB: /usr/local/lib/libonnxruntime.so
+      AST_MCP_TIER: extended
+      # Prefer a remote embedder unless you COPY onnxruntime into the image:
+      # EMBED_BACKEND: ollama
+      # OLLAMA_HOST: http://host.docker.internal:11434
+      # OLLAMA_EMBED_MODEL: nomic-embed-text
+    volumes:
+      - astcache:/data/.astcache
+      # Host projects to index (example):
+      # - /path/to/repos:/repos:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  astcache:

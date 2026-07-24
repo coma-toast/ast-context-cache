@@ -87,6 +87,7 @@ func purgeActivityForProject(projectPath string) {
 		if pp == projectPath {
 			delete(activeJobs, f)
 			delete(activeProjects, f)
+			delete(activePools, f)
 		}
 	}
 	activeMu.Unlock()

@@ -11,12 +11,16 @@ ast-mcp() {
     local logfile="${HOME:+$HOME/.astcache/ast-mcp.log}"
     logfile="${logfile:-.astcache/ast-mcp.log}"
 
+    local stopfile
+    stopfile="$(dirname "$logfile")/ast-mcp.supervise-stop"
+
     _ast_mcp_running() {
         lsof -iTCP:${port} -sTCP:LISTEN -P 2>/dev/null | grep -q .
     }
 
     case "${1:-}" in
         start)
+            rm -f "$stopfile"
             if _ast_mcp_running; then
                 echo "ast-mcp: already running on port $port"
                 return 0
@@ -41,6 +45,7 @@ ast-mcp() {
             fi
             ;;
         start-safe)
+            rm -f "$stopfile"
             if _ast_mcp_running; then
                 echo "ast-mcp: already running on port $port"
                 return 0
@@ -56,7 +61,87 @@ ast-mcp() {
                 return 1
             fi
             ;;
+        supervise)
+            # Keep-alive: start if not listening, wait for exit/crash, restart with backoff (1s→2s→5s).
+            # Stop the loop with Ctrl+C, or run `ast-mcp stop` from another shell (kills child; supervise exits).
+            mkdir -p "$(dirname "$logfile")"
+            rm -f "$stopfile"
+            echo "ast-mcp: supervising (Ctrl+C here, or 'ast-mcp stop' from another shell)"
+            local backoff=1
+            local child_pid=""
+            local started_at=0
+            _ast_mcp_supervise_cleanup() {
+                touch "$stopfile"
+                if [[ -n "${child_pid:-}" ]] && kill -0 "$child_pid" 2>/dev/null; then
+                    kill "$child_pid" 2>/dev/null
+                    wait "$child_pid" 2>/dev/null || true
+                fi
+                echo "ast-mcp: supervise stopped"
+                exit 0
+            }
+            trap '_ast_mcp_supervise_cleanup' INT TERM
+            while true; do
+                if [[ -f "$stopfile" ]]; then
+                    rm -f "$stopfile"
+                    echo "ast-mcp: supervise exiting (stop requested)"
+                    return 0
+                fi
+                if _ast_mcp_running; then
+                    local existing
+                    existing=$(lsof -t -iTCP:${port} -sTCP:LISTEN 2>/dev/null | head -1)
+                    if [[ -n "$existing" ]]; then
+                        echo "ast-mcp: already listening (pid $existing); waiting for exit..."
+                        while kill -0 "$existing" 2>/dev/null; do
+                            if [[ -f "$stopfile" ]]; then
+                                rm -f "$stopfile"
+                                echo "ast-mcp: supervise exiting (stop requested)"
+                                return 0
+                            fi
+                            sleep 1
+                        done
+                        if [[ -f "$stopfile" ]]; then
+                            rm -f "$stopfile"
+                            echo "ast-mcp: supervise exiting (stop requested)"
+                            return 0
+                        fi
+                        continue
+                    fi
+                fi
+                echo "ast-mcp: starting under supervise..."
+                (cd "$ast_dir" && ONNXRUNTIME_LIB="$ort_lib" ./ast-mcp >> "$logfile" 2>&1) &
+                child_pid=$!
+                started_at=$(date +%s)
+                wait "$child_pid"
+                local ec=$?
+                child_pid=""
+                if [[ -f "$stopfile" ]]; then
+                    rm -f "$stopfile"
+                    echo "ast-mcp: supervise exiting (stop requested, exit $ec)"
+                    return 0
+                fi
+                # SIGINT=130, SIGTERM=143, SIGKILL=137 (also raw 15/9 on some shells)
+                if [[ $ec -eq 130 || $ec -eq 143 || $ec -eq 137 || $ec -eq 15 || $ec -eq 9 ]]; then
+                    echo "ast-mcp: supervise exiting (child stopped, exit $ec)"
+                    return 0
+                fi
+                local ran=$(( $(date +%s) - started_at ))
+                if [[ $ran -ge 30 ]]; then
+                    backoff=1
+                fi
+                echo "ast-mcp: exited (code $ec); restarting in ${backoff}s..."
+                sleep "$backoff"
+                if [[ $backoff -lt 5 ]]; then
+                    if [[ $backoff -eq 1 ]]; then
+                        backoff=2
+                    else
+                        backoff=5
+                    fi
+                fi
+            done
+            ;;
         stop)
+            mkdir -p "$(dirname "$logfile")"
+            touch "$stopfile"
             local pid
             pid=$(lsof -t -iTCP:${port} -sTCP:LISTEN 2>/dev/null)
             if [[ -n "$pid" ]]; then
@@ -135,13 +220,14 @@ ast-mcp() {
             echo "Commands:"
             echo "  start       Start the MCP server"
             echo "  start-safe  Start with 0 embed workers (crash recovery)"
-            echo "  stop        Stop the MCP server"
-            echo "  restart   Restart the MCP server"
-            echo "  status    Show server status"
-            echo "  health    Check server health endpoint"
-            echo "  log       Tail the server log"
-            echo "  build     Rebuild the binary"
-            echo "  dash      Open the dashboard in a browser"
+            echo "  supervise   Keep-alive loop (restart on crash; Ctrl+C or stop to exit)"
+            echo "  stop        Stop the MCP server (also ends a supervise loop)"
+            echo "  restart     Restart the MCP server"
+            echo "  status      Show server status"
+            echo "  health      Check server health endpoint"
+            echo "  log         Tail the server log"
+            echo "  build       Rebuild the binary"
+            echo "  dash        Open the dashboard in a browser"
             return 1
             ;;
     esac

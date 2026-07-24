@@ -1,0 +1,10 @@
+# Build context is this directory (docker/ast-mcp/).
+*
+!Dockerfile
+!compose.yml
+!README.md
+!lib/
+!lib/**
+!ast-mcp
+!.dockerignore
+!.gitkeep

@@ -59,7 +59,7 @@ export function WorkerControls({
     if (draining > 0) {
       return `${isAux ? 'Aux workers' : 'Workers'}: ${workers} target · ${active} busy · ${draining} draining`
     }
-    return isAux ? `Aux workers: ${workers} enabled` : `Workers: ${active} of ${workers} busy`
+    return isAux ? `Aux workers: ${workers} enabled · ${active} busy` : `Workers: ${active} of ${workers} busy`
   })()
   return (
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap title={title}>

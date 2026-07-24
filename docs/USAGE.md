@@ -2,7 +2,11 @@
 
 ## What It Does
 
-ast-context-cache is an MCP server that provides token-efficient code search for AI coding agents. Instead of reading entire files, it returns only the symbols (functions, classes, types) you need — saving 80-94% of tokens.
+ast-context-cache is an MCP server that provides token-efficient code search for AI coding agents. Instead of reading entire files, it returns only the symbols (functions, classes, types) you need — saving 80-94% of tokens. It also offers **virtual context** (`ctx_*`) for host compaction survival and **structured memory** (`mem_*`) for compact prefs/rules.
+
+**Operator dashboard:** React SPA at `http://localhost:7830/dashboard/` (not Preact/HTMX). Prometheus metrics: `GET http://localhost:7830/metrics`.
+
+Tool list must match `internal/mcp/tools.go` / `tools/list`. See [README — MCP Tools](../README.md#mcp-tools) and [AGENTS.md](../AGENTS.md) for full tables.
 
 ## Available Tools
 
@@ -17,8 +21,12 @@ ast-context-cache is an MCP server that provides token-efficient code search for
 | `get_impact_graph` | Find all files depending on a symbol |
 | `index_status` | Check if a project is indexed |
 | `search_docs` | Search cached library/framework documentation |
-| `fetch_doc` | Fetch and cache an external doc URL (prefer over WebFetch) |
-| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly |
+| `list_doc_sources` | List tracked documentation sources (read-only) |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly; optional `include_memory` |
+| `fetch_context` | Recover virtual context by `ctx_*` ref(s) |
+| `list_context` | List virtual context refs (metadata) |
+| `search_context` | Find virtual context when refs are lost |
+| `recall_memory` | Compact structured facts/procedures (`mem_*`) |
 
 ### Extended
 
@@ -26,6 +34,11 @@ ast-context-cache is an MCP server that provides token-efficient code search for
 |------|---------|
 | `index_files` | Index source files for searching |
 | `cache_summary` | Cache your summaries for future queries |
+| `store_context` | Offload bulky notes → `ctx_*` (optional `kind=kv_repair`, `extract_memory`) |
+| `flush_context` | Delete virtual context; free quota |
+| `store_memory` | Compact temporal fact or procedural rule → `mem_*` |
+| `forget_memory` | Invalidate structured memory |
+| `report_kv_repair_event` | Report KV cache miss/quality signal |
 | `analyze_dead_code` | Find unused functions/classes/imports |
 | `analyze_complexity` | Calculate cyclomatic complexity |
 | `export_bundle` | Export indexed code as portable bundle |
@@ -33,7 +46,6 @@ ast-context-cache is an MCP server that provides token-efficient code search for
 | `fetch_doc` | Fetch, register, and return cached doc content |
 | `add_doc_source` | Track a doc URL for async background caching |
 | `remove_doc_source` | Remove a tracked documentation source |
-| `list_doc_sources` | List all tracked documentation sources |
 | `update_doc_source` | Manually refresh a documentation source |
 
 ### Complete
@@ -41,6 +53,15 @@ ast-context-cache is an MCP server that provides token-efficient code search for
 | Tool | Purpose |
 |------|---------|
 | `execute_code` | Run JS code against search results (sandboxed) |
+
+## Virtual context vs structured memory
+
+| Need | Tools | Refs |
+|------|-------|------|
+| Long plans, diffs, analysis | `store_context` / `fetch_context` / `list_context` / `search_context` / `flush_context` | `ctx_*` |
+| Prefs, conventions, short rules | `store_memory` / `recall_memory` / `forget_memory` | `mem_*` |
+
+Use the same **`session_id`** for both. Prefer **`recall_memory`** over **`fetch_context`** for preferences.
 
 ## Recommended Workflow
 
@@ -66,7 +87,7 @@ search_semantic(query="function that validates user input", project_path="/path/
 
 # RAG-style retrieval (code + docs → formatted context)
 retrieve(query="how does authentication work", project_path="/path/to/project")
-retrieve(query="error handling patterns", project_path="/path", format="xml")
+retrieve(query="error handling patterns", project_path="/path", format="xml", include_memory=true)
 
 # Before making changes
 get_impact_graph(symbol="UserService", project_path="/path/to/project")
@@ -98,6 +119,15 @@ cache_summary(
 )
 ```
 
+### 5. Memory and compaction
+```
+store_memory(kind="fact", session_id="ses_abc123", subject="user.shell", object="fish")
+store_context(content="long plan...", session_id="ses_abc123", label="auth plan")
+# after compaction:
+recall_memory(session_id="ses_abc123", query="shell")
+fetch_context(refs=["ctx_..."], session_id="ses_abc123")
+```
+
 ## Mode Selection
 
 | Mode | Token Usage | Best For |
@@ -124,3 +154,4 @@ Each response includes **`tokens_saved`**, **`tokens_used`**, and baseline field
 - Go (.go)
 - Bash (.sh)
 - Fish (.fish)
+- YAML (.yml/.yaml)

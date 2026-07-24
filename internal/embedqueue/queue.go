@@ -27,9 +27,11 @@ type job struct {
 }
 
 // ActivityEntry is one embed queue activity row (file + owning project).
+// Pool is "primary" or "aux" for in-progress jobs; empty for recent history.
 type ActivityEntry struct {
 	File        string
 	ProjectPath string
+	Pool        string
 }
 
 var (
@@ -39,7 +41,9 @@ var (
 	highCh        chan job
 	lowCh         chan job
 	started       sync.Once
-	inFlight     int64
+	inFlight         int64
+	inFlightPrimary  int64
+	inFlightAux      int64
 	completed    int64
 	failed       int64
 	throughput   [throughputSlots]int64
@@ -52,9 +56,10 @@ var (
 	recentActivityCount int
 	recentActivityMu    sync.Mutex
 
-	activeMu        sync.Mutex
-	activeJobs      map[string]struct{}
-	activeProjects  map[string]string
+	activeMu       sync.Mutex
+	activeJobs     map[string]struct{}
+	activeProjects map[string]string
+	activePools    map[string]string // file → "primary" | "aux"
 
 	pendingMu        sync.Mutex
 	pending          map[string]job
@@ -108,6 +113,7 @@ func Start(e embedder.Interface) {
 		LoadPendingFromDB()
 		go flushPendingIfReady()
 		startPressureBackoff()
+		startStuckWorkerWatchdog()
 		StartQuietPeriodLoop()
 	})
 }
@@ -165,16 +171,22 @@ func primaryShouldProcess() bool {
 }
 
 func run(j job) {
-	runWithEmbedder(j, queueEmbedder())
+	runWithEmbedder(j, queueEmbedder(), false)
 }
 
-func runWithEmbedder(j job, e embedder.Interface) {
+func runWithEmbedder(j job, e embedder.Interface, aux bool) {
 	atomic.AddInt64(&inFlight, 1)
-	trackJobStart(j.file, j.projectPath)
+	pool := &inFlightPrimary
+	if aux {
+		pool = &inFlightAux
+	}
+	atomic.AddInt64(pool, 1)
+	trackJobStart(j.file, j.projectPath, aux)
 	realtime.Notify(realtime.EmbedFinished)
 	defer func() {
 		unmarkPendingChQueued(j)
 		trackJobEnd(j.file)
+		atomic.AddInt64(pool, -1)
 		atomic.AddInt64(&inFlight, -1)
 		realtime.Notify(realtime.EmbedFinished)
 	}()
@@ -229,7 +241,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 		e := queueEmbedder()
 		if e != nil {
 			go func() {
-				trackJobStart(file, projectPath)
+				trackJobStart(file, projectPath, false)
 				realtime.Notify(realtime.EmbedFinished)
 				defer func() {
 					trackJobEnd(file)
@@ -317,10 +329,14 @@ type QueueSnapshot struct {
 	AuxWorkers          int
 	AuxWorkersEffective int
 	AuxWorkersLive      int
-	InFlight    int64
-	Completed   int64
-	Failed      int64
-	Throughput  int64
+	InFlight        int64
+	InFlightPrimary int64
+	InFlightAux     int64
+	Completed       int64
+	Failed          int64
+	Throughput      int64
+	// LastAutoRecoverUnix is unix seconds of the last stuck-worker auto-recover, or 0.
+	LastAutoRecoverUnix int64
 }
 
 // InFlight returns embed jobs currently running.
@@ -332,11 +348,14 @@ func InFlight() int64 {
 func Snapshot() QueueSnapshot {
 	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: WorkerTarget(), WorkersEffective: WorkerCount(), WorkersLive: WorkerLive(), AuxWorkers: AuxWorkerTarget(), AuxWorkersEffective: AuxWorkerCount(), AuxWorkersLive: AuxWorkerLive()}
 	s.InFlight = atomic.LoadInt64(&inFlight)
+	s.InFlightPrimary = atomic.LoadInt64(&inFlightPrimary)
+	s.InFlightAux = atomic.LoadInt64(&inFlightAux)
 	s.Completed = atomic.LoadInt64(&completed)
 	s.Failed = atomic.LoadInt64(&failed)
 	s.Pending = PendingCount()
 	s.PendingPeak = PendingPeak()
 	s.Throughput = ThroughputLast5s()
+	s.LastAutoRecoverUnix = lastAutoRecoverAt.Load()
 	if highCh == nil {
 		return s
 	}
@@ -506,7 +525,9 @@ func FlushPending() {
 	}
 	pendingMu.Unlock()
 	s := Snapshot()
-	log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+	if shouldLogFlush(len(jobs), s.InFlight) {
+		log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+	}
 	for _, j := range jobs {
 		enqueuePendingRetry(j)
 	}
@@ -528,7 +549,7 @@ func recordActivity(file, projectPath string) {
 	}
 }
 
-func trackJobStart(file, projectPath string) {
+func trackJobStart(file, projectPath string, aux bool) {
 	activeMu.Lock()
 	if activeJobs == nil {
 		activeJobs = map[string]struct{}{}
@@ -536,9 +557,17 @@ func trackJobStart(file, projectPath string) {
 	if activeProjects == nil {
 		activeProjects = map[string]string{}
 	}
+	if activePools == nil {
+		activePools = map[string]string{}
+	}
 	activeJobs[file] = struct{}{}
 	if projectPath != "" {
 		activeProjects[file] = projectPath
+	}
+	if aux {
+		activePools[file] = "aux"
+	} else {
+		activePools[file] = "primary"
 	}
 	activeMu.Unlock()
 }
@@ -547,6 +576,7 @@ func trackJobEnd(file string) {
 	activeMu.Lock()
 	delete(activeJobs, file)
 	delete(activeProjects, file)
+	delete(activePools, file)
 	activeMu.Unlock()
 }
 
@@ -559,7 +589,7 @@ func CurrentJobs() []ActivityEntry {
 	}
 	out := make([]ActivityEntry, 0, len(activeJobs))
 	for f := range activeJobs {
-		out = append(out, ActivityEntry{File: f, ProjectPath: activeProjects[f]})
+		out = append(out, ActivityEntry{File: f, ProjectPath: activeProjects[f], Pool: activePools[f]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	return out

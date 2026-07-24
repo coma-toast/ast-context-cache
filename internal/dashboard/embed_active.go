@@ -26,7 +26,7 @@ func embedActivityItems(in []embedqueue.ActivityEntry) []components.EmbedActivit
 	}
 	out := make([]components.EmbedActivityItem, len(in))
 	for i, e := range in {
-		out[i] = components.EmbedActivityItem{File: e.File, ProjectPath: e.ProjectPath}
+		out[i] = components.EmbedActivityItem{File: e.File, ProjectPath: e.ProjectPath, Pool: e.Pool}
 	}
 	return out
 }

@@ -3,10 +3,8 @@ package dashboard
 import (
 	"crypto/sha256"
 	"database/sql"
-	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -25,22 +23,21 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
-	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
-
-//go:embed static/*
-var staticAssets embed.FS
-var staticFS, _ = fs.Sub(staticAssets, "static")
 
 func NewHandler(_ string) http.Handler {
 	mux := http.NewServeMux()
 	initUIAssets()
 	registerReactAPI(mux)
+	registerPrometheusMetrics()
+	mux.Handle("/metrics", promhttp.Handler())
 	// JSON APIs (kept for backward compatibility + MCP tools)
 	mux.HandleFunc("/api/stats", handleStats)
 	mux.HandleFunc("/api/tools", handleTools)
@@ -77,6 +74,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/api/doc-sources", handleDocSources)
+	mux.HandleFunc("/api/doc-packs/install", handleDocPacksInstall)
 	mux.HandleFunc("/api/context-stats", handleContextStats)
 	mux.HandleFunc("/api/kv-repair-stats", handleKvRepairStats)
 	mux.HandleFunc("/api/flush-context", handleFlushContextAPI)
@@ -85,27 +83,6 @@ func NewHandler(_ string) http.Handler {
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
-
-	// HTML partials (htmx targets)
-	mux.HandleFunc("/partials/stats", handleStatsPartial)
-	mux.HandleFunc("/partials/index-health", handleIndexHealthPartial)
-	mux.HandleFunc("/partials/memory", handleMemoryPartial)
-	mux.HandleFunc("/partials/recent", handleRecentPartial)
-	mux.HandleFunc("/partials/recent-logs", handleRecentLogsPartial)
-	mux.HandleFunc("/partials/charts/symbols", handleSymbolChartPartial)
-	mux.HandleFunc("/partials/charts/languages", handleLanguageChartPartial)
-	mux.HandleFunc("/partials/charts/tools", handleToolChartPartial)
-	mux.HandleFunc("/partials/charts/imports", handleImportChartPartial)
-	mux.HandleFunc("/partials/settings", handleSettingsPartial)
-	mux.HandleFunc("/partials/activity-data", handleActivityDataPartial)
-	mux.HandleFunc("/partials/health", handleHealthPartial)
-
-	// Aliases for React dashboard
-	mux.HandleFunc("/dashboard/partials/health", handleHealthPartial)
-	mux.HandleFunc("/dashboard/partials/activity", handleActivityPartial)
-
-	// Static assets (CSS, JS) — legacy templ static
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	// React SPA
 	mux.HandleFunc("/dashboard/", handleUISPA)
@@ -656,11 +633,11 @@ func embedWorkersSnapshot() map[string]interface{} {
 	target := embedqueue.WorkerTarget()
 	effective := embedqueue.WorkerCount()
 	return map[string]interface{}{
-		"workers":            target,
-		"workers_effective":  effective,
-		"workers_throttled":  effective < target,
-		"max_workers":        embedqueue.MaxWorkers(),
-		"live":               embedqueue.WorkerLive(),
+		"workers":           target,
+		"workers_effective": effective,
+		"workers_throttled": effective < target,
+		"max_workers":       embedqueue.MaxWorkers(),
+		"live":              embedqueue.WorkerLive(),
 	}
 }
 
@@ -839,21 +816,18 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				return
 			}
-			invalidatePartialCache("#index-health")
 		}
 		if key == "embed_aux_worker_max" {
 			if err := embedqueue.ClampAuxWorkersToMax(); err != nil {
 				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				return
 			}
-			invalidatePartialCache("#index-health")
 		}
 		if key == "EMBED_AUX_WORKERS" {
 			n, _ := strconv.Atoi(value)
 			if _, err := embedqueue.SetAuxWorkerCount(n); err != nil {
 				log.Printf("dashboard: set aux workers: %v", err)
 			}
-			invalidatePartialCache("#index-health")
 		}
 		if key == "EMBED_AUX_BACKEND" {
 			if embedder.AuxRuntimeReady() {
@@ -863,11 +837,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 				}
 				embedqueue.SetAuxEmbedder(embedder.RawAux())
 			}
-			invalidatePartialCache("#index-health")
 		}
 		if key == embedder.ProbeIntervalSettingKey {
 			embedder.RestartConnectivityProbe()
-			invalidatePartialCache("#index-health")
 		}
 		onEmbedSettingChanged(key)
 		mask := realtime.SettingsChanged
@@ -889,42 +861,42 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defaults := map[string]string{
-		"idle_unload_minutes":         "1",
-		"watcher_ignore_globs":         ignorepatterns.JSON(ignorepatterns.DefaultGlobs),
-		"project_exclude_paths":        "[]",
-		"index_log_files":              "false",
-		"log_retention_enabled":        "false",
-		"log_retention_roots":          "[]",
-		"log_retention_max_age_days":   "0",
-		"log_retention_max_total_mib":  "0",
-		"log_retention_dry_run":        "false",
-		"query_retention_enabled":      "true",
+		"idle_unload_minutes":            "1",
+		"watcher_ignore_globs":           ignorepatterns.JSON(ignorepatterns.DefaultGlobs),
+		"project_exclude_paths":          "[]",
+		"index_log_files":                "false",
+		"log_retention_enabled":          "false",
+		"log_retention_roots":            "[]",
+		"log_retention_max_age_days":     "0",
+		"log_retention_max_total_mib":    "0",
+		"log_retention_dry_run":          "false",
+		"query_retention_enabled":        "true",
 		"query_retention_max_age_days":   "90",
-		"EMBED_BACKEND":                "",
-		"MODEL_DIR":                    "",
-		"EMBED_HTTP_URL":               "",
-		"EMBED_HTTP_BEARER":            "",
-		"OLLAMA_HOST":                  "",
-		"OLLAMA_EMBED_MODEL":           "",
-		"EMBED_OPENAI_BASE_URL":        "",
-		"EMBED_OPENAI_API_KEY":         "",
-		"EMBED_OPENAI_MODEL":           "",
-		"EMBED_OPENAI_DIMENSIONS":      "",
-		"EMBED_DOCKER_URL":             "",
-		"EMBED_DOCKER_MODEL":           "",
-		"EMBED_DOCKER_DIMENSIONS":      "",
-		"context_max_notes_session":     "50",
-		"context_max_tokens_session":    "32000",
-		"context_max_notes_global":      "500",
-		"context_max_tokens_global":     "200000",
-		"context_limit_policy":          "reject",
-		"embed_worker_max":              strconv.Itoa(embedqueue.DefaultMaxWorkers),
-		"embed_aux_worker_max":          strconv.Itoa(embedqueue.DefaultAuxMaxWorkers),
-		"EMBED_AUX_WORKERS":             "0",
-		"EMBED_AUX_BACKEND":             "onnx",
+		"EMBED_BACKEND":                  "",
+		"MODEL_DIR":                      "",
+		"EMBED_HTTP_URL":                 "",
+		"EMBED_HTTP_BEARER":              "",
+		"OLLAMA_HOST":                    "",
+		"OLLAMA_EMBED_MODEL":             "",
+		"EMBED_OPENAI_BASE_URL":          "",
+		"EMBED_OPENAI_API_KEY":           "",
+		"EMBED_OPENAI_MODEL":             "",
+		"EMBED_OPENAI_DIMENSIONS":        "",
+		"EMBED_DOCKER_URL":               "",
+		"EMBED_DOCKER_MODEL":             "",
+		"EMBED_DOCKER_DIMENSIONS":        "",
+		"context_max_notes_session":      "50",
+		"context_max_tokens_session":     "32000",
+		"context_max_notes_global":       "500",
+		"context_max_tokens_global":      "200000",
+		"context_limit_policy":           "reject",
+		"embed_worker_max":               strconv.Itoa(embedqueue.DefaultMaxWorkers),
+		"embed_aux_worker_max":           strconv.Itoa(embedqueue.DefaultAuxMaxWorkers),
+		"EMBED_AUX_WORKERS":              "0",
+		"EMBED_AUX_BACKEND":              "onnx",
 		embedder.ProbeIntervalSettingKey: "10",
-		"dashboard_log_tail_lines":      "200",
-		"dashboard_log_line_chars":      "500",
+		"dashboard_log_tail_lines":       "200",
+		"dashboard_log_line_chars":       "500",
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
@@ -1184,35 +1156,13 @@ func parseProjectPathFromRequest(r *http.Request) string {
 	return watcher.NormalizeProjectPath(r.FormValue("project_path"))
 }
 
-func prefersJSON(r *http.Request) bool {
-	accept := r.Header.Get("Accept")
-	return strings.Contains(accept, "application/json") && !strings.Contains(r.Header.Get("HX-Request"), "true")
-}
-
-func respondWatcherAction(w http.ResponseWriter, r *http.Request, status, projectPath string, extra map[string]interface{}) {
-	if prefersJSON(r) {
-		w.Header().Set("Content-Type", "application/json")
-		out := map[string]interface{}{"status": status, "project_path": projectPath}
-		for k, v := range extra {
-			out[k] = v
-		}
-		json.NewEncoder(w).Encode(out)
-		return
+func respondWatcherAction(w http.ResponseWriter, _ *http.Request, status, projectPath string, extra map[string]interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	out := map[string]interface{}{"status": status, "project_path": projectPath}
+	for k, v := range extra {
+		out[k] = v
 	}
-	respondHTMXPartial(w, r)
-}
-
-func respondHTMXPartial(w http.ResponseWriter, r *http.Request) {
-	target := r.Header.Get("HX-Target")
-	if strings.Contains(target, "settings-content") {
-		handleSettingsPartial(w, r)
-		return
-	}
-	if strings.Contains(target, "memory-panel") {
-		handleMemoryPartial(w, r)
-		return
-	}
-	handleIndexHealthPartial(w, r)
+	json.NewEncoder(w).Encode(out)
 }
 
 func handleStopWatcher(w http.ResponseWriter, r *http.Request) {
@@ -1248,43 +1198,27 @@ func handleIndexProject(w http.ResponseWriter, r *http.Request) {
 	}
 	projectPath := parseProjectPathFromRequest(r)
 	if projectPath == "" {
-		if prefersJSON(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
-			return
-		}
-		http.Error(w, "project_path required", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return
 	}
 	if info, err := os.Stat(projectPath); err != nil {
-		if prefersJSON(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "path not found: " + err.Error()})
-			return
-		}
-		http.Error(w, "path not found: "+err.Error(), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "path not found: " + err.Error()})
 		return
 	} else if !info.IsDir() {
-		if prefersJSON(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "project_path must be a directory"})
-			return
-		}
-		http.Error(w, "project_path must be a directory", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path must be a directory"})
 		return
 	}
 	n, err := indexer.IndexDirectory(projectPath, projectPath)
 	if err != nil {
-		if prefersJSON(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 	watcher.EnsureWatcher(projectPath)
@@ -1368,37 +1302,37 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 		},
 		"cpu_percent": sys.ProcessCPUPercent(),
 		"load_avg": map[string]interface{}{
-			"available":      load.Available,
-			"load_1":           load.Load1,
-			"load_5":           load.Load5,
-			"load_15":          load.Load15,
-			"cpus":             runtime.NumCPU(),
-			"per_core_1":       load.Load1 / float64(max(runtime.NumCPU(), 1)),
-			"per_core_5":       load.Load5 / float64(max(runtime.NumCPU(), 1)),
-			"per_core_15":      load.Load15 / float64(max(runtime.NumCPU(), 1)),
+			"available":         load.Available,
+			"load_1":            load.Load1,
+			"load_5":            load.Load5,
+			"load_15":           load.Load15,
+			"cpus":              runtime.NumCPU(),
+			"per_core_1":        load.Load1 / float64(max(runtime.NumCPU(), 1)),
+			"per_core_5":        load.Load5 / float64(max(runtime.NumCPU(), 1)),
+			"per_core_15":       load.Load15 / float64(max(runtime.NumCPU(), 1)),
 			"utilization_1_pct": load.Load1 / float64(max(runtime.NumCPU(), 1)) * 100,
 		},
 		"disk": map[string]interface{}{
-			"db_size_bytes":   diskSize,
-			"wal_size_bytes":  db.WalFileBytes(),
-			"index_wal_bytes": db.IndexWalBytes(),
-			"read_mbps":       diskIO.ReadMBps,
-			"write_mbps":      diskIO.WriteMBps,
-			"ssd_model":       ssd.Model,
-			"ssd_smart":       ssd.SmartStatus,
-			"ssd_protocol":    ssd.Protocol,
-			"ssd_capacity":    ssd.Capacity,
-			"ssd_trim":        ssd.TrimSupport,
-			"ssd_solid_state": ssd.SolidState,
-			"ssd_wear_used_pct": ssd.WearUsedPct,
-			"ssd_spare_pct":     ssd.SparePct,
+			"db_size_bytes":       diskSize,
+			"wal_size_bytes":      db.WalFileBytes(),
+			"index_wal_bytes":     db.IndexWalBytes(),
+			"read_mbps":           diskIO.ReadMBps,
+			"write_mbps":          diskIO.WriteMBps,
+			"ssd_model":           ssd.Model,
+			"ssd_smart":           ssd.SmartStatus,
+			"ssd_protocol":        ssd.Protocol,
+			"ssd_capacity":        ssd.Capacity,
+			"ssd_trim":            ssd.TrimSupport,
+			"ssd_solid_state":     ssd.SolidState,
+			"ssd_wear_used_pct":   ssd.WearUsedPct,
+			"ssd_spare_pct":       ssd.SparePct,
 			"ssd_data_written_tb": ssd.DataWrittenTB,
 			"ssd_temperature_c":   ssd.TemperatureC,
 		},
 		"cache": map[string]interface{}{
 			"query_cache_size":    queryCacheSize,
 			"query_cache_entries": queryCacheEntries,
-			"hit_ratio":        cacheHitRatio,
+			"hit_ratio":           cacheHitRatio,
 		},
 		"goroutines": runtime.NumGoroutine(),
 	})
@@ -1459,10 +1393,6 @@ func handleDocSources(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "action refresh, update, or delete required"})
 			return
 		}
-		if r.Header.Get("HX-Request") != "" {
-			respondHTMXPartial(w, r)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "refreshing"})
 		return
@@ -1476,6 +1406,24 @@ func handleDocSources(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"sources": sources,
 		"total":   len(sources),
+	})
+}
+
+// handleDocPacksInstall adds the curated starter doc pack (React, Go, MUI, TypeScript).
+func handleDocPacksInstall(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	added, results := docs.InstallStarterPack()
+	realtime.Notify(realtime.IndexHealth)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "ok",
+		"pack":    "starter",
+		"added":   added,
+		"sources": results,
 	})
 }
 

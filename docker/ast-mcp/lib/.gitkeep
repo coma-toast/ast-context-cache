@@ -1,0 +1,1 @@
+# Keep empty dir so `COPY lib/` works when no ORT libs are present.

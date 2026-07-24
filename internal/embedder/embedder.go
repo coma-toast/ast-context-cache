@@ -125,12 +125,11 @@ func (e *Embedder) Close() {
 }
 
 func (e *Embedder) Embed(texts []string) ([][]float32, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
+	// Lock per text via EmbedSingle so other workers can interleave between
+	// inferences (a multi-thousand-symbol file must not monopolize onnx).
 	results := make([][]float32, len(texts))
 	for i, text := range texts {
-		emb, err := e.embedSingle(text)
+		emb, err := e.EmbedSingle(text)
 		if err != nil {
 			return nil, fmt.Errorf("embed text %d: %w", i, err)
 		}

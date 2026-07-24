@@ -208,17 +208,17 @@ func auxWorker() {
 		case <-auxWorkerStop:
 			return
 		case j := <-pendingCh:
-			runWithEmbedder(j, queueAuxEmbedder())
+			runWithEmbedder(j, queueAuxEmbedder(), true)
 		default:
 			select {
 			case <-auxWorkerStop:
 				return
 			case j := <-pendingCh:
-				runWithEmbedder(j, queueAuxEmbedder())
+				runWithEmbedder(j, queueAuxEmbedder(), true)
 			case j := <-highCh:
-				runWithEmbedder(j, queueAuxEmbedder())
+				runWithEmbedder(j, queueAuxEmbedder(), true)
 			case j := <-lowCh:
-				runWithEmbedder(j, queueAuxEmbedder())
+				runWithEmbedder(j, queueAuxEmbedder(), true)
 			}
 		}
 	}

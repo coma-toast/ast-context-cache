@@ -1,7 +1,3 @@
----
-name: ast-context-cache-operator
-description: Use when configuring ast-mcp embeddings, dashboard settings, virtual context limits, log retention, or server health—not day-to-day MCP code search.
----
 
 
 ## When to Use
@@ -37,53 +33,98 @@ See [`docker/README.md`](../../docker/README.md): enable Model Runner + TCP 1243
 
 See [README — Embedding backends](../../README.md#embedding-backends).
 
-## Dashboard (http://localhost:7830)
+## Dashboard (http://localhost:7830/dashboard/)
 
-Open after `make run` or `ast-mcp dash`. Panels update automatically when queries run or indexing changes.
+Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedded at `/dashboard/` (root `/` redirects). Updates use **WebSocket `/ws`** (`refresh` panel events + MCP toasts), not SSE or HTMX partials.
+
+**Dev:** `make ui-dev` (Vite on :5173, proxies API/WS) while ast-mcp runs on :7830.
 
 ### Header
 
 | Element | Meaning |
 |---------|---------|
-| Health bar (center) | Embedder state, **queue** mini-gauge, throughput, cache hit %, heap, uptime |
-| Project dropdown | Filters stats, charts, index health, and recent **MCP** activity to one repo |
-| Settings (gear) | Embedding backend, ignore globs, log indexing, log retention, pin/unpin, doc sources |
+| Health bar | Embedder state, queue depth, throughput, cache hit %, heap, uptime, version |
+| Project filter | Filters stats, index health, memory, recent, and charts to one repo |
 
-### Sections (top to bottom)
+### Sidebar tabs
 
-| Section | What it shows |
-|---------|----------------|
-| **Query activity** | MCP query counts, **tokens saved** (code-context tools only; sublabel: 30d total, avg/day, dedup, vs files), **Virtual context** (active inventory, 30d stored vs accessed, utilization, orphans), avg duration, sessions |
-| **Index & runtime** | Corpus scale bars; **embed queue** ring gauge + priority/background bars + worker dots; vectors; watchers (pause/start/delete); disk/memory (server-wide) |
+| Tab | What it shows |
+|-----|----------------|
+| **Overview** | Query activity, virtual context summary, index & runtime (embed queue, corpus, watchers) |
+| **Memory** | Virtual context stats, doc sources (add/refresh/delete, **Add starter doc pack**) |
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
-| **Symbol / language / tool / imports** | **Tool performance** table + charts (calls, **CPU**, avg latency, tokens saved); Top imports |
-| **Recent activity** | Collapsible **MCP tool calls** vs **Indexing activity** (fsnotify reindex/delete) |
+| **Analytics** | Tool performance table, symbol/language/import charts |
+| **Recent** | MCP tool calls vs indexing activity (accessible error expand) |
+| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **projects (link/unlink subprojects)**, agent install, MCP tier (read-only) |
 
 ### Settings (operators)
 
-- **Pin project** — priority embedding queue, watchers stay warm longer, slower vector unload when idle
-- **Virtual context** — max notes/tokens per session and globally; limit policy (`reject` / `lru_session`); **Flush all virtual context** button; env `AST_CONTEXT_*` overrides non-empty values on restart
-- **Watcher ignore globs** — JSON array; applied after `IsCodeFile`
-- **Index .log / .txt** — FTS/BM25 only, no embeddings
-- **Log retention** — optional `.log` cleanup under absolute roots (dry-run first)
-- **Embedding backend** — persists env-equivalent keys (env wins on restart)
+- **Link subproject** — container parent + child picker (`POST /api/project-links`); auto-link still runs on index
+- **Pin project** — priority embedding queue, watchers stay warm longer
+- **Virtual context** — limits + **Flush all**; per-session flush via API `POST /api/flush-context` with `session_id`
+- **Watcher ignore globs** — JSON array
+- **Embedding backend** — persisted to SQLite; env overrides on restart
+- **MCP tier** — read-only card (`AST_MCP_TIER`, `~/.astcache/tools.json`)
 
 ### Helping users interpret gauges
 
 - **Tokens saved (today)** — sums `tokens_saved` from **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, and **`retrieve`** only. **`fetch_doc` / `search_docs` / `index_*`** do not contribute; **0 today** with heavy doc activity is expected. Sublabel shows 30d total, **avg/day**, dedup, and vs-files. **`mode=full`** calls save ~nothing.
-- **Virtual context card** — separate from Tokens saved. **Active inventory** = notes still on disk; **30d stored** = `store_context` volume; **30d accessed** = `fetch_context` + `search_context`; **utilization** = accessed/stored; **orphans** = never fetched. **`GET /api/context-stats`** returns JSON for the same rollup. **`POST /api/flush-context`** with `{"all":true}` or `{"session_id":"..."}` (also in Settings).
+- **Virtual context card** — separate from Tokens saved. **Active inventory** = notes still on disk; **30d stored** = `store_context` volume; **30d accessed** = `fetch_context` + `search_context`; **utilization** = accessed/stored; **orphans** = never fetched. **`GET /api/context-stats`** returns JSON for the same rollup (includes nested **`kv_repair`**). **`POST /api/flush-context`** with `{"all":true}` or `{"session_id":"..."}` (also in Settings).
+- **KV repair card** (Memory tab) — golden text archives for quantized KV recovery. **Archives active** = notes with `kind=kv_repair` or tag `kv_repair`; **30d repairs** = `fetch_context` with `repair_reason`; sublabel splits **miss / quality / manual** from `report_kv_repair_event` + repair fetches; **utilization** = repairs / archives stored; **orphans** = archives never fetched for repair. **`GET /api/kv-repair-stats`** (`?project_id=` optional) returns the rollup JSON.
 - **Embed queue ring** — fill vs combined capacity (priority 128 + background 2048). Green → orange → red as backlog grows.
 - **Pinned projects** — use when one repo should index faster under load.
 
 MCP coding agents normally use MCP tools only; mention the dashboard when the user asks about indexing progress, embeddings, or server health.
+
+### Prometheus scrape
+
+Dashboard exposes Prometheus metrics at **`http://localhost:7830/metrics`** (prefix `astcache_`: process up, embed queue/workers, embedder state, index WAL bytes, tokens saved today, MCP tool call counts + duration). Example scrape job:
+
+```yaml
+- job_name: ast-context-cache
+  static_configs:
+    - targets: ["localhost:7830"]
+  metrics_path: /metrics
+```
 
 ## Shell helper
 
 After `make install`:
 
 ```bash
-ast-mcp start|stop|restart|status|health|log|build|dash
+ast-mcp start|start-safe|supervise|stop|restart|status|health|log|build|dash
 ```
+
+## Keep-alive
+
+For a long-running local process that restarts on crash:
+
+```bash
+ast-mcp supervise
+```
+
+Backoff is 1s → 2s → 5s (cap). Stop with **Ctrl+C** in that terminal, or `ast-mcp stop` from another shell (kills the child and ends the supervise loop).
+
+Docker equivalent (`restart: unless-stopped`), separate from DMR embeddings:
+
+```bash
+docker compose -f docker/ast-mcp/compose.yml up -d --build
+```
+
+See [`docker/ast-mcp/README.md`](../../docker/ast-mcp/README.md). Parent [`docker/README.md`](../../docker/README.md) is only for Docker Model Runner embeddings.
+
+## Failure modes (embed & process)
+
+| Symptom | Likely cause | What to expect / do |
+|---------|--------------|---------------------|
+| **Workers = 0 (intentional)** | Operator set target to 0 (Embeddings −/− or Settings) | Queue pauses by design. **Auto-recover does not fire** while target is 0. Raise workers when you want indexing again. |
+| **Workers = 0 (stuck)** | Target &gt; 0 but live/effective count stayed 0 after a failed restore or bug | After **≥ 5 minutes**, stuck-worker **auto-recover** restores primary (and aux if target &gt; 0). Log: `embedqueue: auto-recovered workers after stuck pause`. Dashboard may show `LastAutoRecoverUnix`. |
+| **WAL throttle** | Large `index.db-wal` | Effective workers drop (e.g. 128 MB → 4, 256 MB → 2) while **target** stays high. UI: “WAL throttled”. Not a pause — backlog drains slower. See [SQLite WAL runbook](#sqlite-wal-runbook). |
+| **Maintenance pause** | Quiet/forced maintenance or swap (WAL TRUNCATE, embed backend swap) | Writers paused; UI may show compacting/maintenance. On success, workers restore. **Auto-recover ignores active maintenance.** If restore fails and workers stay stuck at 0 with target &gt; 0, the 5m auto-recover path applies after maintenance ends. |
+| **Embedder error + aux catch-up** | Primary embedder health = `error` | Primary workers idle; if aux (e.g. ONNX) can catch up, pending files still flush via aux. Log: `flush pending via aux catch-up`. Fix primary (`GET /embed/health`, Settings → Retry), or rely on aux until healthy. |
+| **Process down** | Crash or kill | Without keep-alive, MCP/dashboard stop. Use **`ast-mcp supervise`** (1s→2s→5s backoff) or Docker Compose `restart: unless-stopped`. Abnormal prior exit may show a crash/restart banner on next start. |
+
+**Auto-recover (5m):** Restores workers only when target &gt; 0, live count is 0, and **not** intentional pause / **not** maintenance. Does not override workers=0 you set on purpose.
 
 ## Rebuild after source changes
 
@@ -125,5 +166,7 @@ When using [wtg](https://github.com/coma-toast/wtg) with `~/spaces/<workspace>/<
 - **Excludes** repos matching `project_exclude_paths` (Settings) or `discovery.exclude` in WTG config — hidden from the project filter and skipped during auto-discovery
 
 Each worktree path is a separate `project_path` for MCP — pass the absolute checkout root (e.g. `~/spaces/nightly/slapi`). Override config with `WTG_CONFIG`.
+
+- **Container linking:** indexing a parent folder (e.g. `~/git`) auto-links already-indexed sub-repos; parent skips duplicate indexing and search includes linked children. Manage links in Settings → Projects (Unlink per child).
 
 Full detail: [README](../../README.md).

@@ -66,11 +66,26 @@ func TestWorkerControlsTitleDraining(t *testing.T) {
 }
 
 func TestEmbedWorkersStatus(t *testing.T) {
-	h := IndexHealth{EmbedWorkers: 15, EmbedWorkersEffective: 0, EmbedActive: 0}
+	h := IndexHealth{EmbedWorkers: 15, EmbedWorkersEffective: 0, EmbedActive: 2, EmbedActivePrimary: 0}
 	if got := h.EmbedWorkersStatus(); got != "0 busy" {
-		t.Fatalf("status=%q want 0 busy", got)
+		t.Fatalf("status=%q want 0 busy (primary idle while total EmbedActive may be aux)", got)
 	}
 	if got := h.EmbedWorkersWalBadge(); got != "WAL 0/15" {
 		t.Fatalf("badge=%q want WAL 0/15", got)
+	}
+	h.EmbedActivePrimary = 2
+	if got := h.EmbedWorkersStatus(); got != "2 busy" {
+		t.Fatalf("status=%q want 2 busy", got)
+	}
+}
+
+func TestEmbedAuxWorkersStatus(t *testing.T) {
+	h := IndexHealth{EmbedAuxWorkers: 2, EmbedAuxActive: 0}
+	if got := h.EmbedAuxWorkersStatus(); got != "2 enabled" {
+		t.Fatalf("status=%q want 2 enabled", got)
+	}
+	h.EmbedAuxActive = 2
+	if got := h.EmbedAuxWorkersStatus(); got != "2 active" {
+		t.Fatalf("status=%q want 2 active", got)
 	}
 }

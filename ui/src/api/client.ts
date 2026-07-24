@@ -1,4 +1,5 @@
 import type {
+  ContextSessionsResponse,
   Health,
   IndexHealth,
   MCPTier,
@@ -8,6 +9,7 @@ import type {
   Stats,
   TimeseriesPoint,
   ToolStat,
+  WeeklyDigest,
 } from './types'
 
 function qs(projectId?: string, extra?: Record<string, string>): string {
@@ -97,6 +99,9 @@ async function postEmbedderAction<T extends { ok?: boolean; error?: string }>(pa
 export const api = {
   health: () => get<Health>('/api/dashboard/health'),
   stats: (projectId?: string) => get<Stats>(`/api/dashboard/stats${qs(projectId)}`),
+  weeklyDigest: (projectId?: string) => get<WeeklyDigest>(`/api/dashboard/weekly-digest${qs(projectId)}`),
+  contextSessions: (projectId?: string) =>
+    get<ContextSessionsResponse>(`/api/dashboard/context-sessions${qs(projectId)}`),
   indexHealth: (projectId?: string) => get<IndexHealth>(`/api/dashboard/index-health${qs(projectId)}`),
   memory: (projectId?: string, page = 1) =>
     get<MemoryData>(`/api/dashboard/memory${qs(projectId, { doc_sources_page: String(page) })}`),
@@ -149,6 +154,8 @@ export const api = {
   docSourceAction: (action: string, id: number) => post('/api/doc-sources', { action, id }),
   addDocSource: (name: string, url: string, type: string, version = '') =>
     post('/api/doc-sources', { action: 'add', name, url, type, version }),
+  installDocPack: () =>
+    post<{ status?: string; pack?: string; added?: number }>('/api/doc-packs/install', {}),
   agentInstall: (agent_type: string, is_global: boolean) => post('/api/agent-install', { agent_type, is_global }),
   agentUninstall: (agent_type: string, is_global: boolean) => post('/api/agent-uninstall', { agent_type, is_global }),
   embedderTest: () => post<{ status?: string; error?: string }>('/api/embedder/test', {}),
@@ -156,7 +163,7 @@ export const api = {
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string; skipped?: boolean }>('/api/embedder/retry'),
   embedderDismissAlert: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string }>('/api/embedder/dismiss-alert'),
-  walCheckpoint: () => post('/api/wal-checkpoint', {}),
+  walCheckpoint: () => post<{ started?: boolean; status?: string }>('/api/wal-checkpoint', {}),
   adjustEmbedWorkers: (delta: number) => post<{ status?: string; workers?: number; error?: string }>('/api/embed-workers', { delta }),
   adjustEmbedAuxWorkers: (delta: number) =>
     post<{ status?: string; workers?: number; error?: string }>('/api/embed-aux-workers', { delta }),

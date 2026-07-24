@@ -11,6 +11,7 @@ Local-first MCP server for AI coding agents. **No cloud, no account** — indexe
 | **Fresh index** | `index_files` + fsnotify watcher; bounded embed queue; pin heavy projects |
 | **Library docs offline** | `search_docs` / `fetch_doc` cached locally (Context7-style) |
 | **Survive host compaction** | **Virtual context** — `store_context` → `ctx_*` stubs → `fetch_context` after compaction (extended write, core read) |
+| **Remember prefs / rules** | **Structured memory** — `store_memory` → `mem_*` facts/procedures → `recall_memory` (extended write, core read) |
 
 MCP: `http://localhost:7821/mcp` · Dashboard: `http://localhost:7830`
 
@@ -67,6 +68,8 @@ Use MCP in this order for unfamiliar code (generate a stable **`session_id`** pe
 
 **Virtual context (long threads) — use ast-context-cache, not host-only summarization:** Before host compaction, **`store_context`** (extended) with the same `session_id`; keep **`ctx_*` stubs** in chat (e.g. `[ctx_a1b2c3d4e5f6] auth plan`). After compaction: **`fetch_context`** (refs), **`list_context`**, or **`search_context`** (core). **`flush_context`** when done. See [Virtual context compaction](#virtual-context-compaction) below.
 
+**Structured memory (prefs / rules):** Use **`store_memory`** / **`recall_memory`** / **`forget_memory`** for compact facts and procedures (`mem_*`) — not bulky notes. Prefer **`recall_memory`** over **`fetch_context`** when you need preferences or rules. Optional: `retrieve(..., include_memory=true)`. See [Structured memory](#structured-memory-facts--procedures) below.
+
 **Defaults:** `get_context_capsule` → `auto`; `get_file_context` → **`skeleton`**; `search_semantic` → `skeleton`. Do not read whole source files when MCP can return structured symbols.
 
 **Operators** (embeddings, dashboard, log retention): [skills/operator/SKILL.md](skills/operator/SKILL.md) — dashboard http://localhost:7830 (embed queue gauge; tool performance with CPU/latency).
@@ -97,10 +100,11 @@ When working with codebases that have an MCP server available, **always prefer M
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation (FTS). Try before WebFetch for library/framework docs. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
-| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). Supports `markdown`, `xml`, `json` output. |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). Supports `markdown`, `xml`, `json` output; optional `include_memory`. |
 | `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). |
 | `list_context` | List stored virtual context refs for a session (metadata only). |
 | `search_context` | Find stored virtual context by keyword/meaning. |
+| `recall_memory` | Compact structured facts/procedures (`mem_*`); prefer over `fetch_context` for prefs/rules. |
 
 #### Extended
 
@@ -108,8 +112,11 @@ When working with codebases that have an MCP server available, **always prefer M
 |------|-------------|
 | `index_files` | Index a file or directory. Starts a file watcher for incremental re-indexing. Plain `.log` is not indexed unless enabled in dashboard settings; watcher ignore globs apply to paths that would otherwise be indexed as code. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
-| `store_context` | Offload arbitrary conversation/code notes before compaction; returns stable `ctx_*` refs. |
+| `store_context` | Offload arbitrary conversation/code notes before compaction; returns stable `ctx_*` refs. Supports `kind=kv_repair` and `extract_memory`. |
 | `flush_context` | Delete stored virtual context (session, refs, or all). |
+| `store_memory` | Compact temporal facts / procedural rules → `mem_*` refs (auto-supersedes same subject+predicate). |
+| `forget_memory` | Invalidate structured memory (refs, subject+predicate, or all). |
+| `report_kv_repair_event` | Report KV cache miss/quality signal before/after `fetch_context` (observability). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
@@ -202,6 +209,22 @@ flush_context(session_id? | refs? | all=true, project_path?)
 Dashboard **Virtual context** card: active inventory, 30d stored vs accessed, utilization %, orphan notes (stored but never fetched), flushed tokens. API: `GET http://localhost:7830/api/context-stats`.
 
 **Chat pattern:** After store, write `[ctx_…] label` in the thread instead of the full content. After compaction, fetch by ref.
+
+### Structured memory (facts & procedures)
+
+**Virtual context** (`ctx_*`) = bulky notes/plans/diffs. **Structured memory** (`mem_*`) = compact prefs and rules — much smaller than `store_context`.
+
+| Tool | Tier | Role |
+|------|------|------|
+| `store_memory` | extended | Save fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope: `session` / `project` / `global` |
+| `recall_memory` | core | Retrieve within `token_budget` (default 800); optional `query`, `as_of` for temporal facts |
+| `forget_memory` | extended | Invalidate by `refs`, `subject`+`predicate`, or `all=true` |
+
+**When to use:** user prefs ("always use fish"), coding conventions, procedural rules — not long analysis. Facts auto-invalidate prior same subject+predicate in scope.
+
+**RAG integration:** `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
+
+**KV repair:** For quantized KV miss/quality signals, call **`report_kv_repair_event`** (extended) before/after `fetch_context` on a `kind=kv_repair` archive. See [skills/usage/SKILL.md](skills/usage/SKILL.md).
 
 ### Token savings tracking
 

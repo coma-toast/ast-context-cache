@@ -20,6 +20,8 @@ import (
 func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/health", handleDashboardHealthJSON)
 	mux.HandleFunc("/api/dashboard/stats", handleDashboardStatsJSON)
+	mux.HandleFunc("/api/dashboard/weekly-digest", handleDashboardWeeklyDigestJSON)
+	mux.HandleFunc("/api/dashboard/context-sessions", handleDashboardContextSessionsJSON)
 	mux.HandleFunc("/api/dashboard/index-health", handleDashboardIndexHealthJSON)
 	mux.HandleFunc("/api/dashboard/memory", handleDashboardMemoryJSON)
 	mux.HandleFunc("/api/dashboard/settings", handleDashboardSettingsJSON)
@@ -70,6 +72,7 @@ func buildHealthData() components.Health {
 		CPUPercent:            sys.ProcessCPUPercent(),
 		Uptime:                time.Since(serverStartTime),
 		Version:               version.Version,
+		AbnormalPreviousRun:   embedqueue.AbnormalPreviousRun(),
 	}
 	applyActiveEmbedderHealth(&h)
 	overlayStartupEmbedder(&h.EmbedderState, &h.EmbedderError, &h.EmbedBackend)
@@ -79,6 +82,7 @@ func buildHealthData() components.Health {
 func handleDashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 	pid := r.URL.Query().Get("project_id")
 	s := components.Stats{}
+	h := ValueHeuristic{HeuristicApproximate: true, HeuristicLabel: "approximate", WindowDays: StatsWindowDays}
 	if usageDBReady() {
 		todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 		tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
@@ -88,9 +92,24 @@ func handleDashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 		fillTodayStats(pid, todayStart, tomorrowStart, &s)
 		fillVirtualContextStats(&s, pid)
+		returned, baseline := queryTokensReturnedAndBaseline(pid, StatsWindowDays)
+		h = computeValueHeuristic(s.TokensSaved, returned, baseline, StatsWindowDays)
+		s.SymbolBaseline = h.ApproxBaselineTokens
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s)
+	json.NewEncoder(w).Encode(struct {
+		components.Stats
+		statsWithHeuristic
+	}{
+		Stats: s,
+		statsWithHeuristic: statsWithHeuristic{
+			ApproxBaselineTokens: h.ApproxBaselineTokens,
+			ApproxTokensReturned: h.ApproxTokensReturned,
+			ApproxRoundsAvoided:  h.ApproxRoundsAvoided,
+			HeuristicApproximate: h.HeuristicApproximate,
+			HeuristicLabel:       h.HeuristicLabel,
+		},
+	})
 }
 
 func handleDashboardIndexHealthJSON(w http.ResponseWriter, r *http.Request) {
@@ -120,8 +139,8 @@ func handleDashboardRecentSplitJSON(w http.ResponseWriter, r *http.Request) {
 	mcpQ, idxQ := buildRecentQueries(pid, 50)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"mcp":       mcpQ,
-		"indexing":  idxQ,
+		"mcp":      mcpQ,
+		"indexing": idxQ,
 	})
 }
 
@@ -140,8 +159,8 @@ func handleDashboardMCPTierJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"tier":             tier,
-		"tools_json_path":  toolsPath,
+		"tier":              tier,
+		"tools_json_path":   toolsPath,
 		"tools_json_exists": toolsExists,
 	})
 }
