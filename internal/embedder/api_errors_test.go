@@ -48,3 +48,19 @@ func TestHumanizeEmbedError_FormattedCode(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestHumanizeEmbedError_InputTooLong(t *testing.T) {
+	raw := "openai embed: 500: litellm.InternalServerError: InternalServerError: OpenAIException - Error code: 500 - {'error': {'code': 500, 'message': 'input (514 tokens) exceeds maximum context'"
+	got := HumanizeEmbedError(raw)
+	if !strings.Contains(got, "too long") {
+		t.Fatalf("want input-too-long hint, got %q", got)
+	}
+}
+
+func TestTruncateRemoteEmbedInput(t *testing.T) {
+	long := strings.Repeat("a", maxRemoteEmbedInputRunes+50)
+	got := TruncateRemoteEmbedInput(long)
+	if n := len([]rune(got)); n != maxRemoteEmbedInputRunes {
+		t.Fatalf("len=%d want %d", n, maxRemoteEmbedInputRunes)
+	}
+}

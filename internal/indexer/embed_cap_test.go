@@ -29,3 +29,33 @@ func TestCapEmbedSymbolSlice(t *testing.T) {
 		t.Fatal("short slice should pass through")
 	}
 }
+
+func TestBuildEmbedTextTruncates(t *testing.T) {
+	src := stringsRepeat("x", 2000)
+	got := BuildEmbedText("function", "Foo", src)
+	if n := len([]rune(got)); n > maxEmbedInputRunes {
+		t.Fatalf("len=%d want <= %d", n, maxEmbedInputRunes)
+	}
+	if !hasPrefix(got, "function Foo: ") {
+		t.Fatalf("missing prefix: %q", got[:min(20, len(got))])
+	}
+}
+
+func stringsRepeat(s string, n int) string {
+	b := make([]byte, 0, len(s)*n)
+	for i := 0; i < n; i++ {
+		b = append(b, s...)
+	}
+	return string(b)
+}
+
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

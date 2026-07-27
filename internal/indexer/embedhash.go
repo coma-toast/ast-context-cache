@@ -10,10 +10,7 @@ import (
 func ExpectedEmbedHash(kind, name, filePath string, startLine, endLine int) string {
 	fileCache := map[string][]string{}
 	src := ReadSourceRange(filePath, startLine, endLine, fileCache)
-	if len(src) > 500 {
-		src = src[:500]
-	}
-	return search.ContentHash(kind + " " + name + ": " + src)
+	return search.ContentHash(BuildEmbedText(kind, name, src))
 }
 
 func deleteCodeVectorsTx(tx *sql.Tx, filePath, projectPath string) error {

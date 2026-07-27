@@ -126,6 +126,10 @@ func HumanizeEmbedError(msg string) string {
 	if strings.Contains(strings.ToLower(msg), "loading model") {
 		return "Embed model loading on backend — embeddings retry automatically"
 	}
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "input (") && strings.Contains(lower, "token") {
+		return "Embed input too long for remote model context — texts are truncated on retry"
+	}
 	code := findHTTPCode(msg)
 	if inner := extractAPIErrorField(msg, "message"); inner != "" {
 		msg = inner

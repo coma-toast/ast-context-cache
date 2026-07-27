@@ -79,13 +79,18 @@ func (o *OpenAIEmbedder) Embed(texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
+	// Defensive: keep each input under common 512-token remote defaults.
+	trimmed := make([]string, len(texts))
+	for i, t := range texts {
+		trimmed[i] = TruncateRemoteEmbedInput(t)
+	}
 	var out [][]float32
-	for start := 0; start < len(texts); start += openAIChunk {
+	for start := 0; start < len(trimmed); start += openAIChunk {
 		end := start + openAIChunk
-		if end > len(texts) {
-			end = len(texts)
+		if end > len(trimmed) {
+			end = len(trimmed)
 		}
-		chunk := texts[start:end]
+		chunk := trimmed[start:end]
 		vecs, err := o.embedBatch(chunk)
 		if err != nil {
 			return nil, err
