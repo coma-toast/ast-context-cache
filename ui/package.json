@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "storybook": "storybook dev -p 6008 --no-open",
+    "build-storybook": "storybook build -o ../docs/storybook-static",
+    "capture-screenshot": "node scripts/capture-screenshot.mjs",
+    "verify-stories": "node scripts/verify-stories.mjs",
+    "verify-visual-vs-live": "node scripts/verify-visual-vs-live.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -21,11 +26,16 @@
     "recharts": "^3.9.1"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "^10.4.4",
+    "@storybook/addon-docs": "^10.4.4",
+    "@storybook/react-vite": "^10.4.4",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.4",
     "oxlint": "^1.71.0",
+    "playwright": "^1.52.0",
+    "storybook": "^10.4.4",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   }

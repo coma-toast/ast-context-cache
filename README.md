@@ -1,24 +1,20 @@
 # ast-context-cache
 
-A local-first AST context engine for AI coding agents. Indexes your codebase into a SQLite database using tree-sitter, then serves precise, token-efficient search results over MCP. No cloud, no account, no data leaves your machine.
+[![Release](https://img.shields.io/github/v/release/coma-toast/ast-context-cache)](https://github.com/coma-toast/ast-context-cache/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 
-## Features
+A **local-first** AST context engine for AI coding agents: index with tree-sitter, search over MCP with minimal tokens, cache docs, and **offload conversation context before host compaction** so agents recover plans after the editor compacts chat. No cloud, no account, no data leaves your machine.
 
-- **Multi-language** -- Python, JavaScript/JSX, TypeScript/TSX, Go, Bash, Fish, YAML
-- **Hybrid search** -- BM25 (FTS5) + semantic vector search with configurable embed backends (local ONNX, Ollama, OpenAI-compatible, generic HTTP, Docker Model Runner)
-- **Dependency graph** -- Import/call edges; query blast radius with `get_impact_graph`
-- **Source code in results** -- Results include actual source or skeleton signatures (~90% token savings)
-- **File watcher** -- `fsnotify`-based incremental re-indexing with debounce and ignore globs
-- **Virtual context** -- Offload bulky conversation notes to local SQLite with stable `ctx_*` refs; recover after host compaction via `fetch_context` / `search_context`
-- **Structured memory** -- Mem0/Zep-style temporal facts and LangMem procedural rules (`store_memory` / `recall_memory` / `forget_memory`); auto-invalidate, `as_of` temporal queries, scope to session/project/global
-- **RAG retrieval** -- Hybrid search + reranking + context assembly in one call (`retrieve`); optional structured memory injection
-- **Dashboard** -- Web UI on port 7830: health bar, embed queue, token savings, virtual context, KV repair observability, WAL status, project management, agent config, 40+ API endpoints, WebSocket live updates
-- **3-database architecture** -- Split across `index.db` (symbols/vectors/edges), `context.db` (docs/virtual context / structured memory), and `usage.db` (queries/sessions/settings); WAL mode with per-DB pressure monitoring and manual checkpoint
-- **Auxiliary embedder pool** -- Separate worker pool with independent backend for catch-up embedding, live-adjustable from dashboard
-- **Code-mode scripts** -- JS sandbox (`execute_code`) shrinks search results into compact output; repo scripts at `scripts/code-mode/`
-- **Tool tiers** -- `core` (read-only search), `extended` (indexing + memory + analysis), `complete` (sandbox execution); per-tool enable/tier overrides via `~/.astcache/tools.json`
-- **KV repair** -- Observability and recovery for KV cache quality issues; `report_kv_repair_event` signals, golden-text archives via `store_context(kind=kv_repair)`, dashboard stats with success rate
-- **Doc caching** -- Fetch, cache, and FTS-search library/framework docs offline (`fetch_doc` / `search_docs`); Playwright JS-rendering support
+**Primary capabilities**
+
+- **Token-efficient code search** — `auto` / `skeleton` / `summary` modes, session dedup, measured **Tokens saved** on the dashboard
+- **Virtual context** — survive host compaction with `store_context` → `ctx_*` stubs → `fetch_context`
+- **Local-first** — SQLite + optional local ONNX (or your own embed backend); nothing phones home
+- **Operator dashboard** — live status on port **7830** (embed queue, savings, memory, settings)
+
+![Dashboard Overview](docs/images/dashboard-overview.png)
+
+Also: KV repair observability, structured memory (`mem_*`), hybrid BM25+vector search, impact graph, RAG `retrieve`, and offline doc caching — see [Features](#features).
 
 ## Quick Start
 
@@ -28,151 +24,27 @@ A local-first AST context engine for AI coding agents. Indexes your codebase int
 git clone https://github.com/coma-toast/ast-context-cache.git
 cd ast-context-cache
 make setup
-```
-
-That's it. `make setup` will:
-1. Install ONNX Runtime (via `brew install onnxruntime` on macOS)
-2. Download the embedding model (all-mpnet-base-v2)
-3. Download the pre-built tokenizer library for your platform
-4. Build the binary
-
-Then run the server:
-
-```bash
 make run
 ```
 
-Output:
 ```
 MCP: http://localhost:7821/mcp
 Dashboard: http://localhost:7830
 ```
 
+`make setup` installs ONNX Runtime, downloads the embedding model + tokenizer lib, and builds the binary. Embedding backends (Ollama, OpenAI-compatible, Docker Model Runner, …): **[`docs/embedding-backends.md`](docs/embedding-backends.md)**.
+
 ### After `git pull`
 
-If the pull modifies `VERSION`, sync the embedded copy (also happens during `make build`):
-
 ```bash
-cp VERSION internal/version/VERSION
-# or: make build
+cp VERSION internal/version/VERSION   # or: make build
 ```
 
-The React dashboard (`ui/`) is rebuilt as part of `make build` via `ui-build`.
+The React dashboard (`ui/`) rebuilds as part of `make build` via `ui-build`.
 
-## Embedding backends
-
-The vector store is built for **768-dimensional** L2-normalized embeddings. The default is local **ONNX** (no extra services). Alternatives use environment variables and do not require downloading `model.onnx` for the main process (unless you switch back to `onnx`).
-
-| `EMBED_BACKEND` | When to use | Main env vars |
-|-----------------|------------|---------------|
-| `onnx` (default) | Full local path: `make setup` pulls HuggingFace ONNX + tokenizer | `MODEL_DIR` to override model directory |
-| `ollama` | Local or Docker [Ollama](https://ollama.com) with a **768-d** model; default `nomic-embed-text` | `OLLAMA_HOST` (e.g. `http://127.0.0.1:11434`), `OLLAMA_EMBED_MODEL` |
-| `http` | Any service that matches the built-in JSON: `POST` body `{"texts":["..."]}` → `{"embeddings":[[float32,...]]}` (same as `http://localhost:7821/embed` on the ONNX server) | `EMBED_HTTP_URL` (default `http://127.0.0.1:8080/embed`), `EMBED_HTTP_BEARER` |
-| `openai` (alias: `litellm`) | [LiteLLM](https://docs.litellm.ai/docs/), OpenAI, or any **OpenAI-compatible** `POST /v1/embeddings` gateway; vectors must be **768-d** (native model or `dimensions` in JSON) | `EMBED_OPENAI_BASE_URL` (default `https://api.openai.com/v1`), **`EMBED_OPENAI_MODEL`** (required), `EMBED_OPENAI_API_KEY`, `EMBED_OPENAI_DIMENSIONS` (optional: unset sends `768` for v3 shortening; `0` omits the field) |
-| `docker` | [Docker Model Runner](https://docs.docker.com/ai/model-runner/) embeddings (port **12434**); no local ONNX in ast-mcp | `EMBED_DOCKER_URL` (default `http://127.0.0.1:12434`), `EMBED_DOCKER_MODEL` (default `ai/qwen3-embedding`), `EMBED_DOCKER_DIMENSIONS` (default `768`) |
-
-**Docker Model Runner:** See [`docker/README.md`](docker/README.md). Quick start:
-
-```bash
-docker desktop enable model-runner --tcp 12434   # if needed
-docker model pull ai/qwen3-embedding
-EMBED_BACKEND=docker make run
-```
-
-Re-index projects after switching embed backends.
-
-**Process environment:** Whatever starts `ast-mcp` (foreground terminal, the `ast-mcp` shell function from `make install`, systemd, or another supervisor) must have the embedding variables from the table above exported for non-default backends—for example set `EMBED_BACKEND=docker` and `EMBED_DOCKER_PROVIDER=ollama`, or `EMBED_BACKEND=openai`, `EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_API_KEY`, and `EMBED_OPENAI_MODEL`, in the same environment as the process that execs `./ast-mcp`.
-
-**Dashboard (easier):** On **Settings** (port 7830), use **Embedding backend** to save the same keys into local SQLite (`~/.astcache/usage.db`). **Non-empty environment variables always override** the saved values. **Restart ast-mcp** after changing embedding settings so `NewForMain` runs again.
-
-`GET /health` and `GET /embed/health` include `embed_mode`, `embed_model`, and `backend` so you can confirm which path is active.
-
-## Shell Function (optional)
-
-Install a shell function for easy start/stop management:
-
-```bash
-make install
-```
-
-This installs an `ast-mcp` function into your shell config (fish, bash, and/or zsh — whichever it finds).
-
-```bash
-ast-mcp start       # start the server (background, logs to ~/.astcache/ast-mcp.log)
-ast-mcp supervise   # keep-alive loop: restart on crash (backoff 1s→2s→5s); Ctrl+C or stop to exit
-ast-mcp stop        # stop the server (also ends a supervise loop)
-ast-mcp restart     # restart
-ast-mcp status      # show running status + URLs
-ast-mcp health      # hit the /health endpoint
-ast-mcp log         # tail the log file
-ast-mcp build       # rebuild the binary
-ast-mcp dash        # open the dashboard in a browser
-```
-
-**Docker keep-alive:** `docker compose -f docker/ast-mcp/compose.yml up -d --build` (`restart: unless-stopped`). See [`docker/ast-mcp/README.md`](docker/ast-mcp/README.md). (Separate from Docker Model Runner embeddings in [`docker/README.md`](docker/README.md).)
-
-To uninstall: `make uninstall`
-
-## Optional: mcp-local launcher
-
-This repository ships only the **`ast-mcp`** binary. If you prefer a separate Go CLI to start it, merge editor MCP JSON with other servers, and manage tool tiers, use **[mcp-local](https://github.com/coma-toast/mcp-local)** (its own repository). Clone and build from that project, then follow **[AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md)** (agents) and **README** for `~/.mcp-local/config.yaml`, `tools sync` / `tools apply`, and `json tools`—details are not duplicated here so they stay in sync with that tool.
-
-To manage per-tool enable/tier overrides from a launcher, use mcp-local (or any tool) to write `~/.astcache/tools.json` via the same schema as below, then **restart ast-mcp**.
-
-## Tool tiers and per-tool overrides
-
-The MCP server can expose a **subset** of tools. Tiers are cumulative: `complete` includes `extended` and `core`; `extended` includes `core`.
-
-| Tier | Typical tools |
-|------|----------------|
-| **core** | Search, status, maps, docs, `retrieve`, **`fetch_context` / `list_context` / `search_context`**, **`recall_memory`** (read-only) |
-| **extended** | core + `index_files`, `cache_summary`, **`store_context` / `flush_context`**, **`store_memory` / `forget_memory`**, **`report_kv_repair_event`**, bundles, doc sources, analysis |
-| **complete** | extended + `execute_code` (requires code mode) |
-
-**Global controls (environment):**
-
-| Variable | Values | Default |
-|----------|--------|---------|
-| `AST_MCP_TIER` | `core`, `extended`, `complete` | `complete` |
-| `AST_MCP_CODE_MODE` | `false` / `0` disables `execute_code` | enabled |
-| `AST_MCP_TOOLS_CONFIG` | Path to JSON overrides file | `~/.astcache/tools.json` |
-
-Example — read-only agent profile:
-
-```bash
-AST_MCP_TIER=core make run
-```
-
-Example — indexing without sandbox execution:
-
-```bash
-AST_MCP_TIER=extended AST_MCP_CODE_MODE=false make run
-```
-
-**Per-tool overrides** (`~/.astcache/tools.json`, or path from `AST_MCP_TOOLS_CONFIG`):
-
-```json
-{
-  "execute_code": { "enabled": false, "tier": "complete" },
-  "index_files": { "enabled": true, "tier": "core", "description": "Indexing allowed in core profile" }
-}
-```
-
-- **`enabled`**: `false` removes the tool from `tools/list` and rejects calls.
-- **`tier`**: Effective minimum tier for that tool (can promote an extended tool to `core`, or keep defaults when omitted).
-- **`description`**: Optional replacement text in `tools/list` when set.
-
-Overrides are loaded **at process start**; restart `ast-mcp` after editing the file. See [`skills/tools.json.example`](skills/tools.json.example).
-
-**With [mcp-local](https://github.com/coma-toast/mcp-local):** `mcp-local tools sync ast-context-cache` (server must be running) → `mcp-local tools` TUI to enable/disable tools and set tiers → `mcp-local restart ast-context-cache` (writes `tools.json`, sets `AST_MCP_TIER` / `AST_MCP_CODE_MODE` / `AST_MCP_TOOLS_CONFIG`). Or `mcp-local tools apply ast-context-cache` then restart. In Go, `mcp.SaveToolConfigs` writes the same file schema.
-
-Agents **cannot** request a tier over MCP; they only see tools the server exposes. If a call fails, the response explains disabled vs tier vs code mode.
-
-## Configure Your Editor
+## Configure your editor
 
 ### Cursor
-
-Add to your MCP settings (`.cursor/mcp.json`):
 
 ```json
 {
@@ -190,8 +62,6 @@ Add to your MCP settings (`.cursor/mcp.json`):
 
 ### OpenCode
 
-Add to your `opencode.jsonc`:
-
 ```jsonc
 {
   "mcpServers": {
@@ -202,310 +72,133 @@ Add to your `opencode.jsonc`:
 }
 ```
 
-## For AI Agents
+**Agents:** workflow, tool tiers, virtual context, and token tips live in **[`AGENTS.md`](AGENTS.md)** (and [`skills/usage/SKILL.md`](skills/usage/SKILL.md)). Do not duplicate that manual here — copy MCP JSON above, then follow AGENTS.md.
 
-Instructions for AI coding agents to install, run, and recover the MCP server.
+## Features
 
-### Install & Run
+### Primary
+
+| | |
+|--|--|
+| **Token-efficient search** | Hybrid BM25 + vectors; modes `auto` / `skeleton` / `summary` / `full`; session `session_id` dedup; dashboard **Tokens saved** |
+| **Virtual context** | `store_context` / `fetch_context` / `search_context` / `flush_context` — local notes with stable `ctx_*` refs |
+| **Local-first** | No cloud account; index and docs stay on disk under `~/.astcache/` |
+| **Dashboard** | React UI on **7830**: health, Index & runtime, embeddings, memory, settings, WebSocket live updates |
+| **KV repair** | `report_kv_repair_event`, golden-text archives, dashboard success-rate stats |
+| **Structured memory** | Temporal facts + procedural rules (`store_memory` / `recall_memory` / `forget_memory`) |
+| **Precise AST search** | Symbol-level index with source or skeleton in results; `get_impact_graph` blast radius |
+| **RAG `retrieve`** | Hybrid search + rerank + assembly (code ± docs ± memory) |
+| **Doc caching** | `fetch_doc` / `search_docs` — Context7-style offline library docs |
+
+### Supporting
+
+| | |
+|--|--|
+| **Embed backends** | ONNX, Ollama, HTTP, OpenAI/LiteLLM, Docker Model Runner — [`docs/embedding-backends.md`](docs/embedding-backends.md) |
+| **Aux embedder pool** | Separate catch-up workers when primary is down or slow |
+| **Languages** | Python, JS/JSX, TS/TSX, Go, Bash, Fish, YAML |
+| **File watcher** | `fsnotify` incremental re-index with debounce and ignore globs |
+| **Tool tiers** | `core` / `extended` / `complete` + `~/.astcache/tools.json` overrides |
+| **Code-mode** | `execute_code` sandbox + `scripts/code-mode/` |
+| **Pin / queue** | Bounded embed queue; pin projects for priority + warmer vectors |
+| **Analysis / bundles** | Dead code, complexity, `.astbundle` export/import |
+| **Supervise / Docker** | `ast-mcp supervise` or [`docker/ast-mcp`](docker/ast-mcp/README.md) |
+| **Metrics** | Prometheus at `http://localhost:7830/metrics` (`astcache_` prefix) |
+
+## Screenshots
+
+![Index & runtime](docs/images/dashboard-overview-index-runtime.png)
+
+![Memory](docs/images/dashboard-memory.png)
+
+![Embeddings](docs/images/dashboard-embeddings.png)
+
+![Settings](docs/images/dashboard-settings.png)
+
+Regenerate from React Storybook (fixtures, no live index required):
 
 ```bash
-cd /path/to/ast-context-cache
-make setup   # one-time: installs deps, downloads model, builds binary
-make run     # starts server on :7821 (MCP) and :7830 (dashboard)
+make dashboard-screenshot   # build ui/ Storybook → docs/images/*.png
+make verify-stories         # Playwright smoke on key stories
 ```
 
-If the shell function is installed (`make install`), use `ast-mcp start` instead.
+Storybook: `make storybook` (port **6008**). Static build: `make build-storybook` → `docs/storybook-static/` (gitignored). Optional live visual check: `cd ui && npm run verify-visual-vs-live` (skips if dashboard is down; Webwright is fine as a manual alternate).
 
-### Verify It's Running
+## Shell function (optional)
 
 ```bash
-curl -s http://localhost:7821/health
+make install
 ```
 
-Expected response: `{"service":"ast-context-cache","status":"healthy","version":"3.0.0"}`
-
-### Crash Recovery
-
-The server may crash or stop unexpectedly. Follow these steps to recover:
-
-1. **Check if the process is alive:**
-   ```bash
-   pgrep -f ast-mcp || echo "not running"
-   ```
-
-2. **If not running, restart it:**
-   ```bash
-   cd /path/to/ast-context-cache && make run
-   ```
-   Or with the shell function: `ast-mcp restart`
-
-3. **If the port is stuck (address already in use):**
-   ```bash
-   lsof -i :7821          # find the stale process
-   kill <pid>             # kill it
-   make run               # restart
-   ```
-
-4. **If the binary is broken or stale:**
-   ```bash
-   cd /path/to/ast-context-cache
-   make build && make run
-   ```
-
-5. **Health check after restart:**
-   ```bash
-   curl -s http://localhost:7821/health
-   ```
-
-### Recommended Workflow
-
-```
-1. index_status  →  check if project is indexed
-2. index_files   →  index if needed (starts file watcher; container projects auto-link indexed subfolders)
-3. get_project_map depth=2  →  orient yourself (~200 tokens)
-4. get_context_capsule mode=auto  →  search code (top 3 full, rest skeleton)
-5. get_file_context  →  all symbols in a specific file
-6. get_impact_graph  →  blast radius before modifying a symbol
-7. cache_summary  →  save what you learned for future queries
-8. retrieve  →  RAG-style retrieval (code + docs → formatted context)
-9. search_docs  →  search cached library/framework documentation
-10. store_context  →  offload bulky thread text before host compaction (extended tier); keep `ctx_*` stubs in chat
-11. fetch_context / search_context  →  recover offloaded notes after compaction (core tier)
-12. flush_context  →  delete stored notes when done or over quota (extended tier)
+```bash
+ast-mcp start | supervise | stop | restart | status | health | log | build | dash
 ```
 
-### Virtual context compaction
+**Docker keep-alive:** `docker compose -f docker/ast-mcp/compose.yml up -d --build`. See [`docker/ast-mcp/README.md`](docker/ast-mcp/README.md).
 
-**Why:** Host editors compact or summarize chat when the context window fills. Large analysis, plans, and diffs disappear from the model window even though you still need them later. Virtual context stores that material **locally** (never leaves your machine) and gives you stable **`ctx_*` refs** to keep in chat instead of the full text.
+## Optional: mcp-local launcher
 
-**When to store (`store_context`, extended tier):**
+This repo ships **`ast-mcp`** only. For a unified local MCP supervisor (start/merge config, tool tiers), see **[mcp-local](https://github.com/coma-toast/mcp-local)** and its [AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
 
-- Long reasoning, design notes, meeting summaries, or pasted diffs you may need again
-- Before host compaction or when the thread is ~70%+ full
-- Same **`session_id`** as code search tools (one ID per conversation)
+## Tool tiers
 
-**When to fetch (`fetch_context` / `list_context` / `search_context`, core tier):**
+| Tier | Typical tools |
+|------|----------------|
+| **core** | Search, maps, docs, `retrieve`, context **read**, `recall_memory` |
+| **extended** | + indexing, `store_context` / memory write, analysis, bundles |
+| **complete** | + `execute_code` |
 
-- After compaction — **`fetch_context(refs=[...])`** is the primary recovery path when you kept `ctx_*` stubs
-- **`list_context(session_id=...)`** — metadata only (refs, labels, token estimates) when you forgot what you stored
-- **`search_context(query=...)`** — keyword + optional vector hybrid when refs were lost from chat
-
-**When to flush (`flush_context`, extended tier):**
-
-- Thread finished; stubs are no longer needed
-- Quota errors (`context_limit_exceeded`) — flush old sessions or raise limits in dashboard **Settings → Virtual context**
-
-**Chat pattern:**
-
-```
-store_context(content="...", session_id="...", label="auth design")
-→ in chat: [ctx_a1b2c3d4e5f6] auth design
-→ after compaction: fetch_context(refs=["ctx_a1b2c3d4e5f6"], session_id="...")
-```
-
-**Limits (defaults):** 50 notes / 32k tokens per session; 500 notes / 200k tokens globally. Session policy **`reject`** (hard stop) or **`lru_session`** (evict oldest note in session); global cap always rejects. Override via dashboard Settings or env (`AST_CONTEXT_MAX_*`, `AST_CONTEXT_LIMIT_POLICY`).
-
-**Metrics:** Tracked separately from code **Tokens saved**. Dashboard **Virtual context** card shows active inventory, 30d stored vs accessed, utilization %, orphans (never fetched), and flushed tokens. MCP responses include `virtual_tokens_stored` / `virtual_tokens_returned` and quota strings in `stats`.
-
-See [skills/usage/SKILL.md](skills/usage/SKILL.md) for agent workflows.
-
-### Token Optimization
-
-| Mode | Token Usage | Best For |
-|------|-------------|----------|
-| `auto` | ~20% | Most searches (default) |
-| `skeleton` | ~10% | Exploring unfamiliar code |
-| `summary` | ~6% | High-level overviews (requires `cache_summary` first) |
-| `full` | 100% | Complete implementation details |
-
-Always pass `session_id` on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, and **`get_file_context`** to avoid re-sending symbols already seen in the conversation.
-
-### Token savings tracking
-
-The server estimates savings vs returning **full source** for each matched symbol:
-
-`tokens_saved = max(0, symbol_baseline − tokens_returned) + dedup_skips`
-
-| Counted toward dashboard | Not counted |
-|--------------------------|-------------|
-| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
-
-Context tool responses include **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, and optional **`dedup_tokens_saved`** / **`savings_vs_files`**. The dashboard **Tokens saved** card sums these MCP calls only — a day of doc fetch/search activity can legitimately show **0** even when the tools are working.
-
-- **`mode=full`** — ~0 savings by design (baseline ≈ payload).
-- **`mode=auto` / `skeleton` / `summary`** — where most savings come from.
-- **`session_id`** — required for dedup credit across repeated calls in one conversation.
-- **`retrieve` `stats`** — also includes `tokens_saved`, `symbol_baseline_tokens`, and budget/dedup fields.
-- **`execute_code`** — `tokens_saved = max(0, data_baseline_tokens − tokens_used)` when shrinking search JSON via a script.
-
-### Code-mode scripts
-
-Search tools may return **`code_script_hints`** when a bundled or repo script fits the query and result count. Hints are metadata on core-tier search tools; running scripts still needs **complete** tier and **`AST_MCP_CODE_MODE`**.
-
-1. Search (`get_context_capsule`, `search_semantic`, or `retrieve`).
-2. If `code_script_hints[]` is non-empty, use the top `script_id`.
-3. `execute_code(script_id=..., data=<JSON string of results>, project_path=<abs root>)`.
-4. Use **`result` only** — do not paste full search JSON into chat.
-5. Check `tokens_saved` in the response; it counts toward dashboard **Tokens saved**.
-
-Repo scripts live at `{project}/scripts/code-mode/` (`manifest.json` + `.js` files); same `id` overrides built-ins. Manifest format and built-in ids: [scripts/code-mode/README.md](scripts/code-mode/README.md).
-
-
-For **`get_context_capsule`**, **`search_semantic`**, and **`retrieve`**, you can narrow results before hybrid ranking:
-
-| Parameter | Purpose |
-|-----------|---------|
-| `path_prefix` | Only symbols under this path (project-relative, e.g. `internal/mcp`, or an absolute path prefix). |
-| `language` | Coarse language filter: `go`, `python`, `typescript`, `javascript`, `rust`, etc. (uses file extensions). |
-| `kinds` | Comma-separated symbol kinds (e.g. `function,method`). |
-| `kind` | Single kind (same as one entry in `kinds`). |
-
-All are optional; omitting them preserves previous behavior.
-
-When filters are set, **BM25 (FTS) and fallback SQL** apply `kind`, `language` (file suffix), and `path_prefix` constraints in the query where possible, so fewer rows are scanned before ranking. A final Go-side check still enforces the same rules for edge cases.
-
-### Pipeline observability
-
-- **`get_context_capsule`** responses include a `pipeline` object: `bm25_candidates`, `vector_candidates`, `hybrid_after_fuse` (counts after filters, through BM25 + vector + RRF stages).
-- **`retrieve`** `stats` include those counts plus `after_dedup`, `chunks_in_budget`, `tokens_est_all_chunks`, and timing fields (`code_retrieve_ms`, `docs_retrieve_ms`, `dedup_budget_ms`, `search_time_ms`).
-
-### Indexing queue, pinning, and warm vectors
-
-- **Embedding work** runs through a **bounded queue** with multiple workers so rapid file changes do not spawn unbounded ONNX goroutines. The dashboard **Index health** section shows **embed queue** depth and **active** embedding workers.
-- **Pinned projects** (Settings → **Pin** on a project): file-change embeddings are **prioritized** on the high queue; **watchers are not auto-stopped** for idle timeout on pinned projects; **vector cache idle unload** uses a **longer effective timeout** when any project is pinned (warmer “tier” without a separate cold store).
-
-## MCP Tools
-
-### Core
-
-| Tool | Description |
-|------|-------------|
-| `get_context_capsule` | BM25+vector hybrid search across indexed symbols. Modes: `full`, `skeleton`, `summary`, `auto`. |
-| `search_semantic` | Semantic search by meaning using vector embeddings. |
-| `get_file_context` | Get all symbols in a specific file with mode-aware output. Use instead of reading files directly. |
-| `get_project_map` | Project structure overview at configurable depth (1=dirs, 2=files, 3=symbols). |
-| `get_impact_graph` | Find the blast radius of a symbol -- files that import or depend on it. |
-| `index_status` | Check if a project is indexed. Returns file/symbol counts. |
-| `search_docs` | Search locally cached documentation by title or content (FTS). Try before WebFetch for library docs. |
-| `list_doc_sources` | List tracked documentation URLs (read-only). |
-| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (markdown/xml/json output). |
-| `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). Primary path after host compaction. |
-| `list_context` | List stored virtual context refs for a session (metadata only, no full content). |
-| `search_context` | Find stored virtual context by keyword/meaning when refs are lost. |
-| `recall_memory` | Retrieve structured temporal memory (facts + procedures) within token budget; supports `as_of` temporal queries. |
-
-### Extended
-
-| Tool | Description |
-|------|-------------|
-| `index_files` | Index a file or directory using tree-sitter AST parsing. Starts a file watcher. |
-| `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
-| `store_context` | Offload conversation/code notes before compaction; returns stable `ctx_*` refs and quota stats. Supports `kind=kv_repair` for KV repair archives and `extract_memory` for auto-parsing FACT:/RULE: lines. |
-| `flush_context` | Delete stored virtual context (by session, refs, or `all=true`). Frees quota; invalidates stubs. |
-| `report_kv_repair_event` | Report a KV repair signal (cache_miss, quality, manual, proactive) for observability. |
-| `store_memory` | Store a structured temporal fact or procedural rule (`mem_*` ref). Auto-invalidates prior same subject+predicate (Mem0/Zep-style). |
-| `forget_memory` | Soft-delete structured memory via `valid_until`. Scope: refs, subject+predicate, or all. |
-| `analyze_dead_code` | Find unused functions, classes, and imports. |
-| `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
-| `export_bundle` | Export indexed code as a portable `.astbundle` file. |
-| `import_bundle` | Import a previously exported bundle without re-indexing. |
-| `fetch_doc` | Fetch a doc URL, register it in the cache, and return stored entries (prefer over WebFetch). Supports `render_js=true` for JS-rendered SPAs. |
-| `add_doc_source` | Track a doc URL for async background caching. |
-| `remove_doc_source` | Remove a tracked documentation source. |
-| `update_doc_source` | Manually refresh a documentation source. |
-
-### Complete
-
-| Tool | Description |
-|------|-------------|
-| `execute_code` | Run JS in a sandbox against search JSON (`data`). Optional `script_id` loads built-in or repo scripts; response includes `tokens_saved`. |
+`AST_MCP_TIER` (default `complete`), `AST_MCP_CODE_MODE`, `AST_MCP_TOOLS_CONFIG` / `~/.astcache/tools.json`. Full tables and examples: [AGENTS.md](AGENTS.md#tool-tiers-server-policy), [`skills/tools.json.example`](skills/tools.json.example).
 
 ## Migrating to 3.0
 
-Breaking / operator-facing changes from the 2.x line:
-
 | Change | What to do |
 |--------|------------|
-| **Removed MCP ghost tools** | `sync_remote`, `reset_project`, and `reset_all` are gone from MCP dispatch (`REMOTE_VECTORDB_*` / remote VectorDB sync removed). Use the local index only; project reset/delete remains on the **dashboard** APIs, not MCP. |
-| **React-only dashboard** | Operator UI is the **React + MUI** SPA at `http://localhost:7830/dashboard/` (`ui/`). Realtime updates use WebSocket `/ws`. Do not rely on legacy HTMX/templ HTML partials. |
-| **Process keep-alive** | Prefer `ast-mcp supervise` (shell loop with backoff) or Docker Compose `restart: unless-stopped` via [`docker/ast-mcp/compose.yml`](docker/ast-mcp/compose.yml). |
-| **Prometheus metrics** | Scrape **`http://localhost:7830/metrics`** (same port as the dashboard; prefix `astcache_`). Local-trust binding — control scrape access yourself. |
-| **Overview confidence** | Overview shows value heuristics (approx baseline / returned / rounds avoided), weekly digest (tokens saved, virtual context, embed reliability), and per-session virtual-context stories. |
+| Removed MCP ghost tools | `sync_remote` / `reset_*` gone from MCP; use local index + dashboard APIs |
+| React-only dashboard | SPA at `http://localhost:7830/dashboard/` — not HTMX/templ |
+| Keep-alive | `ast-mcp supervise` or Docker Compose `restart: unless-stopped` |
+| Prometheus | Scrape `http://localhost:7830/metrics` |
+| Overview confidence | Heuristics, weekly digest, session virtual-context stories |
 
-Version file: root [`VERSION`](VERSION) is **`3.0.0`**. Rebuild after upgrade (`make build` / `ast-mcp build`).
+Rebuild after upgrade (`make build` / `ast-mcp build`). Version: [`VERSION`](VERSION).
 
 ## Architecture
 
 ```
 ┌─────────────┐    JSON-RPC 2.0    ┌──────────────────┐
 │  AI Agent    │ ◄───────────────► │  MCP Server :7821 │
-│  (Cursor,    │                   │                    │
-│   OpenCode)  │                   │  tree-sitter AST   │
-└─────────────┘                   │  SQLite + FTS5     │
-                                   │  ONNX Embeddings   │
-                                   │  fsnotify watcher  │
-                                   └──────────────────┘
-                                           │
-                                   ┌───────┴────────┐
-                                   │ Dashboard :7830 │
-                                   │ React SPA +     │
-                                   │ /metrics        │
+│  (Cursor,    │                   │  tree-sitter AST  │
+│   OpenCode)  │                   │  SQLite + FTS5    │
+└─────────────┘                   │  Embeddings       │
+                                   └────────┬─────────┘
+                                            │
+                                   ┌────────┴─────────┐
+                                   │ Dashboard :7830  │
+                                   │ React SPA + /metrics │
                                    └──────────────────┘
 ```
 
-## Database Architecture
+**Databases** (WAL, under `~/.astcache/`): `index.db` (symbols/vectors/edges), `context.db` (docs/virtual context/memory), `usage.db` (queries/sessions/settings).
 
-Three separate SQLite databases (WAL mode, each with per-DB pressure monitoring):
-
-**`index.db`** — Code index
-- `symbols`, `symbols_fts` (FTS5), `vectors`, `edges`, `summaries`, `indexed_files`, `embed_pending`
-
-**`context.db`** — External knowledge
-- `doc_sources`, `doc_content`, `docs_fts` (FTS5), `context_notes`, `context_notes_fts` (FTS5), `kv_repair_events`, `structured_memory`, `structured_memory_fts` (FTS5)
-
-**`usage.db`** — Telemetry + config
-- `queries`, `sessions`, `settings`, `agent_configs`, `context_note_access`, `memory_access`, `context_session_stats`
-
-Migration from the old monolithic `usage.db` is automatic on startup.
-
-## Configuration
-
-Databases are stored in `~/.astcache/` (`index.db`, `context.db`, `usage.db`). The dashboard frontend is served from a `dist/` directory relative to the binary.
-
-### Environment Variables
+### Environment (common)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ONNXRUNTIME_LIB` | Path to ONNX Runtime library | Auto-detected from brew/system |
-| `MODEL_DIR` | Path to model files | `./model` (next to binary) |
-| `DB_PATH` | Base path for all databases | `~/.astcache/usage.db` (sets directory; individual db files derive from it) |
-| `EMBED_AUX_BACKEND` | Auxiliary embedder pool backend | `onnx` (must differ from primary to activate) |
-| `EMBED_AUX_WORKERS` | Auxiliary embedder pool workers (0 = disabled) | `0` |
-| `AST_CONTEXT_MAX_NOTES_SESSION` | Max virtual notes per session | `50` (or dashboard `context_max_notes_session`) |
-| `AST_CONTEXT_MAX_TOKENS_SESSION` | Max virtual tokens per session | `32000` |
-| `AST_CONTEXT_MAX_NOTES_GLOBAL` | Max virtual notes server-wide | `500` |
-| `AST_CONTEXT_MAX_TOKENS_GLOBAL` | Max virtual tokens server-wide | `200000` |
-| `AST_CONTEXT_LIMIT_POLICY` | `reject` or `lru_session` when session cap hit | `reject` |
+| `ONNXRUNTIME_LIB` | ONNX Runtime library path | Auto-detected |
+| `MODEL_DIR` | Model files | `./model` |
+| `DB_PATH` | Base path for DBs | `~/.astcache/usage.db` |
+| `EMBED_AUX_BACKEND` / `EMBED_AUX_WORKERS` | Aux catch-up pool | `onnx` / `0` |
+| `AST_CONTEXT_MAX_*` / `AST_CONTEXT_LIMIT_POLICY` | Virtual context quotas | See AGENTS.md / Settings |
 
-Non-empty env overrides dashboard Settings for virtual context limits. **`GET /api/context-stats`** on the dashboard returns the same rollup as the Virtual context stat card.
+Embed backend env vars: [`docs/embedding-backends.md`](docs/embedding-backends.md). Non-empty env overrides dashboard Settings.
 
-## Cross-platform Build
+### Linux
 
-The Makefile's `download-tokenizer-lib` target picks a pre-built `libtokenizers.a` from [daulet/tokenizers releases](https://github.com/daulet/tokenizers/releases) based on `GOOS` and `GOARCH` (e.g. darwin-arm64, darwin-amd64, linux-amd64, linux-arm64). If your platform is not supported, the Makefile will report it and you can download the matching tarball manually and extract `libtokenizers.a` into the repo root.
+Install ONNX Runtime (`libonnxruntime-dev` or [releases](https://github.com/microsoft/onnxruntime/releases)), then `make setup`.
 
-## Linux
+### Cross-platform build
 
-On Linux, install ONNX Runtime before running `make setup`:
-
-```bash
-# Ubuntu/Debian
-apt-get install libonnxruntime-dev
-
-# Or download from https://github.com/microsoft/onnxruntime/releases
-# and place libonnxruntime.so in /usr/lib/ or /usr/local/lib/
-```
-
-Then `make setup` will detect it and proceed normally.
+`make download-tokenizer-lib` pulls a pre-built `libtokenizers.a` for your `GOOS`/`GOARCH` from [daulet/tokenizers](https://github.com/daulet/tokenizers/releases).
 
 ## License
 
