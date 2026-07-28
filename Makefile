@@ -32,7 +32,7 @@ else
   ORT_DYLIB := $(ORT_DYLIB_LINUX)
 endif
 
-.PHONY: help setup deps generate build run clean install uninstall test storybook build-storybook dashboard-screenshot ui-build ui-dev
+.PHONY: help setup deps generate build run clean install uninstall test storybook build-storybook dashboard-screenshot verify-stories ui-build ui-dev
 
 ui-build:
 	cd ui && npm ci && npm run build
@@ -55,6 +55,11 @@ help:
 	@echo "  make install-onnxruntime   — install onnxruntime via brew (macOS) or print instructions"
 	@echo "  make download-model        — download ONNX model + tokenizer from HuggingFace"
 	@echo "  make download-tokenizer-lib — download pre-built libtokenizers.a"
+	@echo ""
+	@echo "  make storybook             — run ui/ Storybook dev server (dashboard component previews)"
+	@echo "  make build-storybook       — build ui/ Storybook to docs/storybook-static (gitignored)"
+	@echo "  make dashboard-screenshot  — build Storybook + capture docs/images/*.png"
+	@echo "  make verify-stories        — build Storybook + Playwright smoke on key stories"
 
 # ── One-command setup ──────────────────────────────────────────────
 
@@ -173,13 +178,16 @@ test: download-tokenizer-lib
 	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 ./...
 
 storybook:
-	cd dashboard-storybook && npm ci && npm run storybook
+	cd ui && npm ci && npm run storybook
 
 build-storybook:
-	cd dashboard-storybook && npm ci && npm run build-storybook
+	cd ui && npm ci && npm run build-storybook
 
 dashboard-screenshot: build-storybook
-	cd dashboard-storybook && npx playwright install chromium && npm run capture-screenshot
+	cd ui && npx playwright install chromium && npm run capture-screenshot
+
+verify-stories: build-storybook
+	cd ui && npx playwright install chromium && npm run verify-stories
 
 clean:
 	rm -f $(BINARY)

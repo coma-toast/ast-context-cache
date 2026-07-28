@@ -31,7 +31,7 @@ See [`docker/README.md`](../../docker/README.md): enable Model Runner + TCP 1243
 - **Restart ast-mcp** after changing embedding settings.
 - Confirm: `GET http://localhost:7821/health` and `GET /embed/health`.
 
-See [README — Embedding backends](../../README.md#embedding-backends).
+Canonical reference: [`docs/embedding-backends.md`](../../docs/embedding-backends.md).
 
 ## Dashboard (http://localhost:7830/dashboard/)
 

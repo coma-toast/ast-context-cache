@@ -1,27 +1,25 @@
-# AST Context Cache Dashboard (React)
+# Dashboard UI (`ui/`)
 
-Operator UI built with **React + Vite + MUI**, embedded in the Go binary at `/dashboard/`.
+React + MUI SPA for the operator dashboard (production: **http://localhost:7830/dashboard/**).
 
-## Development
-
-```bash
-# Terminal 1: ast-mcp (API + WS on :7830)
-make run
-
-# Terminal 2: Vite dev server (proxies /api and /ws)
-make ui-dev
-# open http://localhost:5173/dashboard/
-```
-
-## Production build
+## Dev
 
 ```bash
-make ui-build   # outputs to internal/dashboard/ui/dist
-make build      # includes ui-build
+make ui-dev          # Vite :5173, proxies /api and /ws to :7830
+make ui-build        # production bundle → internal/dashboard/ui/dist
 ```
 
-Root `/` redirects to `/dashboard/`. Realtime updates use WebSocket `/ws` with `refresh` messages (not HTML partials).
+## Storybook
 
-## API
+Stories render the **same React components** as production (dark `dashboardTheme`), with fixture data — not the removed templ/HTMX UI.
 
-JSON endpoints under `/api/dashboard/*` plus existing `/api/*` routes. See `internal/dashboard/react_api.go`. Prometheus scrape endpoint: `GET /metrics` on the same port (:7830).
+```bash
+make storybook              # http://localhost:6008
+make build-storybook        # → docs/storybook-static/ (gitignored)
+make dashboard-screenshot   # capture docs/images/*.png from Storybook
+make verify-stories         # Playwright smoke on Overview + Memory
+```
+
+Optional: with ast-mcp running, `npm run verify-visual-vs-live` opens Storybook Overview vs live `:7830` for a manual visual check (Webwright is also fine).
+
+Story IDs: [`src/storybook/STORY_IDS.md`](src/storybook/STORY_IDS.md).
