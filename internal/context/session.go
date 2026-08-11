@@ -37,7 +37,11 @@ func GetReturnedSymbolKeys(sessionID string) map[string]bool {
 
 func LookupSymbolID(file, name, projectPath string, startLine int) int {
 	var id int
-	err := db.IndexDB.QueryRow(
+	conn, err := db.IndexReader()
+	if err != nil {
+		return 0
+	}
+	err = conn.QueryRow(
 		"SELECT id FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
 		file, name, projectPath, startLine).Scan(&id)
 	if err != nil {

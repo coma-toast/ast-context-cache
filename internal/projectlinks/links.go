@@ -64,10 +64,11 @@ func IsUnderPath(absPath, root string) bool {
 
 // IndexedProjectPaths returns all distinct indexed project paths.
 func IndexedProjectPaths() []string {
-	if db.IndexDB == nil {
+	conn, err := db.IndexReader()
+	if err != nil {
 		return nil
 	}
-	rows, err := db.IndexDB.Query(`SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'`)
+	rows, err := conn.Query(`SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'`)
 	if err != nil {
 		return nil
 	}

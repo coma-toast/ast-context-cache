@@ -48,6 +48,11 @@ func maybeRecoverStuckWorkers() {
 		resetStuckClock()
 		return
 	}
+	// WAL backpressure parks workers at 0 on purpose; the pressure loop restores them.
+	if db.WalBackpressurePaused() {
+		resetStuckClock()
+		return
+	}
 	if WorkerTarget() <= 0 || WorkerCount() != 0 || WorkerLive() != 0 {
 		resetStuckClock()
 		return
@@ -67,7 +72,7 @@ func maybeRecoverStuckWorkers() {
 
 	workerMu.Lock()
 	target := workerTarget
-	n := db.ThrottledEmbedWorkers(target)
+	n := db.CappedEmbedWorkers(target)
 	err := applyWorkerCountLocked(n, false)
 	workerMu.Unlock()
 	if err != nil {
@@ -79,7 +84,7 @@ func maybeRecoverStuckWorkers() {
 	if auxTarget > 0 && AuxWorkerCount() == 0 {
 		auxWorkerMu.Lock()
 		if auxWorkerTarget > 0 && auxWorkerCount == 0 {
-			if err := applyAuxWorkerCountLocked(auxWorkerTarget, false); err != nil {
+			if err := applyAuxWorkerCountLocked(db.CappedEmbedWorkers(auxWorkerTarget), false); err != nil {
 				log.Printf("embedqueue: auto-recover aux workers failed: %v", err)
 			}
 		}

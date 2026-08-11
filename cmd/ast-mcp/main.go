@@ -146,9 +146,9 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 		}
 	}()
 
-	for _, tbl := range []string{"symbols", "edges", "vectors", "summaries"} {
-		if db.IndexDB != nil {
-			db.IndexDB.Exec("DELETE FROM "+tbl+" WHERE project_path = '.'")
+	if conn, err := db.IndexReader(); err == nil {
+		for _, tbl := range []string{"symbols", "edges", "vectors", "summaries"} {
+			conn.Exec("DELETE FROM "+tbl+" WHERE project_path = '.'")
 		}
 	}
 	if db.DB != nil {
@@ -356,8 +356,8 @@ func startBackgroundServices() {
 		}
 	}()
 	seen := map[string]bool{}
-	if db.IndexDB != nil {
-		restoreRows, err := db.IndexDB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
+	if conn, err := db.IndexReader(); err == nil {
+		restoreRows, err := conn.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
 		if err == nil {
 			for restoreRows.Next() {
 				var pp string

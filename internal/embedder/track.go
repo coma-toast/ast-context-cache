@@ -1,5 +1,10 @@
 package embedder
 
+import (
+	"context"
+	"errors"
+)
+
 // healthTracker wraps an embedder and records success/failure for dashboard health.
 type healthTracker struct {
 	inner Interface
@@ -15,20 +20,22 @@ func TrackHealth(inner Interface) Interface {
 
 func (t *healthTracker) Embed(texts []string) ([][]float32, error) {
 	vecs, err := t.inner.Embed(texts)
-	if err != nil {
-		MarkError(err)
-	} else {
+	switch {
+	case err == nil:
 		MarkSuccess()
+	case !errors.Is(err, context.Canceled):
+		MarkError(err)
 	}
 	return vecs, err
 }
 
 func (t *healthTracker) EmbedSingle(text string) ([]float32, error) {
 	vec, err := t.inner.EmbedSingle(text)
-	if err != nil {
-		MarkError(err)
-	} else {
+	switch {
+	case err == nil:
 		MarkSuccess()
+	case !errors.Is(err, context.Canceled):
+		MarkError(err)
 	}
 	return vec, err
 }

@@ -30,6 +30,8 @@ var (
 	workerStop             chan struct{}
 	startupWorkerOverride  *int
 	processingReadyAt      time.Time
+	lastThrottleApplied    int
+	backpressureKick       atomic.Bool
 )
 
 func beginProcessingWindow() {
@@ -196,39 +198,103 @@ func workersStarted() bool {
 func startPressureBackoff() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
-		var lastApplied int
+		defer ticker.Stop()
 		for range ticker.C {
-			workerMu.Lock()
-			if swapPauseDepth > 0 {
-				workerMu.Unlock()
-				continue
+			applyWalBackpressure()
+		}
+	}()
+}
+
+// applyWalBackpressure resizes both embed pools to the current WAL ceiling. The ceiling
+// ratchets down to 0 while the WAL refuses to drain, so writers stop and TRUNCATE can win.
+func applyWalBackpressure() {
+	workerMu.Lock()
+	paused := swapPauseDepth > 0
+	target := workerTarget
+	workerMu.Unlock()
+	if paused {
+		return
+	}
+	ceiling := db.UpdateWalBackpressure(max(target, AuxWorkerTarget()))
+	applyPrimaryCeiling(target, ceiling)
+	applyAuxCeiling(ceiling)
+	if ceiling == 0 {
+		kickBackpressureCheckpoint()
+	}
+}
+
+func applyPrimaryCeiling(target, ceiling int) {
+	n := db.ThrottledEmbedWorkers(target)
+	if ceiling >= 0 && ceiling < n {
+		n = ceiling
+	}
+	workerMu.Lock()
+	if swapPauseDepth > 0 {
+		workerMu.Unlock()
+		return
+	}
+	cur := workerCount
+	if n == cur {
+		lastThrottleApplied = n
+		workerMu.Unlock()
+		return
+	}
+	err := applyWorkerCountLocked(n, false)
+	got := workerCount
+	workerMu.Unlock()
+	if err != nil {
+		return
+	}
+	prev := lastThrottleApplied
+	lastThrottleApplied = got
+	if n < target {
+		log.Printf("embed queue: throttled workers %d -> %d (target %d wal=%s)", cur, n, target, db.FormatFileSize(db.WalFileBytes()))
+	} else if got > prev || (got == target && cur < target) {
+		log.Printf("embed queue: restored workers to %d (wal=%s)", got, db.FormatFileSize(db.WalFileBytes()))
+	}
+}
+
+// applyAuxCeiling throttles the aux pool too: it writes to the same index.db, so leaving it
+// running would keep the WAL growing after the primary pool is drained.
+func applyAuxCeiling(ceiling int) {
+	if MaintenancePaused() {
+		return
+	}
+	auxWorkerMu.Lock()
+	defer auxWorkerMu.Unlock()
+	if auxWorkerStop == nil || maintenanceAuxDepth > 0 {
+		return
+	}
+	want := auxWorkerTarget
+	if ceiling >= 0 && ceiling < want {
+		want = ceiling
+	}
+	prev := auxWorkerCount
+	if want == prev {
+		return
+	}
+	if err := applyAuxWorkerCountLocked(want, false); err != nil {
+		log.Printf("embedqueue: aux WAL throttle: %v", err)
+		return
+	}
+	log.Printf("embed queue: aux workers %d -> %d (WAL ceiling, target %d)", prev, want, auxWorkerTarget)
+}
+
+// kickBackpressureCheckpoint asks for a forced TRUNCATE once the drained pools go quiet.
+// A pending backlog keeps QueueIdleForWAL false, so the quiet-period loop never fires here.
+func kickBackpressureCheckpoint() {
+	if !backpressureKick.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer backpressureKick.Store(false)
+		deadline := time.Now().Add(2 * time.Minute)
+		for time.Now().Before(deadline) {
+			if InFlight() == 0 && WorkerLive() == 0 && AuxWorkerLive() == 0 {
+				db.TryQuietWALTruncate("wal_backpressure")
+				return
 			}
-			target := workerTarget
-			n := db.ThrottledEmbedWorkers(target)
-			cur := workerCount
-			workerMu.Unlock()
-			if n == cur {
-				lastApplied = n
-				continue
-			}
-			workerMu.Lock()
-			if swapPauseDepth > 0 {
-				workerMu.Unlock()
-				continue
-			}
-			err := applyWorkerCountLocked(n, false)
-			got := workerCount
-			workerMu.Unlock()
-			if err != nil {
-				continue
-			}
-			prev := lastApplied
-			lastApplied = got
-			if n < target {
-				log.Printf("embed queue: throttled workers %d -> %d (target %d wal=%s)", target, n, target, db.FormatFileSize(db.WalFileBytes()))
-			} else if got > prev || (got == target && cur < target) {
-				log.Printf("embed queue: restored workers to %d (wal=%s)", got, db.FormatFileSize(db.WalFileBytes()))
-			}
+			time.Sleep(500 * time.Millisecond)
 		}
 	}()
 }

@@ -70,10 +70,11 @@ func (vc *VectorCache) ensureLoaded() {
 }
 
 func (vc *VectorCache) loadFromDB() {
-	if db.IndexDB == nil {
+	conn, err := db.IndexReader()
+	if err != nil {
 		return
 	}
-	rows, err := db.IndexDB.Query("SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors")
+	rows, err := conn.Query("SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors")
 	if err != nil {
 		log.Printf("WARNING: load vectors: %v", err)
 		return
@@ -231,11 +232,15 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 }
 
 func symbolLinesFromEntry(e VectorEntry) (start, end int) {
+	conn, err := db.IndexReader()
+	if err != nil {
+		return start, end
+	}
 	if e.SymbolID > 0 {
-		db.IndexDB.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
+		conn.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
 	}
 	if start == 0 {
-		db.IndexDB.QueryRow(
+		conn.QueryRow(
 			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
 			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end)
 	}
@@ -428,7 +433,9 @@ func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int
 }
 
 func (vc *VectorCache) DeleteNoteByRef(sourceFile string) {
-	db.IndexDB.Exec("DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?", sourceFile)
+	if conn, err := db.IndexReader(); err == nil {
+		conn.Exec("DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?", sourceFile)
+	}
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	if !vc.loaded {
@@ -455,7 +462,9 @@ func docEntryIDFromSource(sourceFile string) int {
 
 func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
 	p := strings.TrimSuffix(prefix, "%")
-	db.IndexDB.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+	if conn, err := db.IndexReader(); err == nil {
+		conn.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+	}
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	if !vc.loaded {
@@ -474,10 +483,11 @@ func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
 
 // PurgeOrphanCodeVectors removes code vectors whose symbol_id no longer exists.
 func PurgeOrphanCodeVectors() int {
-	if db.IndexDB == nil {
+	conn, err := db.IndexReader()
+	if err != nil {
 		return 0
 	}
-	res, err := db.IndexDB.Exec(`
+	res, err := conn.Exec(`
 		DELETE FROM vectors
 		WHERE COALESCE(doc_type, 'code') = 'code'
 		  AND symbol_id > 0
@@ -493,7 +503,11 @@ func PurgeOrphanCodeVectors() int {
 }
 
 func (vc *VectorCache) purgeOrphansFromMemory() {
-	rows, err := db.IndexDB.Query(`SELECT id FROM symbols`)
+	conn, err := db.IndexReader()
+	if err != nil {
+		return
+	}
+	rows, err := conn.Query(`SELECT id FROM symbols`)
 	if err != nil {
 		return
 	}
@@ -527,7 +541,9 @@ func (vc *VectorCache) purgeOrphansFromMemory() {
 }
 
 func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
-	db.IndexDB.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	if conn, err := db.IndexReader(); err == nil {
+		conn.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	}
 
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
@@ -562,11 +578,15 @@ func (vc *VectorCache) Count(projectPath string) int {
 	}
 	vc.mu.RUnlock()
 	var count int
+	conn, err := db.IndexReader()
+	if err != nil {
+		return count
+	}
 	if projectPath == "" {
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&count)
+		conn.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&count)
 	} else {
 		frag, args := projectlinks.ScopeSQL("", projectPath)
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM vectors WHERE "+frag, args...).Scan(&count)
+		conn.QueryRow("SELECT COUNT(*) FROM vectors WHERE "+frag, args...).Scan(&count)
 	}
 	return count
 }

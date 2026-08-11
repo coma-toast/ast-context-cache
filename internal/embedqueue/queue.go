@@ -285,7 +285,12 @@ func SubmitPriority(file, projectPath string, high bool) {
 
 // EnqueueAllSymbolsFiles enqueues an embed job for every indexed file in the project (e.g. after full directory index).
 func EnqueueAllSymbolsFiles(projectPath string) {
-	rows, err := db.IndexDB.Query(
+	conn, err := db.IndexReader()
+	if err != nil {
+		log.Printf("embedqueue: list files: %v", err)
+		return
+	}
+	rows, err := conn.Query(
 		"SELECT DISTINCT file FROM symbols WHERE project_path = ?", projectPath)
 	if err != nil {
 		log.Printf("embedqueue: list files: %v", err)

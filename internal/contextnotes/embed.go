@@ -37,6 +37,8 @@ func EmbedNote(ref, sessionID, label, content string, emb embedder.Interface) {
 
 func deleteNoteVector(ref string) {
 	key := noteVectorKey(ref)
-	db.IndexDB.Exec(`DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?`, key)
+	if conn, err := db.IndexReader(); err == nil {
+		conn.Exec(`DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?`, key)
+	}
 	search.Cache.DeleteNoteByRef(key)
 }

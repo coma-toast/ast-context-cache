@@ -69,14 +69,16 @@ func loadProjectsFresh() []components.Project {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	symCounts := map[string]symCount{}
-	symRows, err := db.IndexDB.QueryContext(ctx, "SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
-	if err == nil {
-		defer symRows.Close()
-		for symRows.Next() {
-			var pp string
-			var sc symCount
-			symRows.Scan(&pp, &sc.symbols, &sc.files)
-			symCounts[pp] = sc
+	if conn, ierr := db.IndexReader(); ierr == nil {
+		symRows, err := conn.QueryContext(ctx, "SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+		if err == nil {
+			defer symRows.Close()
+			for symRows.Next() {
+				var pp string
+				var sc symCount
+				symRows.Scan(&pp, &sc.symbols, &sc.files)
+				symCounts[pp] = sc
+			}
 		}
 	}
 	queryCounts := map[string]int{}
