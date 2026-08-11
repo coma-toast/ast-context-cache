@@ -4,6 +4,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
 func waitLiveZero(t *testing.T, live *atomic.Int64) {
@@ -181,6 +183,37 @@ func TestStuckWorkerNoRecoverDuringMaintenance(t *testing.T) {
 	}
 	if Snapshot().LastAutoRecoverUnix != 0 {
 		t.Fatal("must not auto-recover during maintenance/swap pause")
+	}
+}
+
+func TestStuckWorkerNoRecoverUnderWalBackpressure(t *testing.T) {
+	prevAfter := stuckRecoverAfter
+	stuckRecoverAfter = 10 * time.Millisecond
+	defer func() { stuckRecoverAfter = prevAfter }()
+
+	forceStuckWorkers(t, 4, 0)
+	db.SetWalBackpressureForTest(0, 0)
+	resetStuckClock()
+	lastAutoRecoverAt.Store(0)
+	t.Cleanup(func() {
+		db.SetWalBackpressureForTest(-1, 0)
+		resetStuckClock()
+		lastAutoRecoverAt.Store(0)
+		resetPauseStateForTest()
+		_, _ = SetWorkerCount(0)
+		resetPauseStateForTest()
+		waitLiveZero(t, &workerLive)
+	})
+
+	maybeRecoverStuckWorkers()
+	time.Sleep(20 * time.Millisecond)
+	maybeRecoverStuckWorkers()
+
+	if got := WorkerCount(); got != 0 {
+		t.Fatalf("WorkerCount=%d want 0 while WAL backpressure holds workers", got)
+	}
+	if Snapshot().LastAutoRecoverUnix != 0 {
+		t.Fatal("must not auto-recover against WAL backpressure")
 	}
 }
 
