@@ -527,7 +527,9 @@ func (vc *VectorCache) purgeOrphansFromMemory() {
 }
 
 func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
-	db.IndexDB.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	if conn, err := db.IndexReader(); err == nil {
+		conn.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
+	}
 
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
