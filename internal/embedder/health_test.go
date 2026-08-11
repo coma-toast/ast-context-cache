@@ -1,7 +1,9 @@
 package embedder
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -55,6 +57,26 @@ func TestTrackHealthRecordsErrorAndRecovery(t *testing.T) {
 	state, _, lastErr = HealthSnapshot()
 	if state != "ready" || lastErr != "" {
 		t.Fatalf("after error window state=%q err=%q", state, lastErr)
+	}
+}
+
+func TestTrackHealthIgnoresContextCanceled(t *testing.T) {
+	MarkReady()
+	stub := &stubEmbedder{err: fmt.Errorf("openai embed: %w", context.Canceled)}
+	tracked := TrackHealth(stub)
+	if _, err := tracked.Embed([]string{"x"}); err == nil {
+		t.Fatal("expected error")
+	}
+	state, _, lastErr := HealthSnapshot()
+	if state != "ready" || lastErr != "" {
+		t.Fatalf("canceled request should not affect health: state=%q err=%q", state, lastErr)
+	}
+	if _, err := tracked.EmbedSingle("x"); err == nil {
+		t.Fatal("expected error")
+	}
+	state, _, lastErr = HealthSnapshot()
+	if state != "ready" || lastErr != "" {
+		t.Fatalf("canceled request should not affect health: state=%q err=%q", state, lastErr)
 	}
 }
 
