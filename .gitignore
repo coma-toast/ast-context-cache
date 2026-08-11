@@ -1,4 +1,5 @@
 /ast-mcp
+/ast-mcp.ortlib
 .astcache/
 *.db
 *.sync-conflict-*

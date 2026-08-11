@@ -166,6 +166,7 @@ internal/version/VERSION: VERSION
 build: download-model download-tokenizer-lib ui-build internal/version/VERSION
 	@echo "Building ast-mcp..."
 	$(CGO_FLAGS) go build -tags sqlite_fts5 -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ast-mcp/
+	@echo "$(ORT_DYLIB)" > $(BINARY).ortlib
 	@echo "Built: ./$(BINARY)"
 
 run: build
