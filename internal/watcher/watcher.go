@@ -108,7 +108,11 @@ func trackedProjectPaths() []string {
 }
 
 func indexedProjectPaths() []string {
-	rows, err := db.IndexDB.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'")
+	conn, err := db.IndexReader()
+	if err != nil {
+		return nil
+	}
+	rows, err := conn.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'")
 	if err != nil {
 		return nil
 	}

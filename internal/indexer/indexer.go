@@ -543,16 +543,20 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 }
 
 func GetIndexStats(projectPath string) (map[string]interface{}, error) {
+	conn, err := db.IndexReader()
+	if err != nil {
+		return nil, err
+	}
 	if projectPath == "" {
 		var nodes, files int
-		err := db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&nodes, &files)
+		err := conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&nodes, &files)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]interface{}{"total_nodes": nodes, "total_files": files}, nil
 	}
 	var ownNodes, ownFiles int
-	err := db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectPath).Scan(&ownNodes, &ownFiles)
+	err = conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectPath).Scan(&ownNodes, &ownFiles)
 	if err != nil {
 		return nil, err
 	}

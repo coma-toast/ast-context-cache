@@ -19,7 +19,12 @@ const maxEmbedSymbolsPerFile = 256
 const embedBatchSize = 64
 
 func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) {
-	rows, err := db.IndexDB.Query(
+	conn, err := db.IndexReader()
+	if err != nil {
+		log.Printf("embed: query files for %s: %v", projectPath, err)
+		return
+	}
+	rows, err := conn.Query(
 		"SELECT DISTINCT file FROM symbols WHERE project_path = ?", projectPath)
 	if err != nil {
 		log.Printf("embed: query files for %s: %v", projectPath, err)
@@ -41,13 +46,14 @@ func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) 
 }
 
 func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) error {
-	if db.IndexReadQuiesced() {
-		return fmt.Errorf("index db quiesced for maintenance")
+	conn, err := db.IndexReader()
+	if err != nil {
+		return err
 	}
 	if ShouldSkipEmbed(filePath) {
 		return nil
 	}
-	rows, err := db.IndexDB.Query(
+	rows, err := conn.Query(
 		"SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?",
 		filePath, projectPath)
 	if err != nil {

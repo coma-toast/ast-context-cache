@@ -36,7 +36,8 @@ func CleanupParentDuplicates(parent, child string) error {
 }
 
 func cleanupParentDuplicates(parent, child, like string) error {
-	if db.IndexDB == nil {
+	conn, err := db.IndexReader()
+	if err != nil {
 		return nil
 	}
 	queries := []string{
@@ -49,7 +50,7 @@ func cleanupParentDuplicates(parent, child, like string) error {
 	}
 	var total int64
 	for _, q := range queries {
-		res, err := db.IndexDB.Exec(q, parent, child, like)
+		res, err := conn.Exec(q, parent, child, like)
 		if err != nil {
 			log.Printf("projectlinks: cleanup: %v", err)
 			continue
@@ -67,9 +68,13 @@ func cleanupParentDuplicates(parent, child, like string) error {
 // LinkStats returns symbol and file counts for a project path.
 func LinkStats(projectPath string) (symbols, files int) {
 	projectPath = NormalizePath(projectPath)
-	if projectPath == "" || db.IndexDB == nil {
+	if projectPath == "" {
 		return 0, 0
 	}
-	db.IndexDB.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?`, projectPath).Scan(&symbols, &files)
+	conn, err := db.IndexReader()
+	if err != nil {
+		return 0, 0
+	}
+	conn.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?`, projectPath).Scan(&symbols, &files)
 	return symbols, files
 }

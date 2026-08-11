@@ -105,16 +105,17 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 
 func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h := components.IndexHealth{}
-	if db.IndexDB == nil {
+	conn, err := db.IndexReader()
+	if err != nil {
 		applyActiveEmbedder(&h)
 		return h
 	}
 	if projectID != "" {
-		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", projectID).Scan(&h.TotalEdges)
+		conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
+		conn.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", projectID).Scan(&h.TotalEdges)
 	} else {
-		db.IndexDB.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&h.TotalSymbols, &h.TotalFiles)
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM edges").Scan(&h.TotalEdges)
+		conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&h.TotalSymbols, &h.TotalFiles)
+		conn.QueryRow("SELECT COUNT(*) FROM edges").Scan(&h.TotalEdges)
 	}
 	h.TotalVectors = search.Cache.Count(projectID)
 	h.VectorMemMB = search.Cache.MemoryMB()
@@ -234,13 +235,14 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 
 func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
 	m := components.MemoryData{FilteredProject: projectID}
-	if db.IndexDB == nil {
+	conn, err := db.IndexReader()
+	if err != nil {
 		return m
 	}
 	if projectID != "" {
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM symbols WHERE project_path = ?", projectID).Scan(&m.TotalSymbols)
+		conn.QueryRow("SELECT COUNT(*) FROM symbols WHERE project_path = ?", projectID).Scan(&m.TotalSymbols)
 	} else {
-		db.IndexDB.QueryRow("SELECT COUNT(*) FROM symbols").Scan(&m.TotalSymbols)
+		conn.QueryRow("SELECT COUNT(*) FROM symbols").Scan(&m.TotalSymbols)
 	}
 	m.TotalVectors = search.Cache.Count(projectID)
 	m.VectorMemMB = search.Cache.MemoryMB()

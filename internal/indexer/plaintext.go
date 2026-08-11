@@ -31,7 +31,11 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 	if len(content) > plaintextMaxBytes {
 		content = content[:plaintextMaxBytes]
 	}
-	tx, err := db.IndexDB.Begin()
+	conn, err := db.IndexReader()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	tx, err := conn.Begin()
 	if err != nil {
 		return 0, 0, 0, err
 	}

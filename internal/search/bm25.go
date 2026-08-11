@@ -14,7 +14,8 @@ type ScoredResult struct {
 }
 
 func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResult {
-	if db.IndexDB == nil || db.IndexReadQuiesced() {
+	conn, err := db.IndexReader()
+	if err != nil {
 		return nil
 	}
 	terms := strings.Fields(strings.ToLower(query))
@@ -37,7 +38,7 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 		q += `
 			ORDER BY f.rank
 			LIMIT 100`
-		rows, err := db.IndexDB.Query(q, args...)
+		rows, err := conn.Query(q, args...)
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -82,7 +83,11 @@ func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) 
 		where += " AND " + frag
 		sqlArgs = append(sqlArgs, extra...)
 	}
-	rows, err := db.IndexDB.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
+	conn, err := db.IndexReader()
+	if err != nil {
+		return nil
+	}
+	rows, err := conn.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
 	if err != nil {
 		return nil
 	}

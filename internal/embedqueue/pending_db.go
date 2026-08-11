@@ -190,10 +190,11 @@ func requeuePendingFlush(upserts map[string]pendingDirtyRow, deletes map[string]
 
 // LoadPendingFromDB hydrates the in-memory pending map from SQLite.
 func LoadPendingFromDB() int {
-	if db.IndexDB == nil {
+	conn, err := db.IndexReader()
+	if err != nil {
 		return 0
 	}
-	rows, err := db.IndexDB.Query(`SELECT file, project_path FROM embed_pending`)
+	rows, err := conn.Query(`SELECT file, project_path FROM embed_pending`)
 	if err != nil {
 		log.Printf("embedqueue: load pending: %v", err)
 		return 0
