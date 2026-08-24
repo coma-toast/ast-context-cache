@@ -1,9 +1,11 @@
 package projectmeta
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -144,6 +146,50 @@ func autoLabel(repoName, workspace, branch string) string {
 	return repoName
 }
 
+// SpacesRoot returns the configured WTG spaces root directory (default ~/spaces).
+func SpacesRoot() string {
+	root := expandHome(loadWTGConfig().Spaces.RootDir)
+	if root == "" {
+		root = expandHome("~/spaces")
+	}
+	return root
+}
+
+// ListSpaceRepoPaths returns every repo checkout directly inside a WTG space,
+// whether or not it has ever been indexed or watched. WTG worktrees carry .git as
+// a file rather than a directory, so presence alone marks a checkout.
+func ListSpaceRepoPaths(spaceName string) ([]string, error) {
+	spaceName = strings.TrimSpace(spaceName)
+	if spaceName == "" {
+		return nil, fmt.Errorf("space required")
+	}
+	if spaceName != filepath.Base(spaceName) || spaceName == "." || spaceName == ".." {
+		return nil, fmt.Errorf("invalid space name: %s", spaceName)
+	}
+	root := SpacesRoot()
+	if root == "" {
+		return nil, fmt.Errorf("no WTG spaces root configured")
+	}
+	spaceDir := filepath.Join(root, spaceName)
+	entries, err := os.ReadDir(spaceDir)
+	if err != nil {
+		return nil, fmt.Errorf("space not found: %s", spaceName)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		p := watcher.NormalizeProjectPath(filepath.Join(spaceDir, e.Name()))
+		if p == "" || !isGitRepo(p) {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // DiscoverPaths returns repo roots from WTG spaces and the configured discovery root.
 func DiscoverPaths() []string {
 	cfg := loadWTGConfig()
@@ -163,10 +209,7 @@ func DiscoverPaths() []string {
 		seen[p] = true
 		out = append(out, p)
 	}
-	spacesRoot := expandHome(cfg.Spaces.RootDir)
-	if spacesRoot == "" {
-		spacesRoot = expandHome("~/spaces")
-	}
+	spacesRoot := SpacesRoot()
 	if entries, err := os.ReadDir(spacesRoot); err == nil {
 		for _, ws := range entries {
 			if !ws.IsDir() || strings.HasPrefix(ws.Name(), ".") {
