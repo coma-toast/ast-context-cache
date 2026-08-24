@@ -242,6 +242,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		}
 		resultStr := impact.HandleImpactGraph(map[string]interface{}{"symbol": sym}, projectPath)
 		result = json.RawMessage(resultStr)
+	case "diff_impact":
+		result = json.RawMessage(impact.HandleDiffImpact(toolArgs, projectPath))
+	case "check_symbol_exists":
+		result = json.RawMessage(impact.HandleCheckSymbolExists(toolArgs, projectPath))
+	case "check_deletion_safety":
+		result = json.RawMessage(impact.HandleCheckDeletionSafety(toolArgs, projectPath))
 	case "cache_summary":
 		file, _ := toolArgs["file"].(string)
 		summary, _ := toolArgs["summary"].(string)

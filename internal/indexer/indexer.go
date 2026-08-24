@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -485,6 +486,30 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	return count, fullTokens, skeletonTokens, nil
 }
 
+// ParseSymbols returns the top-level symbols tree-sitter finds in content without
+// touching the index, so two revisions of a file can be compared. Languages with
+// their own indexing path (yaml, fish, plaintext) yield no symbols here.
+func ParseSymbols(content []byte, lang string) []SymbolDef {
+	sitterLang := getSitterLanguage(lang)
+	if sitterLang == nil || lang == "yaml" {
+		return nil
+	}
+	parser := sitter.NewParser()
+	parser.SetLanguage(sitterLang)
+	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		return nil
+	}
+	defer tree.Close()
+	var out []SymbolDef
+	for _, node := range collectTopLevelNodes(tree.RootNode(), lang) {
+		if sym := extractSymbol(node, content, lang); sym != nil && sym.Name != "" {
+			out = append(out, *sym)
+		}
+	}
+	return out
+}
+
 // collectTopLevelNodes returns the nodes to walk for symbol extraction.
 // For HCL, we descend into the body node since blocks are children of body, not config_file directly.
 func collectTopLevelNodes(root *sitter.Node, lang string) []*sitter.Node {
@@ -512,6 +537,10 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 	if dirPath == projectPath {
 		projectlinks.SyncAutoLinks(projectPath)
 	}
+	// A fresh checkout of an already-indexed repo copies unchanged files from its
+	// sibling instead of re-parsing and re-embedding them.
+	reuse := FindReuseSource(projectPath)
+	reused := 0
 	count := 0
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -532,6 +561,13 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		if ignorepatterns.Match(path, projectPath, ignorepatterns.List()) {
 			return nil
 		}
+		if reuse != nil {
+			if n, ok := ReuseFile(path, projectPath, reuse); ok {
+				count += n
+				reused++
+				return nil
+			}
+		}
 		n, _, _, err := IndexFile(path, projectPath)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -539,6 +575,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		count += n
 		return nil
 	})
+	if reused > 0 {
+		log.Printf("index: reused %d unchanged files from %s for %s", reused, reuse.ProjectPath, projectPath)
+	}
 	return count, err
 }
 

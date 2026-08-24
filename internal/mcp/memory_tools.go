@@ -90,6 +90,12 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		AsOf:        strArg(toolArgs, "as_of"),
 		Limit:       limit,
 		TokenBudget: budget,
+		// Project memories describe the repo, not the checkout, so a note taken in
+		// one WTG worktree should come back in a sibling worktree on another branch.
+		IncludeRepoSiblings: true,
+	}
+	if v, ok := toolArgs["repo_siblings"].(bool); ok {
+		in.IncludeRepoSiblings = v
 	}
 	if k, ok := toolArgs["kind"].(string); ok && k != "" {
 		in.Kinds = []memory.Kind{memory.Kind(strings.ToLower(k))}

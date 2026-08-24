@@ -283,15 +283,18 @@ func SubmitPriority(file, projectPath string, high bool) {
 	realtime.Notify(realtime.EmbedFinished)
 }
 
-// EnqueueAllSymbolsFiles enqueues an embed job for every indexed file in the project (e.g. after full directory index).
+// EnqueueAllSymbolsFiles enqueues an embed job for every file in the project that
+// is missing current code vectors (e.g. after a full directory index). Files whose
+// vectors already match their symbols' embed_hash are skipped, so re-indexing — or
+// indexing a checkout that reused a sibling's vectors — does not re-run the
+// embedder over unchanged code.
 func EnqueueAllSymbolsFiles(projectPath string) {
 	conn, err := db.IndexReader()
 	if err != nil {
 		log.Printf("embedqueue: list files: %v", err)
 		return
 	}
-	rows, err := conn.Query(
-		"SELECT DISTINCT file FROM symbols WHERE project_path = ?", projectPath)
+	rows, err := conn.Query(missingVectorsSQL+" WHERE project_path = ?", projectPath)
 	if err != nil {
 		log.Printf("embedqueue: list files: %v", err)
 		return
@@ -299,8 +302,10 @@ func EnqueueAllSymbolsFiles(projectPath string) {
 	defer rows.Close()
 	high := db.IsPinnedProject(projectPath)
 	for rows.Next() {
-		var f string
-		rows.Scan(&f)
+		var f, pp string
+		if rows.Scan(&f, &pp) != nil {
+			continue
+		}
 		SubmitPriority(f, projectPath, high)
 	}
 }

@@ -168,6 +168,52 @@ func GetTools() []Tool {
 			ReadOnly: true,
 		},
 		{
+			Name:        "diff_impact",
+			Description: "Blast radius of a whole branch or pull request. Diffs base_ref...head_ref (or, with pr set, fetches that GitHub PR's changed files via gh without checking the branch out), collects the indexed symbols those files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included. Use pr to ask whether another open PR already touches a file or symbol you are about to change.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to an indexed local checkout of the repo"},
+					"base_ref":     map[string]string{"type": "string", "description": "Git ref to diff from (default origin/main); ignored when pr is set"},
+					"head_ref":     map[string]string{"type": "string", "description": "Git ref to diff to (default HEAD); ignored when pr is set"},
+					"pr":           map[string]string{"type": "integer", "description": "GitHub pull request number to analyze instead of local refs; the branch does not need to be checked out"},
+					"repo":         map[string]string{"type": "string", "description": "owner/name for the pr lookup (default: the project's origin remote)"},
+				},
+				"required": []string{"project_path"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
+			Name:        "check_symbol_exists",
+			Description: "Fast existence check for a symbol name before trusting a reference to it. Returns whether the name is declared anywhere in the indexed repo (including sibling worktrees on other branches) and every file and line that declares it.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol":       map[string]string{"type": "string", "description": "Symbol name to look up (case-insensitive)"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+				},
+				"required": []string{"symbol", "project_path"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
+			Name:        "check_deletion_safety",
+			Description: "Guardrail before removing code. Compares a file against base_ref, finds the symbols the change deletes, and reports which of them are still referenced by other files (unsafe) versus which have no remaining callers (safe). Sibling worktrees of the same repo are searched too.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"file":         map[string]string{"type": "string", "description": "File being trimmed, absolute or relative to the project root"},
+					"base_ref":     map[string]string{"type": "string", "description": "Git ref holding the pre-change version (default origin/main)"},
+				},
+				"required": []string{"project_path", "file"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
 			Name:        "cache_summary",
 			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens.",
 			InputSchema: map[string]interface{}{
@@ -317,6 +363,7 @@ func GetTools() []Tool {
 					"as_of":        map[string]string{"type": "string", "description": "SQLite datetime: facts valid at this time (Zep temporal)"},
 					"limit":        map[string]string{"type": "integer", "description": "Max entries (default 10)"},
 					"token_budget": map[string]string{"type": "integer", "description": "Max tokens in formatted output (default 800)"},
+					"repo_siblings": map[string]string{"type": "boolean", "description": "Also match project memories stored in other checkouts of the same repo (default true)"},
 				},
 			},
 			Tier:     TierCore,

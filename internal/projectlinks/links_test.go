@@ -2,6 +2,7 @@ package projectlinks
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -74,5 +75,58 @@ func TestOwningProject(t *testing.T) {
 	file := filepath.Join(child, "a.go")
 	if got := OwningProject(file, parent); got != child {
 		t.Fatalf("OwningProject=%q want %q", got, child)
+	}
+}
+
+func TestResolveScopeWithRepoSiblings(t *testing.T) {
+	root := t.TempDir()
+	main := filepath.Join(root, "git", "repo")
+	linked := filepath.Join(root, "space", "repo")
+	if err := os.MkdirAll(main, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", root)
+	if err := db.Init(); err != nil {
+		t.Fatal(err)
+	}
+	gitRun := func(args ...string) {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Skipf("git unavailable: %v: %s", err, out)
+		}
+	}
+	gitRun("init", "-q", main)
+	gitRun("-C", main, "config", "user.email", "test@example.com")
+	gitRun("-C", main, "config", "user.name", "test")
+	gitRun("-C", main, "commit", "-q", "--allow-empty", "-m", "init")
+	gitRun("-C", main, "worktree", "add", "-q", "-b", "feature", linked)
+
+	// Only indexed projects count as siblings.
+	if scope := ResolveScopeWithRepoSiblings(main, true); len(scope) != 1 {
+		t.Fatalf("scope=%v want only self before sibling is indexed", scope)
+	}
+	db.IndexDB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, project_path) VALUES ('X','function',?,1,1,?)`,
+		filepath.Join(linked, "a.go"), linked)
+
+	scope := ResolveScopeWithRepoSiblings(main, true)
+	if len(scope) != 2 || scope[0] != NormalizePath(main) {
+		t.Fatalf("scope=%v want self plus sibling", scope)
+	}
+	if scope[1] != NormalizePath(linked) {
+		t.Fatalf("sibling=%q want %q", scope[1], NormalizePath(linked))
+	}
+	if base := ResolveScopeWithRepoSiblings(main, false); len(base) != 1 {
+		t.Fatalf("opt-out scope=%v want self only", base)
+	}
+	if base := ResolveScope(main); len(base) != 1 {
+		t.Fatalf("ResolveScope must stay sibling-free, got %v", base)
+	}
+
+	frag, args, used := ScopeSQLWithRepoSiblings("s", main, true)
+	if frag != "s.project_path IN (?,?)" || len(args) != 2 || len(used) != 2 {
+		t.Fatalf("frag=%q args=%v used=%v", frag, args, used)
+	}
+	frag, args, used = ScopeSQLWithRepoSiblings("", main, false)
+	if frag != "project_path = ?" || len(args) != 1 || len(used) != 1 {
+		t.Fatalf("opt-out frag=%q args=%v used=%v", frag, args, used)
 	}
 }
