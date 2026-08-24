@@ -395,6 +395,18 @@ func DeleteWatcher(projectPath string) {
 	realtime.Notify(realtime.WatchersChanged)
 }
 
+// IsActive reports whether a watcher is currently running for the project.
+func IsActive(projectPath string) bool {
+	projectPath = NormalizeProjectPath(projectPath)
+	if projectPath == "" {
+		return false
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	_, running := activeWatchers[projectPath]
+	return running
+}
+
 // EnsureWatcher starts a watcher for the project if one isn't already running.
 // Bumps lastActivity when already running so MCP/dashboard use resets idle timeout.
 func EnsureWatcher(projectPath string) {

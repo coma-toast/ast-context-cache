@@ -6,6 +6,7 @@ import type {
   MemoryData,
   Project,
   SettingsData,
+  StartWatcherSpaceResult,
   Stats,
   TimeseriesPoint,
   ToolStat,
@@ -132,6 +133,7 @@ export const api = {
   resetProject: (project_path: string) => post('/api/reset-project', { project_path }),
   deleteWatcher: (project_path: string) => post('/api/delete-watcher', { project_path }),
   startWatcher: (project_path: string) => post<{ status?: string }>('/api/start-watcher', { project_path }),
+  startWatcherSpace: (space: string) => post<StartWatcherSpaceResult>('/api/start-watcher-space', { space }),
   stopWatcher: (project_path: string) => post<{ status?: string }>('/api/stop-watcher', { project_path }),
   indexProject: (project_path: string) =>
     post<{ status?: string; symbols?: number }>('/api/index-project', { project_path }),

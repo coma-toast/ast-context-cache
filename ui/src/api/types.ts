@@ -117,6 +117,16 @@ export interface WatcherInfo {
   LinkedCount: number
 }
 
+/** Result of starting watchers on every repo checkout in a WTG space. */
+export interface StartWatcherSpaceResult {
+  status?: string
+  space?: string
+  started?: string[]
+  already_running?: string[]
+  skipped?: string[]
+  errors?: string[]
+}
+
 export interface EmbedActivityItem {
   File: string
   ProjectPath: string
