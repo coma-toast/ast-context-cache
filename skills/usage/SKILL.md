@@ -64,6 +64,9 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | Search by meaning | `search_semantic` | Natural language; optional `doc_type` |
 | Project tree | `get_project_map` | `depth=2` (~200 tokens) |
 | Before changing exports | `get_impact_graph` | Shows dependents |
+| Blast radius of a branch or PR | `diff_impact` | `base_ref`/`head_ref`, or `pr` for a GitHub PR that is not checked out |
+| Is this name real? | `check_symbol_exists` | Verify a testid constant or renamed method before trusting a reference |
+| Before deleting code | `check_deletion_safety` | Removed symbols that other files still reference |
 | Dead code | `analyze_dead_code` | Extended tier |
 | Complexity hotspots | `analyze_complexity` | Extended tier |
 | Cache findings | `cache_summary` | Enables `mode=summary` later |
@@ -186,6 +189,16 @@ forget_memory(refs=["mem_..."])  # or subject+predicate, or all=true
 ```
 
 Facts auto-invalidate prior same subject+predicate in scope (`invalidate_previous` default true). Optional: `store_context(..., extract_memory=true)` parses `FACT:` / `RULE:` lines into `mem_*`. RAG: `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
+
+**Environment gotchas — store them as you find them.** Any non-obvious quirk of a project belongs in project-scoped memory the moment you hit it, so the next session recalls it instead of rediscovering it:
+
+```
+store_memory(kind="fact", scope="project", project_path="/abs/repo",
+             subject="login.form", predicate="matches_by", object="internal user id, not display name")
+recall_memory(project_path="/abs/repo", scope="project")  # do this before reading code
+```
+
+Project memories key on the repo, not the checkout: one stored in a WTG worktree is recalled from a sibling worktree on a different branch. Pass `repo_siblings=false` to limit recall to the single checkout.
 
 ## KV repair archives (quantized KV recovery)
 

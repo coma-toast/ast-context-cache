@@ -97,6 +97,9 @@ When working with codebases that have an MCP server available, **always prefer M
 | `get_file_context` | All symbols in a file; **default `skeleton`**. Use instead of reading files; pass `session_id`, `token_budget`. |
 | `get_project_map` | Project structure overview (depth 1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Blast radius of a symbol -- files that import or depend on it. |
+| `diff_impact` | Blast radius of a branch (`base_ref`...`head_ref`) or of a GitHub PR by number (`pr`, no checkout needed). |
+| `check_symbol_exists` | Is this name actually declared anywhere? Returns every file and line that declares it. |
+| `check_deletion_safety` | Symbols a change removes, split into still-referenced (unsafe) and no remaining callers (safe). |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation (FTS). Try before WebFetch for library/framework docs. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
@@ -221,6 +224,8 @@ Dashboard **Virtual context** card: active inventory, 30d stored vs accessed, ut
 | `forget_memory` | extended | Invalidate by `refs`, `subject`+`predicate`, or `all=true` |
 
 **When to use:** user prefs ("always use fish"), coding conventions, procedural rules — not long analysis. Facts auto-invalidate prior same subject+predicate in scope.
+
+**Environment gotchas:** when you hit a non-obvious quirk of a project — "this app's login form matches by internal user id, not display name", a fixture that must be seeded first, a flag that silently no-ops — `store_memory` it with `scope=project` right then, so the next session recalls it instead of rediscovering it. Open any task on a project with `recall_memory(project_path=…)` before reading code. Project memories key on the repo, not the checkout: one stored in a WTG worktree comes back in a sibling worktree on a different branch (pass `repo_siblings=false` to limit recall to the one checkout).
 
 **RAG integration:** `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
 

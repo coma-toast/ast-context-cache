@@ -363,6 +363,7 @@ func GetTools() []Tool {
 					"as_of":        map[string]string{"type": "string", "description": "SQLite datetime: facts valid at this time (Zep temporal)"},
 					"limit":        map[string]string{"type": "integer", "description": "Max entries (default 10)"},
 					"token_budget": map[string]string{"type": "integer", "description": "Max tokens in formatted output (default 800)"},
+					"repo_siblings": map[string]string{"type": "boolean", "description": "Also match project memories stored in other checkouts of the same repo (default true)"},
 				},
 			},
 			Tier:     TierCore,

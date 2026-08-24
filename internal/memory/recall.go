@@ -6,6 +6,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -20,6 +21,10 @@ type RecallInput struct {
 	Limit        int
 	TokenBudget  int
 	IncludeHistory bool // include superseded facts when as_of set
+	// IncludeRepoSiblings widens project-scoped lookups to every indexed checkout of
+	// the same repo, so a note taken in one worktree is recallable from a sibling
+	// worktree of that repo sitting on a different branch.
+	IncludeRepoSiblings bool
 }
 
 // RecallResult is token-efficient structured memory for agents.
@@ -119,29 +124,73 @@ func validityClause(asOf string, includeHistory bool) (string, []any) {
 	return ` AND (valid_until IS NULL OR valid_until = '')`, nil
 }
 
-func scopeClause(sessionID, projectPath string, scope Scope) (string, []any) {
-	if scope != "" {
-		switch scope {
+// recallProjectPaths returns the project_path values a recall should match.
+func recallProjectPaths(in RecallInput) []string {
+	if in.ProjectPath == "" {
+		return nil
+	}
+	if !in.IncludeRepoSiblings {
+		return []string{in.ProjectPath}
+	}
+	paths := projectlinks.ResolveScopeWithRepoSiblings(in.ProjectPath, true)
+	if len(paths) == 0 {
+		return []string{in.ProjectPath}
+	}
+	return paths
+}
+
+// projectMatch builds a "<col> = ?" or "<col> IN (?,?)" fragment for paths.
+func projectMatch(col string, paths []string) (string, []any) {
+	switch len(paths) {
+	case 0:
+		return "", nil
+	case 1:
+		return col + " = ?", []any{paths[0]}
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(paths)), ",")
+	args := make([]any, len(paths))
+	for i, p := range paths {
+		args[i] = p
+	}
+	return col + " IN (" + ph + ")", args
+}
+
+func scopeClause(in RecallInput) (string, []any) {
+	return scopeClauseFor(in, "")
+}
+
+// scopeClauseFor builds the scope filter; prefix qualifies columns for joins.
+func scopeClauseFor(in RecallInput, prefix string) (string, []any) {
+	projectCol := prefix + "project_path"
+	scopeCol := prefix + "scope"
+	sessionCol := prefix + "session_id"
+	projectFrag, projectArgs := projectMatch(projectCol, recallProjectPaths(in))
+
+	if in.Scope != "" {
+		switch in.Scope {
 		case ScopeSession:
-			return ` AND scope = 'session' AND session_id = ?`, []any{sessionID}
+			return ` AND ` + scopeCol + ` = 'session' AND ` + sessionCol + ` = ?`, []any{in.SessionID}
 		case ScopeProject:
-			return ` AND scope = 'project' AND project_path = ?`, []any{projectPath}
+			if projectFrag == "" {
+				return ` AND ` + scopeCol + ` = 'project'`, nil
+			}
+			return ` AND ` + scopeCol + ` = 'project' AND ` + projectFrag, projectArgs
 		case ScopeGlobal:
-			return ` AND scope = 'global'`, nil
+			return ` AND ` + scopeCol + ` = 'global'`, nil
 		}
 	}
 	var parts []string
 	var args []any
-	parts = append(parts, `scope = 'global'`)
-	if sessionID != "" {
-		parts = append(parts, `(scope = 'session' AND session_id = ?)`)
-		args = append(args, sessionID)
+	parts = append(parts, scopeCol+` = 'global'`)
+	if in.SessionID != "" {
+		parts = append(parts, `(`+scopeCol+` = 'session' AND `+sessionCol+` = ?)`)
+		args = append(args, in.SessionID)
 	}
-	if projectPath != "" {
-		parts = append(parts, `(scope = 'project' AND project_path = ?)`)
-		args = append(args, projectPath)
+	if projectFrag != "" {
+		parts = append(parts, `(`+scopeCol+` = 'project' AND `+projectFrag+`)`)
+		args = append(args, projectArgs...)
 	}
-	if len(parts) == 1 && sessionID == "" && projectPath == "" {
+	if len(parts) == 1 && in.SessionID == "" && in.ProjectPath == "" {
 		return "", nil
 	}
 	return ` AND (` + strings.Join(parts, ` OR `) + `)`, args
@@ -156,7 +205,7 @@ func listActiveEntries(in RecallInput) ([]Entry, error) {
 		q += clause
 		args = append(args, a...)
 	}
-	if clause, a := scopeClause(in.SessionID, in.ProjectPath, in.Scope); clause != "" {
+	if clause, a := scopeClause(in); clause != "" {
 		q += clause
 		args = append(args, a...)
 	}
@@ -179,7 +228,7 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 		q += clause
 		args = append(args, a...)
 	}
-	if clause, a := scopeClause(in.SessionID, in.ProjectPath, in.Scope); clause != "" {
+	if clause, a := scopeClause(in); clause != "" {
 		q += clause
 		args = append(args, a...)
 	}
@@ -209,31 +258,9 @@ func searchFTS(in RecallInput) ([]Entry, error) {
 	} else {
 		q += ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
 	}
-	if in.Scope != "" {
-		switch in.Scope {
-		case ScopeSession:
-			q += ` AND sm.scope = 'session' AND sm.session_id = ?`
-			args = append(args, in.SessionID)
-		case ScopeProject:
-			q += ` AND sm.scope = 'project' AND sm.project_path = ?`
-			args = append(args, in.ProjectPath)
-		case ScopeGlobal:
-			q += ` AND sm.scope = 'global'`
-		}
-	} else {
-		var parts []string
-		parts = append(parts, `sm.scope = 'global'`)
-		if in.SessionID != "" {
-			parts = append(parts, `(sm.scope = 'session' AND sm.session_id = ?)`)
-			args = append(args, in.SessionID)
-		}
-		if in.ProjectPath != "" {
-			parts = append(parts, `(sm.scope = 'project' AND sm.project_path = ?)`)
-			args = append(args, in.ProjectPath)
-		}
-		if len(parts) > 1 || in.SessionID != "" || in.ProjectPath != "" {
-			q += ` AND (` + strings.Join(parts, ` OR `) + `)`
-		}
+	if clause, a := scopeClauseFor(in, "sm."); clause != "" {
+		q += clause
+		args = append(args, a...)
 	}
 	q += ` ORDER BY sm.access_count DESC LIMIT ?`
 	args = append(args, in.Limit*2)
