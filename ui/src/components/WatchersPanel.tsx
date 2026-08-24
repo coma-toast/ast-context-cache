@@ -15,6 +15,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import PauseIcon from '@mui/icons-material/Pause'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
@@ -110,17 +111,7 @@ function WatcherSubCard({
                 const showGroup = Boolean(entry.groupLabel) && (i === 0 || slice[i - 1].groupKey !== entry.groupKey)
                 return (
                   <Box key={entry.watcher.ProjectPath}>
-                    {showGroup && (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        fontWeight={600}
-                        display="block"
-                        sx={{ mb: 0.5, mt: i === 0 ? 0 : 1 }}
-                      >
-                        {entry.groupLabel}
-                      </Typography>
-                    )}
+                    {showGroup && <SpaceGroupHeader space={entry.groupLabel} first={i === 0} onRefresh={onRefresh} />}
                     <WatcherRow watcher={entry.watcher} onRefresh={onRefresh} />
                   </Box>
                 )
@@ -143,6 +134,47 @@ function WatcherSubCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/** Space name plus a one-click "watch every repo in this space" action. */
+function SpaceGroupHeader({ space, first, onRefresh }: { space: string; first: boolean; onRefresh?: () => void }) {
+  const { showToast } = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const startAll = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const res = await api.startWatcherSpace(space)
+      const started = res.started?.length ?? 0
+      const running = res.already_running?.length ?? 0
+      const failed = res.errors?.length ?? 0
+      const parts = [`Started ${started} in ${space}`]
+      if (running) parts.push(`${running} already running`)
+      if (failed) parts.push(`${failed} failed`)
+      showToast(parts.join(' · '), failed ? 'error' : 'success')
+      onRefresh?.()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : `Start ${space} failed`, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5, mt: first ? 0 : 1 }}>
+      <Typography variant="caption" color="text.secondary" fontWeight={600}>
+        {space}
+      </Typography>
+      <Tooltip title={`Start watchers on every repo in ${space}`}>
+        <span>
+          <IconButton size="small" aria-label={`Start all watchers in ${space}`} disabled={busy} onClick={() => void startAll()}>
+            <PlaylistPlayIcon fontSize="inherit" />
+          </IconButton>
+        </span>
+      </Tooltip>
+    </Stack>
   )
 }
 

@@ -48,6 +48,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/reset-project", handleResetProject)
 	mux.HandleFunc("/api/stop-watcher", handleStopWatcher)
 	mux.HandleFunc("/api/start-watcher", handleStartWatcher)
+	mux.HandleFunc("/api/start-watcher-space", handleStartWatcherSpace)
 	mux.HandleFunc("/api/index-project", handleIndexProject)
 	mux.HandleFunc("/api/delete-watcher", handleDeleteWatcher)
 	mux.HandleFunc("/api/timeseries", handleTimeseries)
@@ -1168,6 +1169,21 @@ func parseProjectPathFromRequest(r *http.Request) string {
 	return watcher.NormalizeProjectPath(r.FormValue("project_path"))
 }
 
+func parseSpaceFromRequest(r *http.Request) string {
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		var req struct {
+			Space string `json:"space"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return ""
+		}
+		return strings.TrimSpace(req.Space)
+	}
+	r.ParseForm()
+	return strings.TrimSpace(r.FormValue("space"))
+}
+
 func respondWatcherAction(w http.ResponseWriter, _ *http.Request, status, projectPath string, extra map[string]interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	out := map[string]interface{}{"status": status, "project_path": projectPath}
@@ -1201,6 +1217,62 @@ func handleStartWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 	realtime.Notify(realtime.IndexHealth)
 	respondWatcherAction(w, r, "started", projectPath, nil)
+}
+
+// handleStartWatcherSpace starts a watcher on every repo checkout in a WTG space,
+// including ones never indexed or watched before, so a freshly created space comes
+// online in one click instead of repo by repo.
+func handleStartWatcherSpace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	space := parseSpaceFromRequest(r)
+	if space == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "space required"})
+		return
+	}
+	paths, err := projectmeta.ListSpaceRepoPaths(space)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	started := []string{}
+	alreadyRunning := []string{}
+	skipped := []string{}
+	errs := []string{}
+	for _, p := range paths {
+		if projectmeta.IsExcluded(p) {
+			skipped = append(skipped, p)
+			continue
+		}
+		if watcher.IsActive(p) {
+			alreadyRunning = append(alreadyRunning, p)
+			continue
+		}
+		watcher.EnsureWatcher(p)
+		if watcher.IsActive(p) {
+			started = append(started, p)
+		} else {
+			errs = append(errs, p+": watcher did not start")
+		}
+	}
+	realtime.Notify(realtime.IndexHealth)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":          "started",
+		"space":           space,
+		"started":         started,
+		"already_running": alreadyRunning,
+		"skipped":         skipped,
+		"errors":          errs,
+	})
 }
 
 func handleIndexProject(w http.ResponseWriter, r *http.Request) {
