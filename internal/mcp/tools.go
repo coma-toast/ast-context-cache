@@ -168,6 +168,21 @@ func GetTools() []Tool {
 			ReadOnly: true,
 		},
 		{
+			Name:        "diff_impact",
+			Description: "Blast radius of a whole branch. Diffs base_ref...head_ref, collects the indexed symbols the changed files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"base_ref":     map[string]string{"type": "string", "description": "Git ref to diff from (default origin/main)"},
+					"head_ref":     map[string]string{"type": "string", "description": "Git ref to diff to (default HEAD)"},
+				},
+				"required": []string{"project_path"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
 			Name:        "cache_summary",
 			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens.",
 			InputSchema: map[string]interface{}{
