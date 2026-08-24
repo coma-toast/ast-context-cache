@@ -25,6 +25,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
+	"github.com/coma-toast/ast-context-cache/internal/purge"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -263,17 +264,16 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	projectPath := req["project_path"]
 
-	conn, err := db.IndexReader()
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-	conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-
 	if projectPath == "all" {
-		_, err := conn.Exec("DELETE FROM symbols")
+		conn, err := db.IndexReader()
 		if err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
+		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+		if _, err := conn.Exec("DELETE FROM symbols"); err != nil {
+			db.EnsureFTSTriggers()
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
@@ -284,23 +284,18 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
-	} else if projectPath != "" {
-		projectPath = watcher.NormalizeProjectPath(projectPath)
-		embedqueue.RemoveProject(projectPath)
-		_, err := conn.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		conn.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-		db.EnsureFTSTriggers()
-		cache.GlobalCache.ClearProject(projectPath)
-		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
-	} else {
-		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
 	}
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+	projectPath = watcher.NormalizeProjectPath(projectPath)
+	if err := purge.ProjectData(projectPath); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }
 
 func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
@@ -317,18 +312,10 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
 		return
 	}
-	embedqueue.RemoveProject(projectPath)
-	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	if conn, err := db.IndexReader(); err == nil {
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-		conn.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	if err := purge.ProjectData(projectPath); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
 	}
-	db.EnsureFTSTriggers()
-	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})
 }
@@ -1132,23 +1119,10 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectPath = watcher.NormalizeProjectPath(projectPath)
-	embedqueue.RemoveProject(projectPath)
-
-	conn, err := db.IndexReader()
-	if err == nil {
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-		conn.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
+	if err := purge.ProjectData(projectPath); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
 	}
-	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	if err == nil {
-		conn.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-	}
-	db.EnsureFTSTriggers()
-	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})

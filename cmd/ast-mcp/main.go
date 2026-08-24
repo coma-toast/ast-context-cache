@@ -25,6 +25,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
+	"github.com/coma-toast/ast-context-cache/internal/purge"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -341,6 +342,7 @@ func resolveStartupWorkers(flagVal int) int {
 
 func startBackgroundServices() {
 	go docs.EmbedAllSources()
+	purge.StartDeletedProjectSweep()
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
