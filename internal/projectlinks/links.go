@@ -193,6 +193,31 @@ func ResolveScope(projectPath string) []string {
 	return scope
 }
 
+// ResolveScopeWithRepoSiblings returns the normal resolved scope and, when
+// includeSiblings is set, every already-indexed checkout of the same repo (and
+// their linked children). Sibling inclusion is opt-in: tools that predate it keep
+// querying a single worktree, while cross-branch tools see the whole repo.
+func ResolveScopeWithRepoSiblings(projectPath string, includeSiblings bool) []string {
+	scope := ResolveScope(projectPath)
+	if !includeSiblings || len(scope) == 0 {
+		return scope
+	}
+	seen := make(map[string]bool, len(scope))
+	for _, p := range scope {
+		seen[p] = true
+	}
+	for _, sib := range RepoSiblings(projectPath) {
+		for _, p := range ResolveScope(sib) {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			scope = append(scope, p)
+		}
+	}
+	return scope
+}
+
 // ScopeContains reports whether projectPath is in the resolved scope of root.
 func ScopeContains(root, projectPath string) bool {
 	root = NormalizePath(root)
@@ -258,7 +283,21 @@ func OwningProject(filePath, parent string) string {
 
 // ScopeSQL returns "alias.project_path IN (?,?,?)" and args for the resolved scope.
 func ScopeSQL(alias, projectPath string) (string, []interface{}) {
-	scope := ResolveScope(projectPath)
+	return scopeSQLFor(alias, projectPath, ResolveScope(projectPath))
+}
+
+// ScopeSQLWithRepoSiblings is ScopeSQL over ResolveScopeWithRepoSiblings; it also
+// returns the scope it built so tools can report which project paths they searched.
+func ScopeSQLWithRepoSiblings(alias, projectPath string, includeSiblings bool) (string, []interface{}, []string) {
+	scope := ResolveScopeWithRepoSiblings(projectPath, includeSiblings)
+	frag, args := scopeSQLFor(alias, projectPath, scope)
+	if len(scope) == 0 {
+		scope = []string{NormalizePath(projectPath)}
+	}
+	return frag, args, scope
+}
+
+func scopeSQLFor(alias, projectPath string, scope []string) (string, []interface{}) {
 	col := "project_path"
 	if alias != "" {
 		col = alias + ".project_path"
