@@ -561,6 +561,25 @@ func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
 	vc.entries = vc.entries[:n]
 }
 
+// DeleteByProject drops every in-memory vector belonging to a project. Callers
+// are responsible for deleting the matching database rows.
+func (vc *VectorCache) DeleteByProject(projectPath string) {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
+	n := 0
+	for _, e := range vc.entries {
+		if e.ProjectPath == projectPath {
+			continue
+		}
+		vc.entries[n] = e
+		n++
+	}
+	vc.entries = vc.entries[:n]
+}
+
 func (vc *VectorCache) Count(projectPath string) int {
 	vc.mu.RLock()
 	if vc.loaded {
