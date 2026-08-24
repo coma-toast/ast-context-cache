@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -512,6 +513,10 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 	if dirPath == projectPath {
 		projectlinks.SyncAutoLinks(projectPath)
 	}
+	// A fresh checkout of an already-indexed repo copies unchanged files from its
+	// sibling instead of re-parsing and re-embedding them.
+	reuse := FindReuseSource(projectPath)
+	reused := 0
 	count := 0
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -532,6 +537,13 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		if ignorepatterns.Match(path, projectPath, ignorepatterns.List()) {
 			return nil
 		}
+		if reuse != nil {
+			if n, ok := ReuseFile(path, projectPath, reuse); ok {
+				count += n
+				reused++
+				return nil
+			}
+		}
 		n, _, _, err := IndexFile(path, projectPath)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -539,6 +551,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		count += n
 		return nil
 	})
+	if reused > 0 {
+		log.Printf("index: reused %d unchanged files from %s for %s", reused, reuse.ProjectPath, projectPath)
+	}
 	return count, err
 }
 

@@ -651,6 +651,9 @@ func float32ToBlob(v []float32) []byte {
 	return buf
 }
 
+// DecodeVector turns a stored vector blob back into floats (nil when malformed).
+func DecodeVector(b []byte) []float32 { return blobToFloat32(b) }
+
 func blobToFloat32(b []byte) []float32 {
 	if len(b)%4 != 0 {
 		return nil

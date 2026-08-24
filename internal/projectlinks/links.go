@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/repokey"
 )
 
 // ProjectLink records a parent container project referencing an indexed child project.
@@ -86,6 +87,29 @@ func IndexedProjectPaths() []string {
 		}
 		seen[pp] = true
 		out = append(out, pp)
+	}
+	return out
+}
+
+// RepoSiblings returns already-indexed project paths that are other checkouts of
+// the same git repository as projectPath (WTG worktrees on different branches).
+func RepoSiblings(projectPath string) []string {
+	projectPath = NormalizePath(projectPath)
+	if projectPath == "" {
+		return nil
+	}
+	key := repokey.Key(projectPath)
+	if key == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range IndexedProjectPaths() {
+		if p == projectPath {
+			continue
+		}
+		if repokey.Key(p) == key {
+			out = append(out, p)
+		}
 	}
 	return out
 }

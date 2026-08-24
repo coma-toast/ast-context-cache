@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/repokey"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"gopkg.in/yaml.v3"
 )
@@ -111,14 +112,9 @@ func displayNameOverride(path string) string {
 
 func enrichFresh(path string) Info {
 	repoName := filepath.Base(path)
-	branch, commonDir := gitMeta(path)
+	branch := gitBranch(path)
 	workspace := workspaceForPath(path)
-	repoKey := path
-	if commonDir != "" {
-		if abs, err := filepath.Abs(filepath.Join(path, commonDir)); err == nil {
-			repoKey = filepath.Clean(abs)
-		}
-	}
+	repoKey := repokey.Key(path)
 	label := repoName
 	if workspace != "" {
 		label = repoName + " · " + workspace
@@ -257,14 +253,12 @@ func workspaceForPath(path string) string {
 	return ""
 }
 
-func gitMeta(dir string) (branch, commonDir string) {
-	if out, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
-		branch = strings.TrimSpace(string(out))
+func gitBranch(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
 	}
-	if out, err := exec.Command("git", "-C", dir, "rev-parse", "--git-common-dir").Output(); err == nil {
-		commonDir = strings.TrimSpace(string(out))
-	}
-	return branch, commonDir
+	return strings.TrimSpace(string(out))
 }
 
 func isGitRepo(dir string) bool {
