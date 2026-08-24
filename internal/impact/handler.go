@@ -16,6 +16,9 @@ type Entry struct {
 	File   string `json:"file"`
 	Target string `json:"target"`
 	Kind   string `json:"kind"`
+	// Abs is the indexed absolute path behind File, for callers that need to
+	// read the file back; it stays out of the tool payload.
+	Abs string `json:"-"`
 }
 
 // Result is the blast radius of a single symbol, with paths relative to the
@@ -115,6 +118,7 @@ func Graph(symbol, projectPath string, includeSiblings bool) (*Result, error) {
 			File:   RelPathInScope(imp.File, projectPath, scope),
 			Target: imp.Target,
 			Kind:   imp.Kind,
+			Abs:    imp.File,
 		}
 	}
 

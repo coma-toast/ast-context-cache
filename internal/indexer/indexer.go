@@ -486,6 +486,30 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	return count, fullTokens, skeletonTokens, nil
 }
 
+// ParseSymbols returns the top-level symbols tree-sitter finds in content without
+// touching the index, so two revisions of a file can be compared. Languages with
+// their own indexing path (yaml, fish, plaintext) yield no symbols here.
+func ParseSymbols(content []byte, lang string) []SymbolDef {
+	sitterLang := getSitterLanguage(lang)
+	if sitterLang == nil || lang == "yaml" {
+		return nil
+	}
+	parser := sitter.NewParser()
+	parser.SetLanguage(sitterLang)
+	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		return nil
+	}
+	defer tree.Close()
+	var out []SymbolDef
+	for _, node := range collectTopLevelNodes(tree.RootNode(), lang) {
+		if sym := extractSymbol(node, content, lang); sym != nil && sym.Name != "" {
+			out = append(out, *sym)
+		}
+	}
+	return out
+}
+
 // collectTopLevelNodes returns the nodes to walk for symbol extraction.
 // For HCL, we descend into the body node since blocks are children of body, not config_file directly.
 func collectTopLevelNodes(root *sitter.Node, lang string) []*sitter.Node {

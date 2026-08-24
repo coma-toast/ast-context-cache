@@ -197,6 +197,21 @@ func GetTools() []Tool {
 			ReadOnly: true,
 		},
 		{
+			Name:        "check_deletion_safety",
+			Description: "Guardrail before removing code. Compares a file against base_ref, finds the symbols the change deletes, and reports which of them are still referenced by other files (unsafe) versus which have no remaining callers (safe). Sibling worktrees of the same repo are searched too.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"file":         map[string]string{"type": "string", "description": "File being trimmed, absolute or relative to the project root"},
+					"base_ref":     map[string]string{"type": "string", "description": "Git ref holding the pre-change version (default origin/main)"},
+				},
+				"required": []string{"project_path", "file"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
 			Name:        "cache_summary",
 			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens.",
 			InputSchema: map[string]interface{}{

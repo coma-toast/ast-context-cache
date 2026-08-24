@@ -60,24 +60,34 @@ func HandleDiffImpact(args map[string]interface{}, projectPath string) string {
 	return string(data)
 }
 
-// dependentFiles returns the impacted files that are not themselves part of the
+// dependents returns the impacted entries that are not themselves part of the
 // diff — those are the places a change can break without being reviewed.
-func dependentFiles(res *Result, changed []string) []string {
+func dependents(res *Result, changed []string) []Entry {
 	inDiff := map[string]bool{}
 	for _, f := range changed {
 		inDiff[filepath.Clean(f)] = true
 	}
 	seen := map[string]bool{}
-	var out []string
+	var out []Entry
 	for _, e := range res.ImpactedBy {
 		f := filepath.Clean(e.File)
 		if inDiff[f] || seen[f] {
 			continue
 		}
 		seen[f] = true
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
+	return out
+}
+
+// dependentFiles is dependents reduced to display paths.
+func dependentFiles(res *Result, changed []string) []string {
+	entries := dependents(res, changed)
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
 		out = append(out, e.File)
 	}
-	sort.Strings(out)
 	return out
 }
 
