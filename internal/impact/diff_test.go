@@ -105,3 +105,74 @@ func TestHandleDiffImpactReportsGitFailure(t *testing.T) {
 		t.Fatalf("expected a git error, got %s", out)
 	}
 }
+
+func TestOriginRepoParsesGitHubRemotes(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "repo")
+	newRepo(t, project, map[string]string{"a.go": "package p\n"})
+	for _, url := range []string{
+		"git@github.com:slidehq/slapi.git",
+		"https://github.com/slidehq/slapi.git",
+		"https://github.com/slidehq/slapi",
+	} {
+		cmd := exec.Command("git", "-C", project, "remote", "add", "origin", url)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("remote add: %v: %s", err, out)
+		}
+		if got := originRepo(project); got != "slidehq/slapi" {
+			t.Fatalf("originRepo(%s)=%q want slidehq/slapi", url, got)
+		}
+		exec.Command("git", "-C", project, "remote", "remove", "origin").Run()
+	}
+	if got := originRepo(project); got != "" {
+		t.Fatalf("originRepo without remote=%q want empty", got)
+	}
+}
+
+func TestIntArgAcceptsJSONForms(t *testing.T) {
+	if got := intArg(map[string]interface{}{"pr": float64(453)}, "pr"); got != 453 {
+		t.Fatalf("float64 pr=%d", got)
+	}
+	if got := intArg(map[string]interface{}{"pr": "453"}, "pr"); got != 453 {
+		t.Fatalf("string pr=%d", got)
+	}
+	if got := intArg(map[string]interface{}{"pr": "abc"}, "pr"); got != 0 {
+		t.Fatalf("bad pr=%d want 0", got)
+	}
+	if got := intArg(map[string]interface{}{}, "pr"); got != 0 {
+		t.Fatalf("missing pr=%d want 0", got)
+	}
+}
+
+func TestStripPrefixForSubdirProjects(t *testing.T) {
+	if rel, ok := stripPrefix("services/api/main.go", "services/api/"); !ok || rel != "main.go" {
+		t.Fatalf("rel=%q ok=%v", rel, ok)
+	}
+	if _, ok := stripPrefix("web/app.ts", "services/api/"); ok {
+		t.Fatal("file outside the project prefix should be dropped")
+	}
+	if rel, ok := stripPrefix("main.go", ""); !ok || rel != "main.go" {
+		t.Fatalf("repo-root project: rel=%q ok=%v", rel, ok)
+	}
+}
+
+func TestHandleDiffImpactPRReportsFetchFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := db.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	project := filepath.Join(home, "repo")
+	newRepo(t, project, map[string]string{"a.go": "package p\n"})
+
+	// No remote and no such PR: the tool must surface the gh failure, not hang.
+	out := HandleDiffImpact(map[string]interface{}{"pr": float64(999999), "repo": "slidehq/does-not-exist-xyz"}, project)
+	var got map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal %s: %v", out, err)
+	}
+	if got["error"] == nil || got["error"] == "" {
+		t.Fatalf("expected a gh error, got %s", out)
+	}
+}

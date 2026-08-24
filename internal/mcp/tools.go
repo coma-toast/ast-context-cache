@@ -169,13 +169,15 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "diff_impact",
-			Description: "Blast radius of a whole branch. Diffs base_ref...head_ref, collects the indexed symbols the changed files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included.",
+			Description: "Blast radius of a whole branch or pull request. Diffs base_ref...head_ref (or, with pr set, fetches that GitHub PR's changed files via gh without checking the branch out), collects the indexed symbols those files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included. Use pr to ask whether another open PR already touches a file or symbol you are about to change.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"base_ref":     map[string]string{"type": "string", "description": "Git ref to diff from (default origin/main)"},
-					"head_ref":     map[string]string{"type": "string", "description": "Git ref to diff to (default HEAD)"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to an indexed local checkout of the repo"},
+					"base_ref":     map[string]string{"type": "string", "description": "Git ref to diff from (default origin/main); ignored when pr is set"},
+					"head_ref":     map[string]string{"type": "string", "description": "Git ref to diff to (default HEAD); ignored when pr is set"},
+					"pr":           map[string]string{"type": "integer", "description": "GitHub pull request number to analyze instead of local refs; the branch does not need to be checked out"},
+					"repo":         map[string]string{"type": "string", "description": "owner/name for the pr lookup (default: the project's origin remote)"},
 				},
 				"required": []string{"project_path"},
 			},
