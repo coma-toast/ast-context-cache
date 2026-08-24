@@ -244,6 +244,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		result = json.RawMessage(resultStr)
 	case "diff_impact":
 		result = json.RawMessage(impact.HandleDiffImpact(toolArgs, projectPath))
+	case "check_symbol_exists":
+		result = json.RawMessage(impact.HandleCheckSymbolExists(toolArgs, projectPath))
 	case "cache_summary":
 		file, _ := toolArgs["file"].(string)
 		summary, _ := toolArgs["summary"].(string)

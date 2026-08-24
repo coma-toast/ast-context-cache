@@ -183,6 +183,20 @@ func GetTools() []Tool {
 			ReadOnly: true,
 		},
 		{
+			Name:        "check_symbol_exists",
+			Description: "Fast existence check for a symbol name before trusting a reference to it. Returns whether the name is declared anywhere in the indexed repo (including sibling worktrees on other branches) and every file and line that declares it.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol":       map[string]string{"type": "string", "description": "Symbol name to look up (case-insensitive)"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+				},
+				"required": []string{"symbol", "project_path"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
 			Name:        "cache_summary",
 			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens.",
 			InputSchema: map[string]interface{}{
