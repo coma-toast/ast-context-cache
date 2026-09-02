@@ -391,3 +391,16 @@ export interface PruneStatus {
   orphan_vectors: number
   queries_pruned: number
 }
+
+export interface BrowseDirEntry {
+  name: string
+  path: string
+}
+
+export interface BrowseDirResult {
+  path: string
+  parent?: string
+  entries: BrowseDirEntry[]
+  shortcuts?: BrowseDirEntry[]
+  error?: string
+}

@@ -1,4 +1,5 @@
 import type {
+  BrowseDirResult,
   ContextSessionsResponse,
   DataDirMoveStatus,
   Health,
@@ -173,6 +174,7 @@ export const api = {
   dataDirMoveStatus: () => get<DataDirMoveStatus>('/api/data-dir/status'),
   prune: () => post<{ started?: boolean; status?: string; error?: string }>('/api/prune', {}),
   pruneStatus: () => get<PruneStatus>('/api/prune/status'),
+  browseDir: (path?: string) => get<BrowseDirResult>(`/api/browse-dir${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   adjustEmbedWorkers: (delta: number) => post<{ status?: string; workers?: number; error?: string }>('/api/embed-workers', { delta }),
   adjustEmbedAuxWorkers: (delta: number) =>
     post<{ status?: string; workers?: number; error?: string }>('/api/embed-aux-workers', { delta }),

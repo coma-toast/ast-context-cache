@@ -86,6 +86,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/data-dir/status", handleDataDirStatus)
 	mux.HandleFunc("/api/prune", handlePrune)
 	mux.HandleFunc("/api/prune/status", handlePruneStatus)
+	mux.HandleFunc("/api/browse-dir", handleBrowseDir)
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
