@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"os"
 	"strconv"
 	"strings"
 
@@ -11,6 +12,20 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 )
+
+// dataDirSize sums the on-disk size of the three databases (plus WAL/SHM sidecars) under
+// the current data directory, for display in Settings.
+func dataDirSize() string {
+	var total int64
+	for _, p := range []string{db.GetIndexDBPath(), db.GetContextDBPath(), db.GetDBPath()} {
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			if fi, err := os.Stat(p + suffix); err == nil {
+				total += fi.Size()
+			}
+		}
+	}
+	return db.FormatFileSize(total)
+}
 
 type settingsBuildOpts struct {
 	loadEmbedModels bool
@@ -92,6 +107,8 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		EmbedAuxWorkerMax:        embedqueue.AuxMaxWorkers(),
 		EmbedAuxWorkers:          embedqueue.AuxWorkerTarget(),
 		EmbedAuxBackend:          strings.TrimSpace(db.GetSetting("EMBED_AUX_BACKEND", "onnx")),
+		DataDir:                  db.GetDataDir(),
+		DataDirSize:              dataDirSize(),
 	}
 	if data.EmbedAuxBackend == "" {
 		data.EmbedAuxBackend = "onnx"

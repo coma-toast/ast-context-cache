@@ -22,6 +22,9 @@ func DefaultLogPath() string {
 }
 
 func Init() error {
+	if _, err := ResolveDataDir(); err != nil {
+		return fmt.Errorf("configured data directory unavailable: %w — reconnect the drive, or delete %s to use the default location", err, locationOverridePath())
+	}
 	idxPath := indexDBPath()
 	ctxPath := contextDBPath()
 	usePath := usageDBPath()

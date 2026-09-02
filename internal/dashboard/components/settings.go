@@ -65,4 +65,6 @@ type SettingsData struct {
 	EmbedAuxWorkers          int
 	EmbedAuxBackend          string
 	EmbedProbeIntervalSec    int
+	DataDir                  string
+	DataDirSize              string
 }

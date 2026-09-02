@@ -1,5 +1,6 @@
 import type {
   ContextSessionsResponse,
+  DataDirMoveStatus,
   Health,
   IndexHealth,
   MCPTier,
@@ -166,6 +167,9 @@ export const api = {
   embedderDismissAlert: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string }>('/api/embedder/dismiss-alert'),
   walCheckpoint: () => post<{ started?: boolean; status?: string }>('/api/wal-checkpoint', {}),
+  moveDataDir: (target: string) =>
+    post<{ started?: boolean; status?: string; error?: string }>('/api/data-dir/move', { target }),
+  dataDirMoveStatus: () => get<DataDirMoveStatus>('/api/data-dir/status'),
   adjustEmbedWorkers: (delta: number) => post<{ status?: string; workers?: number; error?: string }>('/api/embed-workers', { delta }),
   adjustEmbedAuxWorkers: (delta: number) =>
     post<{ status?: string; workers?: number; error?: string }>('/api/embed-aux-workers', { delta }),
