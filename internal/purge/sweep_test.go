@@ -133,6 +133,51 @@ func TestSweepPurgesEveryRepoOfADeletedSpace(t *testing.T) {
 	}
 }
 
+// Spaces are created and destroyed frequently, so a user-initiated cleanup (Prune)
+// must not make them wait out SweepDeletedProjects' consecutive-miss debounce.
+func TestSweepDeletedProjectsNowPurgesImmediately(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := db.Init(); err != nil {
+		t.Fatal(err)
+	}
+	ResetMissCounts()
+
+	space := filepath.Join(home, "spaces", "throwaway")
+	kept := filepath.Join(home, "spaces", "keeper", "slapi")
+	repos := []string{
+		filepath.Join(space, "slapi"),
+		filepath.Join(space, "console"),
+	}
+	for _, p := range append(append([]string{}, repos...), kept) {
+		if err := os.MkdirAll(p, 0755); err != nil {
+			t.Fatal(err)
+		}
+		seedProject(t, p)
+	}
+
+	if err := os.RemoveAll(space); err != nil {
+		t.Fatal(err)
+	}
+
+	// A single call purges everything missing right now — no debounce wait.
+	purged := SweepDeletedProjectsNow()
+	if len(purged) != len(repos) {
+		t.Fatalf("purged=%v want all %d repos of the deleted space", purged, len(repos))
+	}
+	for _, p := range repos {
+		assertPurged(t, p)
+	}
+	// The surviving space is untouched.
+	if symbolCount(t, kept) == 0 {
+		t.Fatalf("%s must not be purged", kept)
+	}
+	// No leftover debounce bookkeeping for paths that were just purged outright.
+	if got := MissCount(repos[0]); got != 0 {
+		t.Fatalf("MissCount after immediate purge=%d want 0", got)
+	}
+}
+
 func TestProjectDataRequiresPath(t *testing.T) {
 	if err := ProjectData("  "); err == nil {
 		t.Fatal("expected error for empty project_path")

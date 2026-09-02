@@ -72,7 +72,7 @@ func runPrune() {
 
 	snap.Phase = "sweeping deleted projects"
 	setPrune(snap)
-	snap.ProjectsPurged = len(purge.SweepDeletedProjects())
+	snap.ProjectsPurged = len(purge.SweepDeletedProjectsNow())
 
 	snap.Phase = "removing orphaned vectors"
 	setPrune(snap)
