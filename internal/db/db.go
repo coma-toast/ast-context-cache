@@ -140,7 +140,9 @@ func RemoveAgentConfig(agentType, installPath string) error {
 
 // EnsureFTSTriggers ensures symbol FTS triggers on the index database.
 func EnsureFTSTriggers() {
-	ensureIndexFTSTriggers(IndexDB)
+	if conn, err := IndexReader(); err == nil {
+		ensureIndexFTSTriggers(conn)
+	}
 }
 
 func LogQuery(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {
@@ -176,7 +178,11 @@ func UpsertIndexedFileWith(e Execer, file, projectPath string, indexedAt time.Ti
 
 func GetIndexedFiles(projectPath string) map[string]time.Time {
 	result := map[string]time.Time{}
-	rows, err := IndexDB.Query("SELECT file, indexed_at FROM indexed_files WHERE project_path = ?", projectPath)
+	conn, err := IndexReader()
+	if err != nil {
+		return result
+	}
+	rows, err := conn.Query("SELECT file, indexed_at FROM indexed_files WHERE project_path = ?", projectPath)
 	if err != nil {
 		return result
 	}
