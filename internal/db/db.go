@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/startup"
@@ -262,7 +263,20 @@ func StartWALCheckpoint() {
 	}
 }
 
+var compactMu sync.Mutex
+
+// Compact runs VACUUM on all three databases. Several independent callers can trigger
+// this concurrently (deleting/resetting more than one project fires one goroutine each,
+// plus the manual prune action and the daily ticker) — VACUUM is exclusive and expensive,
+// and running several at once against the same files causes cascading "database is
+// locked" errors and runaway WAL growth rather than any extra benefit. A concurrent call
+// is a no-op: whichever VACUUM is already running will cover the same data.
 func Compact() {
+	if !compactMu.TryLock() {
+		log.Println("VACUUM already in progress, skipping")
+		return
+	}
+	defer compactMu.Unlock()
 	log.Println("Running VACUUM on index, context, and usage databases...")
 	start := time.Now()
 	for _, c := range []*sql.DB{IndexDB, ContextDB, DB} {
