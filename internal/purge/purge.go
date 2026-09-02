@@ -16,8 +16,8 @@ import (
 )
 
 // ProjectData deletes all indexed and remembered data for projectPath: symbols,
-// edges, vectors, indexed files, summaries, query history, stored notes and
-// structured memory.
+// edges, vectors, indexed files, summaries, query history, context sessions, stored
+// notes and structured memory.
 //
 // This is the permanent-deletion purge. The dashboard's "reset" action reuses it
 // because a reset re-indexes from scratch anyway; nothing here is recoverable
@@ -56,6 +56,9 @@ func ProjectData(projectPath string) error {
 	if db.DB != nil {
 		db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
 		db.DB.Exec("DELETE FROM memory_access WHERE project_path = ?", projectPath)
+		// sessions has no project_path column (it tracks get_context_capsule dedup by
+		// session_id, not by project), so scope by the file_path prefix instead.
+		db.DB.Exec("DELETE FROM sessions WHERE file_path LIKE ?", projectPath+"/%")
 	}
 	purgeContextData(projectPath)
 

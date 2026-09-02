@@ -182,6 +182,7 @@ func seedProject(t *testing.T, projectPath string) {
 	db.ContextDB.Exec(`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash) VALUES (?, 'sess', ?, 'l', 'c', 'h')`,
 		"note-"+projectPath, projectPath)
 	db.DB.Exec(`INSERT INTO queries (tool_name, project_path) VALUES ('get_file_context', ?)`, projectPath)
+	db.DB.Exec(`INSERT INTO sessions (session_id, file_path, symbol_name, start_line) VALUES ('sess', ?, 'X', 1)`, file)
 }
 
 func symbolCount(t *testing.T, projectPath string) int {
@@ -222,5 +223,10 @@ func assertPurged(t *testing.T, projectPath string) {
 	db.DB.QueryRow(`SELECT COUNT(*) FROM queries WHERE project_path = ?`, projectPath).Scan(&queries)
 	if queries != 0 {
 		t.Fatalf("%s: queries rows=%d want 0", projectPath, queries)
+	}
+	var sessions int
+	db.DB.QueryRow(`SELECT COUNT(*) FROM sessions WHERE file_path LIKE ?`, projectPath+"/%").Scan(&sessions)
+	if sessions != 0 {
+		t.Fatalf("%s: sessions rows=%d want 0", projectPath, sessions)
 	}
 }
