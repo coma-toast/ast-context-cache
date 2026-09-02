@@ -269,20 +269,56 @@ func StartWALCheckpoint() {
 	}
 }
 
-var compactMu sync.Mutex
+var (
+	compactMu       sync.Mutex
+	compactRunning  bool
+	compactPending  bool
+	compactRunCount int // test-only observability; incremented under compactMu
+)
 
 // Compact runs VACUUM on all three databases. Several independent callers can trigger
 // this concurrently (deleting/resetting more than one project fires one goroutine each,
 // plus the manual prune action and the daily ticker) — VACUUM is exclusive and expensive,
 // and running several at once against the same files causes cascading "database is
-// locked" errors and runaway WAL growth rather than any extra benefit. A concurrent call
-// is a no-op: whichever VACUUM is already running will cover the same data.
+// locked" errors and runaway WAL growth. But a plain "skip if already running" guard
+// silently drops work: if project A's delete arrives while project B's compaction is
+// already mid-VACUUM, A's freed pages never get reclaimed unless something runs again
+// after B finishes. So a concurrent call instead marks a pending flag; the in-progress
+// run checks it after finishing and does one more pass if anything came in meanwhile,
+// coalescing any number of concurrent callers into at most two actual VACUUM runs.
 func Compact() {
-	if !compactMu.TryLock() {
-		log.Println("VACUUM already in progress, skipping")
+	compactMu.Lock()
+	if compactRunning {
+		compactPending = true
+		compactMu.Unlock()
+		log.Println("VACUUM already in progress, will run again once it finishes")
 		return
 	}
-	defer compactMu.Unlock()
+	compactRunning = true
+	compactMu.Unlock()
+
+	// Reuses the WAL-maintenance status/banner plumbing so the dashboard shows a busy
+	// indicator instead of index/vector counts silently reading as zero while the
+	// databases are quiesced for VACUUM.
+	beginWALMaintenance("vacuum")
+	setWALPhase(WALPhaseVacuum, "")
+	defer endWALMaintenance()
+
+	for {
+		runCompactOnce()
+		compactMu.Lock()
+		compactRunCount++
+		if !compactPending {
+			compactRunning = false
+			compactMu.Unlock()
+			return
+		}
+		compactPending = false
+		compactMu.Unlock()
+	}
+}
+
+func runCompactOnce() {
 	log.Println("Running VACUUM on index, context, and usage databases...")
 	start := time.Now()
 	for _, c := range []*sql.DB{IndexDB, ContextDB, DB} {
