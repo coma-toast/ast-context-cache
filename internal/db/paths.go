@@ -122,6 +122,34 @@ func GetDataDir() string {
 	return cacheDir()
 }
 
+// DataDirSizeBytes sums the on-disk size of the three databases (plus WAL/SHM sidecars)
+// under the current data directory.
+func DataDirSizeBytes() int64 {
+	var total int64
+	for _, p := range []string{indexDBPath(), contextDBPath(), usageDBPath()} {
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			if fi, err := os.Stat(p + suffix); err == nil {
+				total += fi.Size()
+			}
+		}
+	}
+	return total
+}
+
+// MainDBFilesSizeBytes sums the size of the three main database files only, excluding
+// WAL/SHM sidecars. WAL size fluctuates independently of page reclamation (checkpoints,
+// in-flight writes) and would make a before/after VACUUM comparison noisy; the main file
+// is what VACUUM actually shrinks.
+func MainDBFilesSizeBytes() int64 {
+	var total int64
+	for _, p := range []string{indexDBPath(), contextDBPath(), usageDBPath()} {
+		if fi, err := os.Stat(p); err == nil {
+			total += fi.Size()
+		}
+	}
+	return total
+}
+
 // GetContextDBPath returns the context/docs/memory database path.
 func GetContextDBPath() string {
 	return contextDBPath()

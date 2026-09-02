@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"os"
 	"strconv"
 	"strings"
 
@@ -13,18 +12,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 )
 
-// dataDirSize sums the on-disk size of the three databases (plus WAL/SHM sidecars) under
-// the current data directory, for display in Settings.
+// dataDirSize formats the on-disk size of the three databases for display in Settings.
 func dataDirSize() string {
-	var total int64
-	for _, p := range []string{db.GetIndexDBPath(), db.GetContextDBPath(), db.GetDBPath()} {
-		for _, suffix := range []string{"", "-wal", "-shm"} {
-			if fi, err := os.Stat(p + suffix); err == nil {
-				total += fi.Size()
-			}
-		}
-	}
-	return db.FormatFileSize(total)
+	return db.FormatFileSize(db.DataDirSizeBytes())
 }
 
 type settingsBuildOpts struct {

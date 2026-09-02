@@ -14,10 +14,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import type { DataDirMoveStatus, Project, SettingsData } from '../api/types'
+import type { DataDirMoveStatus, Project, PruneStatus, SettingsData } from '../api/types'
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
-import { formatNum } from '../api/client'
+import { formatBytes, formatNum } from '../api/client'
 
 const SECTIONS = [
   { id: 'performance', label: 'Performance' },
@@ -450,6 +450,8 @@ function StorageSection({ data }: { data: SettingsData }) {
   const [target, setTarget] = useState('')
   const [status, setStatus] = useState<DataDirMoveStatus | null>(null)
   const [starting, setStarting] = useState(false)
+  const [pruneStatus, setPruneStatus] = useState<PruneStatus | null>(null)
+  const [pruneStarting, setPruneStarting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -469,7 +471,26 @@ function StorageSection({ data }: { data: SettingsData }) {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const s = await api.pruneStatus()
+        if (!cancelled) setPruneStatus(s)
+      } catch {
+        // transient poll failure — try again next tick
+      }
+    }
+    poll()
+    const id = setInterval(poll, 1500)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
+
   const active = status?.active ?? false
+  const pruneActive = pruneStatus?.active ?? false
 
   const move = async () => {
     setStarting(true)
@@ -480,6 +501,18 @@ function StorageSection({ data }: { data: SettingsData }) {
       showToast(String(e), 'error')
     } finally {
       setStarting(false)
+    }
+  }
+
+  const runPrune = async () => {
+    setPruneStarting(true)
+    try {
+      await api.prune()
+      showToast('Prune started', 'success')
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setPruneStarting(false)
     }
   }
 
@@ -536,6 +569,39 @@ function StorageSection({ data }: { data: SettingsData }) {
           {!active && status?.error && (
             <Alert severity="error" sx={{ mt: 1.5 }}>
               {status.error}
+            </Alert>
+          )}
+        </Box>
+
+        <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+          <Typography variant="subtitle2">Prune database</Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            Sweeps data for projects whose directory is gone, removes orphaned vectors, prunes query
+            history past retention, then runs VACUUM so the freed space actually shrinks the files on
+            disk. VACUUM needs roughly as much free space as the current database size to compact —
+            if the volume is nearly full, this can fail with a disk-full error instead of helping.
+          </Typography>
+          <Button color="inherit" variant="outlined" size="small" disabled={pruneActive || pruneStarting} onClick={runPrune}>
+            {pruneActive ? 'Pruning…' : 'Prune now'}
+          </Button>
+          {pruneActive && (
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+              {pruneStatus?.phase || 'working'}…
+            </Typography>
+          )}
+          {!pruneActive && pruneStatus?.done && (
+            <Alert severity="success" sx={{ mt: 1.5 }}>
+              {pruneStatus.size_before_bytes - pruneStatus.size_after_bytes > 0
+                ? `Reclaimed ${formatBytes(pruneStatus.size_before_bytes - pruneStatus.size_after_bytes)} (${formatBytes(pruneStatus.size_before_bytes)} → ${formatBytes(pruneStatus.size_after_bytes)}).`
+                : 'Nothing to reclaim right now.'}{' '}
+              {pruneStatus.projects_purged} deleted project(s) swept, {pruneStatus.orphan_vectors} orphan
+              vector(s) removed, {pruneStatus.queries_pruned} old quer
+              {pruneStatus.queries_pruned === 1 ? 'y' : 'ies'} pruned.
+            </Alert>
+          )}
+          {!pruneActive && pruneStatus?.error && (
+            <Alert severity="error" sx={{ mt: 1.5 }}>
+              {pruneStatus.error}
             </Alert>
           )}
         </Box>
