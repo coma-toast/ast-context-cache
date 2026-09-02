@@ -82,6 +82,10 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/flush-context", handleFlushContextAPI)
 	mux.HandleFunc("/api/wal-checkpoint", handleWALCheckpoint)
 	mux.HandleFunc("/api/wal-status", handleWALStatus)
+	mux.HandleFunc("/api/data-dir/move", handleDataDirMove)
+	mux.HandleFunc("/api/data-dir/status", handleDataDirStatus)
+	mux.HandleFunc("/api/prune", handlePrune)
+	mux.HandleFunc("/api/prune/status", handlePruneStatus)
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
@@ -1535,6 +1539,88 @@ func handleWALStatus(w http.ResponseWriter, r *http.Request) {
 		"skip_reason":       s.SkipReason,
 		"next_attempt_at":   s.NextAttemptAt,
 		"log_path":          db.ResolveServerLogPath(),
+	})
+}
+
+func handleDataDirMove(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	var req struct {
+		Target string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
+		return
+	}
+	started, errMsg := db.StartDataDirMove(req.Target)
+	if !started {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"started": true, "status": "ok"})
+}
+
+func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
+		return
+	}
+	s := db.GetDataDirMoveSnapshot()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active":      s.Active,
+		"done":        s.Done,
+		"phase":       s.Phase,
+		"target_dir":  s.TargetDir,
+		"started_at":  s.StartedAt,
+		"finished_at": s.FinishedAt,
+		"error":       s.Error,
+	})
+}
+
+func handlePrune(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	started, errMsg := StartPrune()
+	if !started {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"started": true, "status": "ok"})
+}
+
+func handlePruneStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
+		return
+	}
+	s := GetPruneSnapshot()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active":            s.Active,
+		"done":              s.Done,
+		"phase":             s.Phase,
+		"started_at":        s.StartedAt,
+		"finished_at":       s.FinishedAt,
+		"error":             s.Error,
+		"size_before_bytes": s.SizeBeforeBytes,
+		"size_after_bytes":  s.SizeAfterBytes,
+		"projects_purged":   s.ProjectsPurged,
+		"orphan_vectors":    s.OrphanVectors,
+		"queries_pruned":    s.QueriesPruned,
 	})
 }
 

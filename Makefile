@@ -3,7 +3,10 @@ ORT_LIB     := $(BREW_PREFIX)/lib
 ORT_INC     := $(BREW_PREFIX)/include/onnxruntime
 PROJ_DIR    := $(shell pwd)
 
-CGO_FLAGS := CGO_LDFLAGS="-L$(PROJ_DIR) -L$(ORT_LIB)" CGO_CFLAGS="-I$(ORT_INC)"
+# GOWORK=off: this repo is not part of any go.work workspace, but Go's workspace
+# auto-detection walks up from cwd — a go.work file in a parent directory (e.g. from an
+# unrelated multi-module checkout one level up) would otherwise break module resolution.
+CGO_FLAGS := GOWORK=off CGO_LDFLAGS="-L$(PROJ_DIR) -L$(ORT_LIB)" CGO_CFLAGS="-I$(ORT_INC)"
 
 VERSION     := $(shell tr -d '[:space:]' < VERSION 2>/dev/null || echo dev)
 LDFLAGS     := -X 'github.com/coma-toast/ast-context-cache/internal/version.Version=$(VERSION)'

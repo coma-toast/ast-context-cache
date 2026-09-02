@@ -11,11 +11,12 @@ import (
 type WALPhase string
 
 const (
-	WALPhaseIdle        WALPhase = "idle"
-	WALPhasePausing     WALPhase = "pausing"
-	WALPhaseDraining    WALPhase = "draining"
-	WALPhaseCheckpoint  WALPhase = "checkpoint"
-	WALPhaseRestoring   WALPhase = "restoring"
+	WALPhaseIdle       WALPhase = "idle"
+	WALPhasePausing    WALPhase = "pausing"
+	WALPhaseDraining   WALPhase = "draining"
+	WALPhaseCheckpoint WALPhase = "checkpoint"
+	WALPhaseRestoring  WALPhase = "restoring"
+	WALPhaseVacuum     WALPhase = "vacuum"
 )
 
 // WALSnapshot is a point-in-time view of WAL maintenance for the dashboard.

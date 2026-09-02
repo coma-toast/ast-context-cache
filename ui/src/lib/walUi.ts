@@ -4,6 +4,7 @@ export const WAL_PHASE_PAUSING = 'pausing'
 export const WAL_PHASE_DRAINING = 'draining'
 export const WAL_PHASE_CHECKPOINT = 'checkpoint'
 export const WAL_PHASE_RESTORING = 'restoring'
+export const WAL_PHASE_VACUUM = 'vacuum'
 
 /** Matches db.DefaultLogPath display hint when HOME is unavailable in the browser. */
 export const DEFAULT_LOG_PATH = '~/.astcache/ast-mcp.log'
@@ -46,8 +47,8 @@ export function walMaintenanceElapsed(started?: string | null, nowMs = Date.now(
   return `${m}m${String(s).padStart(2, '0')}s`
 }
 
-export function walMaintenanceHeadline(): string {
-  return 'Compacting database WAL'
+export function walMaintenanceHeadline(phase?: string): string {
+  return phase === WAL_PHASE_VACUUM ? 'Compacting database (VACUUM)' : 'Compacting database WAL'
 }
 
 export function walMaintenanceDetail(h: WalHealthFields, nowMs = Date.now(), logPath = DEFAULT_LOG_PATH): string {
@@ -64,6 +65,8 @@ export function walMaintenanceDetail(h: WalHealthFields, nowMs = Date.now(), log
       return walCheckpointDetail(h, elapsed, nowMs, logPath)
     case WAL_PHASE_RESTORING:
       return `Restoring embed workers… · ${elapsed}`
+    case WAL_PHASE_VACUUM:
+      return `Rebuilding database files to reclaim space… · ${elapsed}`
     default:
       return `Checkpoint in progress… · ${elapsed}`
   }
@@ -99,7 +102,11 @@ export function walMaintenanceProgressPct(h: WalHealthFields): number {
 }
 
 export function walMaintenanceIndeterminate(h: WalHealthFields): boolean {
-  return Boolean(h.WALMaintenanceActive) && h.WALLastBusy === 1 && walMaintenanceProgressPct(h) < 1
+  if (!h.WALMaintenanceActive) return false
+  // VACUUM rebuilds the main db file, not the WAL — WAL byte shrinkage isn't a
+  // meaningful progress signal for it, so always show an indeterminate spinner.
+  if (h.WALMaintenancePhase === WAL_PHASE_VACUUM) return true
+  return h.WALLastBusy === 1 && walMaintenanceProgressPct(h) < 1
 }
 
 export function walCheckpointButtonDisabled(walActive: boolean, startupBusy: boolean): boolean {

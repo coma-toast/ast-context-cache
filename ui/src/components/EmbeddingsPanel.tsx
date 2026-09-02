@@ -7,6 +7,7 @@ import { chartColors } from '../lib/chartColors'
 import { pendingRingCap, throughputPct } from '../lib/embedGauges'
 import {
   formatAutoRecoverAgo,
+  WAL_PHASE_VACUUM,
   walCheckpointButtonDisabled,
   walMaintenanceDetail,
   walMaintenanceHeadline,
@@ -247,7 +248,7 @@ function WALMaintenanceBanner({ data }: { data: IndexHealth }) {
   return (
     <Alert severity="warning" sx={{ mb: 1.5, py: 0.75, alignItems: 'flex-start' }} role="status">
       <Typography variant="subtitle2" component="div">
-        {walMaintenanceHeadline()}
+        {walMaintenanceHeadline(data.WALMaintenancePhase)}
       </Typography>
       <Typography
         variant="caption"
@@ -264,7 +265,7 @@ function WALMaintenanceBanner({ data }: { data: IndexHealth }) {
       />
       <Box sx={{ mt: 1 }}>
         <Button color="inherit" size="small" variant="outlined" disabled aria-disabled>
-          Checkpoint running…
+          {data.WALMaintenancePhase === WAL_PHASE_VACUUM ? 'VACUUM running…' : 'Checkpoint running…'}
         </Button>
       </Box>
     </Alert>

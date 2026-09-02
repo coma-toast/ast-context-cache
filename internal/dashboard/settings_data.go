@@ -12,6 +12,11 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 )
 
+// dataDirSize formats the on-disk size of the three databases for display in Settings.
+func dataDirSize() string {
+	return db.FormatFileSize(db.DataDirSizeBytes())
+}
+
 type settingsBuildOpts struct {
 	loadEmbedModels bool
 }
@@ -92,6 +97,8 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		EmbedAuxWorkerMax:        embedqueue.AuxMaxWorkers(),
 		EmbedAuxWorkers:          embedqueue.AuxWorkerTarget(),
 		EmbedAuxBackend:          strings.TrimSpace(db.GetSetting("EMBED_AUX_BACKEND", "onnx")),
+		DataDir:                  db.GetDataDir(),
+		DataDirSize:              dataDirSize(),
 	}
 	if data.EmbedAuxBackend == "" {
 		data.EmbedAuxBackend = "onnx"

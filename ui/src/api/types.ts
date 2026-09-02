@@ -245,6 +245,8 @@ export interface SettingsData {
   EmbedAuxWorkers?: number
   EmbedAuxBackend?: string
   EmbedProbeIntervalSec?: number
+  DataDir?: string
+  DataDirSize?: string
   WatcherIgnoreGlobs: string
   ProjectExcludePaths: string
   IndexLogFiles: boolean
@@ -364,4 +366,28 @@ export interface RecentLogLine {
   Message: string
   Raw?: string
   MsgTruncated?: boolean
+}
+
+export interface DataDirMoveStatus {
+  active: boolean
+  done: boolean
+  phase: string
+  target_dir: string
+  started_at: string
+  finished_at: string
+  error: string
+}
+
+export interface PruneStatus {
+  active: boolean
+  done: boolean
+  phase: string
+  started_at: string
+  finished_at: string
+  error: string
+  size_before_bytes: number
+  size_after_bytes: number
+  projects_purged: number
+  orphan_vectors: number
+  queries_pruned: number
 }

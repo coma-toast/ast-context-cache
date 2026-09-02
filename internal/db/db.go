@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/startup"
@@ -22,6 +23,9 @@ func DefaultLogPath() string {
 }
 
 func Init() error {
+	if _, err := ResolveDataDir(); err != nil {
+		return fmt.Errorf("configured data directory unavailable: %w — reconnect the drive, or delete %s to use the default location", err, locationOverridePath())
+	}
 	idxPath := indexDBPath()
 	ctxPath := contextDBPath()
 	usePath := usageDBPath()
@@ -136,7 +140,9 @@ func RemoveAgentConfig(agentType, installPath string) error {
 
 // EnsureFTSTriggers ensures symbol FTS triggers on the index database.
 func EnsureFTSTriggers() {
-	ensureIndexFTSTriggers(IndexDB)
+	if conn, err := IndexReader(); err == nil {
+		ensureIndexFTSTriggers(conn)
+	}
 }
 
 func LogQuery(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {
@@ -172,7 +178,11 @@ func UpsertIndexedFileWith(e Execer, file, projectPath string, indexedAt time.Ti
 
 func GetIndexedFiles(projectPath string) map[string]time.Time {
 	result := map[string]time.Time{}
-	rows, err := IndexDB.Query("SELECT file, indexed_at FROM indexed_files WHERE project_path = ?", projectPath)
+	conn, err := IndexReader()
+	if err != nil {
+		return result
+	}
+	rows, err := conn.Query("SELECT file, indexed_at FROM indexed_files WHERE project_path = ?", projectPath)
 	if err != nil {
 		return result
 	}
@@ -259,7 +269,56 @@ func StartWALCheckpoint() {
 	}
 }
 
+var (
+	compactMu       sync.Mutex
+	compactRunning  bool
+	compactPending  bool
+	compactRunCount int // test-only observability; incremented under compactMu
+)
+
+// Compact runs VACUUM on all three databases. Several independent callers can trigger
+// this concurrently (deleting/resetting more than one project fires one goroutine each,
+// plus the manual prune action and the daily ticker) — VACUUM is exclusive and expensive,
+// and running several at once against the same files causes cascading "database is
+// locked" errors and runaway WAL growth. But a plain "skip if already running" guard
+// silently drops work: if project A's delete arrives while project B's compaction is
+// already mid-VACUUM, A's freed pages never get reclaimed unless something runs again
+// after B finishes. So a concurrent call instead marks a pending flag; the in-progress
+// run checks it after finishing and does one more pass if anything came in meanwhile,
+// coalescing any number of concurrent callers into at most two actual VACUUM runs.
 func Compact() {
+	compactMu.Lock()
+	if compactRunning {
+		compactPending = true
+		compactMu.Unlock()
+		log.Println("VACUUM already in progress, will run again once it finishes")
+		return
+	}
+	compactRunning = true
+	compactMu.Unlock()
+
+	// Reuses the WAL-maintenance status/banner plumbing so the dashboard shows a busy
+	// indicator instead of index/vector counts silently reading as zero while the
+	// databases are quiesced for VACUUM.
+	beginWALMaintenance("vacuum")
+	setWALPhase(WALPhaseVacuum, "")
+	defer endWALMaintenance()
+
+	for {
+		runCompactOnce()
+		compactMu.Lock()
+		compactRunCount++
+		if !compactPending {
+			compactRunning = false
+			compactMu.Unlock()
+			return
+		}
+		compactPending = false
+		compactMu.Unlock()
+	}
+}
+
+func runCompactOnce() {
 	log.Println("Running VACUUM on index, context, and usage databases...")
 	start := time.Now()
 	for _, c := range []*sql.DB{IndexDB, ContextDB, DB} {

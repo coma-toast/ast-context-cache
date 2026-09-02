@@ -45,7 +45,36 @@ func StartDeletedProjectSweep() {
 // while it is in use, and there is nothing left to protect once the directory is
 // gone.
 func SweepDeletedProjects() []string {
-	due := recordScan(KnownProjectPaths(), dirExists)
+	return purgePaths(recordScan(KnownProjectPaths(), dirExists))
+}
+
+// SweepDeletedProjectsNow purges every known project whose directory is missing right
+// now, skipping the consecutive-miss debounce SweepDeletedProjects applies for the
+// unattended background ticker (which exists so a momentarily unmounted volume or a
+// wtg operation mid-flight doesn't look like a deletion). An explicit, user-initiated
+// cleanup — the Prune action — doesn't need that caution: clicking it is itself the
+// confirmation that "gone right now" means gone, and spaces that are created and
+// destroyed frequently shouldn't have to wait out up to three 5-minute ticks before
+// their data is reclaimed. Returns the paths purged.
+func SweepDeletedProjectsNow() []string {
+	var due []string
+	for _, p := range KnownProjectPaths() {
+		if !dirExists(p) {
+			due = append(due, p)
+		}
+	}
+	purged := purgePaths(due)
+	if len(purged) > 0 {
+		missMu.Lock()
+		for _, p := range purged {
+			delete(missCounts, p)
+		}
+		missMu.Unlock()
+	}
+	return purged
+}
+
+func purgePaths(due []string) []string {
 	var purged []string
 	for _, p := range due {
 		watcher.DeleteWatcher(p)

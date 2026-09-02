@@ -1,10 +1,12 @@
 import type {
   ContextSessionsResponse,
+  DataDirMoveStatus,
   Health,
   IndexHealth,
   MCPTier,
   MemoryData,
   Project,
+  PruneStatus,
   SettingsData,
   StartWatcherSpaceResult,
   Stats,
@@ -166,6 +168,11 @@ export const api = {
   embedderDismissAlert: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string }>('/api/embedder/dismiss-alert'),
   walCheckpoint: () => post<{ started?: boolean; status?: string }>('/api/wal-checkpoint', {}),
+  moveDataDir: (target: string) =>
+    post<{ started?: boolean; status?: string; error?: string }>('/api/data-dir/move', { target }),
+  dataDirMoveStatus: () => get<DataDirMoveStatus>('/api/data-dir/status'),
+  prune: () => post<{ started?: boolean; status?: string; error?: string }>('/api/prune', {}),
+  pruneStatus: () => get<PruneStatus>('/api/prune/status'),
   adjustEmbedWorkers: (delta: number) => post<{ status?: string; workers?: number; error?: string }>('/api/embed-workers', { delta }),
   adjustEmbedAuxWorkers: (delta: number) =>
     post<{ status?: string; workers?: number; error?: string }>('/api/embed-aux-workers', { delta }),
@@ -184,4 +191,12 @@ export function formatNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(n)
+}
+
+export function formatBytes(n: number): string {
+  if (n == null || !Number.isFinite(n)) return '0 B'
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`
+  return `${n} B`
 }
