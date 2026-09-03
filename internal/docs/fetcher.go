@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -289,12 +290,35 @@ func fetchJSONDocs(u *url.URL) ([]DocEntry, error) {
 }
 
 func fetchURL(raw string) ([]byte, error) {
+	if strings.HasPrefix(raw, "file://") {
+		return fetchLocalFile(raw)
+	}
 	resp, err := http.Get(raw)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
+}
+
+// fetchLocalFile reads a file:// doc source straight off disk — Go's http.Client has no
+// handler for the file scheme, so refreshing a source registered against a local path
+// (a repo's own docs, a synced notes file) needs its own path instead of http.Get.
+func fetchLocalFile(raw string) ([]byte, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse file URL: %w", err)
+	}
+	path := u.Path
+	if u.Host != "" && u.Host != "localhost" {
+		// file://host/path (rare outside Windows UNC paths) — best effort, not a case
+		// this tool otherwise needs to support.
+		path = "/" + u.Host + path
+	}
+	if path == "" {
+		return nil, fmt.Errorf("file URL %s has no path", raw)
+	}
+	return os.ReadFile(path)
 }
 
 type markdownSection struct {
