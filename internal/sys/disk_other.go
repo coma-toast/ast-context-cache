@@ -7,7 +7,7 @@ func DiskIORates() DiskIO {
 	return DiskIO{}
 }
 
-// SSDHealthInfo returns SSD health when supported on this platform.
-func SSDHealthInfo() SSDHealth {
-	return SSDHealth{}
+// SSDHealthInfo returns disk health when supported on this platform.
+func SSDHealthInfo(path string) SSDHealth {
+	return SSDHealth{WearUsedPct: -1, SparePct: -1, DataWrittenTB: -1, TemperatureC: -1}
 }

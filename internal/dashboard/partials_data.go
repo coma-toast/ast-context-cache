@@ -132,12 +132,15 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	diskIO := sys.DiskIORates()
 	h.DiskReadMBps = diskIO.ReadMBps
 	h.DiskWriteMBps = diskIO.WriteMBps
-	ssd := sys.SSDHealthInfo()
+	ssd := sys.SSDHealthInfo(db.GetDataDir())
 	h.SSDAvailable = ssd.Available
 	h.SSDModel = ssd.Model
 	h.SSDSmartStatus = ssd.SmartStatus
+	h.SSDSmartSource = ssd.SmartSource
 	h.SSDProtocol = ssd.Protocol
 	h.SSDCapacity = ssd.Capacity
+	h.SSDFreeSpace = ssd.FreeSpace
+	h.SSDExternal = ssd.IsExternal
 	h.SSDSolidState = ssd.SolidState
 	h.SSDTrim = ssd.TrimSupport
 	h.SSDWearUsedPct = ssd.WearUsedPct

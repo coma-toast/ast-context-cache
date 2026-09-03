@@ -155,8 +155,11 @@ export interface IndexHealth {
   DiskWriteMBps?: number
   SSDModel?: string
   SSDSmartStatus?: string
+  SSDSmartSource?: string
   SSDProtocol?: string
   SSDCapacity?: string
+  SSDFreeSpace?: string
+  SSDExternal?: boolean
   SSDSolidState?: boolean
   SSDTrim?: boolean
   SSDAvailable?: boolean
@@ -390,4 +393,17 @@ export interface PruneStatus {
   projects_purged: number
   orphan_vectors: number
   queries_pruned: number
+}
+
+export interface BrowseDirEntry {
+  name: string
+  path: string
+}
+
+export interface BrowseDirResult {
+  path: string
+  parent?: string
+  entries: BrowseDirEntry[]
+  shortcuts?: BrowseDirEntry[]
+  error?: string
 }

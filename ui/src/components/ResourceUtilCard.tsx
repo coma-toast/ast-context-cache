@@ -96,8 +96,13 @@ export function ResourceUtilCard({ data }: { data: IndexHealth }) {
         {data.SSDAvailable && (
           <Box sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-              <Typography variant="subtitle2">SSD health</Typography>
-              <Chip size="small" label={data.SSDSmartStatus || 'Unknown'} color={ssdSmartTone(data.SSDSmartStatus || '')} variant="outlined" />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="subtitle2">{data.SSDExternal ? 'External drive health' : 'SSD health'}</Typography>
+                {data.SSDExternal && <Chip size="small" label="USB" variant="outlined" />}
+              </Box>
+              <Tooltip title={data.SSDSmartSource ? `via ${data.SSDSmartSource}` : ''}>
+                <Chip size="small" label={data.SSDSmartStatus || 'Unknown'} color={ssdSmartTone(data.SSDSmartStatus || '')} variant="outlined" />
+              </Tooltip>
             </Box>
             {(data.SSDWearUsedPct ?? -1) >= 0 && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
@@ -129,6 +134,11 @@ export function ResourceUtilCard({ data }: { data: IndexHealth }) {
               <Grid size={{ xs: 6, sm: 3 }}>
                 <SsdItem label="Capacity" value={data.SSDCapacity || '-'} />
               </Grid>
+              {data.SSDFreeSpace && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <SsdItem label="Free" value={data.SSDFreeSpace} />
+                </Grid>
+              )}
               <Grid size={{ xs: 6, sm: 3 }}>
                 <SsdItem label="Protocol" value={data.SSDProtocol || '-'} />
               </Grid>

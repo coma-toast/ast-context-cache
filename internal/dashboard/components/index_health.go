@@ -28,8 +28,11 @@ type IndexHealth struct {
 	DiskWriteMBps            float64
 	SSDModel                 string
 	SSDSmartStatus           string
+	SSDSmartSource           string
 	SSDProtocol              string
 	SSDCapacity              string
+	SSDFreeSpace             string
+	SSDExternal              bool
 	SSDSolidState            bool
 	SSDTrim                  bool
 	SSDAvailable             bool

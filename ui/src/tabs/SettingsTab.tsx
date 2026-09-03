@@ -18,6 +18,7 @@ import type { DataDirMoveStatus, Project, PruneStatus, SettingsData } from '../a
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
+import { DirectoryPicker } from '../components/DirectoryPicker'
 
 const SECTIONS = [
   { id: 'performance', label: 'Performance' },
@@ -452,6 +453,7 @@ function StorageSection({ data }: { data: SettingsData }) {
   const [starting, setStarting] = useState(false)
   const [pruneStatus, setPruneStatus] = useState<PruneStatus | null>(null)
   const [pruneStarting, setPruneStarting] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -544,6 +546,9 @@ function StorageSection({ data }: { data: SettingsData }) {
               disabled={active}
               sx={{ minWidth: 280 }}
             />
+            <Button variant="outlined" size="small" disabled={active} onClick={() => setPickerOpen(true)}>
+              Browse…
+            </Button>
             <Button
               color="warning"
               variant="outlined"
@@ -554,6 +559,15 @@ function StorageSection({ data }: { data: SettingsData }) {
               {active ? 'Moving…' : 'Move data directory'}
             </Button>
           </Stack>
+          <DirectoryPicker
+            open={pickerOpen}
+            initialPath={target || data.DataDir}
+            onClose={() => setPickerOpen(false)}
+            onSelect={(p) => {
+              setTarget(p)
+              setPickerOpen(false)
+            }}
+          />
           {active && (
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
               {status?.phase || 'working'}…
