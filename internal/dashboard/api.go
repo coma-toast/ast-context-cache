@@ -1358,7 +1358,7 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 	queryCacheSize, queryCacheEntries := cache.GlobalCache.Stats()
 	cacheHitRatio := cache.GlobalCache.HitRatio()
 	diskIO := sys.DiskIORates()
-	ssd := sys.SSDHealthInfo()
+	ssd := sys.SSDHealthInfo(db.GetDataDir())
 	load := sys.HostLoadAverage()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1388,8 +1388,11 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 			"write_mbps":          diskIO.WriteMBps,
 			"ssd_model":           ssd.Model,
 			"ssd_smart":           ssd.SmartStatus,
+			"ssd_smart_source":    ssd.SmartSource,
 			"ssd_protocol":        ssd.Protocol,
 			"ssd_capacity":        ssd.Capacity,
+			"ssd_free_space":      ssd.FreeSpace,
+			"ssd_external":        ssd.IsExternal,
 			"ssd_trim":            ssd.TrimSupport,
 			"ssd_solid_state":     ssd.SolidState,
 			"ssd_wear_used_pct":   ssd.WearUsedPct,

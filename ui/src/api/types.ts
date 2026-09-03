@@ -155,8 +155,11 @@ export interface IndexHealth {
   DiskWriteMBps?: number
   SSDModel?: string
   SSDSmartStatus?: string
+  SSDSmartSource?: string
   SSDProtocol?: string
   SSDCapacity?: string
+  SSDFreeSpace?: string
+  SSDExternal?: boolean
   SSDSolidState?: boolean
   SSDTrim?: boolean
   SSDAvailable?: boolean

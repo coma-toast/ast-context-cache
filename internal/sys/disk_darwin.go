@@ -21,6 +21,7 @@ var (
 	diskIOWrite   uint64
 	diskHealthMu  sync.Mutex
 	diskHealth    SSDHealth
+	diskHealthFor string
 	diskHealthAt  time.Time
 	diskHealthTTL = 5 * time.Minute
 )
@@ -78,21 +79,84 @@ func blockStorageBytes() (read, write uint64, ok bool) {
 	return read, write, read > 0 || write > 0
 }
 
-// SSDHealthInfo returns cached SSD health for the boot disk (diskutil + NVMe profile).
-func SSDHealthInfo() SSDHealth {
+// SSDHealthInfo returns cached health for the disk holding path — the boot disk by
+// default (diskutil + NVMe profile, as before), or whatever disk path resolves to once
+// the data directory has been moved (e.g. to a USB drive).
+func SSDHealthInfo(path string) SSDHealth {
 	diskHealthMu.Lock()
 	defer diskHealthMu.Unlock()
-	if diskHealth.Available && time.Since(diskHealthAt) < diskHealthTTL {
+	if diskHealth.Available && diskHealthFor == path && time.Since(diskHealthAt) < diskHealthTTL {
 		return diskHealth
 	}
-	h := probeSSDHealth()
+	h := probeDiskHealth(path)
 	diskHealth = h
+	diskHealthFor = path
 	diskHealthAt = time.Now()
 	return h
 }
 
+// probeDiskHealth resolves path to its containing disk via `diskutil info`, which
+// accepts an arbitrary file/mount path and not just a disk or volume identifier. The
+// internal boot disk keeps the exact behavior this had before (Apple NVMe controllers
+// expose richer SMART data through system_profiler and diskutil's raw SMART key dump
+// than the generic path below asks for); any other disk — typically a moved external/
+// USB data directory — is probed generically, with smartmontools tried on top when
+// installed, since it sees through some USB bridges that diskutil's SMART Status can't.
+func probeDiskHealth(path string) SSDHealth {
+	empty := SSDHealth{WearUsedPct: -1, SparePct: -1, DataWrittenTB: -1, TemperatureC: -1}
+	device := deviceForPath(path)
+	if device == "" {
+		return empty
+	}
+	out, err := exec.Command("diskutil", "info", device).Output()
+	if err != nil {
+		return empty
+	}
+	kv := parseDiskutilKV(string(out))
+	wholeDisk := kv["part of whole"]
+	if wholeDisk == "" {
+		wholeDisk = kv["device identifier"]
+	}
+	// There's exactly one internal disk controller worth profiling this way regardless
+	// of which specific APFS volume/container path resolves to (the boot volume is a
+	// synthesized container like disk3, not the physical disk0) — "not external" is the
+	// actual condition that matters, not a specific disk identifier.
+	if !strings.EqualFold(kv["device location"], "external") {
+		return probeSSDHealth()
+	}
+
+	h := SSDHealth{
+		Device:        wholeDisk,
+		Model:         kv["device / media name"],
+		SmartStatus:   kv["smart status"],
+		Protocol:      kv["protocol"],
+		SolidState:    strings.EqualFold(kv["solid state"], "yes"),
+		TrimSupport:   strings.EqualFold(kv["trim support"], "yes"),
+		IsExternal:    strings.EqualFold(kv["device location"], "external"),
+		Capacity:      humanBeforeParen(kv["disk size"]),
+		FreeSpace:     humanBeforeParen(kv["volume free space"]),
+		WearUsedPct:   -1,
+		SparePct:      -1,
+		DataWrittenTB: -1,
+		TemperatureC:  -1,
+	}
+	if h.Model == "" {
+		h.Model = kv["media name"]
+	}
+	if h.SmartStatus != "" {
+		h.SmartSource = "diskutil"
+	}
+	if h.Model != "" || h.SmartStatus != "" || h.Capacity != "" {
+		h.Available = true
+	}
+	if applySmartctl(&h, wholeDisk) {
+		h.Available = true
+	}
+	return h
+}
+
 func probeSSDHealth() SSDHealth {
-	h := SSDHealth{Device: "disk0"}
+	h := SSDHealth{Device: "disk0", WearUsedPct: -1, SparePct: -1, DataWrittenTB: -1, TemperatureC: -1}
 	out, err := exec.Command("diskutil", "info", "disk0").Output()
 	if err != nil {
 		return h
@@ -105,6 +169,10 @@ func probeSSDHealth() SSDHealth {
 	h.SmartStatus = kv["smart status"]
 	h.Protocol = kv["protocol"]
 	h.SolidState = strings.EqualFold(kv["solid state"], "yes")
+	h.FreeSpace = humanBeforeParen(kv["volume free space"])
+	if h.SmartStatus != "" {
+		h.SmartSource = "diskutil"
+	}
 	if h.Model != "" || h.SmartStatus != "" {
 		h.Available = true
 	}
@@ -122,7 +190,37 @@ func probeSSDHealth() SSDHealth {
 		h.Available = true
 	}
 	applySmartWear(&h, smartKeysFromDiskutil())
+	applySmartctl(&h, "disk0")
 	return h
+}
+
+// humanBeforeParen extracts the human-readable prefix of a diskutil size field, e.g.
+// "263.1 MB" from "263.1 MB (263090176 Bytes) (exactly 513848 512-Byte-Units)".
+func humanBeforeParen(v string) string {
+	if i := strings.Index(v, " ("); i > 0 {
+		return v[:i]
+	}
+	return v
+}
+
+// deviceForPath resolves an arbitrary file/directory path to the device identifier
+// (e.g. "disk3s5") of the volume containing it. `diskutil info` only accepts a disk,
+// volume, or mount-point identifier — not an arbitrary subdirectory — so an ordinary
+// path like ~/.astcache has to be resolved to its containing filesystem via `df` first.
+func deviceForPath(path string) string {
+	out, err := exec.Command("df", path).Output()
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimPrefix(fields[0], "/dev/")
 }
 
 const nvmeDataUnitBytes = 512_000 // NVMe SMART log data unit size
@@ -152,6 +250,100 @@ func applySmartWear(h *SSDHealth, smart map[string]uint64) {
 	if v, ok := smart["TEMPERATURE"]; ok && v > 0 {
 		h.TemperatureC = float64(v) / 10
 	}
+}
+
+type smartctlResult struct {
+	SmartStatus *struct {
+		Passed bool `json:"passed"`
+	} `json:"smart_status"`
+	Temperature *struct {
+		Current int `json:"current"`
+	} `json:"temperature"`
+	ModelName                     string `json:"model_name"`
+	ModelFamily                   string `json:"model_family"`
+	NVMeSmartHealthInformationLog *struct {
+		PercentageUsed   int    `json:"percentage_used"`
+		AvailableSpare   int    `json:"available_spare"`
+		DataUnitsWritten uint64 `json:"data_units_written"`
+	} `json:"nvme_smart_health_information_log"`
+}
+
+// applySmartctl tries smartmontools, when installed, on top of whatever diskutil
+// already found — it sees through some USB-SATA/USB-NVMe bridge chips that diskutil's
+// own SMART Status reports as "Not Supported". Only fills in fields diskutil (or, for
+// the internal disk, the NVMe profile) left unknown, so a working diskutil/NVMe read
+// is never overwritten by a weaker smartctl one. Returns whether anything was added.
+func applySmartctl(h *SSDHealth, wholeDisk string) bool {
+	if wholeDisk == "" {
+		return false
+	}
+	smartctlPath, err := exec.LookPath("smartctl")
+	if err != nil {
+		return false
+	}
+	// smartctl exits non-zero for various informational bit flags (e.g. "SMART usage
+	// attribute exceeded") even when it produced perfectly good JSON, so parse
+	// whatever came back on stdout regardless of the exit status.
+	out, _ := exec.Command(smartctlPath, "-a", "-j", "/dev/"+wholeDisk).Output()
+	return applySmartctlJSON(h, out)
+}
+
+// applySmartctlJSON fills in whatever smartctl -j reported that diskutil (or the NVMe
+// profile) hadn't already found. Split out from applySmartctl so the parsing/merge
+// logic is testable without shelling out to a real smartctl binary.
+func applySmartctlJSON(h *SSDHealth, out []byte) bool {
+	if len(out) == 0 {
+		return false
+	}
+	var r smartctlResult
+	if json.Unmarshal(out, &r) != nil {
+		return false
+	}
+	if r.SmartStatus == nil && r.Temperature == nil && r.NVMeSmartHealthInformationLog == nil {
+		// Most commonly a permission error (raw device access needs root on macOS) or
+		// the bridge chip didn't answer — nothing usable came back either way.
+		return false
+	}
+
+	found := false
+	if r.SmartStatus != nil && (h.SmartStatus == "" || strings.EqualFold(h.SmartStatus, "not supported")) {
+		if r.SmartStatus.Passed {
+			h.SmartStatus = "Verified"
+		} else {
+			h.SmartStatus = "Failing"
+		}
+		h.SmartSource = "smartctl"
+		found = true
+	}
+	if h.Model == "" {
+		if r.ModelName != "" {
+			h.Model = r.ModelName
+		} else if r.ModelFamily != "" {
+			h.Model = r.ModelFamily
+		}
+	}
+	if r.Temperature != nil && r.Temperature.Current > 0 && h.TemperatureC < 0 {
+		h.TemperatureC = float64(r.Temperature.Current)
+		found = true
+	}
+	if log := r.NVMeSmartHealthInformationLog; log != nil {
+		if h.WearUsedPct < 0 {
+			h.WearUsedPct = log.PercentageUsed
+			found = true
+		}
+		if h.SparePct < 0 {
+			h.SparePct = log.AvailableSpare
+			found = true
+		}
+		if h.DataWrittenTB < 0 && log.DataUnitsWritten > 0 {
+			tb := float64(log.DataUnitsWritten*nvmeDataUnitBytes) / 1e12
+			if !math.IsNaN(tb) && tb >= 0 {
+				h.DataWrittenTB = math.Round(tb*10) / 10
+				found = true
+			}
+		}
+	}
+	return found
 }
 
 func smartKeysFromDiskutil() map[string]uint64 {
