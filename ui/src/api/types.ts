@@ -381,6 +381,8 @@ export interface DataDirMoveStatus {
   started_at: string
   finished_at: string
   error: string
+  /** db filenames whose source was missing and got started fresh instead of copied. */
+  recreated?: string[] | null
 }
 
 export interface PruneStatus {

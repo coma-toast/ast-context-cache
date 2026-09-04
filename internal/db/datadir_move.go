@@ -22,6 +22,11 @@ type DataDirMoveSnapshot struct {
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Error      string
+	// Recreated lists db filenames (index.db, context.db, usage.db) whose source file
+	// was missing at move time — e.g. a USB drive that disconnected and came back with
+	// the file gone. Each is started fresh and empty at the target instead of copying
+	// whatever SQLite would otherwise auto-create at the dead source path.
+	Recreated []string
 }
 
 var (
@@ -79,15 +84,17 @@ func StartDataDirMove(target string) (started bool, errMsg string) {
 
 func runDataDirMove(target string) {
 	type step struct {
-		pool     *sql.DB
-		filename string
-		label    string
+		pool       *sql.DB
+		filename   string
+		label      string
+		sourcePath string
 	}
 	steps := []step{
-		{IndexDB, indexFile, "copying index.db"},
-		{ContextDB, contextFile, "copying context.db"},
-		{DB, usageFile, "copying usage.db"},
+		{IndexDB, indexFile, "copying index.db", indexDBPath()},
+		{ContextDB, contextFile, "copying context.db", contextDBPath()},
+		{DB, usageFile, "copying usage.db", usageDBPath()},
 	}
+	var recreated []string
 	for _, s := range steps {
 		snap := GetDataDirMoveSnapshot()
 		snap.Phase = s.label
@@ -99,6 +106,23 @@ func runDataDirMove(target string) {
 		}
 		destPath := filepath.Join(target, s.filename)
 		os.Remove(destPath)
+
+		if _, err := os.Stat(s.sourcePath); err != nil {
+			// The source file is gone — most likely the drive that held it
+			// disconnected and came back empty, or was swapped for a different one
+			// at the same path. The pool handle is still open, so a VACUUM INTO would
+			// have SQLite silently (re)create an empty database at sourcePath first
+			// and copy that, losing whatever was there without saying so. Start fresh
+			// at the target instead and say so plainly.
+			if createErr := createEmptyDB(destPath); createErr != nil {
+				finishDataDirMove(fmt.Errorf("%s: source missing (%s) and could not create a fresh database: %w", s.label, s.sourcePath, createErr))
+				return
+			}
+			log.Printf("data dir move: %s not found at %s — created a fresh, empty database at %s instead of copying", s.filename, s.sourcePath, destPath)
+			recreated = append(recreated, s.filename)
+			continue
+		}
+
 		if _, err := s.pool.Exec(`VACUUM INTO ?`, destPath); err != nil {
 			os.Remove(destPath)
 			finishDataDirMove(fmt.Errorf("%s: %w", s.label, err))
@@ -115,13 +139,30 @@ func runDataDirMove(target string) {
 		return
 	}
 
-	log.Printf("data dir move: copied index.db, context.db, and usage.db to %s — restart ast-mcp to use the new location", target)
+	if len(recreated) > 0 {
+		log.Printf("data dir move: copied to %s (%s started fresh — see above) — restart ast-mcp to use the new location", target, strings.Join(recreated, ", "))
+	} else {
+		log.Printf("data dir move: copied index.db, context.db, and usage.db to %s — restart ast-mcp to use the new location", target)
+	}
 	snap = GetDataDirMoveSnapshot()
 	snap.Active = false
 	snap.Done = true
 	snap.Phase = "done"
 	snap.FinishedAt = time.Now()
+	snap.Recreated = recreated
 	setDataDirMove(snap)
+}
+
+// createEmptyDB opens (creating if needed) a fresh SQLite database file at path and
+// closes it immediately — used when a move's source file is missing and there is
+// nothing to copy.
+func createEmptyDB(path string) error {
+	conn, err := sql.Open("sqlite3", path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return conn.Ping()
 }
 
 func finishDataDirMove(err error) {
