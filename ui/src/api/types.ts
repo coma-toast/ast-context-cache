@@ -218,6 +218,8 @@ export interface IndexHealth {
   WALInFlight?: number
   WALLastBusy?: number
   WALPressure?: string | number
+  DriveDisconnected?: boolean
+  DriveDisconnectedPath?: string
   /** Unix seconds of last stuck-worker auto-recover, or 0. */
   LastAutoRecoverUnix?: number
   Watchers: WatcherInfo[]

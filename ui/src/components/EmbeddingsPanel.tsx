@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext'
 import { chartColors } from '../lib/chartColors'
 import { pendingRingCap, throughputPct } from '../lib/embedGauges'
 import {
+  driveDisconnectedDetail,
   formatAutoRecoverAgo,
   WAL_PHASE_VACUUM,
   walCheckpointButtonDisabled,
@@ -28,14 +29,17 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
   const stateColor =
     embedState === 'error' ? 'error' : embedOk ? 'success' : embedState === 'degraded' ? 'warning' : 'default'
   const startupBusy = embedState === 'loading' || embedState === 'starting'
-  const showWalBanner = Boolean(data.WALMaintenanceActive)
-  const checkpointDisabled = walCheckpointButtonDisabled(showWalBanner, startupBusy)
+  const showDriveBanner = Boolean(data.DriveDisconnected)
+  const showWalBanner = !showDriveBanner && Boolean(data.WALMaintenanceActive)
+  const checkpointDisabled = walCheckpointButtonDisabled(showWalBanner || showDriveBanner, startupBusy)
   const effective = data.EmbedWorkersEffective ?? data.EmbedWorkers
   const walBadge = workerWalBadgeText(showWalBanner, data.EmbedWorkers, effective) || undefined
   const walTitle = walBadge ? workerWalBadgeTitle(data, data.EmbedWorkers, effective) || undefined : undefined
   const hasError = Boolean(data.EmbedderError)
-  // While WAL is compacting, the maintenance banner owns the alert slot (matches templ).
+  // The drive-disconnected banner takes priority over WAL maintenance, which in turn
+  // owns the alert slot over the regular embedder alert (matches templ).
   const showAlert =
+    !showDriveBanner &&
     !showWalBanner &&
     (hasError || embedState === 'error' || embedState === 'degraded' || embedState === 'loading')
   const panelBusy = (data.EmbedActive ?? 0) > 0 || data.EmbedQueued > 0
@@ -70,6 +74,7 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
           <Chip size="small" label={embedState} color={stateColor} />
         </Stack>
 
+        {showDriveBanner && <DriveDisconnectedBanner data={data} />}
         {showWalBanner && <WALMaintenanceBanner data={data} />}
 
         {showAlert && (
@@ -239,6 +244,23 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function DriveDisconnectedBanner({ data }: { data: IndexHealth }) {
+  return (
+    <Alert severity="error" sx={{ mb: 1.5, py: 0.75, alignItems: 'flex-start' }} role="alert">
+      <Typography variant="subtitle2" component="div">
+        Drive disconnected
+      </Typography>
+      <Typography
+        variant="caption"
+        component="div"
+        sx={{ mt: 0.25, wordBreak: 'break-word' }}
+      >
+        {driveDisconnectedDetail(data.DriveDisconnectedPath)}
+      </Typography>
+    </Alert>
   )
 }
 

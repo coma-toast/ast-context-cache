@@ -127,6 +127,12 @@ export function workerWalBadgeTitle(h: WalHealthFields, target: number, effectiv
   return `SQLite WAL throttled: ${effective} of ${target} worker goroutines running`
 }
 
+/** Matches db.declareDriveDisconnected's log message, adapted for the dashboard banner. */
+export function driveDisconnectedDetail(path?: string): string {
+  const where = path ? ` (${path})` : ''
+  return `Data directory unreachable${where} — the drive may have been disconnected. Reconnect it, then restart ast-mcp (mcp-local restart ast-context-cache). This session cannot recover the connection on its own.`
+}
+
 export function formatAutoRecoverAgo(unixSec: number, nowMs = Date.now()): string {
   if (!unixSec || unixSec <= 0) return ''
   const agoSec = Math.max(0, Math.floor(nowMs / 1000 - unixSec))
