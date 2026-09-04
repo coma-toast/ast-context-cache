@@ -91,6 +91,8 @@ type IndexHealth struct {
 	WALInFlight              int64
 	WALLastBusy              int
 	WALPressure              string
+	DriveDisconnected        bool
+	DriveDisconnectedPath    string
 	LastAutoRecoverUnix      int64
 }
 

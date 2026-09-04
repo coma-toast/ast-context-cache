@@ -98,6 +98,7 @@ func main() {
 		}
 		watcher.EnsureDefaultIgnoreGlobs()
 		go db.StartWALCheckpoint()
+		go db.StartDriveMonitor()
 
 		mcpMux := http.NewServeMux()
 		mcpMux.HandleFunc("/mcp", mcp.NewHandler())

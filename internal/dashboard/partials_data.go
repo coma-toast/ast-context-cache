@@ -81,6 +81,9 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 	h.WALInFlight = walSnap.InFlight
 	h.WALLastBusy = walSnap.LastBusy
 	h.WALPressure = db.WalPressure()
+	driveSnap := db.GetDriveDisconnectedSnapshot()
+	h.DriveDisconnected = driveSnap.Active
+	h.DriveDisconnectedPath = driveSnap.Path
 	eq := embedqueue.Snapshot()
 	h.EmbedQueued = eq.Queued
 	h.EmbedPending = eq.Pending
@@ -232,6 +235,9 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.WALInFlight = walSnap.InFlight
 	h.WALLastBusy = walSnap.LastBusy
 	h.WALPressure = db.WalPressure()
+	driveSnap := db.GetDriveDisconnectedSnapshot()
+	h.DriveDisconnected = driveSnap.Active
+	h.DriveDisconnectedPath = driveSnap.Path
 	applyActiveEmbedder(&h)
 	return h
 }
