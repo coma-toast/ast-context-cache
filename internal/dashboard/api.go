@@ -1586,6 +1586,7 @@ func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
 		"started_at":  s.StartedAt,
 		"finished_at": s.FinishedAt,
 		"error":       s.Error,
+		"recreated":   s.Recreated,
 	})
 }
 

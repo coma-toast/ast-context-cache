@@ -580,6 +580,16 @@ function StorageSection({ data }: { data: SettingsData }) {
               everything works after restart.
             </Alert>
           )}
+          {!active && status?.done && status.recreated && status.recreated.length > 0 && (
+            <Alert severity="warning" sx={{ mt: 1.5 }}>
+              {status.recreated.join(', ')} {status.recreated.length > 1 ? 'were' : 'was'} missing at the
+              current location (likely a drive that disconnected and came back empty) and{' '}
+              {status.recreated.length > 1 ? 'were' : 'was'} started fresh and empty at the new location
+              instead of copied. {status.recreated.includes('index.db')
+                ? 'Your projects will need to be re-indexed after restart (per-project Re-index button, or re-add the watcher).'
+                : ''}
+            </Alert>
+          )}
           {!active && status?.error && (
             <Alert severity="error" sx={{ mt: 1.5 }}>
               {status.error}
