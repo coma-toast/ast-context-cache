@@ -100,25 +100,24 @@ func runDataDirMove(target string) {
 		snap.Phase = s.label
 		setDataDirMove(snap)
 
-		if s.pool == nil {
-			finishDataDirMove(fmt.Errorf("%s: database not open", s.filename))
-			return
-		}
 		destPath := filepath.Join(target, s.filename)
 		os.Remove(destPath)
 
-		if _, err := os.Stat(s.sourcePath); err != nil {
-			// The source file is gone — most likely the drive that held it
-			// disconnected and came back empty, or was swapped for a different one
-			// at the same path. The pool handle is still open, so a VACUUM INTO would
-			// have SQLite silently (re)create an empty database at sourcePath first
-			// and copy that, losing whatever was there without saying so. Start fresh
-			// at the target instead and say so plainly.
+		_, statErr := os.Stat(s.sourcePath)
+		// Nothing usable to copy from — either the pool itself isn't open (e.g. the
+		// WAL-maintenance quiesce nil'd IndexDB and couldn't reopen it because the
+		// drive holding it went missing), or the source file is gone even though the
+		// pool handle is still open (the drive disconnected and came back empty, or
+		// was swapped for a different one at the same path). In the latter case a
+		// VACUUM INTO would have SQLite silently (re)create an empty database at
+		// sourcePath first and copy that, losing whatever was there without saying
+		// so. Either way, start fresh at the target instead and say so plainly.
+		if s.pool == nil || statErr != nil {
 			if createErr := createEmptyDB(destPath); createErr != nil {
-				finishDataDirMove(fmt.Errorf("%s: source missing (%s) and could not create a fresh database: %w", s.label, s.sourcePath, createErr))
+				finishDataDirMove(fmt.Errorf("%s: source unavailable and could not create a fresh database: %w", s.label, createErr))
 				return
 			}
-			log.Printf("data dir move: %s not found at %s — created a fresh, empty database at %s instead of copying", s.filename, s.sourcePath, destPath)
+			log.Printf("data dir move: %s unavailable (pool open=%v, source stat err=%v) — created a fresh, empty database at %s instead of copying", s.filename, s.pool != nil, statErr, destPath)
 			recreated = append(recreated, s.filename)
 			continue
 		}
