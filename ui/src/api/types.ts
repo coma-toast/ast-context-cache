@@ -383,6 +383,8 @@ export interface DataDirMoveStatus {
   error: string
   /** db filenames whose source was missing and got started fresh instead of copied. */
   recreated?: string[] | null
+  /** db filenames that already existed at the target and were kept as-is instead of copied. */
+  kept?: string[] | null
 }
 
 export interface PruneStatus {

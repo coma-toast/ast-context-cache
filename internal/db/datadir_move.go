@@ -27,6 +27,10 @@ type DataDirMoveSnapshot struct {
 	// the file gone. Each is started fresh and empty at the target instead of copying
 	// whatever SQLite would otherwise auto-create at the dead source path.
 	Recreated []string
+	// Kept lists db filenames that already existed (non-empty) at the target and were
+	// left as-is instead of being overwritten by a copy from source — e.g. moving back
+	// to a USB drive that already holds a database from an earlier move.
+	Kept []string
 }
 
 var (
@@ -94,13 +98,25 @@ func runDataDirMove(target string) {
 		{ContextDB, contextFile, "copying context.db", contextDBPath()},
 		{DB, usageFile, "copying usage.db", usageDBPath()},
 	}
-	var recreated []string
+	var recreated, kept []string
 	for _, s := range steps {
 		snap := GetDataDirMoveSnapshot()
 		snap.Phase = s.label
 		setDataDirMove(snap)
 
 		destPath := filepath.Join(target, s.filename)
+
+		if fi, err := os.Stat(destPath); err == nil && fi.Size() > 0 {
+			// A database already sits at the target — most likely this is a drive
+			// that was moved to before (e.g. reconnecting a USB drive that already
+			// holds a full copy from an earlier move). Switch to using it rather than
+			// clobbering it with a fresh copy from source.
+			log.Printf("data dir move: %s already exists at %s (%d bytes) — keeping it instead of overwriting", s.filename, destPath, fi.Size())
+			kept = append(kept, s.filename)
+			continue
+		}
+		// A zero-byte leftover (e.g. from a previously interrupted move) isn't worth
+		// keeping — clear it so the copy/create-fresh path below starts clean.
 		os.Remove(destPath)
 
 		_, statErr := os.Stat(s.sourcePath)
@@ -138,9 +154,10 @@ func runDataDirMove(target string) {
 		return
 	}
 
-	if len(recreated) > 0 {
-		log.Printf("data dir move: copied to %s (%s started fresh — see above) — restart ast-mcp to use the new location", target, strings.Join(recreated, ", "))
-	} else {
+	switch {
+	case len(recreated) > 0 || len(kept) > 0:
+		log.Printf("data dir move: finished at %s (recreated: %s; kept existing: %s) — restart ast-mcp to use the new location", target, joinOrNone(recreated), joinOrNone(kept))
+	default:
 		log.Printf("data dir move: copied index.db, context.db, and usage.db to %s — restart ast-mcp to use the new location", target)
 	}
 	snap = GetDataDirMoveSnapshot()
@@ -149,7 +166,15 @@ func runDataDirMove(target string) {
 	snap.Phase = "done"
 	snap.FinishedAt = time.Now()
 	snap.Recreated = recreated
+	snap.Kept = kept
 	setDataDirMove(snap)
+}
+
+func joinOrNone(items []string) string {
+	if len(items) == 0 {
+		return "none"
+	}
+	return strings.Join(items, ", ")
 }
 
 // createEmptyDB opens (creating if needed) a fresh SQLite database file at path and
