@@ -58,7 +58,10 @@ func Init() error {
 	ensureIndexFTSTriggers(IndexDB)
 	startIndexWriter()
 	StartWriteBatchers()
-	go IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	go func() {
+		IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		IndexDB.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
+	}()
 	return nil
 }
 

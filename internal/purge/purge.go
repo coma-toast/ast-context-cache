@@ -39,6 +39,8 @@ func ProjectData(projectPath string) error {
 	// which is far cheaper than firing a trigger per removed symbol.
 	conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
 	conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+	conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_ins")
+	conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_del")
 	_, delErr := conn.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
 	if delErr == nil {
 		conn.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
@@ -47,6 +49,7 @@ func ProjectData(projectPath string) error {
 		conn.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
 		conn.Exec("DELETE FROM embed_pending WHERE project_path = ?", projectPath)
 		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		conn.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
 	}
 	db.EnsureFTSTriggers()
 	if delErr != nil {

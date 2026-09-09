@@ -37,6 +37,15 @@ func initIndexSchema(conn *sql.DB) {
 
 	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(name, fqn, code, content='symbols', content_rowid='id')`)
 
+	// symbols_trigram indexes just name+fqn (not the full code body, to keep the
+	// trigram index — which runs several times the size of the indexed text —
+	// reasonably sized) with SQLite's built-in trigram tokenizer. Unlike symbols_fts's
+	// default unicode61 tokenizer, which only matches whole tokens or prefixes,
+	// trigram indexing matches ANY substring — e.g. a search for "Cache" finds
+	// "VectorCache" and "EmbedCache", which unicode61 can't since those are single
+	// tokens. See BuildTrigramQuery/TrigramSearch in internal/search/bm25.go.
+	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS symbols_trigram USING fts5(name, fqn, content='symbols', content_rowid='id', tokenize="trigram")`)
+
 	conn.Exec(`
 		CREATE TABLE IF NOT EXISTS summaries (
 			id INTEGER PRIMARY KEY,
@@ -95,5 +104,11 @@ func ensureIndexFTSTriggers(conn *sql.DB) {
 	END`)
 	conn.Exec(`CREATE TRIGGER IF NOT EXISTS symbols_fts_del AFTER DELETE ON symbols BEGIN
 		INSERT INTO symbols_fts(symbols_fts, rowid, name, fqn, code) VALUES('delete', old.id, old.name, old.fqn, old.code);
+	END`)
+	conn.Exec(`CREATE TRIGGER IF NOT EXISTS symbols_trigram_ins AFTER INSERT ON symbols BEGIN
+		INSERT INTO symbols_trigram(rowid, name, fqn) VALUES (new.id, new.name, new.fqn);
+	END`)
+	conn.Exec(`CREATE TRIGGER IF NOT EXISTS symbols_trigram_del AFTER DELETE ON symbols BEGIN
+		INSERT INTO symbols_trigram(symbols_trigram, rowid, name, fqn) VALUES('delete', old.id, old.name, old.fqn);
 	END`)
 }
