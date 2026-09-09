@@ -590,6 +590,13 @@ function StorageSection({ data }: { data: SettingsData }) {
                 : ''}
             </Alert>
           )}
+          {!active && status?.done && status.kept && status.kept.length > 0 && (
+            <Alert severity="info" sx={{ mt: 1.5 }}>
+              {status.kept.join(', ')} already existed at <code>{status.target_dir}</code> (e.g. from an
+              earlier move) — {status.kept.length > 1 ? 'they were' : 'it was'} left as-is and switched to
+              rather than overwritten.
+            </Alert>
+          )}
           {!active && status?.error && (
             <Alert severity="error" sx={{ mt: 1.5 }}>
               {status.error}
