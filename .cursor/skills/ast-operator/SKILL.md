@@ -55,7 +55,7 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
 | **Analytics** | Tool performance table, symbol/language/import charts |
 | **Recent** | MCP tool calls vs indexing activity (accessible error expand) |
-| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **projects (link/unlink subprojects)**, agent install, MCP tier (read-only) |
+| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **storage (move data directory, prune, drive/SSD health)**, **projects (link/unlink subprojects)**, agent install, MCP tier (read-only) |
 
 ### Settings (operators)
 
@@ -65,6 +65,17 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 - **Watcher ignore globs** — JSON array
 - **Embedding backend** — persisted to SQLite; env overrides on restart
 - **MCP tier** — read-only card (`AST_MCP_TIER`, `~/.astcache/tools.json`)
+
+### Storage (operators)
+
+Settings → Storage covers moving the data directory to another disk (e.g. a USB drive), reclaiming space, and disk health.
+
+- **Move data directory** — `POST /api/data-dir/move` (picker, not free text) copies `index.db`, `context.db`, `usage.db` to a new location via SQLite `VACUUM INTO`, live while ast-mcp keeps serving traffic. Old files at the current location are left untouched. The new location takes effect on the next `ast-mcp restart`. `GET /api/data-dir/status` reports progress and, per file, whether it was:
+  - copied normally,
+  - **recreated** fresh and empty — the source file was missing or its pool wasn't open (e.g. the WAL-maintenance quiesce couldn't reopen it because the backing drive was unreachable); the dashboard flags which project(s) will need re-indexing, or
+  - **kept** as-is — a non-empty database already existed at the target (e.g. reconnecting a drive that was already moved to before), so it was adopted instead of overwritten.
+- **Prune** — `POST /api/prune` sweeps projects whose directory no longer exists, removes orphaned code vectors, prunes query history past retention, then runs `VACUUM` on all three databases so freed space actually shrinks the files (needs roughly as much free disk as the current DB size; fails as a plain disk-full error on a near-full volume). `GET /api/prune/status` reports size before/after, projects swept, orphan vectors removed, and queries pruned.
+- **Drive/SSD health** — internal SSD and external/USB drive status (model, protocol, capacity/free space, SMART status, wear/spare percentage, data written, temperature) shown alongside the storage stats; falls back to `smartctl` (if installed) when `diskutil`'s own SMART verdict is incomplete, without letting a weaker `smartctl` result override a stronger `diskutil` one.
 
 ### Helping users interpret gauges
 
@@ -123,6 +134,7 @@ See [`docker/ast-mcp/README.md`](../../docker/ast-mcp/README.md). Parent [`docke
 | **Maintenance pause** | Quiet/forced maintenance or swap (WAL TRUNCATE, embed backend swap) | Writers paused; UI may show compacting/maintenance. On success, workers restore. **Auto-recover ignores active maintenance.** If restore fails and workers stay stuck at 0 with target &gt; 0, the 5m auto-recover path applies after maintenance ends. |
 | **Embedder error + aux catch-up** | Primary embedder health = `error` | Primary workers idle; if aux (e.g. ONNX) can catch up, pending files still flush via aux. Log: `flush pending via aux catch-up`. Fix primary (`GET /embed/health`, Settings → Retry), or rely on aux until healthy. |
 | **Process down** | Crash or kill | Without keep-alive, MCP/dashboard stop. Use **`ast-mcp supervise`** (1s→2s→5s backoff) or Docker Compose `restart: unless-stopped`. Abnormal prior exit may show a crash/restart banner on next start. |
+| **Drive disconnected** | The data directory lives on a USB/external drive that was unplugged mid-session | Detected within **~10s** (reachability + device-id checked every 5s; declared after 2 consecutive misses). Embed workers pause and no new DB work starts; dashboard shows a red **Drive disconnected** banner (higher priority than the WAL-maintenance banner) — but this only shrinks the crash window, it cannot prevent one: SQLite's WAL mode memory-maps its `-shm` file, and touching a mapped page whose backing device just vanished raises `SIGBUS`, which is fatal and unrecoverable in Go. **No auto-reconnect** — reconnect the drive, then `ast-mcp restart`. |
 
 **Auto-recover (5m):** Restores workers only when target &gt; 0, live count is 0, and **not** intentional pause / **not** maintenance. Does not override workers=0 you set on purpose.
 
