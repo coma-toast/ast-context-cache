@@ -58,7 +58,15 @@ func Init() error {
 	ensureIndexFTSTriggers(IndexDB)
 	startIndexWriter()
 	StartWriteBatchers()
-	go IndexDB.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	// Capture the pool handle rather than closing over the IndexDB package var: if a
+	// later Init()/Close() call (e.g. from another test in the same process) reassigns
+	// or nils IndexDB while this goroutine is still running, an Exec on a *closed*
+	// *sql.DB just returns an error — but an Exec on a *nil* one panics.
+	idx := IndexDB
+	go func() {
+		idx.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		idx.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
+	}()
 	return nil
 }
 

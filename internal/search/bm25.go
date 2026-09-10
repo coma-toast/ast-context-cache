@@ -58,11 +58,86 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 	}
 
 	if len(scored) == 0 {
+		scored = TrigramSearch(terms, projectPath, filters)
+	}
+
+	if len(scored) == 0 {
 		scored = FallbackSearch(terms, projectPath, filters)
 	}
 
 	scored = filterScoredResults(scored, projectPath, filters)
 	return scored
+}
+
+// TrigramSearch matches terms as substrings anywhere in a symbol's name or fqn, using
+// the trigram-tokenized symbols_trigram index (see schema_index.go). This is the fast,
+// indexed path for queries that BuildFTSQuery's prefix-only matching misses — e.g.
+// "Cache" against "VectorCache", which unicode61 tokenizes as a single token and so
+// never matches a "Cache*" prefix query. Falls back to FallbackSearch's LIKE scan only
+// when this also finds nothing (or every term is under 3 characters, the trigram
+// tokenizer's minimum matchable substring length).
+func TrigramSearch(terms []string, projectPath string, filters *SearchFilters) []ScoredResult {
+	conn, err := db.IndexReader()
+	if err != nil {
+		return nil
+	}
+	tqQuery := BuildTrigramQuery(terms)
+	if tqQuery == "" {
+		return nil
+	}
+	q := `
+		SELECT s.name, s.kind, s.file, s.start_line, s.end_line, t.rank
+		FROM symbols_trigram t
+		JOIN symbols s ON t.rowid = s.id
+		WHERE `
+	scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
+	q += scopeFrag + ` AND symbols_trigram MATCH ?`
+	args := append(scopeArgs, tqQuery)
+	if frag, extra := symbolFilterSQL(filters, projectPath); frag != "" {
+		q += " AND " + frag
+		args = append(args, extra...)
+	}
+	q += `
+		ORDER BY t.rank
+		LIMIT 100`
+	rows, err := conn.Query(q, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var scored []ScoredResult
+	for rows.Next() {
+		var name, kind, file string
+		var startLine, endLine int
+		var rank float64
+		rows.Scan(&name, &kind, &file, &startLine, &endLine, &rank)
+		scored = append(scored, ScoredResult{
+			Data: map[string]interface{}{
+				"name": name, "kind": kind, "file": file,
+				"start_line": startLine, "end_line": endLine,
+			},
+			Score: -rank,
+		})
+	}
+	return scored
+}
+
+// BuildTrigramQuery quotes each term as a literal substring phrase and ORs them
+// together, mirroring BuildFTSQuery's "any of these terms" semantics. Terms under 3
+// characters are dropped since the trigram tokenizer can never match them.
+func BuildTrigramQuery(terms []string) string {
+	var parts []string
+	for _, t := range terms {
+		if len(t) < 3 {
+			continue
+		}
+		parts = append(parts, `"`+strings.ReplaceAll(t, `"`, `""`)+`"`)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " OR ")
 }
 
 func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) []ScoredResult {

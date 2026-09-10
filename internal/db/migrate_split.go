@@ -100,6 +100,7 @@ func migrateSplitDB(usagePath, indexPath, contextPath string) error {
 		return fmt.Errorf("split migration index: %w", err)
 	}
 	idx.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+	idx.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
 
 	startup.SetMessage("Migrating database (context tables)…")
 	if err := copyTablesFromAttach(ctxDB, usagePath, contextTables); err != nil {

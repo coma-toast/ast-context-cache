@@ -277,6 +277,8 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		}
 		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
 		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_ins")
+		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_del")
 		if _, err := conn.Exec("DELETE FROM symbols"); err != nil {
 			db.EnsureFTSTriggers()
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -285,6 +287,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		conn.Exec("DELETE FROM edges")
 		conn.Exec("DELETE FROM indexed_files")
 		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		conn.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
 		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
@@ -1308,6 +1311,8 @@ func deleteProjectData(projectPath string) {
 	if err == nil {
 		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
 		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
+		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_ins")
+		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_del")
 		conn.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
 		conn.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
 		conn.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
@@ -1317,6 +1322,7 @@ func deleteProjectData(projectPath string) {
 		conn.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
 		conn.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
 		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
+		conn.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
 	}
 	db.EnsureFTSTriggers()
 	cache.GlobalCache.ClearProject(projectPath)
