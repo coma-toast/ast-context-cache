@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
@@ -21,14 +22,15 @@ const (
 )
 
 var (
-	auxEmb          embedder.Interface
-	auxEmbMu        sync.RWMutex
-	auxWorkerCount  = defaultAuxWorkers
-	auxWorkerTarget = defaultAuxWorkers
-	auxWorkerLive   atomic.Int64
-	auxWorkerMu     sync.Mutex
-	auxWorkerStop   chan struct{}
-	auxStarted      sync.Once
+	auxEmb              embedder.Interface
+	auxEmbMu            sync.RWMutex
+	auxWorkerCount      = defaultAuxWorkers
+	auxWorkerTarget     = defaultAuxWorkers
+	auxWorkerLive       atomic.Int64
+	auxWorkerMu         sync.Mutex
+	auxWorkerStop       chan struct{}
+	auxStarted          sync.Once
+	auxManualOverrideAt time.Time
 )
 
 // SetAuxEmbedder sets the catch-up embedder for aux workers.
@@ -126,6 +128,7 @@ func applyAuxWorkerCountLocked(n int, persist bool) error {
 		auxWorkerTarget = auxWorkerCount
 		persistAuxWorkerCount(auxWorkerCount)
 		log.Printf("embed queue: aux workers set to %d", auxWorkerCount)
+		auxManualOverrideAt = time.Now()
 	}
 	realtime.Notify(realtime.EmbedFinished | realtime.IndexHealth)
 	return nil

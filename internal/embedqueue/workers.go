@@ -13,25 +13,34 @@ import (
 )
 
 const (
-	MinWorkers               = 0
-	DefaultMaxWorkers        = 15
-	AbsoluteMaxWorkers       = 64
-	defaultWorkers           = 3
-	embedWorkersSetting      = "EMBED_WORKERS"
-	embedWorkerMaxSetting    = "embed_worker_max"
-	startupProcessingDelay   = 10 * time.Second
+	MinWorkers             = 0
+	DefaultMaxWorkers      = 15
+	AbsoluteMaxWorkers     = 64
+	defaultWorkers         = 3
+	embedWorkersSetting    = "EMBED_WORKERS"
+	embedWorkerMaxSetting  = "embed_worker_max"
+	startupProcessingDelay = 10 * time.Second
+
+	// manualOverrideGrace is how long a manual SetWorkerCount/AdjustWorkers (or aux
+	// equivalent) call is protected from the WAL-backpressure ceiling. Without this,
+	// applyWalBackpressure's 30s ticker would silently reset the pool right back down
+	// on its very next tick — embedding activity itself writes to the WAL, so it almost
+	// never shrinks by the required 4MB in that window, meaning an operator's manual
+	// raise never got a real chance to run before being undone.
+	manualOverrideGrace = 2 * time.Minute
 )
 
 var (
-	workerCount            = defaultWorkers
-	workerTarget           = defaultWorkers
-	workerLive             atomic.Int64
-	workerMu               sync.Mutex
-	workerStop             chan struct{}
-	startupWorkerOverride  *int
-	processingReadyAt      time.Time
-	lastThrottleApplied    int
-	backpressureKick       atomic.Bool
+	workerCount           = defaultWorkers
+	workerTarget          = defaultWorkers
+	workerLive            atomic.Int64
+	workerMu              sync.Mutex
+	workerStop            chan struct{}
+	startupWorkerOverride *int
+	processingReadyAt     time.Time
+	lastThrottleApplied   int
+	backpressureKick      atomic.Bool
+	manualOverrideAt      time.Time
 )
 
 func beginProcessingWindow() {
@@ -144,6 +153,7 @@ func applyWorkerCountLocked(n int, persist bool) error {
 		persistWorkerCount(workerCount)
 		log.Printf("embed queue: workers set to %d", workerCount)
 		maybeQuietOnWorkersPaused(workerCount)
+		manualOverrideAt = time.Now()
 	}
 	realtime.Notify(realtime.EmbedFinished | realtime.IndexHealth)
 	return nil
@@ -207,6 +217,8 @@ func startPressureBackoff() {
 
 // applyWalBackpressure resizes both embed pools to the current WAL ceiling. The ceiling
 // ratchets down to 0 while the WAL refuses to drain, so writers stop and TRUNCATE can win.
+// A pool that was manually set within manualOverrideGrace is exempt from being reduced
+// below what was requested — see applyPrimaryCeiling/applyAuxCeiling.
 func applyWalBackpressure() {
 	workerMu.Lock()
 	paused := swapPauseDepth > 0
@@ -225,13 +237,13 @@ func applyWalBackpressure() {
 
 func applyPrimaryCeiling(target, ceiling int) {
 	n := db.ThrottledEmbedWorkers(target)
-	if ceiling >= 0 && ceiling < n {
-		n = ceiling
-	}
 	workerMu.Lock()
 	if swapPauseDepth > 0 {
 		workerMu.Unlock()
 		return
+	}
+	if ceiling >= 0 && ceiling < n && time.Since(manualOverrideAt) >= manualOverrideGrace {
+		n = ceiling
 	}
 	cur := workerCount
 	if n == cur {
@@ -266,7 +278,7 @@ func applyAuxCeiling(ceiling int) {
 		return
 	}
 	want := auxWorkerTarget
-	if ceiling >= 0 && ceiling < want {
+	if ceiling >= 0 && ceiling < want && time.Since(auxManualOverrideAt) >= manualOverrideGrace {
 		want = ceiling
 	}
 	prev := auxWorkerCount
