@@ -201,14 +201,16 @@ func fileHasPathPrefix(file, projectPath, prefix string) bool {
 	}
 	prefix = strings.TrimPrefix(prefix, "./")
 	fileSlash := filepath.ToSlash(file)
-	// Absolute prefix: compare to full file path
+	// Absolute prefix: compare to full file path. Both branches require an
+	// exact match or a "/"-bounded subdirectory match — a bare HasPrefix would
+	// let prefix="internal/mcp" match a sibling like "internal/mcpextra/...".
 	if filepath.IsAbs(prefix) {
-		p := filepath.ToSlash(prefix)
-		return strings.HasPrefix(fileSlash, p) || strings.HasPrefix(fileSlash, strings.TrimSuffix(p, "/")+"/")
+		p := strings.TrimSuffix(filepath.ToSlash(prefix), "/")
+		return fileSlash == p || strings.HasPrefix(fileSlash, p+"/")
 	}
 	rel := filepath.ToSlash(db.RelPath(file, projectPath))
 	p := strings.Trim(prefix, "/")
-	return rel == p || strings.HasPrefix(rel, p+"/") || strings.HasPrefix(rel, p)
+	return rel == p || strings.HasPrefix(rel, p+"/")
 }
 
 // languageExtensions maps a coarse language name to file suffixes used in the repo.
