@@ -3,9 +3,9 @@
  * Panels rendered with fixture data don't need real network calls; button clicks
  * in stories resolve harmlessly instead of hitting a live ast-mcp server.
  *
- * NOTE: formatNum/formatUptime are duplicated (not re-exported) from `../api/client`
- * because that import specifier is itself aliased to this file — re-exporting it
- * would create a self-import loop.
+ * NOTE: formatNum/formatUptime/formatBytes are duplicated (not re-exported) from
+ * `../api/client` because that import specifier is itself aliased to this file —
+ * re-exporting it would create a self-import loop.
  */
 export function formatUptime(ns: number): string {
   const sec = Math.floor(ns / 1e9)
@@ -20,6 +20,14 @@ export function formatNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(n)
+}
+
+export function formatBytes(n: number): string {
+  if (n == null || !Number.isFinite(n)) return '0 B'
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`
+  return `${n} B`
 }
 
 const noop = async (): Promise<never> => {

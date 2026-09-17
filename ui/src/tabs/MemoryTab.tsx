@@ -136,6 +136,7 @@ export function MemoryTab({
                         <RefreshIcon fontSize="small" />
                       </IconButton>
                       <IconButton size="small" aria-label="Delete" onClick={async () => {
+                        if (!confirm(`Delete doc source "${d.Name}"?`)) return
                         try {
                           await api.docSourceAction('delete', d.ID)
                           showToast('Deleted', 'success')
