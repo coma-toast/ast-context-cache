@@ -327,14 +327,20 @@ export interface DocSource {
 
 export interface RecentQuery {
   Timestamp: string
+  TimestampTitle: string
   ToolName: string
   Query: string
-  ProjectPath: string
-  DurationMs: number
-  CPUMs: number
-  TokensSaved: number
-  Error: string
   Mode: string
+  Budget: number
+  Saved: number
+  DedupTokensSaved: number
+  Project: string
+  DurationMs: number
+  CpuMs: number
+  Error: string
+  Event: string
+  File: string
+  FileTitle: string
 }
 
 export interface ToolStat {
