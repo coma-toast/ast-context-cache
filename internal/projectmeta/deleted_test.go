@@ -83,3 +83,55 @@ func TestDiscoverPathsSkipsDeleted(t *testing.T) {
 		t.Fatalf("expected previously-deleted repo back in %v after ClearDeleted", paths)
 	}
 }
+
+// Same as TestDiscoverPathsSkipsDeleted, but for the WTG-space layout specifically:
+// deleting one repo checkout from the dashboard while its sibling repo (and the
+// space directory itself) remain untouched on disk.
+func TestDiscoverPathsSkipsDeletedSpaceRepoButKeepsSiblings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	testExcludeDB(t)
+
+	space := filepath.Join(home, "spaces", "echo")
+	deletedRepo := filepath.Join(space, "slapi")
+	keptRepo := filepath.Join(space, "console")
+	mkWorktree(t, deletedRepo)
+	mkWorktree(t, keptRepo)
+
+	before := DiscoverPaths()
+	foundDeleted, foundKept := false, false
+	for _, p := range before {
+		if p == filepath.Clean(deletedRepo) {
+			foundDeleted = true
+		}
+		if p == filepath.Clean(keptRepo) {
+			foundKept = true
+		}
+	}
+	if !foundDeleted || !foundKept {
+		t.Fatalf("both repos should be discovered before delete: %v", before)
+	}
+
+	// Simulate the dashboard's "delete project" action against just one repo in
+	// the space — the directory itself (and its sibling) stay on disk.
+	MarkDeleted(deletedRepo)
+	if _, err := os.Stat(deletedRepo); err != nil {
+		t.Fatalf("deleted repo's directory must still exist on disk: %v", err)
+	}
+
+	after := DiscoverPaths()
+	for _, p := range after {
+		if p == filepath.Clean(deletedRepo) {
+			t.Fatalf("deleted space repo was re-discovered: %v", after)
+		}
+	}
+	found := false
+	for _, p := range after {
+		if p == filepath.Clean(keptRepo) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("sibling repo in the same space must still be discovered: %v", after)
+	}
+}
