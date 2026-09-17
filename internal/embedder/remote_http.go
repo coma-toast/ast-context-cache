@@ -87,7 +87,7 @@ func (h *HTTPEmbedder) Embed(texts []string) ([][]float32, error) {
 	if len(out.Embeddings) != len(trimmed) {
 		return nil, fmt.Errorf("embed: got %d vectors for %d inputs", len(out.Embeddings), len(trimmed))
 	}
-	if err := checkDims(out.Embeddings, ActiveDim); err != nil {
+	if err := checkDims(out.Embeddings, GetActiveDim()); err != nil {
 		return nil, err
 	}
 	return out.Embeddings, nil

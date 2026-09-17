@@ -250,15 +250,16 @@ func handleEmbedHealthHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if embedState == "error" {
 		status = "error"
 	}
+	activeBackend, activeModel, activeRuntime, _, activeDim := embedder.ActiveSnapshot()
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":          status,
 		"state":           embedState,
 		"error":           embedErr,
-		"model":           embedder.ActiveModel,
-		"dimensions":      embedder.ActiveDim,
+		"model":           activeModel,
+		"dimensions":      activeDim,
 		"loaded":          embedder.IsLoaded(),
-		"backend":         embedder.ActiveBackend,
-		"runtime":         embedder.ActiveRuntime,
+		"backend":         activeBackend,
+		"runtime":         activeRuntime,
 		"startup_phase":   payload["startup_phase"],
 		"startup_message": payload["startup_message"],
 	})

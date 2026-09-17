@@ -146,7 +146,7 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		}
 		vecs[i] = v
 	}
-	if err := checkDims(vecs, ActiveDim); err != nil {
+	if err := checkDims(vecs, GetActiveDim()); err != nil {
 		return nil, err
 	}
 	return vecs, nil

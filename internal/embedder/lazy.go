@@ -24,9 +24,13 @@ func NewLazy(modelDir string) *LazyEmbedder {
 	return le
 }
 
-func (le *LazyEmbedder) get() (*Embedder, error) {
-	le.mu.Lock()
-	defer le.mu.Unlock()
+// getLocked returns the loaded embedder, lazy-loading it if necessary. The
+// caller must already hold le.mu — for the whole duration of the actual
+// Embed/EmbedSingle call, not just for fetching the pointer. Releasing the
+// lock right after fetching le.inner (the previous behavior) let idleLoop's
+// ticker acquire le.mu and Close() the same *Embedder instance while a caller
+// was still mid-call on it, a use-after-close race for a large in-flight batch.
+func (le *LazyEmbedder) getLocked() (*Embedder, error) {
 	le.lastUsed = time.Now()
 	if le.inner != nil {
 		return le.inner, nil
@@ -43,7 +47,9 @@ func (le *LazyEmbedder) get() (*Embedder, error) {
 }
 
 func (le *LazyEmbedder) Embed(texts []string) ([][]float32, error) {
-	e, err := le.get()
+	le.mu.Lock()
+	defer le.mu.Unlock()
+	e, err := le.getLocked()
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +57,9 @@ func (le *LazyEmbedder) Embed(texts []string) ([][]float32, error) {
 }
 
 func (le *LazyEmbedder) EmbedSingle(text string) ([]float32, error) {
-	e, err := le.get()
+	le.mu.Lock()
+	defer le.mu.Unlock()
+	e, err := le.getLocked()
 	if err != nil {
 		return nil, err
 	}

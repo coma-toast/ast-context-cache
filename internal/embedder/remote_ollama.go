@@ -107,7 +107,7 @@ func (o *OllamaEmbedder) postEmbed(texts []string) ([][]float32, error) {
 	if len(out.Embeddings) != len(texts) {
 		return nil, fmt.Errorf("ollama: got %d embeddings for %d inputs", len(out.Embeddings), len(texts))
 	}
-	if err := checkDims(out.Embeddings, ActiveDim); err != nil {
+	if err := checkDims(out.Embeddings, GetActiveDim()); err != nil {
 		return nil, err
 	}
 	return out.Embeddings, nil
