@@ -52,7 +52,7 @@ export function WatchersPanel({ watchers, onRefresh }: { watchers: WatcherInfo[]
             }}
           >
             <WatcherSubCard title="Projects" items={local} onRefresh={onRefresh} />
-            {showSpaces && <WatcherSubCard title="Spaces" entries={spaceFlat} onRefresh={onRefresh} />}
+            {showSpaces && <WatcherSubCard title="Spaces" entries={spaceFlat} onRefresh={onRefresh} reconcilable />}
           </Box>
         )}
       </CardContent>
@@ -65,12 +65,32 @@ function WatcherSubCard({
   items,
   entries,
   onRefresh,
+  reconcilable,
 }: {
   title: string
   items?: WatcherInfo[]
   entries?: { watcher: WatcherInfo; groupKey: string; groupLabel: string }[]
   onRefresh?: () => void
+  /** WTG spaces are ephemeral — offer a one-click reconcile against disk. */
+  reconcilable?: boolean
 }) {
+  const { showToast } = useToast()
+  const [reconciling, setReconciling] = useState(false)
+
+  const reconcile = async () => {
+    setReconciling(true)
+    try {
+      const result = await api.reconcileSpaces()
+      const n = result.purged?.length ?? 0
+      showToast(n > 0 ? `Reconciled: removed ${n} project(s) no longer on disk` : 'Reconciled: nothing to remove', 'success')
+      onRefresh?.()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Reconcile failed', 'error')
+    } finally {
+      setReconciling(false)
+    }
+  }
+
   const rows =
     entries ??
     (items || []).map((watcher) => ({
@@ -92,10 +112,21 @@ function WatcherSubCard({
   return (
     <Card variant="outlined" sx={{ bgcolor: 'background.default' }}>
       <CardContent sx={{ '&:last-child': { pb: 2 } }}>
-        <Stack direction="row" alignItems="baseline" justifyContent="space-between" spacing={1} sx={{ mb: 1 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
-            {title}
-          </Typography>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 1 }}>
+          <Stack direction="row" alignItems="baseline" spacing={0.75}>
+            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
+              {title}
+            </Typography>
+            {reconcilable && (
+              <Tooltip title="Reconcile with disk: spaces are ephemeral, so any indexed project no longer on disk is removed immediately, no confirmation">
+                <span>
+                  <IconButton size="small" aria-label="Refresh spaces" disabled={reconciling} onClick={() => void reconcile()}>
+                    <RefreshIcon fontSize="inherit" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )}
+          </Stack>
           <Typography variant="caption" color="text.secondary">
             {range}
           </Typography>

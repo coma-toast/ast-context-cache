@@ -127,6 +127,12 @@ export interface StartWatcherSpaceResult {
   errors?: string[]
 }
 
+/** Result of reconciling indexed space projects against what's still on disk. */
+export interface ReconcileSpacesResult {
+  status?: string
+  purged: string[]
+}
+
 export interface EmbedActivityItem {
   File: string
   ProjectPath: string

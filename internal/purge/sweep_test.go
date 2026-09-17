@@ -178,6 +178,48 @@ func TestSweepDeletedProjectsNowPurgesImmediately(t *testing.T) {
 	}
 }
 
+// SweepDeletedSpaceProjectsNow backs the dashboard's Spaces-card "Refresh"
+// button: it must purge a missing repo under a WTG space, but leave a
+// missing project OUTSIDE the spaces root untouched — that's the whole
+// reason it's a separate, scoped function rather than just reusing
+// SweepDeletedProjectsNow (which would also sweep unrelated ~/git projects).
+func TestSweepDeletedSpaceProjectsNowIsScopedToSpaces(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := db.Init(); err != nil {
+		t.Fatal(err)
+	}
+	ResetMissCounts()
+
+	spaceRepo := filepath.Join(home, "spaces", "throwaway", "slapi")
+	nonSpaceRepo := filepath.Join(home, "git", "some-project")
+	for _, p := range []string{spaceRepo, nonSpaceRepo} {
+		if err := os.MkdirAll(p, 0755); err != nil {
+			t.Fatal(err)
+		}
+		seedProject(t, p)
+	}
+
+	// Both directories vanish, but only the space repo should be reconciled.
+	if err := os.RemoveAll(filepath.Join(home, "spaces")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(nonSpaceRepo); err != nil {
+		t.Fatal(err)
+	}
+
+	purged := SweepDeletedSpaceProjectsNow()
+	if len(purged) != 1 || purged[0] != spaceRepo {
+		t.Fatalf("purged=%v want only [%s]", purged, spaceRepo)
+	}
+	assertPurged(t, spaceRepo)
+	// The non-space project is untouched: still indexed despite being gone
+	// from disk, since this sweep must not act outside the spaces root.
+	if symbolCount(t, nonSpaceRepo) == 0 {
+		t.Fatalf("non-space project must not be purged by the space-scoped sweep")
+	}
+}
+
 func TestProjectDataRequiresPath(t *testing.T) {
 	if err := ProjectData("  "); err == nil {
 		t.Fatal("expected error for empty project_path")
