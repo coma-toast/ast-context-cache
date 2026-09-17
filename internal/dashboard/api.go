@@ -235,7 +235,10 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
-	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL GROUP BY project_path")
+	// Capped at 500, same defensive bound /api/recent already applies — this is
+	// otherwise a fully unbounded list, same risk the Memory tab's doc-sources
+	// pagination fixed for a different endpoint.
+	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) as query_count FROM queries WHERE project_path IS NOT NULL GROUP BY project_path ORDER BY query_count DESC LIMIT 500")
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
@@ -291,6 +294,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
+		log.Printf("dashboard: reset cleared ALL indexed data across every project (project_path=\"all\")")
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
 		return
 	}

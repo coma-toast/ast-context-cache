@@ -7,6 +7,7 @@ package purge
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -85,6 +86,7 @@ func ProjectData(projectPath string) error {
 
 	cache.GlobalCache.ClearProject(projectPath)
 	search.Cache.DeleteByProject(projectPath)
+	log.Printf("purge: deleted all indexed data and memory for project %s", projectPath)
 	return nil
 }
 
