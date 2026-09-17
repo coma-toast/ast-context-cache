@@ -72,6 +72,7 @@ function DashboardInner() {
   const [imports, setImports] = useState<{ target: string; count: number }[] | null>(null)
   const [recentMcp, setRecentMcp] = useState<import('./api/types').RecentQuery[] | null>(null)
   const [recentIdx, setRecentIdx] = useState<import('./api/types').RecentQuery[] | null>(null)
+  const [docSourcesPage, setDocSourcesPage] = useState(1)
   const [loadErrors, setLoadErrors] = useState<string[]>([])
   const [abnormalDismissed, setAbnormalDismissed] = useState(false)
 
@@ -95,7 +96,7 @@ function DashboardInner() {
         tasks.push(run('contextSessions', api.contextSessions(pid), setContextSessions))
       }
       if (keys.includes('indexHealth')) tasks.push(run('indexHealth', api.indexHealth(pid), setIndexHealth))
-      if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid), setMemory))
+      if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid, docSourcesPage), setMemory))
       if (keys.includes('settings')) tasks.push(run('settings', api.settings(), setSettings))
       if (keys.includes('mcpTier')) tasks.push(run('mcpTier', api.mcpTier(), setMcpTier))
       if (keys.includes('timeseries')) tasks.push(run('timeseries', api.timeseries(pid, timeseriesInterval), setTimeseries))
@@ -129,7 +130,7 @@ function DashboardInner() {
         failures.forEach((f) => showToast(f, 'error'))
       }
     },
-    [pid, timeseriesInterval, showToast],
+    [pid, timeseriesInterval, docSourcesPage, showToast],
   )
 
   const loadAll = useCallback(() => {
@@ -150,6 +151,14 @@ function DashboardInner() {
   useEffect(() => {
     load(['timeseries'])
   }, [timeseriesInterval, load])
+
+  useEffect(() => {
+    load(['memory'])
+  }, [docSourcesPage, load])
+
+  useEffect(() => {
+    setDocSourcesPage(1)
+  }, [pid])
 
   useWebSocket(
     (panels) => {
@@ -327,7 +336,12 @@ function DashboardInner() {
           )}
           {tab === 'memory' && (
             <ErrorBoundary label="Memory">
-              <MemoryTab data={memory} onRefresh={() => load(['memory'])} />
+              <MemoryTab
+                data={memory}
+                onRefresh={() => load(['memory'])}
+                docSourcesPage={docSourcesPage}
+                onDocSourcesPageChange={setDocSourcesPage}
+              />
             </ErrorBoundary>
           )}
           {tab === 'activity' && (

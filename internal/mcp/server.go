@@ -19,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -193,6 +194,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if info.IsDir() {
 					n, indexErr = indexer.IndexDirectory(path, projectPath)
 					if indexErr == nil {
+						projectmeta.ClearDeleted(projectPath)
 						watcher.EnsureWatcher(projectPath)
 						if emb != nil {
 							go embedqueue.EnqueueAllSymbolsFiles(projectPath)
@@ -200,8 +202,11 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					}
 				} else {
 					n, _, _, indexErr = indexer.IndexFile(path, projectPath)
-					if indexErr == nil && emb != nil {
-						go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
+					if indexErr == nil {
+						projectmeta.ClearDeleted(projectPath)
+						if emb != nil {
+							go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
+						}
 					}
 				}
 				if indexErr != nil {
