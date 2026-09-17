@@ -8,6 +8,7 @@ import type {
   MemoryData,
   Project,
   PruneStatus,
+  ReconcileSpacesResult,
   SettingsData,
   StartWatcherSpaceResult,
   Stats,
@@ -137,6 +138,7 @@ export const api = {
   deleteWatcher: (project_path: string) => post('/api/delete-watcher', { project_path }),
   startWatcher: (project_path: string) => post<{ status?: string }>('/api/start-watcher', { project_path }),
   startWatcherSpace: (space: string) => post<StartWatcherSpaceResult>('/api/start-watcher-space', { space }),
+  reconcileSpaces: () => post<ReconcileSpacesResult>('/api/reconcile-spaces', {}),
   stopWatcher: (project_path: string) => post<{ status?: string }>('/api/stop-watcher', { project_path }),
   indexProject: (project_path: string) =>
     post<{ status?: string; symbols?: number }>('/api/index-project', { project_path }),

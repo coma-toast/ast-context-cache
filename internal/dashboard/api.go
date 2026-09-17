@@ -50,6 +50,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/stop-watcher", handleStopWatcher)
 	mux.HandleFunc("/api/start-watcher", handleStartWatcher)
 	mux.HandleFunc("/api/start-watcher-space", handleStartWatcherSpace)
+	mux.HandleFunc("/api/reconcile-spaces", handleReconcileSpaces)
 	mux.HandleFunc("/api/index-project", handleIndexProject)
 	mux.HandleFunc("/api/delete-watcher", handleDeleteWatcher)
 	mux.HandleFunc("/api/timeseries", handleTimeseries)
@@ -1258,6 +1259,27 @@ func handleStartWatcherSpace(w http.ResponseWriter, r *http.Request) {
 		"already_running": alreadyRunning,
 		"skipped":         skipped,
 		"errors":          errs,
+	})
+}
+
+// handleReconcileSpaces purges indexed data for any known project under a WTG
+// space whose directory no longer exists on disk. WTG spaces are created and
+// destroyed constantly, so unlike deleting a single project from the
+// Settings/Watchers panels, this needs no per-item confirmation — "the space
+// is gone" is the confirmation. Backs the Spaces card's "Refresh" button.
+func handleReconcileSpaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	purgedPaths := purge.SweepDeletedSpaceProjectsNow()
+	if purgedPaths == nil {
+		purgedPaths = []string{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "reconciled",
+		"purged": purgedPaths,
 	})
 }
 

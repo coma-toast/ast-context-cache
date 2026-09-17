@@ -57,6 +57,8 @@ export const api = {
   resetProject: noop,
   deleteWatcher: noop,
   startWatcher: noop,
+  startWatcherSpace: noop,
+  reconcileSpaces: noop,
   stopWatcher: noop,
   indexProject: noop,
   setProjectLabel: noop,
