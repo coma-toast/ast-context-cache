@@ -3,11 +3,13 @@ package purge
 import (
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -57,8 +59,34 @@ func SweepDeletedProjects() []string {
 // destroyed frequently shouldn't have to wait out up to three 5-minute ticks before
 // their data is reclaimed. Returns the paths purged.
 func SweepDeletedProjectsNow() []string {
-	var due []string
+	return sweepMissingNow(KnownProjectPaths())
+}
+
+// SweepDeletedSpaceProjectsNow is SweepDeletedProjectsNow scoped to WTG spaces
+// (paths under projectmeta.SpacesRoot()) — used by the dashboard's Spaces
+// card "Refresh" button to reconcile ast-context-cache's indexed projects
+// against what's actually still on disk. Spaces are created and destroyed
+// constantly (see package doc), so a project no longer on disk under the
+// spaces root needs no confirmation: "gone" is unambiguous. Returns the
+// paths purged.
+func SweepDeletedSpaceProjectsNow() []string {
+	root := projectmeta.SpacesRoot()
+	if root == "" {
+		return nil
+	}
+	prefix := root + string(os.PathSeparator)
+	var scoped []string
 	for _, p := range KnownProjectPaths() {
+		if strings.HasPrefix(p, prefix) {
+			scoped = append(scoped, p)
+		}
+	}
+	return sweepMissingNow(scoped)
+}
+
+func sweepMissingNow(paths []string) []string {
+	var due []string
+	for _, p := range paths {
 		if !dirExists(p) {
 			due = append(due, p)
 		}
