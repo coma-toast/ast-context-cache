@@ -11,6 +11,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -42,6 +43,11 @@ func ProjectData(projectPath string) error {
 	// ast-mcp startup) doesn't re-surface it in the dashboard's project list either.
 	// Only an explicit tool call against this exact path should bring it back.
 	projectmeta.MarkDeleted(projectPath)
+	// Drop parent/child monorepo-container links involving this path — otherwise a
+	// stale row survives the delete and, since validateLink refuses to link a parent
+	// that's "already linked under another container", can block a legitimate new
+	// link from ever being created at this path again.
+	projectlinks.RemoveLinksForPath(projectPath)
 
 	conn, err := db.IndexReader()
 	if err != nil {
