@@ -14,7 +14,7 @@ type Story = StoryObj
 export const Healthy: Story = {
   render: () => (
     <StoryFrame>
-      <MemoryTab data={fixtureMemory} onRefresh={() => {}} />
+      <MemoryTab data={fixtureMemory} onRefresh={() => {}} docSourcesPage={1} onDocSourcesPageChange={() => {}} />
     </StoryFrame>
   ),
 }
@@ -22,7 +22,12 @@ export const Healthy: Story = {
 export const EmptyDocs: Story = {
   render: () => (
     <StoryFrame>
-      <MemoryTab data={fixtureMemoryEmptyDocs} onRefresh={() => {}} />
+      <MemoryTab
+        data={fixtureMemoryEmptyDocs}
+        onRefresh={() => {}}
+        docSourcesPage={1}
+        onDocSourcesPageChange={() => {}}
+      />
     </StoryFrame>
   ),
 }

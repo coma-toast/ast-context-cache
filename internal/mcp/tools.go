@@ -485,7 +485,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "export_bundle",
-			Description: "Export indexed code as a portable bundle file. Bundles can be shared or imported on other machines without re-indexing.",
+			Description: "Not yet implemented — calling this returns an error. Intended to export indexed code as a portable bundle file that can be shared or imported on other machines without re-indexing.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -499,7 +499,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "import_bundle",
-			Description: "Import a previously exported code bundle. Loads all symbols, edges, and summaries without needing to re-index.",
+			Description: "Not yet implemented — calling this returns an error. Intended to import a previously exported code bundle, loading all symbols, edges, and summaries without needing to re-index.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -569,10 +569,13 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "list_doc_sources",
-			Description: "List all tracked documentation sources with their last update time.",
+			Description: "List tracked documentation sources with their last update time. Paginated (default 10 per page) — pass page/per_page for more.",
 			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
+				"type": "object",
+				"properties": map[string]interface{}{
+					"page":     map[string]string{"type": "integer", "description": "Page number, 1-based (default 1)"},
+					"per_page": map[string]string{"type": "integer", "description": "Results per page (default 10)"},
+				},
 			},
 			Tier:     TierCore,
 			ReadOnly: true,

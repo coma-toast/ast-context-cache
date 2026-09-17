@@ -327,14 +327,20 @@ export interface DocSource {
 
 export interface RecentQuery {
   Timestamp: string
+  TimestampTitle: string
   ToolName: string
   Query: string
-  ProjectPath: string
-  DurationMs: number
-  CPUMs: number
-  TokensSaved: number
-  Error: string
   Mode: string
+  Budget: number
+  Saved: number
+  DedupTokensSaved: number
+  Project: string
+  DurationMs: number
+  CpuMs: number
+  Error: string
+  Event: string
+  File: string
+  FileTitle: string
 }
 
 export interface ToolStat {
@@ -361,6 +367,8 @@ export interface TimeseriesPoint {
 
 export interface MCPTier {
   tier: string
+  code_mode: boolean
+  tool_overrides: Record<string, { enabled: boolean; tier: string }>
   tools_json_path: string
   tools_json_exists: boolean
 }
@@ -399,6 +407,7 @@ export interface PruneStatus {
   projects_purged: number
   orphan_vectors: number
   queries_pruned: number
+  memory_pruned: number
 }
 
 export interface BrowseDirEntry {

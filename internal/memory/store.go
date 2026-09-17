@@ -6,9 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
+
+// factSupersessionMu serializes the read-then-write fact-supersession sequence
+// in Store: without it, two concurrent store_memory calls for the same
+// subject/predicate/scope can both see the same "no active fact yet" state and
+// both insert, leaving duplicate active facts (invalidateConflicting's own
+// SELECT wouldn't see the other call's not-yet-committed INSERT).
+var factSupersessionMu sync.Mutex
 
 // StoreInput is the payload for store_memory.
 type StoreInput struct {
@@ -112,16 +120,24 @@ func Store(in StoreInput) (*StoreResult, error) {
 	}
 	entry.Ref = ref
 	entry.TokenEst = estimateEntryTokens(entry)
+	insert := func() error {
+		_, err := db.ContextDB.Exec(`INSERT INTO structured_memory
+			(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			ref, string(entry.Kind), string(scope), nullIfEmpty(in.SessionID), nullIfEmpty(in.ProjectPath),
+			nullIfEmpty(entry.Subject), nullIfEmpty(entry.Predicate), nullIfEmpty(entry.Object), nullIfEmpty(entry.Rule),
+			nullIfEmpty(entry.SourceRef), entry.TokenEst)
+		return err
+	}
 	var invalidated []string
 	if in.Kind == KindFact {
+		factSupersessionMu.Lock()
 		invalidated, _ = invalidateConflicting(scope, in.SessionID, in.ProjectPath, in.Subject, in.Predicate, ref)
+		err = insert()
+		factSupersessionMu.Unlock()
+	} else {
+		err = insert()
 	}
-	_, err = db.ContextDB.Exec(`INSERT INTO structured_memory
-		(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ref, string(entry.Kind), string(scope), nullIfEmpty(in.SessionID), nullIfEmpty(in.ProjectPath),
-		nullIfEmpty(entry.Subject), nullIfEmpty(entry.Predicate), nullIfEmpty(entry.Object), nullIfEmpty(entry.Rule),
-		nullIfEmpty(entry.SourceRef), entry.TokenEst)
 	if err != nil {
 		return nil, err
 	}

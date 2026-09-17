@@ -84,6 +84,36 @@ func TestKvRepairSessionIsolation(t *testing.T) {
 	}
 }
 
+// kv_repair archives are debug/repair-workflow data, not general recall notes:
+// unlike an ordinary note (fetchable/searchable by ref with no session_id, by
+// design, for cross-session recall), a kv_repair note must require session_id
+// even when the ref itself is known.
+func TestKvRepairRequiresSessionIDEvenForFetchAndSearch(t *testing.T) {
+	testNotesDB(t)
+	res, err := Store("kv-sess", "needle model llama q4 archive", "x", "", TagKvRepair, KindKvRepair, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fetch, err := Fetch([]string{res.Ref}, "", RepairManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fetch.Notes) != 0 {
+		t.Fatalf("Fetch with no session_id should not return a kv_repair note, got %d", len(fetch.Notes))
+	}
+
+	search, err := Search("llama q4", "", "", 5, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range search.Notes {
+		if IsKvRepairNote(n) {
+			t.Fatalf("Search with no session_id should not surface a kv_repair note: %+v", n)
+		}
+	}
+}
+
 func TestKvRepairQuota(t *testing.T) {
 	testNotesDB(t)
 	db.SetSetting("context_max_notes_session", "1")

@@ -3,6 +3,7 @@ package mcp
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -434,6 +435,8 @@ func handleExecuteCodeWithMeta(args map[string]interface{}) executeCodeOutcome {
 		}
 		return executeCodeOutcome{Result: resp}
 	}
+	timeout := time.NewTimer(time.Duration(timeoutSecs) * time.Second)
+	defer timeout.Stop()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -472,14 +475,14 @@ func handleExecuteCodeWithMeta(args map[string]interface{}) executeCodeOutcome {
 				TokensSaved:    saved,
 			},
 		}
-	case <-func() chan struct{} {
-		ch := make(chan struct{})
-		go func() {
-			time.Sleep(time.Duration(timeoutSecs) * time.Second)
-			close(ch)
-		}()
-		return ch
-	}():
+	case <-timeout.C:
+		// vm.RunString only checks for an interrupt between VM instructions, so
+		// this doesn't stop it instantly — but without it, the goroutine above
+		// keeps running the script (an infinite loop runs forever) with no way
+		// to cancel or observe it after this handler has already returned.
+		vm.Interrupt("execute_code: timed out after " + strconv.Itoa(timeoutSecs) + " seconds")
+		<-done
+		log.Printf("execute_code: script_id=%q interrupted after %ds timeout", scriptID, timeoutSecs)
 		return fail("timeout after " + strconv.Itoa(timeoutSecs) + " seconds")
 	}
 }
@@ -496,6 +499,11 @@ func getDataCount(data interface{}) int {
 	return 0
 }
 
+// handleExportBundle and handleImportBundle used to return a success-shaped
+// {"message": "not yet implemented"} response with no "error" field — a
+// caller that checks for an error key (or, after the isError:true fix, the
+// protocol-level flag) would see this as a successful, if unhelpful, result.
+// Report it as the failure it actually is until this is implemented.
 func handleExportBundle(args map[string]interface{}) map[string]interface{} {
 	projectPath, _ := args["project_path"].(string)
 	outputPath, _ := args["output_path"].(string)
@@ -505,7 +513,7 @@ func handleExportBundle(args map[string]interface{}) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"message": "Bundle export not yet implemented",
+		"error":   "export_bundle is not yet implemented",
 		"project": projectPath,
 		"output":  outputPath,
 	}
@@ -519,7 +527,7 @@ func handleImportBundle(args map[string]interface{}) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"message":     "Bundle import not yet implemented",
+		"error":       "import_bundle is not yet implemented",
 		"bundle_path": bundlePath,
 	}
 }

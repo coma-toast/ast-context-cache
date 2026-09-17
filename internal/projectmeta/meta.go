@@ -197,7 +197,7 @@ func DiscoverPaths() []string {
 	var out []string
 	add := func(p string) {
 		p = watcher.NormalizeProjectPath(p)
-		if p == "" || seen[p] || IsExcluded(p) {
+		if p == "" || seen[p] || IsExcluded(p) || WasDeleted(p) {
 			return
 		}
 		if st, err := os.Stat(p); err != nil || !st.IsDir() {

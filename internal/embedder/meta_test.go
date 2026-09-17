@@ -1,10 +1,40 @@
 package embedder
 
 import (
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
+
+// SetActive (a dashboard-triggered Reload) can run concurrently with per-request
+// dimension checks and the health-probe goroutine reading Active* — this must be
+// race-free under `go test -race`.
+func TestActiveMetadataConcurrentAccess(t *testing.T) {
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			SetActive("backend"+strconv.Itoa(i), "model", 768, "runtime", "endpoint")
+		}(i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ActiveSnapshot()
+			WiredSnapshot()
+			GetActiveDim()
+			GetActiveBackend()
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			FreezeWiredSnapshot()
+		}()
+	}
+	wg.Wait()
+}
 
 func TestWiredSnapshotFrozenAfterFreeze(t *testing.T) {
 	home := t.TempDir()

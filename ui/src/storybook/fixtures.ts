@@ -359,6 +359,8 @@ export const fixtureSettings: SettingsData = {
 
 export const fixtureMcpTier: MCPTier = {
   tier: 'complete',
+  code_mode: true,
+  tool_overrides: {},
   tools_json_path: '~/.astcache/tools.json',
   tools_json_exists: true,
 }

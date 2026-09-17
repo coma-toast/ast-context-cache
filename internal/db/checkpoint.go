@@ -72,8 +72,22 @@ func logBusyCheckpointDiagnostics(path, mode string, walFrames, checkpointed int
 	logPoolStats("context", ContextDB)
 }
 
+// shouldDeferMaint reads maintBackoffUntil without locking — safe only when the
+// caller already holds checkpointMu (maintainWAL's own call site). Any other
+// caller must go through maintBackoffSnapshot instead.
 func shouldDeferMaint() bool {
 	return time.Now().Before(maintBackoffUntil)
+}
+
+// maintBackoffSnapshot safely reads maintBackoffUntil from outside maintainWAL's
+// lock. runWALMaintenanceCycle (the periodic ticker) used to read this bare,
+// racing against noteMaintResult's write under checkpointMu whenever a manual
+// force-checkpoint (wal_status.go) ran concurrently — a real data race on a
+// non-atomic time.Time, not just a logically-stale read.
+func maintBackoffSnapshot() time.Time {
+	checkpointMu.Lock()
+	defer checkpointMu.Unlock()
+	return maintBackoffUntil
 }
 
 func noteMaintResult(busy int) {
@@ -448,8 +462,13 @@ func runPassiveCheckpoint() {
 	lastMaintBusy = busy == 1
 }
 
-// truncateMaintForce returns true when maintenance should run with force=true after embed defer.
+// truncateMaintForce returns true when maintenance should run with force=true
+// after embed defer. Locks checkpointMu itself — its only caller,
+// runWALMaintenanceCycle, does not hold it, and truncateDeferUntil is
+// otherwise unsynchronized shared state.
 func truncateMaintForce(indexWal int64) (force bool, skip bool) {
+	checkpointMu.Lock()
+	defer checkpointMu.Unlock()
 	if indexWal <= walTruncateBytes {
 		return false, true
 	}
@@ -478,8 +497,8 @@ func truncateMaintForce(indexWal int64) (force bool, skip bool) {
 }
 
 func runWALMaintenanceCycle(reason string) {
-	if shouldDeferMaint() {
-		setWalSkipReason("backoff", maintBackoffUntil)
+	if until := maintBackoffSnapshot(); time.Now().Before(until) {
+		setWalSkipReason("backoff", until)
 		return
 	}
 	indexWal := IndexWalBytes()

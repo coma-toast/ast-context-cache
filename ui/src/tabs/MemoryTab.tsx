@@ -12,6 +12,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TablePagination,
   TextField,
   Typography,
 } from '@mui/material'
@@ -22,7 +23,17 @@ import { api, formatNum } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { StatCard } from '../components/HealthBar'
 
-export function MemoryTab({ data, onRefresh }: { data: MemoryData | null; onRefresh: () => void }) {
+export function MemoryTab({
+  data,
+  onRefresh,
+  docSourcesPage,
+  onDocSourcesPageChange,
+}: {
+  data: MemoryData | null
+  onRefresh: () => void
+  docSourcesPage: number
+  onDocSourcesPageChange: (page: number) => void
+}) {
   const { showToast } = useToast()
   const [docName, setDocName] = useState('')
   const [docUrl, setDocUrl] = useState('')
@@ -125,6 +136,7 @@ export function MemoryTab({ data, onRefresh }: { data: MemoryData | null; onRefr
                         <RefreshIcon fontSize="small" />
                       </IconButton>
                       <IconButton size="small" aria-label="Delete" onClick={async () => {
+                        if (!confirm(`Delete doc source "${d.Name}"?`)) return
                         try {
                           await api.docSourceAction('delete', d.ID)
                           showToast('Deleted', 'success')
@@ -140,6 +152,16 @@ export function MemoryTab({ data, onRefresh }: { data: MemoryData | null; onRefr
                 ))}
               </TableBody>
             </Table>
+          )}
+          {(data.DocSourcesTotal ?? 0) > 0 && (
+            <TablePagination
+              component="div"
+              count={data.DocSourcesTotal}
+              page={Math.max(0, docSourcesPage - 1)}
+              onPageChange={(_e, newPage) => onDocSourcesPageChange(newPage + 1)}
+              rowsPerPage={data.DocSourcesPerPage || 10}
+              rowsPerPageOptions={[data.DocSourcesPerPage || 10]}
+            />
           )}
         </CardContent>
       </Card>

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
@@ -274,6 +275,15 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w *fsnotify.Watcher
 		return
 	}
 
+	// A repo's own scripts/code-mode/ manifest or script files were cached
+	// on first use with no invalidation wiring at all — editing them needed a
+	// full ast-mcp restart to take effect. manifest.json isn't necessarily a
+	// "code file" IsCodeFile would recognize, so this check runs before that
+	// filter, not after it.
+	if codescripts.IsRepoScriptPath(path, projectPath) {
+		codescripts.InvalidateRepoCache(projectPath)
+	}
+
 	if !indexer.IsCodeFile(path) {
 		return
 	}
@@ -391,8 +401,30 @@ func DeleteWatcher(projectPath string) {
 	delete(knownProjects, projectPath)
 	delete(lastActivity, projectPath)
 	mu.Unlock()
+	cancelDebounceTimersForProject(projectPath)
 	log.Printf("Deleted watcher for %s", projectPath)
 	realtime.Notify(realtime.WatchersChanged)
+}
+
+// cancelDebounceTimersForProject stops and forgets any pending debounce timer
+// for a file under projectPath. Without this, a timer queued by handleFSEvent
+// just before a project is deleted can still fire ~500ms later and re-index
+// (or delete symbols for) a file the delete just purged — with no watcher left
+// to have caused it, since the timer already captured path/projectPath in its
+// closure before DeleteWatcher ran.
+func cancelDebounceTimersForProject(projectPath string) {
+	if projectPath == "" {
+		return
+	}
+	prefix := projectPath + string(os.PathSeparator)
+	debounceMu.Lock()
+	for path, t := range debounceTimers {
+		if path == projectPath || strings.HasPrefix(path, prefix) {
+			t.Stop()
+			delete(debounceTimers, path)
+		}
+	}
+	debounceMu.Unlock()
 }
 
 // IsActive reports whether a watcher is currently running for the project.

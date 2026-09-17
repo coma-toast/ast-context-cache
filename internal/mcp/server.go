@@ -19,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -26,6 +27,13 @@ import (
 
 var emb embedder.Interface
 var srvCfg = DefaultConfig()
+
+// defaultDocSourcesPerPage matches the dashboard's DefaultDocSourcesPerPage
+// (internal/dashboard/doc_sources_ui.go) — list_doc_sources used to return
+// every tracked doc source unbounded (docs.ListSources() -> ListSourcesPaged
+// with perPage=0), unlike the dashboard's own paginated view of the same
+// table.
+const defaultDocSourcesPerPage = 10
 
 func SetEmbedder(e embedder.Interface) {
 	emb = e
@@ -125,6 +133,22 @@ func NewHandler() http.HandlerFunc {
 	}
 }
 
+// resultIsError reports whether a tool's already-marshaled JSON result carries a
+// non-empty top-level "error" field — the convention every handler in this
+// package uses for a failure. Every other failure besides tier/access denial
+// used to report isError:false with the error buried in content[].text, making
+// it indistinguishable from a real empty result to a caller that checks the
+// protocol-level flag instead of parsing the body.
+func resultIsError(resultJSON []byte) bool {
+	var probe struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(resultJSON, &probe) != nil {
+		return false
+	}
+	return probe.Error != ""
+}
+
 func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	start := time.Now()
 	cpuStart := sys.SampleCPU()
@@ -193,6 +217,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if info.IsDir() {
 					n, indexErr = indexer.IndexDirectory(path, projectPath)
 					if indexErr == nil {
+						projectmeta.ClearDeleted(projectPath)
+						embedqueue.UnmarkProjectCancelled(projectPath)
 						watcher.EnsureWatcher(projectPath)
 						if emb != nil {
 							go embedqueue.EnqueueAllSymbolsFiles(projectPath)
@@ -200,8 +226,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					}
 				} else {
 					n, _, _, indexErr = indexer.IndexFile(path, projectPath)
-					if indexErr == nil && emb != nil {
-						go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
+					if indexErr == nil {
+						projectmeta.ClearDeleted(projectPath)
+						embedqueue.UnmarkProjectCancelled(projectPath)
+						if emb != nil {
+							go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
+						}
 					}
 				}
 				if indexErr != nil {
@@ -508,13 +538,23 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			}
 		}
 	case "list_doc_sources":
-		sources, err := docs.ListSources()
+		page := 1
+		if v, ok := toolArgs["page"].(float64); ok && v > 0 {
+			page = int(v)
+		}
+		perPage := defaultDocSourcesPerPage
+		if v, ok := toolArgs["per_page"].(float64); ok && v > 0 {
+			perPage = int(v)
+		}
+		sources, total, actualPage, err := docs.ListSourcesPaged(page, perPage)
 		if err != nil {
 			result = map[string]string{"error": err.Error()}
 		} else {
 			result = map[string]interface{}{
-				"sources": sources,
-				"total":   len(sources),
+				"sources":  sources,
+				"total":    total,
+				"page":     actualPage,
+				"per_page": perPage,
 			}
 		}
 	case "update_doc_source":
@@ -597,7 +637,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		"content": []map[string]interface{}{
 			{"type": "text", "text": string(resultJSON)},
 		},
-		"isError": false,
+		"isError": resultIsError(resultJSON),
 	}
 	json.NewEncoder(w).Encode(JSONRPCResponse{
 		JSONRPC: JSONRPCVersion,

@@ -162,7 +162,7 @@ func MarkProbeResult(err error) {
 	wasError := effectiveStateLocked() == "error"
 	lastErr := healthLastErr
 	healthMu.RUnlock()
-	if wasProbeFail || (wasError && IsNetworkBackend(ActiveBackend) && isConnectivityErr(lastErr)) {
+	if wasProbeFail || (wasError && IsNetworkBackend(GetActiveBackend()) && isConnectivityErr(lastErr)) {
 		MarkSuccess()
 		return
 	}
@@ -385,7 +385,7 @@ func StartConnectivityProbe(e Interface) {
 				}
 				continue
 			}
-			if !IsNetworkBackend(ActiveBackend) {
+			if !IsNetworkBackend(GetActiveBackend()) {
 				sleep(probeRecoveryInterval, stop)
 				continue
 			}

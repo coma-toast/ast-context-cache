@@ -364,6 +364,22 @@ func InvalidateRepoCache(projectPath string) {
 	repoCache.Delete(projectPath)
 }
 
+// IsRepoScriptPath reports whether path lies under projectPath's
+// scripts/code-mode/ directory — used by the file watcher to invalidate the
+// repo script cache the moment a repo's own manifest or script file changes,
+// instead of requiring an ast-mcp restart for the edit to take effect.
+func IsRepoScriptPath(path, projectPath string) bool {
+	if path == "" || projectPath == "" {
+		return false
+	}
+	dir := filepath.Clean(filepath.Join(projectPath, repoDirName))
+	rel, err := filepath.Rel(dir, filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, "..") && rel != "")
+}
+
 // BuiltinIDs returns built-in script ids (for docs/tests).
 func BuiltinIDs() []string {
 	loadBuiltins()

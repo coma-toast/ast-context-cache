@@ -235,7 +235,10 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
-	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL GROUP BY project_path")
+	// Capped at 500, same defensive bound /api/recent already applies — this is
+	// otherwise a fully unbounded list, same risk the Memory tab's doc-sources
+	// pagination fixed for a different endpoint.
+	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) as query_count FROM queries WHERE project_path IS NOT NULL GROUP BY project_path ORDER BY query_count DESC LIMIT 500")
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
@@ -291,6 +294,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
+		log.Printf("dashboard: reset cleared ALL indexed data across every project (project_path=\"all\")")
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
 		return
 	}
@@ -1296,36 +1300,24 @@ func handleIndexProject(w http.ResponseWriter, r *http.Request) {
 	respondWatcherAction(w, r, "indexed", projectPath, map[string]interface{}{"symbols": n})
 }
 
+// deleteProjectData is the Watchers panel's delete action. It used to duplicate
+// purge.ProjectData's cleanup by hand and had drifted from it — missing the
+// un-pin and delete-tombstone steps that stop a project from reappearing, so a
+// pinned project deleted from here (unlike the Settings/dashboard delete button)
+// stayed pinned and came back on the next ast-mcp restart. Delegating to
+// purge.ProjectData keeps both delete entry points guaranteed to match.
 func deleteProjectData(projectPath string) {
 	projectPath = watcher.NormalizeProjectPath(projectPath)
 	if projectPath == "" {
 		return
 	}
-	projectlinks.RemoveLinksForPath(projectPath)
-	embedqueue.RemoveProject(projectPath)
-	watcher.DeleteWatcher(projectPath)
+	if err := purge.ProjectData(projectPath); err != nil {
+		log.Printf("dashboard: delete project %s: %v", projectPath, err)
+		return
+	}
 	_ = db.SetProjectDisplayName(projectPath, "")
 	projectmeta.Invalidate(projectPath)
 	invalidateProjectsCache()
-	conn, err := db.IndexReader()
-	if err == nil {
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_ins")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_del")
-		conn.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
-	}
-	db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-	if err == nil {
-		conn.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-		conn.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
-	}
-	db.EnsureFTSTriggers()
-	cache.GlobalCache.ClearProject(projectPath)
 	go db.Compact()
 }
 
@@ -1633,6 +1625,7 @@ func handlePruneStatus(w http.ResponseWriter, r *http.Request) {
 		"projects_purged":   s.ProjectsPurged,
 		"orphan_vectors":    s.OrphanVectors,
 		"queries_pruned":    s.QueriesPruned,
+		"memory_pruned":     s.MemoryPruned,
 	})
 }
 

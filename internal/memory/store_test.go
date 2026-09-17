@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -58,6 +60,42 @@ func TestStoreFactInvalidatesPrevious(t *testing.T) {
 	}
 	if strings.Contains(rec.Formatted, "Mumbai") {
 		t.Fatalf("stale fact returned: %q", rec.Formatted)
+	}
+}
+
+// Concurrent store_memory calls for the same subject/predicate/scope must
+// still leave exactly one active fact. Without factSupersessionMu serializing
+// invalidateConflicting's SELECT and the following INSERT, two goroutines can
+// both see "no active fact yet" and both insert, leaving duplicates.
+func TestStoreFactConcurrentSupersessionLeavesOneActiveFact(t *testing.T) {
+	testMemoryDB(t)
+	const n = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := Store(StoreInput{
+				Kind: KindFact, Scope: ScopeSession, SessionID: "concurrent",
+				Subject: "user.city", Predicate: "lives_in", Object: fmt.Sprintf("City%d", i),
+			})
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var active int
+	if err := db.ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory WHERE subject = 'user.city' AND predicate = 'lives_in' AND (valid_until IS NULL OR valid_until = '')`).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != 1 {
+		t.Fatalf("active facts for user.city/lives_in = %d, want exactly 1", active)
 	}
 }
 

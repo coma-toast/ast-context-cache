@@ -289,15 +289,26 @@ func fetchJSONDocs(u *url.URL) ([]DocEntry, error) {
 	return chunkJSON(string(body), u.Path), nil
 }
 
+// docFetchClient bounds how long a doc-source fetch can hang — http.Get's
+// default client has no timeout at all.
+var docFetchClient = &http.Client{Timeout: 20 * time.Second}
+
 func fetchURL(raw string) ([]byte, error) {
 	if strings.HasPrefix(raw, "file://") {
 		return fetchLocalFile(raw)
 	}
-	resp, err := http.Get(raw)
+	resp, err := docFetchClient.Get(raw)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	// A bare http.Get read the body regardless of status, so a 404/500 error
+	// page got chunked and cached as if it were real documentation — later
+	// search_docs/fetch_doc calls would return it with no indication anything
+	// had failed.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("fetch %s: unexpected status %s", raw, resp.Status)
+	}
 	return io.ReadAll(resp.Body)
 }
 

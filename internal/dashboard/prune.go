@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/purge"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -25,6 +26,7 @@ type PruneSnapshot struct {
 	ProjectsPurged  int
 	OrphanVectors   int
 	QueriesPruned   int64
+	MemoryPruned    int64
 }
 
 var (
@@ -84,6 +86,14 @@ func runPrune() {
 		snap.QueriesPruned = n
 	}
 
+	snap.Phase = "pruning superseded structured memory"
+	setPrune(snap)
+	if n, err := memory.PruneSuperseded(0); err != nil {
+		log.Printf("prune: memory.PruneSuperseded: %v", err)
+	} else if n > 0 {
+		snap.MemoryPruned = n
+	}
+
 	snap.Phase = "compacting database (VACUUM)"
 	setPrune(snap)
 	db.Compact()
@@ -94,9 +104,9 @@ func runPrune() {
 	snap.FinishedAt = time.Now()
 	snap.SizeAfterBytes = db.MainDBFilesSizeBytes()
 	setPrune(snap)
-	log.Printf("prune: reclaimed %s (%s -> %s), %d project(s) swept, %d orphan vector(s), %d old queries pruned",
+	log.Printf("prune: reclaimed %s (%s -> %s), %d project(s) swept, %d orphan vector(s), %d old queries pruned, %d superseded memory row(s) pruned",
 		db.FormatFileSize(snap.SizeBeforeBytes-snap.SizeAfterBytes), db.FormatFileSize(snap.SizeBeforeBytes), db.FormatFileSize(snap.SizeAfterBytes),
-		snap.ProjectsPurged, snap.OrphanVectors, snap.QueriesPruned)
+		snap.ProjectsPurged, snap.OrphanVectors, snap.QueriesPruned, snap.MemoryPruned)
 }
 
 func pruneErrorf(format string, args ...interface{}) {

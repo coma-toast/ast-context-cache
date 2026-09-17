@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Drawer,
-  FormControl,
   IconButton,
   List,
   ListItemButton,
   ListItemText,
-  MenuItem,
-  Select,
+  TextField,
   Toolbar,
   Typography,
 } from '@mui/material'
@@ -69,9 +68,11 @@ function DashboardInner() {
   const [timeseriesInterval, setTimeseriesInterval] = useState<'daily' | 'hourly'>('daily')
   const [tools, setTools] = useState<ToolStat[] | null>(null)
   const [symbols, setSymbols] = useState<{ kind: string; count: number }[] | null>(null)
+  const [languages, setLanguages] = useState<{ language: string; count: number }[] | null>(null)
   const [imports, setImports] = useState<{ target: string; count: number }[] | null>(null)
   const [recentMcp, setRecentMcp] = useState<import('./api/types').RecentQuery[] | null>(null)
   const [recentIdx, setRecentIdx] = useState<import('./api/types').RecentQuery[] | null>(null)
+  const [docSourcesPage, setDocSourcesPage] = useState(1)
   const [loadErrors, setLoadErrors] = useState<string[]>([])
   const [abnormalDismissed, setAbnormalDismissed] = useState(false)
 
@@ -95,12 +96,13 @@ function DashboardInner() {
         tasks.push(run('contextSessions', api.contextSessions(pid), setContextSessions))
       }
       if (keys.includes('indexHealth')) tasks.push(run('indexHealth', api.indexHealth(pid), setIndexHealth))
-      if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid), setMemory))
+      if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid, docSourcesPage), setMemory))
       if (keys.includes('settings')) tasks.push(run('settings', api.settings(), setSettings))
       if (keys.includes('mcpTier')) tasks.push(run('mcpTier', api.mcpTier(), setMcpTier))
       if (keys.includes('timeseries')) tasks.push(run('timeseries', api.timeseries(pid, timeseriesInterval), setTimeseries))
       if (keys.includes('tools')) tasks.push(run('tools', api.tools(pid), setTools))
       if (keys.includes('symbolKinds')) tasks.push(run('symbolKinds', api.symbolKinds(pid), setSymbols))
+      if (keys.includes('languageStats')) tasks.push(run('languageStats', api.languageStats(pid), setLanguages))
       if (keys.includes('topImports')) tasks.push(run('topImports', api.topImports(pid), setImports))
       if (keys.includes('recent')) {
         tasks.push(
@@ -129,11 +131,11 @@ function DashboardInner() {
         failures.forEach((f) => showToast(f, 'error'))
       }
     },
-    [pid, timeseriesInterval, showToast],
+    [pid, timeseriesInterval, docSourcesPage, showToast],
   )
 
   const loadAll = useCallback(() => {
-    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'topImports', 'recent', 'projects'])
+    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
   }, [load])
 
   useEffect(() => {
@@ -150,6 +152,14 @@ function DashboardInner() {
   useEffect(() => {
     load(['timeseries'])
   }, [timeseriesInterval, load])
+
+  useEffect(() => {
+    load(['memory'])
+  }, [docSourcesPage, load])
+
+  useEffect(() => {
+    setDocSourcesPage(1)
+  }, [pid])
 
   useWebSocket(
     (panels) => {
@@ -255,33 +265,16 @@ function DashboardInner() {
           <Box sx={{ flex: 1, minWidth: 0, maxWidth: '100%' }}>
             <HealthBar health={health} />
           </Box>
-          <FormControl size="small" sx={{ minWidth: { xs: 120, md: 160 }, maxWidth: { md: 200 }, flexShrink: 0 }}>
-            <Select
-              displayEmpty
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              renderValue={(v) => {
-                const label = v ? projects.find((p) => p.path === v)?.name || v : 'All projects'
-                return (
-                  <Typography component="span" noWrap sx={{ maxWidth: 160, display: 'block' }}>
-                    {label}
-                  </Typography>
-                )
-              }}
-            >
-              <MenuItem value="">All projects</MenuItem>
-              {projects.map((p) => (
-                <MenuItem key={p.path} value={p.path}>
-                  {p.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          {projectId && (
-            <Typography component="button" variant="caption" sx={{ cursor: 'pointer', border: 0, bgcolor: 'transparent', color: 'primary.main' }} onClick={() => setProjectId('')}>
-              Clear filter
-            </Typography>
-          )}
+          <Autocomplete
+            size="small"
+            sx={{ minWidth: { xs: 160, md: 220 }, maxWidth: { md: 280 }, flexShrink: 0 }}
+            options={projects}
+            getOptionLabel={(p) => p.name}
+            isOptionEqualToValue={(a, b) => a.path === b.path}
+            value={projects.find((p) => p.path === projectId) || null}
+            onChange={(_e, v) => setProjectId(v?.path || '')}
+            renderInput={(params) => <TextField {...params} placeholder="All projects" />}
+          />
         </Toolbar>
         <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
           {loadErrors.length > 0 && (
@@ -311,7 +304,10 @@ function DashboardInner() {
             </Typography>
           </Box>
           {tab === 'overview' && (
-            <ErrorBoundary label="Overview">
+            <ErrorBoundary
+              label="Overview"
+              onRetry={() => load(['indexHealth', 'health', 'projects', 'settings', 'stats', 'weeklyDigest', 'contextSessions'])}
+            >
               {!!health?.AbnormalPreviousRun && !abnormalDismissed && (
                 <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setAbnormalDismissed(true)}>
                   Restarted after abnormal exit
@@ -326,27 +322,32 @@ function DashboardInner() {
             </ErrorBoundary>
           )}
           {tab === 'memory' && (
-            <ErrorBoundary label="Memory">
-              <MemoryTab data={memory} onRefresh={() => load(['memory'])} />
+            <ErrorBoundary label="Memory" onRetry={() => load(['memory'])}>
+              <MemoryTab
+                data={memory}
+                onRefresh={() => load(['memory'])}
+                docSourcesPage={docSourcesPage}
+                onDocSourcesPageChange={setDocSourcesPage}
+              />
             </ErrorBoundary>
           )}
           {tab === 'activity' && (
-            <ErrorBoundary label="Activity">
+            <ErrorBoundary label="Activity" onRetry={() => load(['timeseries'])}>
               <ActivityTab data={timeseries} interval={timeseriesInterval} onIntervalChange={setTimeseriesInterval} />
             </ErrorBoundary>
           )}
           {tab === 'analytics' && (
-            <ErrorBoundary label="Analytics">
-              <AnalyticsTab tools={tools} symbols={symbols} imports={imports} />
+            <ErrorBoundary label="Analytics" onRetry={() => load(['tools', 'symbolKinds', 'languageStats', 'topImports'])}>
+              <AnalyticsTab tools={tools} symbols={symbols} languages={languages} imports={imports} />
             </ErrorBoundary>
           )}
           {tab === 'recent' && (
-            <ErrorBoundary label="Recent">
+            <ErrorBoundary label="Recent" onRetry={() => load(['recent'])}>
               <RecentTab mcp={recentMcp} indexing={recentIdx} />
             </ErrorBoundary>
           )}
           {tab === 'settings' && (
-            <ErrorBoundary label="Settings">
+            <ErrorBoundary label="Settings" onRetry={() => load(['settings', 'indexHealth', 'projects', 'mcpTier'])}>
               <SettingsTab data={settings} mcpTier={mcpTier} onRefresh={() => load(['settings', 'indexHealth', 'projects'])} />
             </ErrorBoundary>
           )}

@@ -58,32 +58,54 @@ func setDataDirMove(s DataDirMoveSnapshot) {
 // records target in the location override file; the new location takes effect on the next
 // restart. Existing files at the current location are never modified or removed.
 func StartDataDirMove(target string) (started bool, errMsg string) {
-	if GetDataDirMoveSnapshot().Active {
+	// Claim Active atomically before any validation: StartDataDirMove used to
+	// check-then-act (read Active, validate, then set Active), so two
+	// near-simultaneous calls could both pass the check and both launch
+	// runDataDirMove writing the same target concurrently.
+	if !tryClaimDataDirMove() {
 		return false, "a data directory move is already in progress"
 	}
+	fail := func(msg string) (bool, string) {
+		setDataDirMove(DataDirMoveSnapshot{})
+		return false, msg
+	}
+
 	target = strings.TrimSpace(target)
 	if target == "" {
-		return false, "target directory is required"
+		return fail("target directory is required")
 	}
 	if !filepath.IsAbs(target) {
-		return false, "target directory must be an absolute path"
+		return fail("target directory must be an absolute path")
 	}
 	target = filepath.Clean(target)
 	if target == cacheDir() {
-		return false, "target directory is already the current data directory"
+		return fail("target directory is already the current data directory")
 	}
 	if err := os.MkdirAll(target, 0o755); err != nil {
-		return false, fmt.Sprintf("cannot create target directory: %v", err)
+		return fail(fmt.Sprintf("cannot create target directory: %v", err))
 	}
 	probe := filepath.Join(target, ".astcache-write-test")
 	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
-		return false, fmt.Sprintf("target directory is not writable: %v", err)
+		return fail(fmt.Sprintf("target directory is not writable: %v", err))
 	}
 	os.Remove(probe)
 
 	setDataDirMove(DataDirMoveSnapshot{Active: true, TargetDir: target, StartedAt: time.Now(), Phase: "starting"})
 	go runDataDirMove(target)
 	return true, ""
+}
+
+// tryClaimDataDirMove atomically checks and sets Active, closing the
+// check-then-act window StartDataDirMove otherwise leaves between reading
+// GetDataDirMoveSnapshot().Active and later calling setDataDirMove.
+func tryClaimDataDirMove() bool {
+	dataDirMoveMu.Lock()
+	defer dataDirMoveMu.Unlock()
+	if dataDirMove.Active {
+		return false
+	}
+	dataDirMove = DataDirMoveSnapshot{Active: true}
+	return true
 }
 
 func runDataDirMove(target string) {

@@ -94,3 +94,22 @@ func TestBuiltinIDs(t *testing.T) {
 		t.Fatalf("expected builtins, got %v", ids)
 	}
 }
+
+func TestIsRepoScriptPath(t *testing.T) {
+	project := filepath.FromSlash("/proj/root")
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{filepath.Join(project, "scripts", "code-mode", "manifest.json"), true},
+		{filepath.Join(project, "scripts", "code-mode", "custom.js"), true},
+		{filepath.Join(project, "scripts", "code-mode"), true},
+		{filepath.Join(project, "internal", "mcp", "server.go"), false},
+		{filepath.Join(project, "scripts", "other", "manifest.json"), false},
+	}
+	for _, c := range cases {
+		if got := codescripts.IsRepoScriptPath(c.path, project); got != c.want {
+			t.Fatalf("IsRepoScriptPath(%q, %q) = %v, want %v", c.path, project, got, c.want)
+		}
+	}
+}

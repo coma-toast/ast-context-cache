@@ -7,18 +7,24 @@ import {
   CardContent,
   Chip,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
+  Pagination,
   Select,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
-import type { DataDirMoveStatus, Project, PruneStatus, SettingsData } from '../api/types'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
+import type { DataDirMoveStatus, MCPTier, Project, PruneStatus, SettingsData } from '../api/types'
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
 import { DirectoryPicker } from '../components/DirectoryPicker'
+
+const PROJECTS_PAGE_SIZE = 8
 
 const SECTIONS = [
   { id: 'performance', label: 'Performance' },
@@ -38,11 +44,14 @@ export function SettingsTab({
   mcpTier,
 }: {
   data: SettingsData | null
-  mcpTier: { tier: string; tools_json_path: string; tools_json_exists: boolean } | null
+  mcpTier: MCPTier | null
   onRefresh: () => void
 }) {
   const { showToast } = useToast()
   const [linkChild, setLinkChild] = useState<Record<string, string>>({})
+  const [projectSearch, setProjectSearch] = useState('')
+  const [projectPage, setProjectPage] = useState(1)
+  const [renaming, setRenaming] = useState<Record<string, string>>({})
 
   if (!data) return <Typography color="text.secondary">Loading settings…</Typography>
 
@@ -59,6 +68,18 @@ export function SettingsTab({
   const projects = data.Projects || []
   const linkable = (parent: Project) =>
     projects.filter((p) => p.Path !== parent.Path && p.LinkedParent === '' && !parent.LinkedChildren?.includes(p.Path))
+
+  const filteredProjects = projects.filter((p) => {
+    const q = projectSearch.trim().toLowerCase()
+    if (!q) return true
+    return (p.Label || p.Name || '').toLowerCase().includes(q) || p.Path.toLowerCase().includes(q)
+  })
+  const projectPageCount = Math.max(1, Math.ceil(filteredProjects.length / PROJECTS_PAGE_SIZE))
+  const clampedProjectPage = Math.min(projectPage, projectPageCount)
+  const pagedProjects = filteredProjects.slice(
+    (clampedProjectPage - 1) * PROJECTS_PAGE_SIZE,
+    clampedProjectPage * PROJECTS_PAGE_SIZE,
+  )
 
   return (
     <Box>
@@ -168,6 +189,7 @@ export function SettingsTab({
               Danger zone
             </Typography>
             <Button color="error" variant="outlined" size="small" sx={{ mt: 1 }} onClick={async () => {
+              if (!confirm('Flush ALL virtual context across every session and project? This is irreversible.')) return
               try {
                 await api.flushContextAll()
                 showToast('Flushed all virtual context', 'success')
@@ -245,8 +267,21 @@ export function SettingsTab({
           {projects.length === 0 && !data.ProjectsLoading && (
             <Typography color="text.secondary">No indexed projects — run index_files via MCP</Typography>
           )}
+          {projects.length > 0 && (
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Filter projects by name or path…"
+              value={projectSearch}
+              onChange={(e) => {
+                setProjectSearch(e.target.value)
+                setProjectPage(1)
+              }}
+              sx={{ mb: 2 }}
+            />
+          )}
           <Stack spacing={2}>
-            {projects.map((p) => (
+            {pagedProjects.map((p) => (
               <Box key={p.Path} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, minWidth: 0 }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'flex-start' }} gap={2}>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -289,23 +324,74 @@ export function SettingsTab({
                       </Stack>
                     ))}
                   </Box>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }}>
-                    <Button
-                      size="small"
-                      onClick={async () => {
-                        const next = window.prompt('Display name (empty restores auto name)', p.Label || p.Name || '')
-                        if (next == null) return
-                        try {
-                          await api.setProjectLabel(p.Path, next)
-                          showToast(next.trim() ? 'Name updated' : 'Name reset to auto', 'success')
-                          onRefresh()
-                        } catch (e) {
-                          showToast(String(e), 'error')
-                        }
-                      }}
-                    >
-                      Rename
-                    </Button>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }} alignItems="center">
+                    {p.Path in renaming ? (
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <TextField
+                          size="small"
+                          autoFocus
+                          value={renaming[p.Path]}
+                          placeholder={p.Name || 'Display name'}
+                          helperText="Clear to restore auto name"
+                          onChange={(e) => setRenaming({ ...renaming, [p.Path]: e.target.value })}
+                          onKeyDown={async (e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              const next = renaming[p.Path].trim()
+                              const { [p.Path]: _drop, ...rest } = renaming
+                              setRenaming(rest)
+                              try {
+                                await api.setProjectLabel(p.Path, next)
+                                showToast(next ? 'Name updated' : 'Name reset to auto', 'success')
+                                onRefresh()
+                              } catch (err) {
+                                showToast(String(err), 'error')
+                              }
+                            }
+                            if (e.key === 'Escape') {
+                              const { [p.Path]: _drop, ...rest } = renaming
+                              setRenaming(rest)
+                            }
+                          }}
+                        />
+                        <IconButton
+                          size="small"
+                          aria-label="Save name"
+                          color="primary"
+                          onClick={async () => {
+                            const next = renaming[p.Path].trim()
+                            const { [p.Path]: _drop, ...rest } = renaming
+                            setRenaming(rest)
+                            try {
+                              await api.setProjectLabel(p.Path, next)
+                              showToast(next ? 'Name updated' : 'Name reset to auto', 'success')
+                              onRefresh()
+                            } catch (err) {
+                              showToast(String(err), 'error')
+                            }
+                          }}
+                        >
+                          <CheckIcon fontSize="inherit" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          aria-label="Cancel rename"
+                          onClick={() => {
+                            const { [p.Path]: _drop, ...rest } = renaming
+                            setRenaming(rest)
+                          }}
+                        >
+                          <CloseIcon fontSize="inherit" />
+                        </IconButton>
+                      </Stack>
+                    ) : (
+                      <Button
+                        size="small"
+                        onClick={() => setRenaming({ ...renaming, [p.Path]: p.Label || p.Name || '' })}
+                      >
+                        Rename
+                      </Button>
+                    )}
                     <Button size="small" onClick={async () => {
                       try {
                         await api.pinProject(p.Path, !p.Pinned)
@@ -318,6 +404,7 @@ export function SettingsTab({
                       {p.Pinned ? 'Unpin' : 'Pin'}
                     </Button>
                     <Button size="small" color="warning" onClick={async () => {
+                      if (!confirm(`Reset ${p.Label}? This wipes and re-indexes all its data.`)) return
                       try {
                         await api.resetProject(p.Path)
                         showToast('Reset', 'success')
@@ -382,6 +469,16 @@ export function SettingsTab({
               </Box>
             ))}
           </Stack>
+          {projectPageCount > 1 && (
+            <Stack direction="row" justifyContent="center" sx={{ mt: 2 }}>
+              <Pagination
+                count={projectPageCount}
+                page={clampedProjectPage}
+                onChange={(_e, page) => setProjectPage(page)}
+                size="small"
+              />
+            </Stack>
+          )}
         </CardContent>
       </Card>
 
@@ -436,9 +533,18 @@ export function SettingsTab({
               MCP tool tier
             </Typography>
             <Typography variant="body2">Effective tier: {mcpTier.tier}</Typography>
+            <Typography variant="body2">Code mode (execute_code): {mcpTier.code_mode ? 'enabled' : 'disabled'}</Typography>
             <Typography variant="caption" fontFamily="monospace" display="block">
               {mcpTier.tools_json_path} {mcpTier.tools_json_exists ? '(exists)' : '(missing)'}
             </Typography>
+            {Object.keys(mcpTier.tool_overrides ?? {}).length > 0 && (
+              <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                Per-tool overrides:{' '}
+                {Object.entries(mcpTier.tool_overrides)
+                  .map(([name, o]) => `${name} (${o.enabled ? o.tier : 'disabled'})`)
+                  .join(', ')}
+              </Typography>
+            )}
           </CardContent>
         </Card>
       )}
@@ -627,7 +733,8 @@ function StorageSection({ data }: { data: SettingsData }) {
                 : 'Nothing to reclaim right now.'}{' '}
               {pruneStatus.projects_purged} deleted project(s) swept, {pruneStatus.orphan_vectors} orphan
               vector(s) removed, {pruneStatus.queries_pruned} old quer
-              {pruneStatus.queries_pruned === 1 ? 'y' : 'ies'} pruned.
+              {pruneStatus.queries_pruned === 1 ? 'y' : 'ies'} pruned, {pruneStatus.memory_pruned} superseded
+              memory row(s) pruned.
             </Alert>
           )}
           {!pruneActive && pruneStatus?.error && (

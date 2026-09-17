@@ -29,7 +29,10 @@ func TierIncludes(active, required Tier) bool {
 	return order[active] >= order[required]
 }
 
-// ParseTier converts a string to Tier, defaulting to TierComplete for unknown values.
+// ParseTier converts a string to Tier. An unrecognized value (e.g. a typo'd
+// config) fails closed to TierCore rather than silently granting more access
+// than whoever configured it intended — the opposite of TierComplete, which
+// AST_MCP_TIER being left unset entirely still defaults to (see DefaultConfig).
 func ParseTier(s string) Tier {
 	switch strings.ToLower(s) {
 	case "core":
@@ -39,7 +42,7 @@ func ParseTier(s string) Tier {
 	case "complete":
 		return TierComplete
 	default:
-		return TierComplete
+		return TierCore
 	}
 }
 

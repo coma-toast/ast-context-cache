@@ -41,6 +41,26 @@ func TestFileHasPathPrefix_Relative(t *testing.T) {
 	}
 }
 
+// A bare, unbounded HasPrefix used to let path_prefix="internal/mcp" match a
+// sibling directory like "internal/mcpextra/...", since the string "internal/
+// mcpextra" does start with "internal/mcp". Only an exact match or a
+// "/"-bounded subdirectory match should count.
+func TestFileHasPathPrefix_DoesNotMatchSiblingDirectory(t *testing.T) {
+	p := "/proj/root"
+	if !fileHasPathPrefix(p+"/internal/mcp/server.go", p, "internal/mcp") {
+		t.Fatal("real subdirectory should match")
+	}
+	if fileHasPathPrefix(p+"/internal/mcpextra/server.go", p, "internal/mcp") {
+		t.Fatal("sibling directory sharing the prefix string should not match")
+	}
+	if fileHasPathPrefix(p+"/internal/mcpextra/server.go", "/other/root", "/proj/root/internal/mcp") {
+		t.Fatal("sibling directory should not match an absolute prefix either")
+	}
+	if !fileHasPathPrefix(p+"/internal/mcp/server.go", "/other/root", "/proj/root/internal/mcp") {
+		t.Fatal("real subdirectory should match an absolute prefix")
+	}
+}
+
 func TestLanguageExtensions(t *testing.T) {
 	exts := languageExtensions("typescript")
 	if len(exts) != 2 {
