@@ -536,9 +536,14 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// invalidateProjectsCache marks the cache stale without clearing it, so the next
+// read still has a snapshot to serve immediately (via loadProjectsForPage's stale
+// branch) while a fresh copy loads in the background. Nil-ing it out here previously
+// made every settings refresh right after a delete/pin/rename return an empty
+// Projects list for a moment (loadProjectsForPage's "cache empty" branch), which
+// collapsed pagination and reflowed every row with no warning.
 func invalidateProjectsCache() {
 	projectsCacheMu.Lock()
-	projectsCache = nil
 	projectsCacheAt = time.Time{}
 	projectsCacheMu.Unlock()
 }
@@ -1135,6 +1140,8 @@ func handleResetProject(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	projectmeta.Invalidate(projectPath)
+	invalidateProjectsCache()
 	go db.Compact()
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "project_path": projectPath})

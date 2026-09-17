@@ -52,8 +52,24 @@ export function SettingsTab({
   const [projectSearch, setProjectSearch] = useState('')
   const [projectPage, setProjectPage] = useState(1)
   const [renaming, setRenaming] = useState<Record<string, string>>({})
+  const [pendingPaths, setPendingPaths] = useState<Record<string, boolean>>({})
 
   if (!data) return <Typography color="text.secondary">Loading settings…</Typography>
+
+  // Disables a row's action buttons for the duration of its own request, so a
+  // second click (or a click that lands while the list is mid-refresh) can't fire
+  // against a project whose row just moved or is still being acted on.
+  const withPending = async (path: string, action: () => Promise<void>) => {
+    setPendingPaths((prev) => ({ ...prev, [path]: true }))
+    try {
+      await action()
+    } finally {
+      setPendingPaths((prev) => {
+        const { [path]: _drop, ...rest } = prev
+        return rest
+      })
+    }
+  }
 
   const save = async (key: string, value: string) => {
     try {
@@ -387,12 +403,13 @@ export function SettingsTab({
                     ) : (
                       <Button
                         size="small"
+                        disabled={!!pendingPaths[p.Path]}
                         onClick={() => setRenaming({ ...renaming, [p.Path]: p.Label || p.Name || '' })}
                       >
                         Rename
                       </Button>
                     )}
-                    <Button size="small" onClick={async () => {
+                    <Button size="small" disabled={!!pendingPaths[p.Path]} onClick={() => withPending(p.Path, async () => {
                       try {
                         await api.pinProject(p.Path, !p.Pinned)
                         showToast(p.Pinned ? 'Unpinned' : 'Pinned', 'success')
@@ -400,30 +417,34 @@ export function SettingsTab({
                       } catch (e) {
                         showToast(String(e), 'error')
                       }
-                    }}>
+                    })}>
                       {p.Pinned ? 'Unpin' : 'Pin'}
                     </Button>
-                    <Button size="small" color="warning" onClick={async () => {
+                    <Button size="small" color="warning" disabled={!!pendingPaths[p.Path]} onClick={() => {
                       if (!confirm(`Reset ${p.Label}? This wipes and re-indexes all its data.`)) return
-                      try {
-                        await api.resetProject(p.Path)
-                        showToast('Reset', 'success')
-                        onRefresh()
-                      } catch (e) {
-                        showToast(String(e), 'error')
-                      }
+                      void withPending(p.Path, async () => {
+                        try {
+                          await api.resetProject(p.Path)
+                          showToast('Reset', 'success')
+                          onRefresh()
+                        } catch (e) {
+                          showToast(String(e), 'error')
+                        }
+                      })
                     }}>
                       Reset
                     </Button>
-                    <Button size="small" color="error" onClick={async () => {
+                    <Button size="small" color="error" disabled={!!pendingPaths[p.Path]} onClick={() => {
                       if (!confirm(`Delete ${p.Label}?`)) return
-                      try {
-                        await api.deleteWatcher(p.Path)
-                        showToast('Deleted', 'success')
-                        onRefresh()
-                      } catch (e) {
-                        showToast(String(e), 'error')
-                      }
+                      void withPending(p.Path, async () => {
+                        try {
+                          await api.deleteWatcher(p.Path)
+                          showToast('Deleted', 'success')
+                          onRefresh()
+                        } catch (e) {
+                          showToast(String(e), 'error')
+                        }
+                      })
                     }}>
                       Delete
                     </Button>
