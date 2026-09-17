@@ -144,11 +144,14 @@ func handleDashboardRecentSplitJSON(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDashboardMCPTierJSON used to re-derive the tier from os.Getenv itself
+// (defaulting an unset var to "extended") instead of asking the MCP server
+// for its actual live config — mcp.DefaultConfig's real default is
+// TierComplete, not "extended", so this endpoint reported the wrong tier
+// whenever AST_MCP_TIER was unset. Reads mcp.GetConfig() instead, which also
+// lets it surface code_mode and per-tool overrides it previously omitted.
 func handleDashboardMCPTierJSON(w http.ResponseWriter, r *http.Request) {
-	tier := os.Getenv("AST_MCP_TIER")
-	if tier == "" {
-		tier = "extended"
-	}
+	cfg := mcp.GetConfig()
 	toolsPath := filepath.Join(os.Getenv("HOME"), ".astcache", "tools.json")
 	if home, err := os.UserHomeDir(); err == nil {
 		toolsPath = filepath.Join(home, ".astcache", "tools.json")
@@ -157,9 +160,21 @@ func handleDashboardMCPTierJSON(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(toolsPath); err == nil {
 		toolsExists = true
 	}
+	overrides := make(map[string]interface{}, len(cfg.ToolConfigs))
+	for name, tc := range cfg.ToolConfigs {
+		if tc == nil {
+			continue
+		}
+		overrides[name] = map[string]interface{}{
+			"enabled": tc.Enabled,
+			"tier":    string(tc.Tier),
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"tier":              tier,
+		"tier":              string(cfg.ActiveTier),
+		"code_mode":         cfg.CodeMode,
+		"tool_overrides":    overrides,
 		"tools_json_path":   toolsPath,
 		"tools_json_exists": toolsExists,
 	})

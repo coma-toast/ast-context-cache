@@ -361,6 +361,8 @@ export interface TimeseriesPoint {
 
 export interface MCPTier {
   tier: string
+  code_mode: boolean
+  tool_overrides: Record<string, { enabled: boolean; tier: string }>
   tools_json_path: string
   tools_json_exists: boolean
 }

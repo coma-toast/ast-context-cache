@@ -14,7 +14,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import type { DataDirMoveStatus, Project, PruneStatus, SettingsData } from '../api/types'
+import type { DataDirMoveStatus, MCPTier, Project, PruneStatus, SettingsData } from '../api/types'
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
@@ -38,7 +38,7 @@ export function SettingsTab({
   mcpTier,
 }: {
   data: SettingsData | null
-  mcpTier: { tier: string; tools_json_path: string; tools_json_exists: boolean } | null
+  mcpTier: MCPTier | null
   onRefresh: () => void
 }) {
   const { showToast } = useToast()
@@ -436,9 +436,18 @@ export function SettingsTab({
               MCP tool tier
             </Typography>
             <Typography variant="body2">Effective tier: {mcpTier.tier}</Typography>
+            <Typography variant="body2">Code mode (execute_code): {mcpTier.code_mode ? 'enabled' : 'disabled'}</Typography>
             <Typography variant="caption" fontFamily="monospace" display="block">
               {mcpTier.tools_json_path} {mcpTier.tools_json_exists ? '(exists)' : '(missing)'}
             </Typography>
+            {Object.keys(mcpTier.tool_overrides ?? {}).length > 0 && (
+              <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                Per-tool overrides:{' '}
+                {Object.entries(mcpTier.tool_overrides)
+                  .map(([name, o]) => `${name} (${o.enabled ? o.tier : 'disabled'})`)
+                  .join(', ')}
+              </Typography>
+            )}
           </CardContent>
         </Card>
       )}
