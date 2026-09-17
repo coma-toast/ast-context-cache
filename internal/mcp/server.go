@@ -28,6 +28,13 @@ import (
 var emb embedder.Interface
 var srvCfg = DefaultConfig()
 
+// defaultDocSourcesPerPage matches the dashboard's DefaultDocSourcesPerPage
+// (internal/dashboard/doc_sources_ui.go) — list_doc_sources used to return
+// every tracked doc source unbounded (docs.ListSources() -> ListSourcesPaged
+// with perPage=0), unlike the dashboard's own paginated view of the same
+// table.
+const defaultDocSourcesPerPage = 10
+
 func SetEmbedder(e embedder.Interface) {
 	emb = e
 	docs.SetEmbedder(e)
@@ -531,13 +538,23 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			}
 		}
 	case "list_doc_sources":
-		sources, err := docs.ListSources()
+		page := 1
+		if v, ok := toolArgs["page"].(float64); ok && v > 0 {
+			page = int(v)
+		}
+		perPage := defaultDocSourcesPerPage
+		if v, ok := toolArgs["per_page"].(float64); ok && v > 0 {
+			perPage = int(v)
+		}
+		sources, total, actualPage, err := docs.ListSourcesPaged(page, perPage)
 		if err != nil {
 			result = map[string]string{"error": err.Error()}
 		} else {
 			result = map[string]interface{}{
-				"sources": sources,
-				"total":   len(sources),
+				"sources":  sources,
+				"total":    total,
+				"page":     actualPage,
+				"per_page": perPage,
 			}
 		}
 	case "update_doc_source":
