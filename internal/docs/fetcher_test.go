@@ -1,6 +1,8 @@
 package docs
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -49,6 +51,38 @@ func TestFetchURLFileSchemeMissingFile(t *testing.T) {
 	_, err := fetchURL("file:///no/such/path/notes.md")
 	if err == nil {
 		t.Fatal("expected an error for a missing local file")
+	}
+}
+
+// fetchURL used to read the response body regardless of status code, so a
+// 404/500 error page got cached as if it were real documentation.
+func TestFetchURLRejectsErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("<html>not found</html>"))
+	}))
+	defer srv.Close()
+
+	_, err := fetchURL(srv.URL)
+	if err == nil {
+		t.Fatal("expected an error for a 404 response, got nil")
+	}
+}
+
+func TestFetchURLAcceptsSuccessStatus(t *testing.T) {
+	want := "real documentation content"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(want))
+	}))
+	defer srv.Close()
+
+	got, err := fetchURL(srv.URL)
+	if err != nil {
+		t.Fatalf("fetchURL: %v", err)
+	}
+	if string(got) != want {
+		t.Fatalf("content = %q, want %q", got, want)
 	}
 }
 
