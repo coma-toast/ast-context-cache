@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleExecuteCodeScriptID(t *testing.T) {
@@ -29,6 +31,31 @@ func TestHandleExecuteCodeScriptID(t *testing.T) {
 	result, ok := out["result"].([]interface{})
 	if !ok || len(result) != 1 {
 		t.Fatalf("result: %#v", out["result"])
+	}
+}
+
+// On timeout, the handler used to give up waiting and return, but the
+// goroutine running the script kept executing in the background forever
+// (an infinite loop ran forever, orphaned and unobservable). vm.Interrupt
+// now stops it, and the handler blocks only long enough for that to happen.
+func TestHandleExecuteCodeTimeoutInterruptsScript(t *testing.T) {
+	done := make(chan map[string]interface{}, 1)
+	go func() {
+		out := handleExecuteCodeWithMeta(map[string]interface{}{
+			"code":    `for(;;){}`,
+			"data":    `[]`,
+			"timeout": float64(1),
+		}).Result
+		done <- out
+	}()
+	select {
+	case out := <-done:
+		errMsg, _ := out["error"].(string)
+		if !strings.Contains(errMsg, "timeout") {
+			t.Fatalf("expected a timeout error, got %v", out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handleExecuteCodeWithMeta did not return within 5s of a 1s timeout — vm.Interrupt likely isn't stopping the infinite loop")
 	}
 }
 
