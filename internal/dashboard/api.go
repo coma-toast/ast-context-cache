@@ -1625,6 +1625,7 @@ func handlePruneStatus(w http.ResponseWriter, r *http.Request) {
 		"projects_purged":   s.ProjectsPurged,
 		"orphan_vectors":    s.OrphanVectors,
 		"queries_pruned":    s.QueriesPruned,
+		"memory_pruned":     s.MemoryPruned,
 	})
 }
 

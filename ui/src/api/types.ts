@@ -401,6 +401,7 @@ export interface PruneStatus {
   projects_purged: number
   orphan_vectors: number
   queries_pruned: number
+  memory_pruned: number
 }
 
 export interface BrowseDirEntry {

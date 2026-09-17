@@ -636,7 +636,8 @@ function StorageSection({ data }: { data: SettingsData }) {
                 : 'Nothing to reclaim right now.'}{' '}
               {pruneStatus.projects_purged} deleted project(s) swept, {pruneStatus.orphan_vectors} orphan
               vector(s) removed, {pruneStatus.queries_pruned} old quer
-              {pruneStatus.queries_pruned === 1 ? 'y' : 'ies'} pruned.
+              {pruneStatus.queries_pruned === 1 ? 'y' : 'ies'} pruned, {pruneStatus.memory_pruned} superseded
+              memory row(s) pruned.
             </Alert>
           )}
           {!pruneActive && pruneStatus?.error && (
