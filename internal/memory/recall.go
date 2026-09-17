@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -348,6 +349,7 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		for _, ref := range refs {
 			invalidateRef(ref)
 		}
+		log.Printf("memory: forget_memory all=true invalidated %d facts (%d tokens) across every session/project", len(refs), tokens)
 		return &ForgetResult{InvalidatedRefs: len(refs), VirtualTokensFreed: tokens}, nil
 	}
 	if len(in.Refs) > 0 {

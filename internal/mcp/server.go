@@ -211,6 +211,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					n, indexErr = indexer.IndexDirectory(path, projectPath)
 					if indexErr == nil {
 						projectmeta.ClearDeleted(projectPath)
+						embedqueue.UnmarkProjectCancelled(projectPath)
 						watcher.EnsureWatcher(projectPath)
 						if emb != nil {
 							go embedqueue.EnqueueAllSymbolsFiles(projectPath)
@@ -220,6 +221,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					n, _, _, indexErr = indexer.IndexFile(path, projectPath)
 					if indexErr == nil {
 						projectmeta.ClearDeleted(projectPath)
+						embedqueue.UnmarkProjectCancelled(projectPath)
 						if emb != nil {
 							go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
 						}

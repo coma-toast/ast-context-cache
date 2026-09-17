@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -268,6 +269,7 @@ func deleteAll() (tokensFreed int, count int) {
 	}
 	tokensFreed, count, _ = deleteRefs(refs, "")
 	db.DB.Exec(`DELETE FROM context_session_stats`)
+	log.Printf("contextnotes: flush_context all=true deleted %d notes (%d tokens) across every session/project", count, tokensFreed)
 	return tokensFreed, count
 }
 
@@ -321,6 +323,13 @@ func Fetch(refsRaw interface{}, sessionID, repairReason string) (*FetchResult, e
 			continue
 		}
 		if sessionID != "" && n.SessionID != sessionID {
+			continue
+		}
+		// kv_repair archives are debug/repair-workflow data, not general recall
+		// notes — unlike ordinary cross-session note recall (working as intended
+		// for a single local user), these must not be fetchable by ref alone
+		// without the session that reported the repair event.
+		if n.Kind == "kv_repair" && sessionID == "" {
 			continue
 		}
 		tok := n.TokenEst
@@ -461,6 +470,12 @@ func Search(query, sessionID, projectPath string, limit int, emb embedder.Interf
 	totalReturned := 0
 	for _, s := range scored {
 		n := s.Note
+		// kv_repair archives are debug/repair-workflow data, not general recall
+		// notes — they must not surface in a search that has no session_id to
+		// scope it, matching the same restriction Fetch applies.
+		if n.Kind == "kv_repair" && sessionID == "" {
+			continue
+		}
 		tok := n.TokenEst
 		if tok == 0 && n.Content != "" {
 			tok = db.EstimateTokens(n.Content)
