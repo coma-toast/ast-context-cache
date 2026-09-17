@@ -17,10 +17,12 @@ import { formatNum } from '../api/client'
 export function AnalyticsTab({
   tools,
   symbols,
+  languages,
   imports,
 }: {
   tools: ToolStat[] | null
   symbols: { kind: string; count: number }[] | null
+  languages: { language: string; count: number }[] | null
   imports: { target: string; count: number }[] | null
 }) {
   const theme = useTheme()
@@ -74,6 +76,7 @@ export function AnalyticsTab({
       </Card>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
         <ChartCard title="Symbols by kind" data={symbols?.map((s) => ({ name: s.kind, count: s.count })) || []} tooltipStyle={tooltipStyle} />
+        <ChartCard title="Languages" data={languages?.map((l) => ({ name: l.language, count: l.count })) || []} tooltipStyle={tooltipStyle} />
         <ChartCard title="Top imports" data={imports?.slice(0, 15).map((i) => ({ name: i.target, count: i.count })) || []} tooltipStyle={tooltipStyle} />
       </Box>
     </Box>
