@@ -25,7 +25,7 @@ func startIndexWriter() {
 	}
 	indexWriteCh = make(chan indexWriteJob, 512)
 	indexWriterStop = make(chan struct{})
-	go runIndexWriter()
+	go runIndexWriter(indexWriteCh, indexWriterStop)
 }
 
 func resetIndexWriter() {
@@ -40,7 +40,7 @@ func resetIndexWriter() {
 	}
 	indexWriteCh = make(chan indexWriteJob, 512)
 	indexWriterStop = make(chan struct{})
-	go runIndexWriter()
+	go runIndexWriter(indexWriteCh, indexWriterStop)
 }
 
 func stopIndexWriter() {
@@ -59,12 +59,16 @@ func stopIndexWriter() {
 	indexWriteCh = nil
 }
 
-func runIndexWriter() {
+// runIndexWriter takes its channels as parameters, captured once at start
+// time, rather than reading the mutable indexWriteCh/indexWriterStop package
+// vars directly: stopIndexWriter/resetIndexWriter reassign those vars under
+// indexWriterMu, but this goroutine never held that lock, racing on every read.
+func runIndexWriter(ch chan indexWriteJob, stop chan struct{}) {
 	for {
 		select {
-		case <-indexWriterStop:
+		case <-stop:
 			return
-		case job, ok := <-indexWriteCh:
+		case job, ok := <-ch:
 			if !ok {
 				return
 			}
