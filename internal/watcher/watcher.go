@@ -391,8 +391,30 @@ func DeleteWatcher(projectPath string) {
 	delete(knownProjects, projectPath)
 	delete(lastActivity, projectPath)
 	mu.Unlock()
+	cancelDebounceTimersForProject(projectPath)
 	log.Printf("Deleted watcher for %s", projectPath)
 	realtime.Notify(realtime.WatchersChanged)
+}
+
+// cancelDebounceTimersForProject stops and forgets any pending debounce timer
+// for a file under projectPath. Without this, a timer queued by handleFSEvent
+// just before a project is deleted can still fire ~500ms later and re-index
+// (or delete symbols for) a file the delete just purged — with no watcher left
+// to have caused it, since the timer already captured path/projectPath in its
+// closure before DeleteWatcher ran.
+func cancelDebounceTimersForProject(projectPath string) {
+	if projectPath == "" {
+		return
+	}
+	prefix := projectPath + string(os.PathSeparator)
+	debounceMu.Lock()
+	for path, t := range debounceTimers {
+		if path == projectPath || strings.HasPrefix(path, prefix) {
+			t.Stop()
+			delete(debounceTimers, path)
+		}
+	}
+	debounceMu.Unlock()
 }
 
 // IsActive reports whether a watcher is currently running for the project.
