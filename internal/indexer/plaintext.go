@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,10 @@ func ShouldSkipEmbed(path string) bool {
 	return GetLanguage(path) == "plaintext"
 }
 
+// indexPlaintextFile used to open its own transaction directly on the reader
+// pool (conn.Begin()) instead of going through db.IndexWrite, the
+// single-writer queue every other indexing path (and the WAL-checkpoint
+// drain) relies on to serialize writes. Now uses db.IndexWrite like IndexFile.
 func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skeletonTokens int, err error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
@@ -30,24 +35,6 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 	}
 	if len(content) > plaintextMaxBytes {
 		content = content[:plaintextMaxBytes]
-	}
-	conn, err := db.IndexReader()
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	tx, err := conn.Begin()
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	defer tx.Rollback()
-	if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
-		return 0, 0, 0, err
-	}
-	if _, err = tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
-		return 0, 0, 0, err
-	}
-	if _, err = tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
-		return 0, 0, 0, err
 	}
 	text := string(content)
 	lines := strings.Split(text, "\n")
@@ -61,15 +48,24 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 	fullTokens = db.EstimateTokens(text)
 	skeletonTokens = db.EstimateTokens(first)
 	embedHash := ExpectedEmbedHash("plaintext", name, filePath, 1, nLines)
-	_, err = tx.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		name, "plaintext", filePath, 1, nLines, text, fqn, projectPath, first, embedHash)
+
+	err = db.IndexWrite(func(tx *sql.Tx) error {
+		if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			name, "plaintext", filePath, 1, nLines, text, fqn, projectPath, first, embedHash); err != nil {
+			return err
+		}
+		return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
+	})
 	if err != nil {
-		return 0, fullTokens, skeletonTokens, err
-	}
-	if err := db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now()); err != nil {
-		return 0, fullTokens, skeletonTokens, err
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, fullTokens, skeletonTokens, err
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
