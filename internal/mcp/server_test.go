@@ -57,6 +57,44 @@ func TestHandleToolCallSetsIsErrorOnFailure(t *testing.T) {
 	}
 }
 
+// export_bundle/import_bundle are not yet implemented and must say so as a
+// real failure (isError:true), not a success-shaped {"message": "..."} a
+// caller could mistake for a completed export/import.
+func TestExportImportBundleReportIsError(t *testing.T) {
+	origCfg := srvCfg
+	srvCfg = DefaultConfig()
+	t.Cleanup(func() { srvCfg = origCfg })
+
+	for _, tc := range []struct {
+		tool string
+		args map[string]interface{}
+	}{
+		{"export_bundle", map[string]interface{}{"project_path": "/tmp/proj", "output_path": "/tmp/out.astbundle"}},
+		{"import_bundle", map[string]interface{}{"bundle_path": "/tmp/out.astbundle"}},
+	} {
+		req := JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      1,
+			Method:  "tools/call",
+			Params:  map[string]any{"name": tc.tool, "arguments": tc.args},
+		}
+		rec := httptest.NewRecorder()
+		handleToolCall(rec, req)
+
+		var resp JSONRPCResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("%s: unmarshal response: %v (body=%s)", tc.tool, err, rec.Body.String())
+		}
+		result, ok := resp.Result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s: result is not an object: %#v", tc.tool, resp.Result)
+		}
+		if isErr, _ := result["isError"].(bool); !isErr {
+			t.Fatalf("%s: isError=%v want true (not yet implemented)", tc.tool, result["isError"])
+		}
+	}
+}
+
 func TestHandleToolCallLeavesIsErrorFalseOnSuccess(t *testing.T) {
 	origCfg := srvCfg
 	srvCfg = DefaultConfig()
