@@ -4,9 +4,49 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// StartDataDirMove used to check-then-act (read Active, run validation, only
+// then set Active), leaving a window where concurrent calls could all pass the
+// check and all launch runDataDirMove against the same target. Exactly one of
+// many simultaneous calls must win.
+func TestStartDataDirMoveIsExclusiveUnderConcurrency(t *testing.T) {
+	dataDirMoveMu.Lock()
+	dataDirMove = DataDirMoveSnapshot{}
+	dataDirMoveMu.Unlock()
+
+	target := t.TempDir()
+	const n = 20
+	var wg sync.WaitGroup
+	var startedCount int32
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started, _ := StartDataDirMove(target)
+			if started {
+				atomic.AddInt32(&startedCount, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	if startedCount != 1 {
+		t.Fatalf("started count=%d want exactly 1", startedCount)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !GetDataDirMoveSnapshot().Active {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("move did not finish in time")
+}
 
 // TestRunDataDirMoveRecreatesMissingSourceInsteadOfCopying simulates a USB drive that
 // disconnected and came back with index.db missing while the pool handle stayed open
