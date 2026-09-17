@@ -126,6 +126,22 @@ func NewHandler() http.HandlerFunc {
 	}
 }
 
+// resultIsError reports whether a tool's already-marshaled JSON result carries a
+// non-empty top-level "error" field — the convention every handler in this
+// package uses for a failure. Every other failure besides tier/access denial
+// used to report isError:false with the error buried in content[].text, making
+// it indistinguishable from a real empty result to a caller that checks the
+// protocol-level flag instead of parsing the body.
+func resultIsError(resultJSON []byte) bool {
+	var probe struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(resultJSON, &probe) != nil {
+		return false
+	}
+	return probe.Error != ""
+}
+
 func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	start := time.Now()
 	cpuStart := sys.SampleCPU()
@@ -602,7 +618,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		"content": []map[string]interface{}{
 			{"type": "text", "text": string(resultJSON)},
 		},
-		"isError": false,
+		"isError": resultIsError(resultJSON),
 	}
 	json.NewEncoder(w).Encode(JSONRPCResponse{
 		JSONRPC: JSONRPCVersion,
