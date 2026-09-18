@@ -14,6 +14,8 @@ import type {
   Stats,
   TimeseriesPoint,
   ToolStat,
+  UpdateCheckResult,
+  UpdateStatus,
   WeeklyDigest,
 } from './types'
 
@@ -174,6 +176,10 @@ export const api = {
   moveDataDir: (target: string) =>
     post<{ started?: boolean; status?: string; error?: string }>('/api/data-dir/move', { target }),
   dataDirMoveStatus: () => get<DataDirMoveStatus>('/api/data-dir/status'),
+  updateCheck: () => get<UpdateCheckResult>('/api/update/check'),
+  startUpdate: () => post<{ started?: boolean; error?: string }>('/api/update/start', {}),
+  updateStatus: () => get<UpdateStatus>('/api/update/status'),
+  restartNow: () => post<{ status?: string; error?: string }>('/api/restart-now', {}),
   prune: () => post<{ started?: boolean; status?: string; error?: string }>('/api/prune', {}),
   pruneStatus: () => get<PruneStatus>('/api/prune/status'),
   browseDir: (path?: string) => get<BrowseDirResult>(`/api/browse-dir${path ? `?path=${encodeURIComponent(path)}` : ''}`),

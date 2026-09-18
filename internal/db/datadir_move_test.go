@@ -15,6 +15,15 @@ import (
 // check and all launch runDataDirMove against the same target. Exactly one of
 // many simultaneous calls must win.
 func TestStartDataDirMoveIsExclusiveUnderConcurrency(t *testing.T) {
+	// A successful move writes the winning target to locationOverridePath(), which
+	// resolves under $HOME — without isolating HOME here, this test overwrites the
+	// real ~/.astcache.location with this test's t.TempDir() target, which then
+	// vanishes when the test finishes, breaking the real ast-mcp on this machine
+	// until someone notices and deletes the stray override file.
+	prevHome := os.Getenv("HOME")
+	t.Cleanup(func() { os.Setenv("HOME", prevHome) })
+	os.Setenv("HOME", t.TempDir())
+
 	dataDirMoveMu.Lock()
 	dataDirMove = DataDirMoveSnapshot{}
 	dataDirMoveMu.Unlock()
@@ -46,6 +55,46 @@ func TestStartDataDirMoveIsExclusiveUnderConcurrency(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("move did not finish in time")
+}
+
+// A successful move used to call RestartProcess automatically. That was reverted
+// (see RestartProcess's doc comment) after restarting in place was found to crash
+// the process under concurrent background load rather than reliably restart it —
+// a failed automatic restart is silent downtime, worse than requiring a manual
+// "Restart now" click. This guards against that automatic call coming back.
+func TestStartDataDirMoveDoesNotAutoRestart(t *testing.T) {
+	prevHome := os.Getenv("HOME")
+	t.Cleanup(func() { os.Setenv("HOME", prevHome) })
+	os.Setenv("HOME", t.TempDir())
+
+	prevRestart := RestartProcess
+	t.Cleanup(func() { RestartProcess = prevRestart })
+	called := false
+	RestartProcess = func() { called = true }
+
+	dataDirMoveMu.Lock()
+	dataDirMove = DataDirMoveSnapshot{}
+	dataDirMoveMu.Unlock()
+
+	target := t.TempDir()
+	started, errMsg := StartDataDirMove(target)
+	if !started {
+		t.Fatalf("move did not start: %s", errMsg)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !GetDataDirMoveSnapshot().Active {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if GetDataDirMoveSnapshot().Active {
+		t.Fatal("move did not finish in time")
+	}
+	if called {
+		t.Fatal("expected RestartProcess NOT to be called automatically after a successful move")
+	}
 }
 
 // TestRunDataDirMoveRecreatesMissingSourceInsteadOfCopying simulates a USB drive that
