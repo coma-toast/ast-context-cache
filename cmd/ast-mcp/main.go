@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -74,6 +75,10 @@ func main() {
 	exeDir := filepath.Dir(exePath)
 
 	dashHandler := dashboard.NewHandler("")
+	// Constructed here (before the db.Init() goroutine below reads it via restartHook)
+	// rather than at its ListenAndServe call further down, so that read has a clear
+	// happens-before edge and isn't a data race with this assignment.
+	dashSrv := &http.Server{Addr: fmt.Sprintf(":%d", dashboardPort), Handler: dashHandler}
 	dbReady := make(chan error, 1)
 
 	go func() {
@@ -112,10 +117,14 @@ func main() {
 			json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": fmt.Sprintf("http://localhost:%d", dashboardPort)})
 		})
 
+		mcpSrv := &http.Server{Addr: fmt.Sprintf(":%d", mcpPort), Handler: mcpMux}
+		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
+
 		go func() {
-			addr := fmt.Sprintf(":%d", mcpPort)
-			log.Printf("MCP: http://localhost%s/mcp (starting)", addr)
-			log.Fatal(http.ListenAndServe(addr, mcpMux))
+			log.Printf("MCP: http://localhost%s/mcp (starting)", mcpSrv.Addr)
+			if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatal(err)
+			}
 		}()
 
 		embedder.MarkLoading()
@@ -132,9 +141,51 @@ func main() {
 		os.Exit(0)
 	}()
 
-	addr := fmt.Sprintf(":%d", dashboardPort)
-	log.Printf("Dashboard: http://localhost%s (starting)", addr)
-	log.Fatal(http.ListenAndServe(addr, dashHandler))
+	log.Printf("Dashboard: http://localhost%s (starting)", dashSrv.Addr)
+	if err := dashSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+}
+
+// restartProcess returns the hook wired to db.RestartProcess: drain both HTTP servers
+// (stop accepting new connections, let in-flight requests finish), pause the embed
+// queue the same way WAL maintenance already does before a risky operation, then
+// re-exec the current binary in place so a fresh main() and db.Init() pick up whatever
+// just changed on disk (a moved data directory, an updated binary after `git pull` +
+// rebuild).
+func restartProcess(mcpSrv, dashSrv *http.Server) func() {
+	return func() {
+		log.Println("ast-mcp: draining connections to restart")
+		// db.RequestShutdown aborts any in-progress WAL checkpoint quickly, but it also
+		// unconditionally calls AfterForceCheckpoint (wired below to
+		// embedqueue.RestoreAfterMaintenance) as a side effect — harmless for its
+		// original SIGINT/SIGTERM use (the process exits right after), but it would
+		// silently undo the embed-queue pause below if called after it. Call it first
+		// so PauseAllForMaintenance has the final say and workers stay paused through
+		// the drain and into the exec.
+		db.RequestShutdown()
+		embedqueue.PauseAllForMaintenance(2 * time.Minute)
+		log.Println("ast-mcp: embed queue paused, shutting down servers")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := mcpSrv.Shutdown(ctx); err != nil {
+			log.Printf("ast-mcp: mcp server shutdown: %v", err)
+		}
+		if err := dashSrv.Shutdown(ctx); err != nil {
+			log.Printf("ast-mcp: dashboard server shutdown: %v", err)
+		}
+		log.Println("ast-mcp: servers shut down")
+
+		exe, err := os.Executable()
+		if err != nil {
+			log.Fatalf("ast-mcp: cannot resolve executable to restart: %v", err)
+		}
+		log.Printf("ast-mcp: restarting %s", exe)
+		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+			log.Fatalf("ast-mcp: restart failed: %v", err)
+		}
+	}
 }
 
 func finishStartup(exeDir string, embedWorkersFlag int) {

@@ -178,9 +178,9 @@ func runDataDirMove(target string) {
 
 	switch {
 	case len(recreated) > 0 || len(kept) > 0:
-		log.Printf("data dir move: finished at %s (recreated: %s; kept existing: %s) — restart ast-mcp to use the new location", target, joinOrNone(recreated), joinOrNone(kept))
+		log.Printf("data dir move: finished at %s (recreated: %s; kept existing: %s) — restart to use it", target, joinOrNone(recreated), joinOrNone(kept))
 	default:
-		log.Printf("data dir move: copied index.db, context.db, and usage.db to %s — restart ast-mcp to use the new location", target)
+		log.Printf("data dir move: copied index.db, context.db, and usage.db to %s — restart to use it", target)
 	}
 	snap = GetDataDirMoveSnapshot()
 	snap.Active = false
@@ -190,6 +190,11 @@ func runDataDirMove(target string) {
 	snap.Recreated = recreated
 	snap.Kept = kept
 	setDataDirMove(snap)
+
+	// Restarting in place has a demonstrated, not-yet-understood crash risk under
+	// concurrent background load (see RestartProcess's doc comment) — require an
+	// explicit follow-up action (the dashboard's "Restart now" button, wired to
+	// RestartProcess directly) rather than triggering it automatically here.
 }
 
 func joinOrNone(items []string) string {

@@ -28,6 +28,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/purge"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/selfupdate"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -85,6 +86,10 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/wal-status", handleWALStatus)
 	mux.HandleFunc("/api/data-dir/move", handleDataDirMove)
 	mux.HandleFunc("/api/data-dir/status", handleDataDirStatus)
+	mux.HandleFunc("/api/update/check", handleUpdateCheck)
+	mux.HandleFunc("/api/update/start", handleStartUpdate)
+	mux.HandleFunc("/api/update/status", handleUpdateStatus)
+	mux.HandleFunc("/api/restart-now", handleRestartNow)
 	mux.HandleFunc("/api/prune", handlePrune)
 	mux.HandleFunc("/api/prune/status", handlePruneStatus)
 	mux.HandleFunc("/api/browse-dir", handleBrowseDir)
@@ -1616,6 +1621,102 @@ func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
 		"recreated":   s.Recreated,
 		"kept":        s.Kept,
 	})
+}
+
+// selfUpdateRepoDir returns the directory ast-mcp's own source checkout lives in,
+// matching cmd/ast-mcp/main.go's exeDir convention (the executable is run in place
+// from the repo root, e.g. via the `ast-mcp` shell function or mcp-local).
+func selfUpdateRepoDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(exe), nil
+}
+
+func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
+		return
+	}
+	repoDir, err := selfUpdateRepoDir()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	c := selfupdate.Check(repoDir)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"branch":           c.Branch,
+		"clean":            c.Clean,
+		"current_commit":   c.CurrentCommit,
+		"latest_commit":    c.LatestCommit,
+		"commits_behind":   c.CommitsBehind,
+		"update_available": c.UpdateAvailable,
+		"error":            c.Error,
+	})
+}
+
+func handleStartUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	repoDir, err := selfUpdateRepoDir()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	started, errMsg := selfupdate.Start(repoDir)
+	if !started {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"started": true, "status": "ok"})
+}
+
+func handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
+		return
+	}
+	s := selfupdate.GetSnapshot()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active":      s.Active,
+		"done":        s.Done,
+		"phase":       s.Phase,
+		"error":       s.Error,
+		"started_at":  s.StartedAt,
+		"finished_at": s.FinishedAt,
+		"from_commit": s.FromCommit,
+		"to_commit":   s.ToCommit,
+	})
+}
+
+// handleRestartNow is the explicit, user-initiated trigger for db.RestartProcess —
+// shared by the "Restart now" buttons on the Move-data-directory and Update cards.
+// Both flows finish (copy/pull+build) without restarting automatically; see
+// db.RestartProcess's doc comment for why an automatic restart isn't safe yet.
+func handleRestartNow(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	if db.RestartProcess == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "restart is not wired up in this build"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "restarting"})
+	go db.RestartProcess()
 }
 
 func handlePrune(w http.ResponseWriter, r *http.Request) {

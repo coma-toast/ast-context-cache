@@ -401,6 +401,27 @@ export interface DataDirMoveStatus {
   kept?: string[] | null
 }
 
+export interface UpdateCheckResult {
+  branch: string
+  clean: boolean
+  current_commit: string
+  latest_commit: string
+  commits_behind: number
+  update_available: boolean
+  error?: string
+}
+
+export interface UpdateStatus {
+  active: boolean
+  done: boolean
+  phase: string
+  error: string
+  started_at: string
+  finished_at: string
+  from_commit: string
+  to_commit: string
+}
+
 export interface PruneStatus {
   active: boolean
   done: boolean
