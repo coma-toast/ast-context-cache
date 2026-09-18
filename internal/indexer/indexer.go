@@ -19,6 +19,8 @@ import (
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/javascript"
+	"github.com/smacker/go-tree-sitter/markdown"
+	"github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
 	"github.com/smacker/go-tree-sitter/python"
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
@@ -64,6 +66,8 @@ func GetLanguage(path string) string {
 		return "yaml"
 	case ".tf", ".tfvars":
 		return "hcl"
+	case ".md", ".markdown":
+		return "markdown"
 	}
 	return ""
 }
@@ -90,6 +94,8 @@ func getSitterLanguage(lang string) *sitter.Language {
 		return yaml.GetLanguage()
 	case "hcl":
 		return hcl.GetLanguage()
+	case "markdown":
+		return tree_sitter_markdown.GetLanguage()
 	}
 	return nil
 }
@@ -201,6 +207,10 @@ func extractSymbol(node *sitter.Node, content []byte, lang string) *SymbolDef {
 				return &SymbolDef{name, "variable"}
 			}
 		}
+
+	case "markdown":
+		return extractMarkdownSymbol(node, content)
+
 	}
 
 	return nil
@@ -365,6 +375,94 @@ func extractHCLStringValue(expr *sitter.Node, content []byte) string {
 	return ""
 }
 
+func extractMarkdownSymbol(node *sitter.Node, content []byte) *SymbolDef {
+	nodeType := node.Type()
+
+	switch nodeType {
+	case "atx_heading":
+		text := extractHeadingText(node, content)
+		if text != "" {
+			return &SymbolDef{text, "heading"}
+		}
+	case "setext_heading":
+		text := extractHeadingText(node, content)
+		if text != "" {
+			return &SymbolDef{text, "heading"}
+		}
+	case "fenced_code_block":
+		lang := extractCodeBlockLanguage(node, content)
+		if lang != "" {
+			return &SymbolDef{fmt.Sprintf("code_block (%s)", lang), "code_block"}
+		}
+		return &SymbolDef{"code_block", "code_block"}
+	case "link", "inline_link", "shortcut_link", "full_reference_link":
+		text := extractLinkText(node, content)
+		if text != "" {
+			return &SymbolDef{text, "link"}
+		}
+	case "image":
+		alt := extractImageAlt(node, content)
+		if alt != "" {
+			return &SymbolDef{alt, "image"}
+		}
+	case "table", "pipe_table":
+		return &SymbolDef{"table", "table"}
+	case "list":
+		return &SymbolDef{"list", "list"}
+	}
+	return nil
+}
+
+func extractHeadingText(node *sitter.Node, content []byte) string {
+	return findInlineContent(node, content)
+}
+
+// findInlineContent returns the first "inline" node's content, searching the
+// node's direct children and one level deeper (setext headings nest their
+// inline text under a paragraph child).
+func findInlineContent(node *sitter.Node, content []byte) string {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child.Type() == "inline" {
+			return strings.TrimSpace(child.Content(content))
+		}
+		if text := findInlineContent(child, content); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func extractCodeBlockLanguage(node *sitter.Node, content []byte) string {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child.Type() == "info_string" {
+			return strings.TrimSpace(child.Content(content))
+		}
+	}
+	return ""
+}
+
+func extractLinkText(node *sitter.Node, content []byte) string {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child.Type() == "link_text" {
+			return strings.TrimSpace(child.Content(content))
+		}
+	}
+	return ""
+}
+
+func extractImageAlt(node *sitter.Node, content []byte) string {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child.Type() == "image_description" || child.Type() == "image_alt" {
+			return strings.TrimSpace(child.Content(content))
+		}
+	}
+	return ""
+}
+
 func getFirstChildByType(node *sitter.Node, content []byte, nodeType string) string {
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		child := node.NamedChild(i)
@@ -385,6 +483,95 @@ func getVarDeclName(node *sitter.Node, content []byte) string {
 	return ""
 }
 
+func indexMarkdownFile(filePath, projectPath string) (count, fullTokens, skeletonTokens int, err error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	mdTree, err := markdown.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer mdTree.BlockTree().Close()
+
+	err = db.IndexWrite(func(tx *sql.Tx) error {
+		if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+			return err
+		}
+
+		lines := strings.Split(string(content), "\n")
+
+		walkMarkdownNodes := collectMarkdownNodes(mdTree, content)
+
+		for _, node := range walkMarkdownNodes {
+			sym := extractMarkdownSymbol(node, content)
+			if sym == nil || sym.Name == "" {
+				continue
+			}
+			start := node.StartPoint()
+			end := node.EndPoint()
+			code := ""
+			if int(start.Row) < len(lines) {
+				code = strings.TrimSpace(lines[start.Row])
+			}
+			fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Name)
+			skeleton := ""
+			if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
+				src := strings.Join(lines[start.Row:end.Row+1], "\n")
+				fullTokens += db.EstimateTokens(src)
+				skeleton = ExtractSkeleton(src, "markdown", sym.Kind)
+				skeletonTokens += db.EstimateTokens(skeleton)
+			}
+			embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
+			if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
+				count++
+			}
+		}
+		return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
+	})
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	search.Cache.DeleteByFile(filePath, projectPath)
+	db.InvalidateSummariesForFile(filePath, projectPath)
+	notifyIndexCommitted()
+	return count, fullTokens, skeletonTokens, nil
+}
+
+func collectMarkdownNodes(mdTree *markdown.MarkdownTree, content []byte) []*sitter.Node {
+	var nodes []*sitter.Node
+	root := mdTree.BlockTree().RootNode()
+
+	var walk func(*sitter.Node)
+	walk = func(node *sitter.Node) {
+		nodes = append(nodes, node)
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			walk(node.NamedChild(i))
+		}
+		// Also walk inline trees
+		inlineTree := mdTree.InlineTree(node)
+		if inlineTree != nil {
+			inlineRoot := inlineTree.RootNode()
+			for j := 0; j < int(inlineRoot.NamedChildCount()); j++ {
+				walk(inlineRoot.NamedChild(j))
+			}
+		}
+	}
+
+	for i := 0; i < int(root.NamedChildCount()); i++ {
+		walk(root.NamedChild(i))
+	}
+	return nodes
+}
+
 func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens int, err error) {
 	filePath = filepath.Clean(filePath)
 	if projectlinks.IsUnderLinkedChild(filePath, projectPath) {
@@ -399,6 +586,9 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	}
 	if lang == "fish" {
 		return IndexFishFile(filePath, projectPath)
+	}
+	if lang == "markdown" {
+		return indexMarkdownFile(filePath, projectPath)
 	}
 
 	content, err := os.ReadFile(filePath)
@@ -491,7 +681,7 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 // their own indexing path (yaml, fish, plaintext) yield no symbols here.
 func ParseSymbols(content []byte, lang string) []SymbolDef {
 	sitterLang := getSitterLanguage(lang)
-	if sitterLang == nil || lang == "yaml" {
+	if sitterLang == nil || lang == "yaml" || lang == "markdown" {
 		return nil
 	}
 	parser := sitter.NewParser()
@@ -615,9 +805,9 @@ func GetIndexStats(projectPath string) (map[string]interface{}, error) {
 		for _, child := range linked {
 			sym, fil := projectlinks.LinkStats(child)
 			linkedInfo = append(linkedInfo, map[string]interface{}{
-				"path":         child,
-				"total_nodes":  sym,
-				"total_files":  fil,
+				"path":        child,
+				"total_nodes": sym,
+				"total_files": fil,
 			})
 			totalNodes += sym
 			totalFiles += fil
