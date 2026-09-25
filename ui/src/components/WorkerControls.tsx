@@ -62,7 +62,7 @@ export function WorkerControls({
     return isAux ? `Aux workers: ${workers} enabled · ${active} busy` : `Workers: ${active} of ${workers} busy`
   })()
   return (
-    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap title={title}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap title={title}>
       <Stack direction="column" spacing={0}>
         <IconButton
           size="small"
@@ -103,7 +103,7 @@ export function WorkerControls({
           </Typography>
         )}
       </Box>
-      <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'ui-monospace, monospace' }}>
+      <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>
         {workers}
       </Typography>
       {walBadge && (

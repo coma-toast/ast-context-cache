@@ -61,7 +61,7 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
         <Typography variant="subtitle2" gutterBottom>
           Embeddings
         </Typography>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
           {data.EmbedBackend && <Chip size="small" label={data.EmbedBackend} color="primary" variant="outlined" />}
           {data.EmbedModel && (
             <Typography variant="caption" sx={{ fontFamily: 'ui-monospace, monospace', maxWidth: 180 }} noWrap title={data.EmbedModel}>
@@ -167,7 +167,7 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
 
         {(data.EmbedInProgress?.length ?? 0) > 0 && (
           <Box sx={{ mb: 1.5 }}>
-            <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} gutterBottom>
               In progress
             </Typography>
             <Stack spacing={0.5}>
@@ -202,7 +202,7 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
 
         {(data.EmbedRecent?.length ?? 0) > 0 && (
           <Box sx={{ mb: 1.5 }}>
-            <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} gutterBottom>
               Recent
             </Typography>
             <Stack spacing={0.5}>
@@ -221,14 +221,14 @@ export function EmbeddingsPanel({ data, onRefresh }: { data: IndexHealth; onRefr
           </Box>
         )}
 
-        <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap sx={{ pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+        <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
           <EmbedStat value={formatNum(data.TotalVectors)} label="Vectors cached" />
           <EmbedStat value={formatNum(data.EmbedComplete)} label="Total embedded" />
           <EmbedStat value={String(data.PinnedCount)} label="Pinned" />
         </Stack>
 
         {autoRecoverAgo && (
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             Last auto-recover · {autoRecoverAgo}
           </Typography>
         )}
@@ -442,7 +442,7 @@ function EmbedderAlertBanner({
 function EmbedStat({ value, label }: { value: string; label: string }) {
   return (
     <Box>
-      <Typography variant="body2" fontWeight={700} color="primary.main" sx={{ fontFamily: 'ui-monospace, monospace' }}>
+      <Typography variant="body2" color="primary.main" sx={{ fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>
         {value}
       </Typography>
       <Typography variant="caption" color="text.secondary">

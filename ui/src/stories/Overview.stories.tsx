@@ -4,6 +4,7 @@ import { StoryFrame } from '../storybook/StoryFrame'
 import { HealthBar } from '../components/HealthBar'
 import { IndexHealthSection } from '../tabs/IndexHealthSection'
 import { OverviewTab } from '../tabs/OverviewTab'
+import { WatchersPanel } from '../components/WatchersPanel'
 import { fixtureContextSessions, fixtureHealth, fixtureIndexHealth, fixtureStats, fixtureWeeklyDigest } from '../storybook/fixtures'
 
 const meta: Meta = {
@@ -22,6 +23,7 @@ export const Hero: Story = {
       </Box>
       <IndexHealthSection data={fixtureIndexHealth} onRefresh={() => {}} />
       <OverviewTab stats={fixtureStats} weeklyDigest={fixtureWeeklyDigest} contextSessions={fixtureContextSessions} />
+      <WatchersPanel watchers={fixtureIndexHealth.Watchers || []} onRefresh={() => {}} />
     </StoryFrame>
   ),
 }

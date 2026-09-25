@@ -77,7 +77,7 @@ function QueryTable({
 
   return (
     <Card variant="outlined" sx={{ overflowX: 'auto' }}>
-      <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" sx={{ px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap', px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
         <TextField
           size="small"
           placeholder="Filter by tool or query…"
@@ -207,7 +207,7 @@ function LogsPane() {
 
   return (
     <Card variant="outlined" sx={{ overflow: 'hidden' }}>
-      <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap', px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis' }} title={data?.path}>
           {data?.path || 'Loading log path…'}
         </Typography>

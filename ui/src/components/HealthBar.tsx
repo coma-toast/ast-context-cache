@@ -33,7 +33,7 @@ export function HealthBar({ health }: { health: Health | null }) {
         scrollbarWidth: 'thin',
       }}
     >
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'nowrap', minWidth: 'min-content' }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'nowrap', minWidth: 'min-content' }}>
         <Chip size="small" label={`Embed: ${embedState}`} color={embedColor} sx={{ flexShrink: 0 }} />
         <Chip size="small" label={`Queue ${health.QueueQueued + health.QueuePending}`} color={queueColor} sx={{ flexShrink: 0 }} />
         <Chip size="small" variant="outlined" label={`${health.QueueThroughput?.toFixed(1) || 0}/s`} sx={{ flexShrink: 0 }} />
@@ -65,10 +65,10 @@ export function StatCard({ title, value, sub }: { title: string; value: string; 
         },
       }}
     >
-      <Typography variant="overline" color="text.secondary" display="block">
+      <Typography variant="overline" color="text.secondary" sx={{ display: 'block' }}>
         {title}
       </Typography>
-      <Typography variant="h4" fontWeight={700} sx={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 28, lineHeight: 1.2 }}>
+      <Typography variant="h4" sx={{ fontWeight: 700, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 28, lineHeight: 1.2 }}>
         {value}
       </Typography>
       {sub && (
