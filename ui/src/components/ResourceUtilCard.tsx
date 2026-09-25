@@ -164,7 +164,7 @@ export function ResourceUtilCard({ data }: { data: IndexHealth }) {
           </Box>
         )}
 
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 2 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
           Server-wide · relative load (soft caps for gauges)
         </Typography>
       </CardContent>
@@ -175,7 +175,7 @@ export function ResourceUtilCard({ data }: { data: IndexHealth }) {
 function SsdItem({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary" display="block">
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
         {label}
       </Typography>
       <Typography variant="body2" noWrap title={title || value} sx={{ fontFamily: label === 'Model' ? 'ui-monospace, monospace' : undefined }}>

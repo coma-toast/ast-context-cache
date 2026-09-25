@@ -11,7 +11,6 @@ import {
 } from '@mui/material'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
-import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import PauseIcon from '@mui/icons-material/Pause'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
@@ -22,6 +21,7 @@ import { api } from '../api/client'
 import type { WatcherInfo } from '../api/types'
 import { useToast } from '../context/ToastContext'
 import { chartColors } from '../lib/chartColors'
+import { ConfirmDeleteButton } from './ConfirmDeleteButton'
 import { flattenSpaceWatchers, groupWatchers } from '../lib/watcherGroups'
 
 const PAGE_SIZE = 8
@@ -112,8 +112,8 @@ function WatcherSubCard({
   return (
     <Card variant="outlined" sx={{ bgcolor: 'background.default' }}>
       <CardContent sx={{ '&:last-child': { pb: 2 } }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 1 }}>
-          <Stack direction="row" alignItems="baseline" spacing={0.75}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Stack direction="row" sx={{ alignItems: 'baseline' }} spacing={0.75}>
             <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
               {title}
             </Typography>
@@ -149,7 +149,7 @@ function WatcherSubCard({
               })}
             </Stack>
             {pageCount > 1 && (
-              <Stack direction="row" justifyContent="center" sx={{ mt: 1.5 }}>
+              <Stack direction="row" sx={{ justifyContent: 'center', mt: 1.5 }}>
                 <Pagination
                   size="small"
                   color="primary"
@@ -194,8 +194,8 @@ function SpaceGroupHeader({ space, first, onRefresh }: { space: string; first: b
   }
 
   return (
-    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5, mt: first ? 0 : 1 }}>
-      <Typography variant="caption" color="text.secondary" fontWeight={600}>
+    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mb: 0.5, mt: first ? 0 : 1 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
         {space}
       </Typography>
       <Tooltip title={`Start watchers on every repo in ${space}`}>
@@ -246,7 +246,7 @@ function WatcherRow({ watcher, onRefresh }: { watcher: WatcherInfo; onRefresh?: 
 
   if (editing) {
     return (
-      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ py: 0.25, px: 0.5 }}>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', py: 0.25, px: 0.5 }}>
         <TextField
           size="small"
           fullWidth
@@ -284,7 +284,7 @@ function WatcherRow({ watcher, onRefresh }: { watcher: WatcherInfo; onRefresh?: 
         px: 0.75,
         borderRadius: 1,
         opacity: watcher.Active ? 1 : 0.72,
-        '&:hover .watcher-actions': { opacity: 1 },
+        '&:hover .watcher-actions, &:focus-within .watcher-actions': { opacity: 1 },
       }}
       title={watcher.ProjectPath}
     >
@@ -356,22 +356,12 @@ function WatcherRow({ watcher, onRefresh }: { watcher: WatcherInfo; onRefresh?: 
             </span>
           </Tooltip>
         )}
-        <Tooltip title="Delete watcher and project index data">
-          <span>
-            <IconButton
-              size="small"
-              color="error"
-              aria-label={`Delete ${label}`}
-              disabled={busy != null}
-              onClick={() => {
-                if (!confirm(`Delete watcher and index data for ${label}?`)) return
-                void run('delete', () => api.deleteWatcher(watcher.ProjectPath), `Deleted ${label}`)
-              }}
-            >
-              <DeleteIcon fontSize="inherit" />
-            </IconButton>
-          </span>
-        </Tooltip>
+        <ConfirmDeleteButton
+          label={label}
+          tooltip="Delete watcher and project index data"
+          disabled={busy != null}
+          onConfirm={() => void run('delete', () => api.deleteWatcher(watcher.ProjectPath), `Deleted ${label}`)}
+        />
       </Stack>
     </Box>
   )

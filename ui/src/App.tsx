@@ -23,6 +23,7 @@ import { panelsToKeys, useWebSocket } from './hooks/useWebSocket'
 import { useResizableSidebar } from './hooks/useResizableSidebar'
 import { OverviewTab } from './tabs/OverviewTab'
 import { IndexHealthSection } from './tabs/IndexHealthSection'
+import { WatchersPanel } from './components/WatchersPanel'
 import { MemoryTab } from './tabs/MemoryTab'
 import { ActivityTab } from './tabs/ActivityTab'
 import { AnalyticsTab } from './tabs/AnalyticsTab'
@@ -41,7 +42,7 @@ const NAV = [
 type TabId = (typeof NAV)[number]['id']
 
 const TAB_HINTS: Record<TabId, string> = {
-  overview: 'Query activity, value estimate, weekly digest, virtual context sessions, and index health',
+  overview: 'Server and embedder health, activity, the last 7 days, virtual context, and file watchers',
   memory: 'Virtual context inventory and cached documentation sources',
   activity: 'Query volume and token savings over time',
   analytics: 'Tool performance, symbol mix, and import graph',
@@ -173,10 +174,10 @@ function DashboardInner() {
 
   const drawer = (
     <Box sx={{ width: '100%', p: 2, boxSizing: 'border-box', height: '100%' }}>
-      <Typography variant="h6" fontWeight={700} gutterBottom>
+      <Typography variant="h6" sx={{ fontWeight: 700 }} gutterBottom>
         AST Context Cache
       </Typography>
-      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
         Operator dashboard
       </Typography>
       <List dense>
@@ -296,7 +297,7 @@ function DashboardInner() {
             </Alert>
           )}
           <Box sx={{ mb: 2 }}>
-            <Typography variant="h5" fontWeight={600}>
+            <Typography variant="h5" sx={{ fontWeight: 600 }}>
               {title}
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -319,6 +320,12 @@ function DashboardInner() {
                 weeklyDigest={weeklyDigest}
                 contextSessions={contextSessions}
               />
+              {indexHealth && (
+                <WatchersPanel
+                  watchers={indexHealth.Watchers || []}
+                  onRefresh={() => load(['indexHealth', 'health', 'projects', 'settings'])}
+                />
+              )}
             </ErrorBoundary>
           )}
           {tab === 'memory' && (

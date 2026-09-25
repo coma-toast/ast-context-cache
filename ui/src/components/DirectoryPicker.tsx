@@ -67,7 +67,7 @@ export function DirectoryPicker({
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Choose a directory</DialogTitle>
       <DialogContent dividers>
-        <Stack direction="row" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1.5 }} useFlexGap>
           {shortcuts.map((s) => (
             <Chip key={s.path} label={s.name} size="small" variant="outlined" onClick={() => void load(s.path)} />
           ))}

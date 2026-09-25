@@ -186,6 +186,10 @@ export const api = {
   adjustEmbedWorkers: (delta: number) => post<{ status?: string; workers?: number; error?: string }>('/api/embed-workers', { delta }),
   adjustEmbedAuxWorkers: (delta: number) =>
     post<{ status?: string; workers?: number; error?: string }>('/api/embed-aux-workers', { delta }),
+  setEmbedWorkers: (count: number) =>
+    post<{ status?: string; workers?: number; error?: string }>('/api/embed-workers', { count }),
+  setEmbedAuxWorkers: (count: number) =>
+    post<{ status?: string; workers?: number; error?: string }>('/api/embed-aux-workers', { count }),
 }
 
 export function formatUptime(ns: number): string {
