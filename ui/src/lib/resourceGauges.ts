@@ -56,6 +56,24 @@ export function diskSizeLabel(
   return `${diskSize} · WAL ${walSize}`
 }
 
+/** Open descriptors as a share of the process limit (0 when the limit is unknown). */
+export function fdPct(open: number, limit: number) {
+  if (limit <= 0) return 0
+  return Math.min(100, Math.max(0, (open / limit) * 100))
+}
+
+export function fdLabel(open: number, limit: number) {
+  const n = (v: number) => v.toLocaleString('en-US')
+  return limit > 0 ? `${n(open)} / ${n(limit)}` : n(open)
+}
+
+/** Levels come from the server (internal/sys/fds.go: warning ≥70%, critical ≥90%). */
+export function fdColor(level: string | undefined) {
+  if (level === 'critical') return '#f85149'
+  if (level === 'warning') return '#d29922'
+  return '#3fb950'
+}
+
 export function gaugeLevel(pct: number): 'ok' | 'warn' | 'critical' {
   if (pct >= 85) return 'critical'
   if (pct >= 60) return 'warn'

@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/daulet/tokenizers v1.27.0
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c
+	github.com/fsnotify/fsevents v0.2.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.44

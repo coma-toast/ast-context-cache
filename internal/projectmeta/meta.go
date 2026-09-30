@@ -228,16 +228,26 @@ func DiscoverPaths() []string {
 			}
 		}
 	}
-	discoveryRoot := expandHome(cfg.Discovery.RootDir)
-	if discoveryRoot == "" {
-		discoveryRoot = expandHome("~/git")
-	}
 	maxDepth := cfg.Discovery.MaxDepth
 	if maxDepth <= 0 {
 		maxDepth = 2
 	}
-	walkDiscovery(discoveryRoot, maxDepth, add)
+	walkDiscovery(discoveryRootFor(cfg), maxDepth, add)
 	return out
+}
+
+func discoveryRootFor(cfg wtgConfig) string {
+	if root := expandHome(cfg.Discovery.RootDir); root != "" {
+		return root
+	}
+	return expandHome("~/git")
+}
+
+// ContainerRoots returns the directories that hold many separate projects: the
+// wtg spaces root and the repo discovery root. Watching one of them would walk
+// and re-index every space or clone under it (see watcher.WatchRefusal).
+func ContainerRoots() []string {
+	return []string{SpacesRoot(), discoveryRootFor(loadWTGConfig())}
 }
 
 func walkDiscovery(root string, maxDepth int, add func(string)) {
