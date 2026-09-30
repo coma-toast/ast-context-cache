@@ -349,7 +349,7 @@ Tracked sources re-fetch when older than **7 days** (daily background check). Ty
 
 ## Indexing notes for agents
 
-- **`index_files`** starts an **fsnotify** watcher and queues **embeddings** (priority + background channels). Large repos fill the queue gradually—use **`index_status`** and dashboard embed gauges if the user cares about progress.
+- **`index_files`** starts a file watcher (FSEvents on macOS, fsnotify elsewhere) and queues **embeddings** (priority + background channels). Large repos fill the queue gradually—use **`index_status`** and dashboard embed gauges if the user cares about progress.
 - **Plain `.log` / `.txt`** are not indexed unless enabled in dashboard Settings (FTS only, no embeddings).
 - **Watcher ignore globs** in Settings skip noisy paths (e.g. `dist/**`, `*.pb.go`).
 - **`file_watcher`** events are logged for observability—they are **not** MCP tools and do not appear in the Tool Usage chart.

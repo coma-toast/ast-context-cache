@@ -19,6 +19,11 @@ type IndexHealth struct {
 	WalMB                    float64
 	WalSize                  string
 	CPUPercent               float64
+	FDAvailable              bool
+	OpenFDs                  int
+	FDSoftLimit              uint64
+	FDLevel                  string
+	WatchBackend             string
 	LoadAvgAvailable         bool
 	LoadAvg1                 float64
 	LoadAvg5                 float64

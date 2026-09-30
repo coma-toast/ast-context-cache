@@ -29,11 +29,14 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/purge"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 )
 
-const (
+// Overridable (-mcp-port / -dashboard-port) so a second instance can run
+// beside the shared one, e.g. with HOME pointed at a scratch data dir.
+var (
 	mcpPort       = 7821
 	dashboardPort = 7830
 )
@@ -48,6 +51,8 @@ func main() {
 	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")
 	codeModeFlag := flag.Bool("code-mode", true, "Enable execute_code sandbox tool (default: true)")
 	embedWorkersFlag := flag.Int("embed-workers", -1, "Embed worker count at startup (-1 = auto/DB)")
+	flag.IntVar(&mcpPort, "mcp-port", mcpPort, "MCP HTTP port")
+	flag.IntVar(&dashboardPort, "dashboard-port", dashboardPort, "Dashboard HTTP port")
 	flag.Parse()
 
 	cfg := mcp.DefaultConfig()
@@ -69,6 +74,10 @@ func main() {
 			log.Printf("Logging to %s", logPath)
 		}
 	}
+	if u := sys.FileDescriptorUsage(); u.SoftLimit > 0 {
+		log.Printf("File descriptors: %d open, limit %d (hard %d); watcher backend %s", u.Open, u.SoftLimit, u.HardLimit, watcher.DefaultBackendName())
+	}
+	watcher.ContainerRootsFunc = projectmeta.ContainerRoots
 	startup.SetMessage("Opening databases…")
 
 	exePath, _ := os.Executable()

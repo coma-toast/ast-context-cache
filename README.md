@@ -97,7 +97,7 @@ The React dashboard (`ui/`) rebuilds as part of `make build` via `ui-build`.
 | **Embed backends** | ONNX, Ollama, HTTP, OpenAI/LiteLLM, Docker Model Runner — [`docs/embedding-backends.md`](docs/embedding-backends.md) |
 | **Aux embedder pool** | Separate catch-up workers when primary is down or slow |
 | **Languages** | Python, JS/JSX, TS/TSX, Go, Bash, Fish, YAML |
-| **File watcher** | `fsnotify` incremental re-index with debounce and ignore globs |
+| **File watcher** | Incremental re-index with debounce and ignore globs: one FSEvents stream per project on macOS (no descriptor per file), `fsnotify` elsewhere |
 | **Tool tiers** | `core` / `extended` / `complete` + `~/.astcache/tools.json` overrides |
 | **Code-mode** | `execute_code` sandbox + `scripts/code-mode/` |
 | **Pin / queue** | Bounded embed queue; pin projects for priority + warmer vectors |

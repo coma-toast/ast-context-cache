@@ -7,6 +7,9 @@ import {
   diskFootprintPct,
   diskIoPct,
   diskSizeLabel,
+  fdColor,
+  fdLabel,
+  fdPct,
   formatDiskIo,
   loadAvgBarWidth,
   loadAvgLabel,
@@ -36,6 +39,17 @@ function buildRows(data: IndexHealth): Row[] {
       hint: 'Process CPU — can exceed 100% on multi-core',
     },
   ]
+  if (data.FDAvailable) {
+    rows.push({
+      label: 'Open files',
+      pct: fdPct(data.OpenFDs ?? 0, data.FDSoftLimit ?? 0),
+      display: fdLabel(data.OpenFDs ?? 0, data.FDSoftLimit ?? 0),
+      color: fdColor(data.FDLevel),
+      hint: `File descriptors held vs the process limit. Watchers use ${data.WatchBackend || 'fsnotify'}${
+        data.WatchBackend === 'kqueue' ? ' (one descriptor per watched file and directory)' : ''
+      }; calls fail with "too many open files" at the limit.`,
+    })
+  }
   if (data.LoadAvgAvailable) {
     rows.push({
       label: 'Load avg',

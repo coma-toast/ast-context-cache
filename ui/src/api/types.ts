@@ -152,6 +152,11 @@ export interface IndexHealth {
   WalSize?: string
   CPUPercent: number
   HeapMB?: number
+  FDAvailable?: boolean
+  OpenFDs?: number
+  FDSoftLimit?: number
+  FDLevel?: 'ok' | 'warning' | 'critical' | 'unknown'
+  WatchBackend?: string
   LoadAvgAvailable?: boolean
   LoadAvg1?: number
   LoadAvg5?: number

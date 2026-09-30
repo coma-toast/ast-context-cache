@@ -246,7 +246,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			}
 		}
 	case "index_status":
-		result, _ = indexer.GetIndexStats(projectPath)
+		stats, err := indexer.GetIndexStats(projectPath)
+		result = withResourceHealth(stats, err, projectPath)
 	case "get_context_capsule":
 		query := ""
 		if q, ok := toolArgs["query"].(string); ok {

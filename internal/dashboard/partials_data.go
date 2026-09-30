@@ -108,6 +108,14 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 
 func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h := components.IndexHealth{}
+	// Before the index query: when descriptors run out that query is what
+	// fails, and this is the number that explains why.
+	fd := sys.FileDescriptorUsage()
+	h.FDAvailable = fd.Available
+	h.OpenFDs = fd.Open
+	h.FDSoftLimit = fd.SoftLimit
+	h.FDLevel = fd.Level()
+	h.WatchBackend = watcher.DefaultBackendName()
 	conn, err := db.IndexReader()
 	if err != nil {
 		applyActiveEmbedder(&h)

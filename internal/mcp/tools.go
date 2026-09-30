@@ -143,7 +143,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "index_status",
-			Description: "Get statistics about indexed symbols in a project. Returns own and linked subproject counts when container links exist.",
+			Description: "Get statistics about indexed symbols in a project. Returns own and linked subproject counts when container links exist. resources reports the server's open file descriptors against its limit (level ok|warning|critical) and the file-watcher backend; watcher shows this project's watcher, or blocked_reason when the path is a container of projects (e.g. ~/spaces) that is never watched.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

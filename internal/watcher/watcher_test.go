@@ -51,3 +51,27 @@ func TestDeleteWatcherCancelsPendingDebounceTimersForItsProject(t *testing.T) {
 		t.Fatal("cancelled timer should be removed from debounceTimers")
 	}
 }
+
+func TestDebounceKeyOwnership(t *testing.T) {
+	space := "/s/space"
+	repo := "/s/space/repo"
+	cases := []struct {
+		key     string
+		project string
+		want    bool
+	}{
+		{debounceKey(repo, repo+"/a.go"), repo, true},
+		{debounceKey(repo, repo+"/a.go"), space, false}, // a nested project's timer
+		{debounceKey(space, repo+"/a.go"), space, true},
+		{debounceKey(space, repo+"/a.go"), repo, false},
+		{space + "/\x00catch-up", space, true},
+		{repo + "/\x00catch-up", space, false},
+		{repo + "/a.go", space, true}, // bare path keys keep prefix matching
+		{"/s/space-other/a.go", space, false},
+	}
+	for _, c := range cases {
+		if got := debounceKeyOwnedBy(c.key, c.project); got != c.want {
+			t.Errorf("debounceKeyOwnedBy(%q, %q) = %v, want %v", c.key, c.project, got, c.want)
+		}
+	}
+}
