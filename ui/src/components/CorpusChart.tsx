@@ -38,7 +38,7 @@ export function CorpusChart({ data }: { data: IndexHealth }) {
             </Typography>
           ))}
         </Stack>
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
           {data.PinnedCount} pinned projects · {formatNum(data.TotalVectors)} vectors
         </Typography>
       </CardContent>

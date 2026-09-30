@@ -64,7 +64,7 @@ export function MemoryTab({
       </Typography>
       <Card variant="outlined" sx={{ mt: 1, mb: 2 }}>
         <CardContent>
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 2 }}>
             <TextField size="small" label="Name" value={docName} onChange={(e) => setDocName(e.target.value)} />
             <TextField size="small" label="URL" value={docUrl} onChange={(e) => setDocUrl(e.target.value)} sx={{ minWidth: 240 }} />
             <TextField size="small" label="Type" value={docType} onChange={(e) => setDocType(e.target.value)} />

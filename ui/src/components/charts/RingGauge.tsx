@@ -54,7 +54,7 @@ export function RingGauge({
           lineHeight: 1.1,
         }}
       >
-        <Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 15 }}>
+        <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'ui-monospace, monospace', fontSize: 15 }}>
           {safeValue}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>

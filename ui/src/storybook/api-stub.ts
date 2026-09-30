@@ -77,6 +77,8 @@ export const api = {
   walCheckpoint: noop,
   adjustEmbedWorkers: noop,
   adjustEmbedAuxWorkers: noop,
+  setEmbedWorkers: noop,
+  setEmbedAuxWorkers: noop,
   updateCheck: noop,
   startUpdate: noop,
   updateStatus: noop,

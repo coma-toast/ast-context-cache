@@ -30,6 +30,7 @@ import type {
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
+import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
 
 const PROJECTS_PAGE_SIZE = 8
@@ -107,7 +108,8 @@ export function SettingsTab({
 
   return (
     <Box>
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{
+      <Stack direction="row" spacing={1} useFlexGap sx={{
+        flexWrap: 'wrap',
         mb: 3,
         position: 'sticky',
         top: { xs: 56, md: 56 },
@@ -128,7 +130,7 @@ export function SettingsTab({
           <Typography variant="subtitle1" gutterBottom>
             Performance
           </Typography>
-          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }} useFlexGap>
             <TextField
               label="Idle unload (minutes)"
               type="number"
@@ -140,7 +142,7 @@ export function SettingsTab({
               label="Max embed workers"
               type="number"
               size="small"
-              inputProps={{ min: 1, max: 64 }}
+              slotProps={{ htmlInput: { min: 1, max: 64 } }}
               defaultValue={data.EmbedWorkerMax ?? 15}
               onBlur={(e) => save('embed_worker_max', e.target.value)}
               helperText="Primary pool +/− cap"
@@ -149,7 +151,7 @@ export function SettingsTab({
               label="Max aux embed workers"
               type="number"
               size="small"
-              inputProps={{ min: 1, max: 32 }}
+              slotProps={{ htmlInput: { min: 1, max: 32 } }}
               defaultValue={data.EmbedAuxWorkerMax ?? 10}
               onBlur={(e) => save('embed_aux_worker_max', e.target.value)}
               helperText="Aux catch-up pool cap"
@@ -158,7 +160,7 @@ export function SettingsTab({
               label="Aux embed workers"
               type="number"
               size="small"
-              inputProps={{ min: 0, max: data.EmbedAuxWorkerMax ?? 10 }}
+              slotProps={{ htmlInput: { min: 0, max: data.EmbedAuxWorkerMax ?? 10 } }}
               defaultValue={data.EmbedAuxWorkers ?? 0}
               onBlur={(e) => save('EMBED_AUX_WORKERS', e.target.value)}
               helperText="Also adjustable on Overview"
@@ -183,13 +185,13 @@ export function SettingsTab({
                 label="Probe interval (sec)"
                 type="number"
                 size="small"
-                inputProps={{ min: 5, max: 600 }}
+                slotProps={{ htmlInput: { min: 5, max: 600 } }}
                 defaultValue={data.EmbedProbeIntervalSec}
                 onBlur={(e) => save('embed_probe_interval_seconds', e.target.value)}
               />
             )}
           </Stack>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
             Aux controls appear on the embeddings card when the aux backend differs from the primary backend.
           </Typography>
         </CardContent>
@@ -204,7 +206,7 @@ export function SettingsTab({
           <Typography variant="subtitle1" gutterBottom>
             Virtual context
           </Typography>
-          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }} useFlexGap>
             <TextField label="Max notes / session" type="number" size="small" defaultValue={data.ContextMaxNotesSession} onBlur={(e) => save('context_max_notes_session', e.target.value)} />
             <TextField label="Max tokens / session" type="number" size="small" defaultValue={data.ContextMaxTokensSession} onBlur={(e) => save('context_max_tokens_session', e.target.value)} />
             <TextField label="Max notes global" type="number" size="small" defaultValue={data.ContextMaxNotesGlobal} onBlur={(e) => save('context_max_notes_global', e.target.value)} />
@@ -309,14 +311,12 @@ export function SettingsTab({
           <Stack spacing={2}>
             {pagedProjects.map((p) => (
               <Box key={p.Path} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, minWidth: 0 }}>
-                <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'flex-start' }} gap={2}>
+                <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'stretch', md: 'flex-start' }, gap: 2 }}>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography fontWeight={600}>{p.Label}</Typography>
+                    <Typography sx={{ fontWeight: 600 }}>{p.Label}</Typography>
                     <Typography
                       variant="caption"
-                      fontFamily="monospace"
-                      display="block"
-                      sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      sx={{ fontFamily: 'monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                       title={p.Path}
                     >
                       {p.Path}
@@ -327,13 +327,13 @@ export function SettingsTab({
                       </Typography>
                     )}
                     {p.LinkedParent && (
-                      <Typography variant="caption" display="block">
+                      <Typography variant="caption" sx={{ display: 'block' }}>
                         Linked under: {p.LinkedParent}
                       </Typography>
                     )}
                     {p.LinkedChildren?.map((c) => (
-                      <Stack key={c} direction="row" spacing={1} alignItems="center">
-                        <Typography variant="caption" fontFamily="monospace">
+                      <Stack key={c} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
                           {c}
                         </Typography>
                         <Button size="small" onClick={async () => {
@@ -350,9 +350,9 @@ export function SettingsTab({
                       </Stack>
                     ))}
                   </Box>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }} alignItems="center">
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
                     {p.Path in renaming ? (
-                      <Stack direction="row" spacing={0.5} alignItems="center">
+                      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                         <TextField
                           size="small"
                           autoFocus
@@ -444,24 +444,26 @@ export function SettingsTab({
                     }}>
                       Reset
                     </Button>
-                    <Button size="small" color="error" disabled={!!pendingPaths[p.Path]} onClick={() => {
-                      if (!confirm(`Delete ${p.Label}?`)) return
-                      void withPending(p.Path, async () => {
-                        try {
-                          await api.deleteWatcher(p.Path)
-                          showToast('Deleted', 'success')
-                          onRefresh()
-                        } catch (e) {
-                          showToast(String(e), 'error')
-                        }
-                      })
-                    }}>
-                      Delete
-                    </Button>
+                    <ConfirmDeleteButton
+                      variant="text"
+                      label={p.Label || p.Name || p.Path}
+                      disabled={!!pendingPaths[p.Path]}
+                      onConfirm={() =>
+                        void withPending(p.Path, async () => {
+                          try {
+                            await api.deleteWatcher(p.Path)
+                            showToast('Deleted', 'success')
+                            onRefresh()
+                          } catch (e) {
+                            showToast(String(e), 'error')
+                          }
+                        })
+                      }
+                    />
                   </Stack>
                 </Stack>
                 {!p.LinkedParent && linkable(p).length > 0 && (
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1 }}>
                     <FormControl size="small" sx={{ minWidth: 200 }}>
                       <InputLabel>Link subproject</InputLabel>
                       <Select
@@ -501,7 +503,7 @@ export function SettingsTab({
             ))}
           </Stack>
           {projectPageCount > 1 && (
-            <Stack direction="row" justifyContent="center" sx={{ mt: 2 }}>
+            <Stack direction="row" sx={{ justifyContent: 'center', mt: 2 }}>
               <Pagination
                 count={projectPageCount}
                 page={clampedProjectPage}
@@ -521,8 +523,8 @@ export function SettingsTab({
           <Stack spacing={2}>
             {data.Agents?.map((a) => (
               <Box key={a.Type}>
-                <Typography fontWeight={500}>{a.Name}</Typography>
-                <Typography variant="caption" color="text.secondary" display="block">
+                <Typography sx={{ fontWeight: 500 }}>{a.Name}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   {a.Description}
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
@@ -565,11 +567,11 @@ export function SettingsTab({
             </Typography>
             <Typography variant="body2">Effective tier: {mcpTier.tier}</Typography>
             <Typography variant="body2">Code mode (execute_code): {mcpTier.code_mode ? 'enabled' : 'disabled'}</Typography>
-            <Typography variant="caption" fontFamily="monospace" display="block">
+            <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>
               {mcpTier.tools_json_path} {mcpTier.tools_json_exists ? '(exists)' : '(missing)'}
             </Typography>
             {Object.keys(mcpTier.tool_overrides ?? {}).length > 0 && (
-              <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
                 Per-tool overrides:{' '}
                 {Object.entries(mcpTier.tool_overrides)
                   .map(([name, o]) => `${name} (${o.enabled ? o.tier : 'disabled'})`)
@@ -669,12 +671,12 @@ function StorageSection({ data }: { data: SettingsData }) {
           <Typography variant="subtitle2" color="warning.main">
             Move data directory
           </Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
             Copies index.db, context.db, and usage.db to a new location (e.g. a USB drive) while the
             app keeps running normally. Old files are left untouched — restart ast-mcp afterward to
             actually switch to the new location.
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
             <TextField
               label="Target directory"
               size="small"
@@ -707,7 +709,7 @@ function StorageSection({ data }: { data: SettingsData }) {
             }}
           />
           {active && (
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
               {status?.phase || 'working'}…
             </Typography>
           )}
@@ -752,7 +754,7 @@ function StorageSection({ data }: { data: SettingsData }) {
 
         <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
           <Typography variant="subtitle2">Prune database</Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
             Sweeps data for projects whose directory is gone, removes orphaned vectors, prunes query
             history past retention, then runs VACUUM so the freed space actually shrinks the files on
             disk. VACUUM needs roughly as much free space as the current database size to compact —
@@ -762,7 +764,7 @@ function StorageSection({ data }: { data: SettingsData }) {
             {pruneActive ? 'Pruning…' : 'Prune now'}
           </Button>
           {pruneActive && (
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
               {pruneStatus?.phase || 'working'}…
             </Typography>
           )}
@@ -869,7 +871,7 @@ function UpdatesSection() {
           Updates
         </Typography>
         {check?.error ? (
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
             {check.error}
           </Typography>
         ) : (
@@ -881,7 +883,7 @@ function UpdatesSection() {
             </Typography>
           )
         )}
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
           <Button variant="outlined" size="small" disabled={checking || active} onClick={runCheck}>
             {checking ? 'Checking…' : 'Check for updates'}
           </Button>
@@ -896,7 +898,7 @@ function UpdatesSection() {
           </Button>
         </Stack>
         {active && (
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             {status?.phase || 'working'}…
           </Typography>
         )}

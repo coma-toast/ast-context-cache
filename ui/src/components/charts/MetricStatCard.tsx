@@ -1,4 +1,5 @@
-import { Box, Card, CardContent, Typography } from '@mui/material'
+import { Box, Card, CardContent, Stack, Tooltip, Typography } from '@mui/material'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import type { MeterFill } from '../../lib/statMeters'
 import { StatMeterChart } from './StatMeterChart'
 
@@ -6,16 +7,19 @@ export function MetricStatCard({
   title,
   value,
   sub,
+  detail,
   fill,
   accent = '#58a6ff',
 }: {
   title: string
   value: string
   sub?: string
+  /** Secondary figures shown on hover, to keep the card itself to one short sub-line. */
+  detail?: string
   fill: MeterFill
   accent?: string
 }) {
-  return (
+  const card = (
     <Card
       variant="outlined"
       sx={{
@@ -25,13 +29,15 @@ export function MetricStatCard({
       }}
     >
       <CardContent sx={{ pb: '16px !important' }}>
-        <Typography variant="overline" color="text.secondary" display="block">
-          {title}
-        </Typography>
+        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="overline" color="text.secondary" sx={{ display: 'block' }} noWrap>
+            {title}
+          </Typography>
+          {detail && <InfoOutlinedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />}
+        </Stack>
         <Typography
           variant="h4"
-          fontWeight={700}
-          sx={{ color: accent, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 28, lineHeight: 1.2, my: 0.5 }}
+          sx={{ fontWeight: 700, color: accent, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 28, lineHeight: 1.2, my: 0.5 }}
         >
           {value}
         </Typography>
@@ -39,11 +45,17 @@ export function MetricStatCard({
           <StatMeterChart fill={fill} />
         </Box>
         {sub && (
-          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
+          <Typography variant="caption" color="text.secondary" noWrap title={sub} sx={{ display: 'block', lineHeight: 1.4 }}>
             {sub}
           </Typography>
         )}
       </CardContent>
     </Card>
+  )
+  if (!detail) return card
+  return (
+    <Tooltip title={detail} placement="bottom-start">
+      {card}
+    </Tooltip>
   )
 }
