@@ -61,12 +61,8 @@ func PrepareForEmbedderSwap(timeout time.Duration) {
 }
 
 // RestoreWorkersAfterSwap resumes workers paused by PrepareForEmbedderSwap (not persisted).
+// Before Start, PrepareForEmbedderSwap takes no pause, so the depth check covers that case.
 func RestoreWorkersAfterSwap() {
-	if !workersStarted() {
-		swapRestoreWorkers = 0
-		swapPauseDepth = 0
-		return
-	}
 	workerMu.Lock()
 	defer workerMu.Unlock()
 	if swapPauseDepth <= 0 {
