@@ -2,17 +2,30 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
+
+// errIndexWriterStopped is returned to an IndexWrite whose job was handed to a
+// writer that stopped (quiesce or Close) before running it.
+var errIndexWriterStopped = errors.New("index writer stopped before running write")
 
 type indexWriteJob struct {
 	fn   func(*sql.Tx) error
 	done chan error
+	// claimed is won exactly once: by the writer just before it runs fn (it then
+	// always replies on done), or by the caller abandoning the job after the
+	// writer's stop channel closed. Without it a job buffered in a stopped
+	// writer's channel is never read, and its caller blocks on done forever.
+	claimed atomic.Bool
 }
 
+func (j *indexWriteJob) claim() bool { return j.claimed.CompareAndSwap(false, true) }
+
 var (
-	indexWriteCh    chan indexWriteJob
+	indexWriteCh    chan *indexWriteJob
 	indexWriterMu   sync.Mutex
 	indexWriterStop chan struct{}
 )
@@ -20,10 +33,14 @@ var (
 func startIndexWriter() {
 	indexWriterMu.Lock()
 	defer indexWriterMu.Unlock()
-	if indexWriterStop != nil {
+	// Don't resurrect the writer mid-quiesce: a caller that passed IndexWrite's
+	// gate check just before quiesceIndexPool stopped the writer would otherwise
+	// start a fresh one against the pool being closed. restoreIndexPool starts
+	// the next writer.
+	if indexWriterStop != nil || IndexReadQuiesced() {
 		return
 	}
-	indexWriteCh = make(chan indexWriteJob, 512)
+	indexWriteCh = make(chan *indexWriteJob, 512)
 	indexWriterStop = make(chan struct{})
 	go runIndexWriter(indexWriteCh, indexWriterStop)
 }
@@ -38,7 +55,7 @@ func resetIndexWriter() {
 			close(indexWriterStop)
 		}
 	}
-	indexWriteCh = make(chan indexWriteJob, 512)
+	indexWriteCh = make(chan *indexWriteJob, 512)
 	indexWriterStop = make(chan struct{})
 	go runIndexWriter(indexWriteCh, indexWriterStop)
 }
@@ -63,7 +80,7 @@ func stopIndexWriter() {
 // time, rather than reading the mutable indexWriteCh/indexWriterStop package
 // vars directly: stopIndexWriter/resetIndexWriter reassign those vars under
 // indexWriterMu, but this goroutine never held that lock, racing on every read.
-func runIndexWriter(ch chan indexWriteJob, stop chan struct{}) {
+func runIndexWriter(ch chan *indexWriteJob, stop chan struct{}) {
 	for {
 		select {
 		case <-stop:
@@ -72,7 +89,17 @@ func runIndexWriter(ch chan indexWriteJob, stop chan struct{}) {
 			if !ok {
 				return
 			}
-			job.done <- indexWriteTx(job.fn)
+			// select picks at random when stop and a buffered job are both ready.
+			// Once stop is closed, leave the job unclaimed for its caller to
+			// abandon rather than writing to a pool that is being closed.
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if job.claim() {
+				job.done <- indexWriteTx(job.fn)
+			}
 		}
 	}
 }
@@ -98,19 +125,42 @@ func IndexWrite(fn func(*sql.Tx) error) error {
 		return fmt.Errorf("index db quiesced for maintenance")
 	}
 	startIndexWriter()
-	done := make(chan error, 1)
 	indexWriterMu.Lock()
 	ch := indexWriteCh
 	stop := indexWriterStop
 	indexWriterMu.Unlock()
 	if ch == nil {
-		return indexWriteTx(fn)
+		// Stopped (quiesce or Close) since startIndexWriter; the pool is going away.
+		return errIndexWriterStopped
+	}
+	return submitIndexWrite(ch, stop, fn)
+}
+
+// submitIndexWrite hands fn to the writer that owns ch and waits for its result.
+// ch and stop may belong to a writer that has stopped since the caller read
+// them, so every wait also watches stop: once it closes, the job is either
+// abandoned (unclaimed) or already running and about to reply, never stranded.
+func submitIndexWrite(ch chan *indexWriteJob, stop chan struct{}, fn func(*sql.Tx) error) error {
+	select {
+	case <-stop:
+		return errIndexWriterStopped
+	default:
+	}
+	job := &indexWriteJob{fn: fn, done: make(chan error, 1)}
+	select {
+	case ch <- job:
+	case <-stop:
+		return errIndexWriterStopped
 	}
 	select {
-	case ch <- indexWriteJob{fn: fn, done: done}:
-		return <-done
+	case err := <-job.done:
+		return err
 	case <-stop:
-		return indexWriteTx(fn)
+		if job.claim() {
+			return errIndexWriterStopped
+		}
+		// The writer claimed it first, so it is running fn and will reply.
+		return <-job.done
 	}
 }
 
@@ -123,10 +173,5 @@ func FlushIndexWriter() {
 	if ch == nil || stop == nil {
 		return
 	}
-	done := make(chan error, 1)
-	select {
-	case ch <- indexWriteJob{fn: func(*sql.Tx) error { return nil }, done: done}:
-		<-done
-	case <-stop:
-	}
+	_ = submitIndexWrite(ch, stop, func(*sql.Tx) error { return nil })
 }
