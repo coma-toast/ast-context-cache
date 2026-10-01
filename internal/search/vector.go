@@ -580,6 +580,32 @@ func (vc *VectorCache) DeleteByProject(projectPath string) {
 	vc.entries = vc.entries[:n]
 }
 
+// DeleteBySourceFiles drops in-memory vectors of docType whose source file is in
+// sourceFiles. Callers are responsible for deleting the matching database rows.
+func (vc *VectorCache) DeleteBySourceFiles(docType string, sourceFiles []string) {
+	if len(sourceFiles) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(sourceFiles))
+	for _, f := range sourceFiles {
+		drop[f] = true
+	}
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
+	n := 0
+	for _, e := range vc.entries {
+		if e.DocType == docType && drop[e.SourceFile] {
+			continue
+		}
+		vc.entries[n] = e
+		n++
+	}
+	vc.entries = vc.entries[:n]
+}
+
 func (vc *VectorCache) Count(projectPath string) int {
 	vc.mu.RLock()
 	if vc.loaded {
