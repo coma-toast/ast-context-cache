@@ -578,6 +578,18 @@ func shouldStopForIdle(project string, now time.Time, timeout time.Duration) boo
 	return ok && now.Sub(t) > timeout
 }
 
+// anyWatcherActive reports whether any project has a running watcher.
+func anyWatcherActive() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, isActive := range knownProjects {
+		if isActive {
+			return true
+		}
+	}
+	return false
+}
+
 func idleTimeout() time.Duration {
 	val := db.GetSetting("idle_unload_minutes", "1")
 	mins, err := strconv.Atoi(val)
@@ -594,31 +606,43 @@ func idleLoop() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
-		checkFDPressure()
-		timeout := idleTimeout()
-		if timeout == 0 {
+		idleTick()
+	}
+}
+
+// idleTick stops watchers that have seen no activity for idleTimeout.
+func idleTick() {
+	checkFDPressure()
+	// With no watcher running there's nothing to stop, so don't touch the
+	// db. This loop starts in init() and runs in every binary that imports
+	// watcher, while tests open and close db's package-global pools with no
+	// lock this loop could share.
+	if !anyWatcherActive() {
+		return
+	}
+	timeout := idleTimeout()
+	if timeout == 0 {
+		return
+	}
+	mu.Lock()
+	now := time.Now()
+	var toStop []string
+	for project, isActive := range knownProjects {
+		if !isActive {
 			continue
 		}
-		mu.Lock()
-		now := time.Now()
-		var toStop []string
-		for project, isActive := range knownProjects {
-			if !isActive {
-				continue
-			}
-			if db.IsPinnedProject(project) {
-				continue
-			}
-			if t, ok := lastActivity[project]; ok && now.Sub(t) > timeout {
-				toStop = append(toStop, project)
-			}
+		if db.IsPinnedProject(project) {
+			continue
 		}
-		mu.Unlock()
-		for _, p := range toStop {
-			if shouldStopForIdle(p, now, timeout) {
-				log.Printf("Watcher idle timeout for %s", p)
-				StopWatcher(p)
-			}
+		if t, ok := lastActivity[project]; ok && now.Sub(t) > timeout {
+			toStop = append(toStop, project)
+		}
+	}
+	mu.Unlock()
+	for _, p := range toStop {
+		if shouldStopForIdle(p, now, timeout) {
+			log.Printf("Watcher idle timeout for %s", p)
+			StopWatcher(p)
 		}
 	}
 }
