@@ -159,6 +159,11 @@ export const api = {
       return d
     }),
   flushContextAll: () => post('/api/flush-context', { all: true }),
+  flushContextOrphans: (projectPath?: string) =>
+    post<{ flushed_refs: number; virtual_tokens_freed: number; kept_recent: number }>('/api/flush-context', {
+      orphans: true,
+      project_path: projectPath ?? '',
+    }),
   flushContextSession: (session_id: string) => post('/api/flush-context', { session_id }),
   docSourceAction: (action: string, id: number) => post('/api/doc-sources', { action, id }),
   addDocSource: (name: string, url: string, type: string, version = '') =>
@@ -170,6 +175,7 @@ export const api = {
   embedderTest: () => post<{ status?: string; error?: string }>('/api/embedder/test', {}),
   embedderRetry: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string; skipped?: boolean }>('/api/embedder/retry'),
+  retryPendingEmbeds: () => post<{ status?: string; queued: number }>('/api/embed-pending/retry', {}),
   embedderDismissAlert: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string }>('/api/embedder/dismiss-alert'),
   walCheckpoint: () => post<{ started?: boolean; status?: string }>('/api/wal-checkpoint', {}),

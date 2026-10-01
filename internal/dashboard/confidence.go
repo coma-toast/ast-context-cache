@@ -39,7 +39,11 @@ type WeeklyDigestTool struct {
 
 // WeeklyDigestEmbedReliability summarizes embed queue health for the digest card.
 type WeeklyDigestEmbedReliability struct {
-	PendingFailures     int64  `json:"PendingFailures"`
+	// PendingFailures is files currently waiting for an embed retry.
+	PendingFailures int64 `json:"PendingFailures"`
+	// FailedSinceStart counts every failed embed attempt this process, including ones a
+	// later retry already fixed — it never decreases, so it is not a "waiting" count.
+	FailedSinceStart    int64  `json:"FailedSinceStart"`
 	LastAutoRecoverUnix int64  `json:"LastAutoRecoverUnix"`
 	AbnormalPreviousRun bool   `json:"AbnormalPreviousRun"`
 	Available           bool   `json:"Available"`
@@ -193,11 +197,12 @@ func queryTopToolsWindow(projectID string, days, limit int) []WeeklyDigestTool {
 func buildEmbedReliability() WeeklyDigestEmbedReliability {
 	eq := embedqueue.Snapshot()
 	r := WeeklyDigestEmbedReliability{
-		PendingFailures:     eq.Failed,
+		PendingFailures:     int64(eq.Pending),
+		FailedSinceStart:    eq.Failed,
 		LastAutoRecoverUnix: eq.LastAutoRecoverUnix,
 		AbnormalPreviousRun: embedqueue.AbnormalPreviousRun(),
 		Available:           true,
-		Note:                "embed failures are process-lifetime pending counts; auto-recover is last stuck-worker event",
+		Note:                "pending = files awaiting an embed retry now; failed_since_start is cumulative this process; auto-recover is last stuck-worker event",
 	}
 	return r
 }

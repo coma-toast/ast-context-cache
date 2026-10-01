@@ -294,3 +294,60 @@ func (n *noopEmbedder) Embed(texts []string) ([][]float32, error) {
 func (n *noopEmbedder) EmbedSingle(text string) ([]float32, error) {
 	return []float32{1}, nil
 }
+
+func TestRetryPendingNowQueuesAndReportsCount(t *testing.T) {
+	pendingCh = make(chan job, 4)
+	highCh = make(chan job, 4)
+	lowCh = make(chan job, 4)
+	emb = &noopEmbedder{}
+	pendingMu.Lock()
+	pending = map[string]job{
+		jobKey(job{file: "/tmp/a.go", projectPath: "/proj"}): {file: "/tmp/a.go", projectPath: "/proj"},
+		jobKey(job{file: "/tmp/b.go", projectPath: "/proj"}): {file: "/tmp/b.go", projectPath: "/proj"},
+	}
+	pendingChQueued = nil
+	pendingMu.Unlock()
+	embedder.MarkReady()
+
+	queued, blocked := RetryPendingNow()
+	if blocked != "" || queued != 2 {
+		t.Fatalf("queued=%d blocked=%q, want 2 and no block", queued, blocked)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-pendingCh:
+		case <-time.After(200 * time.Millisecond):
+			t.Fatalf("expected 2 jobs queued, got %d", i)
+		}
+	}
+}
+
+func TestRetryPendingNowRefusesWhileEmbedderDown(t *testing.T) {
+	t.Cleanup(func() {
+		embedder.SetOnError(nil)
+		embedder.MarkReady()
+	})
+	pendingCh = make(chan job, 4)
+	emb = &noopEmbedder{}
+	SetAuxEmbedder(nil)
+	auxWorkerMu.Lock()
+	auxWorkerTarget = 0
+	auxWorkerCount = 0
+	auxWorkerMu.Unlock()
+	pendingMu.Lock()
+	pending = map[string]job{jobKey(job{file: "/tmp/a.go", projectPath: "/proj"}): {file: "/tmp/a.go", projectPath: "/proj"}}
+	pendingChQueued = nil
+	pendingMu.Unlock()
+	embedder.SetOnError(nil)
+	embedder.MarkError(errors.New("connectivity probe: timeout"))
+
+	queued, blocked := RetryPendingNow()
+	if queued != 0 || blocked == "" {
+		t.Fatalf("queued=%d blocked=%q, want a refusal while the embedder is down", queued, blocked)
+	}
+	select {
+	case <-pendingCh:
+		t.Fatal("nothing should be queued while the embedder is down")
+	case <-time.After(50 * time.Millisecond):
+	}
+}

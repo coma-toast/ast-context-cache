@@ -64,7 +64,10 @@ export interface WeeklyDigestTool {
 }
 
 export interface WeeklyDigestEmbedReliability {
+  /** Files currently waiting for an embed retry. */
   PendingFailures: number
+  /** Cumulative failed embed attempts this process, including ones since fixed. */
+  FailedSinceStart?: number
   LastAutoRecoverUnix: number
   AbnormalPreviousRun: boolean
   Available: boolean
