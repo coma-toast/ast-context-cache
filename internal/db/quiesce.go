@@ -37,6 +37,10 @@ func quiesceIndexPool() error {
 	indexReadGate.Store(true)
 	FlushIndexWriter()
 	stopIndexWriter()
+	// Wait rather than cancel: an interrupted rebuild rolls back and isn't retried
+	// until the next Init. maintainWAL skips quiescing while one is running, so this
+	// normally returns at once.
+	waitFTSRebuild()
 	if IndexDB == nil {
 		return nil
 	}

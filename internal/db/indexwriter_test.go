@@ -3,7 +3,6 @@ package db
 import (
 	"database/sql"
 	"errors"
-	"os"
 	"testing"
 	"time"
 )
@@ -14,19 +13,11 @@ const strandTimeout = 5 * time.Second
 
 func initIndexWriterTest(t *testing.T) {
 	t.Helper()
-	// Not t.TempDir(): Init's background FTS rebuild runs on the original pool
-	// handle and can still be writing WAL files after Close, which makes
-	// t.TempDir's strict RemoveAll fail the test. Remove best-effort instead.
-	dir, err := os.MkdirTemp("", "indexwriter-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	restoreHome := SetHomeForTest(dir)
+	restoreHome := SetHomeForTest(t.TempDir())
 	t.Cleanup(func() {
 		indexReadGate.Store(false)
 		Close()
 		restoreHome()
-		_ = os.RemoveAll(dir)
 	})
 	if err := Init(); err != nil {
 		t.Fatal(err)

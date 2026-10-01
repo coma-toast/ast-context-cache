@@ -22,9 +22,6 @@ func DefaultLogPath() string {
 	return filepath.Join(home, ".astcache", "ast-mcp.log")
 }
 
-// initFTSRebuild tracks Init's background FTS rebuild, so tests can wait it out.
-var initFTSRebuild sync.WaitGroup
-
 func Init() error {
 	if _, err := ResolveDataDir(); err != nil {
 		return fmt.Errorf("configured data directory unavailable: %w — reconnect the drive, or delete %s to use the default location", err, locationOverridePath())
@@ -67,20 +64,7 @@ func Init() error {
 	}
 	startIndexWriter()
 	StartWriteBatchers()
-	// Capture the pool handle rather than closing over the IndexDB package var: if a
-	// later Init()/Close() call (e.g. from another test in the same process) reassigns
-	// or nils IndexDB while this goroutine is still running, an Exec on a *closed*
-	// *sql.DB just returns an error — but an Exec on a *nil* one panics.
-	idx := IndexDB
-	initFTSRebuild.Add(1)
-	go func() {
-		defer initFTSRebuild.Done()
-		for _, table := range symbolFTSTables {
-			if err := rebuildFTSTable(idx, table); err != nil {
-				log.Printf("FTS: startup %v", err)
-			}
-		}
-	}()
+	startFTSRebuild(IndexDB)
 	return nil
 }
 
