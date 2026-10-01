@@ -340,7 +340,8 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 		stopDebounce(t)
 	}
 	bg.Add(1)
-	debounceTimers[key] = time.AfterFunc(500*time.Millisecond, func() {
+	var t *time.Timer
+	t = time.AfterFunc(500*time.Millisecond, func() {
 		defer bg.Done()
 		start := time.Now()
 		if removed {
@@ -373,10 +374,16 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 				}
 			}
 		}
+		// Stop is a no-op once a timer has fired, so an event that arrived
+		// while this ran may have queued a newer timer under key. Leave that
+		// one for cancelDebounceTimersForProject to find.
 		debounceMu.Lock()
-		delete(debounceTimers, key)
+		if debounceTimers[key] == t {
+			delete(debounceTimers, key)
+		}
 		debounceMu.Unlock()
 	})
+	debounceTimers[key] = t
 	debounceMu.Unlock()
 }
 
