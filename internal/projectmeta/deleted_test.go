@@ -4,10 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestMarkClearWasDeleted(t *testing.T) {
-	testExcludeDB(t)
+	dbtest.Init(t)
 	path := t.TempDir()
 
 	if WasDeleted(path) {
@@ -35,7 +37,7 @@ func TestMarkClearWasDeleted(t *testing.T) {
 }
 
 func TestDiscoverPathsSkipsDeleted(t *testing.T) {
-	home := t.TempDir()
+	home := dbtest.Init(t)
 	gitRoot := filepath.Join(home, "git", "keep")
 	deleted := filepath.Join(home, "git", "gone")
 	if err := os.MkdirAll(filepath.Join(gitRoot, ".git"), 0755); err != nil {
@@ -44,8 +46,6 @@ func TestDiscoverPathsSkipsDeleted(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(deleted, ".git"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
-	testExcludeDB(t)
 
 	// The directory still exists on disk (only the index/data was purged), but it
 	// was explicitly deleted from the dashboard, so passive discovery must skip it.
@@ -88,9 +88,7 @@ func TestDiscoverPathsSkipsDeleted(t *testing.T) {
 // deleting one repo checkout from the dashboard while its sibling repo (and the
 // space directory itself) remain untouched on disk.
 func TestDiscoverPathsSkipsDeletedSpaceRepoButKeepsSiblings(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	testExcludeDB(t)
+	home := dbtest.Init(t)
 
 	space := filepath.Join(home, "spaces", "echo")
 	deletedRepo := filepath.Join(space, "slapi")

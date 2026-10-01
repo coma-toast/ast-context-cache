@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -20,11 +21,7 @@ import (
 // on the next ast-mcp restart. deleteProjectData now delegates to purge.ProjectData
 // so both delete entry points behave identically.
 func TestHandleDeleteWatcherStopsReappearing(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 
 	p := filepath.Join(home, "git", "deleteme")
 	if err := os.MkdirAll(p, 0755); err != nil {

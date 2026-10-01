@@ -5,9 +5,11 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestProbeIntervalDefault(t *testing.T) {
+	dbtest.Init(t)
 	db.SetSetting(probeIntervalSetting, "")
 	if got := ProbeInterval(); got != defaultProbeInterval {
 		t.Fatalf("ProbeInterval()=%s want %s", got, defaultProbeInterval)
@@ -15,6 +17,7 @@ func TestProbeIntervalDefault(t *testing.T) {
 }
 
 func TestProbeIntervalFromSetting(t *testing.T) {
+	dbtest.Init(t)
 	if err := db.SetSetting(probeIntervalSetting, "45"); err != nil {
 		t.Fatal(err)
 	}
@@ -25,6 +28,7 @@ func TestProbeIntervalFromSetting(t *testing.T) {
 }
 
 func TestProbeIntervalClampsInvalid(t *testing.T) {
+	dbtest.Init(t)
 	if err := db.SetSetting(probeIntervalSetting, "2"); err != nil {
 		t.Fatal(err)
 	}

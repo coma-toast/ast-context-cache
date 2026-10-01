@@ -40,6 +40,7 @@ func TestThrottledEmbedWorkers(t *testing.T) {
 	if err := Init(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(Close)
 	if got := ThrottledEmbedWorkers(10); got != 10 {
 		t.Fatalf("ok=%d", got)
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestMatchNodeModules(t *testing.T) {
@@ -16,11 +17,7 @@ func TestMatchNodeModules(t *testing.T) {
 }
 
 func TestListUsesDefaultsWhenUnset(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 	_ = db.SetSetting(settingKey, "[]")
 	InvalidateCache()
 	got := List()
@@ -40,11 +37,7 @@ func TestListUsesDefaultsWhenUnset(t *testing.T) {
 }
 
 func TestEnsureDefaultsPersists(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 	EnsureDefaults()
 	raw := db.GetSetting(settingKey, "")
 	if raw == "" || raw == "[]" {

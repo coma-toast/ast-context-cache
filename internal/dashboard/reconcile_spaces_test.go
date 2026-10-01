@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
@@ -18,11 +18,7 @@ import (
 // disk under a WTG space — with no confirmation, since spaces are ephemeral
 // by design.
 func TestHandleReconcileSpacesPurgesMissingSpaceRepoOnly(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 
 	spaceRepo := filepath.Join(home, "spaces", "throwaway", "slapi")
 	if err := os.MkdirAll(spaceRepo, 0755); err != nil {

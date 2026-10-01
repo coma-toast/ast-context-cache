@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 // SetActive (a dashboard-triggered Reload) can run concurrently with per-request
@@ -37,11 +37,7 @@ func TestActiveMetadataConcurrentAccess(t *testing.T) {
 }
 
 func TestWiredSnapshotFrozenAfterFreeze(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 	SetActive("docker", "ai/qwen3-embedding", 768, "dmr", "http://127.0.0.1:12434/engines/v1/embeddings")
 	FreezeWiredSnapshot()
 	SetActive("openai", "vm/nomic-embed-text-v1.5", 768, "openai", "http://127.0.0.1:8080/v1/embeddings")

@@ -6,15 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestReloadSwapsWiredSnapshot(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 	vec := make([]float32, 768)
 	for i := range vec {
 		vec[i] = 1

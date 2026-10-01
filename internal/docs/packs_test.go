@@ -1,9 +1,12 @@
 package docs
 
 import (
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
-	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestStarterPackShape(t *testing.T) {
@@ -22,12 +25,33 @@ func TestStarterPackShape(t *testing.T) {
 	}
 }
 
+// stubDocFetch serves every doc fetch a small canned page instead of the network.
+func stubDocFetch(t *testing.T) {
+	t.Helper()
+	t.Setenv("DOC_RENDER_DISABLE", "1")
+	orig := docFetchClient
+	docFetchClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader("<html><body><h1>Stub</h1><p>Stub documentation for " + r.URL.String() + "</p></body></html>")),
+			Request:    r,
+		}, nil
+	})}
+	t.Cleanup(func() { docFetchClient = orig })
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// InstallStarterPack queues a background refresh per source. They used to fetch
+// the real starter-pack URLs and write the results into this test's database
+// after it had returned — sometimes while t.TempDir's cleanup was removing it.
 func TestInstallStarterPack(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
+	stubDocFetch(t)
+	t.Cleanup(refreshes.Wait)
 
 	added, results := InstallStarterPack()
 	if added != len(StarterPack) {
@@ -55,5 +79,16 @@ func TestInstallStarterPack(t *testing.T) {
 	}
 	if len(sources2) != len(sources) {
 		t.Fatalf("second install grew sources %d → %d", len(sources), len(sources2))
+	}
+
+	refreshes.Wait()
+	for _, r := range results {
+		entries, err := ListEntriesBySource(r.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) == 0 {
+			t.Fatalf("source %q (id %d) has no entries after its refresh", r.Name, r.ID)
+		}
 	}
 }

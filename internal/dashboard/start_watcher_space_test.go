@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
@@ -47,11 +47,7 @@ func mkSpaceWorktree(t *testing.T, dir string) {
 }
 
 func TestHandleStartWatcherSpaceStartsEveryRepo(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 	space := filepath.Join(home, "spaces", "echo")
 	repoA := filepath.Join(space, "slapi")
 	repoB := filepath.Join(space, "console")
@@ -86,11 +82,7 @@ func TestHandleStartWatcherSpaceStartsEveryRepo(t *testing.T) {
 }
 
 func TestHandleStartWatcherSpaceValidates(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 
 	rec, out := postSpace(t, `{"space":""}`)
 	if rec.Code != http.StatusBadRequest || out.Error == "" {
