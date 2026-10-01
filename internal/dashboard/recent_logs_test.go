@@ -9,6 +9,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestParseLogLine(t *testing.T) {
@@ -108,6 +109,7 @@ func TestTruncateLogDisplay(t *testing.T) {
 }
 
 func TestLogViewOptsDefaults(t *testing.T) {
+	dbtest.Init(t)
 	_ = db.SetSetting("dashboard_log_tail_lines", "")
 	_ = db.SetSetting("dashboard_log_line_chars", "")
 	opts := logViewOpts()

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestBackendConfigReady(t *testing.T) {
@@ -26,13 +27,9 @@ func TestResolveStartupBackend_envOpenAI(t *testing.T) {
 
 // Regression: dashboard saved EMBED_BACKEND=openai without a model must not prevent ast-mcp start.
 func TestResolveStartupBackend_incompleteOpenAI_fallsBackToOnnx(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	dbtest.Init(t)
 	t.Setenv("EMBED_BACKEND", "")
 	t.Setenv("EMBED_OPENAI_MODEL", "")
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
 	if err := db.SetSetting("EMBED_BACKEND", "openai"); err != nil {
 		t.Fatal(err)
 	}

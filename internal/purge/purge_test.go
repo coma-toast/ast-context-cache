@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
@@ -17,11 +18,7 @@ import (
 // (otherwise the next ast-mcp restart auto-watches and re-indexes it), and the path
 // must be tombstoned so passive filesystem discovery doesn't re-list it either.
 func TestProjectDataStopsReappearing(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 
 	p := filepath.Join(home, "git", "deleteme")
 	if err := os.MkdirAll(p, 0755); err != nil {
@@ -59,11 +56,7 @@ func TestProjectDataStopsReappearing(t *testing.T) {
 // and blocks with "parent is already linked under another container" the moment any
 // row — stale or not — still names that path as a child.
 func TestProjectDataRemovesLinks(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 
 	parent := filepath.Join(home, "git", "monorepo")
 	child := filepath.Join(parent, "service")

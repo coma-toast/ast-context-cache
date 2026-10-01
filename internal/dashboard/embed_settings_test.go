@@ -10,6 +10,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 )
 
@@ -23,11 +24,7 @@ func testEmbedDB(t *testing.T) {
 			t.Cleanup(func() { os.Unsetenv(k) })
 		}
 	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 }
 
 func saveEmbedSetting(t *testing.T, key, value string) {

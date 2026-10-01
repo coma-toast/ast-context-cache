@@ -6,27 +6,11 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
-func testExcludeDB(t *testing.T) {
-	t.Helper()
-	home := os.Getenv("HOME")
-	if home == "" {
-		home = t.TempDir()
-		t.Setenv("HOME", home)
-	}
-	cacheDir := filepath.Join(home, ".astcache-test")
-	os.MkdirAll(cacheDir, 0755)
-	t.Setenv("DB_PATH", filepath.Join(cacheDir, "usage.db"))
-	db.Close()
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
-}
-
 func TestIsExcludedBasenameAndPrefix(t *testing.T) {
-	testExcludeDB(t)
+	dbtest.Init(t)
 	_ = db.SetSetting(excludeSettingKey, `["basename:outputs","/tmp/excluded-repo"]`)
 	InvalidateExcludeCache()
 	if !IsExcluded("/any/where/outputs") {
@@ -44,13 +28,11 @@ func TestIsExcludedBasenameAndPrefix(t *testing.T) {
 }
 
 func TestDiscoverPathsSkipsExcluded(t *testing.T) {
-	home := t.TempDir()
+	home := dbtest.Init(t)
 	gitRoot := filepath.Join(home, "git", "keep")
 	excluded := filepath.Join(home, "git", "skip")
 	os.MkdirAll(filepath.Join(gitRoot, ".git"), 0755)
 	os.MkdirAll(filepath.Join(excluded, ".git"), 0755)
-	t.Setenv("HOME", home)
-	testExcludeDB(t)
 	_ = db.SetSetting(excludeSettingKey, `["basename:skip"]`)
 	InvalidateExcludeCache()
 	paths := DiscoverPaths()

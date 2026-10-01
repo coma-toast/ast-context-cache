@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
-	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
+	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
 func TestResultIsError(t *testing.T) {
@@ -69,12 +71,15 @@ func TestExportImportBundleReportIsError(t *testing.T) {
 	srvCfg = DefaultConfig()
 	t.Cleanup(func() { srvCfg = origCfg })
 
+	// project_path must not exist: handleToolCall starts a watcher on any
+	// project_path that does, which /tmp/proj on a dev machine might.
+	dir := t.TempDir()
 	for _, tc := range []struct {
 		tool string
 		args map[string]interface{}
 	}{
-		{"export_bundle", map[string]interface{}{"project_path": "/tmp/proj", "output_path": "/tmp/out.astbundle"}},
-		{"import_bundle", map[string]interface{}{"bundle_path": "/tmp/out.astbundle"}},
+		{"export_bundle", map[string]interface{}{"project_path": filepath.Join(dir, "proj"), "output_path": filepath.Join(dir, "out.astbundle")}},
+		{"import_bundle", map[string]interface{}{"bundle_path": filepath.Join(dir, "out.astbundle")}},
 	} {
 		req := JSONRPCRequest{
 			JSONRPC: "2.0",
@@ -106,10 +111,7 @@ func TestListDocSourcesIsPaginated(t *testing.T) {
 	origCfg := srvCfg
 	srvCfg = DefaultConfig()
 	t.Cleanup(func() { srvCfg = origCfg })
-	t.Setenv("HOME", t.TempDir())
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 
 	for i := 0; i < 3; i++ {
 		if _, err := docs.AddSource(fmt.Sprintf("source-%d", i), "markdown", fmt.Sprintf("https://example.com/%d", i), ""); err != nil {
@@ -158,10 +160,17 @@ func TestListDocSourcesIsPaginated(t *testing.T) {
 	}
 }
 
+// index_status needs a database, and used to pass only by reusing whichever one
+// an earlier test in the binary had left open (failing with "unable to open
+// database file" once that test's TempDir was gone). handleToolCall also starts
+// a watcher on project_path, stopped here before dbtest closes the pools.
 func TestHandleToolCallLeavesIsErrorFalseOnSuccess(t *testing.T) {
 	origCfg := srvCfg
 	srvCfg = DefaultConfig()
 	t.Cleanup(func() { srvCfg = origCfg })
+	dbtest.Init(t)
+	project := t.TempDir()
+	t.Cleanup(func() { watcher.DeleteWatcher(project) })
 
 	req := JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -169,7 +178,7 @@ func TestHandleToolCallLeavesIsErrorFalseOnSuccess(t *testing.T) {
 		Method:  "tools/call",
 		Params: map[string]any{
 			"name":      "index_status",
-			"arguments": map[string]interface{}{"project_path": t.TempDir()},
+			"arguments": map[string]interface{}{"project_path": project},
 		},
 	}
 	rec := httptest.NewRecorder()

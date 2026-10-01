@@ -14,6 +14,9 @@ const quietDocRefreshCooldown = time.Hour
 var (
 	refreshMu  sync.Mutex
 	refreshing = map[int]struct{}{}
+	// refreshes counts ForceRefreshSource goroutines still running, so tests can
+	// wait for them before closing the db pools they write through.
+	refreshes sync.WaitGroup
 
 	quietRefreshMu   sync.Mutex
 	lastQuietRefresh time.Time
@@ -39,7 +42,9 @@ func ForceRefreshSource(id int) {
 	refreshing[id] = struct{}{}
 	refreshMu.Unlock()
 	notifyDocPanels()
+	refreshes.Add(1)
 	go func() {
+		defer refreshes.Done()
 		if _, err := UpdateSource(id); err != nil {
 			log.Printf("doc source %d force refresh: %v", id, err)
 		}

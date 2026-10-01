@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestProjectMatch(t *testing.T) {
@@ -35,11 +36,7 @@ func TestScopeClauseSiblingsAreOptIn(t *testing.T) {
 // A memory stored while working in one WTG worktree must be recallable from a
 // sibling worktree of the same repo sitting on a different branch.
 func TestRecallCrossesRepoSiblings(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 	alpha := filepath.Join(home, "spaces", "alpha", "repo")
 	bravo := filepath.Join(home, "spaces", "bravo", "repo")
 	git := func(args ...string) {

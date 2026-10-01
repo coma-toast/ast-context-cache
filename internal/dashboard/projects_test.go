@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 // handleProjects used to return every distinct project_path ever queried with
@@ -15,12 +15,7 @@ import (
 // — this confirms the query still returns the expected rows, correctly
 // ordered, after adding ORDER BY/LIMIT.
 func TestHandleProjectsOrdersByActivity(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	os.Unsetenv("DB_PATH")
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 
 	if _, err := db.DB.Exec(`INSERT INTO queries (tool_name, project_path, timestamp) VALUES ('t', '/proj/quiet', datetime('now'))`); err != nil {
 		t.Fatal(err)

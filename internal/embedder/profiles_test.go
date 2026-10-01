@@ -4,14 +4,11 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestSettingsForStoredProfile_onnx(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 	if err := db.SetSetting("embed_backend_profiles", `{"onnx":{"MODEL_DIR":"/tmp/onnx-model"}}`); err != nil {
 		t.Fatal(err)
 	}
@@ -25,11 +22,7 @@ func TestSettingsForStoredProfile_onnx(t *testing.T) {
 }
 
 func TestAuxBackend_defaultOnnx(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 	if got := AuxBackend(); got != "onnx" {
 		t.Fatalf("AuxBackend() = %q, want onnx", got)
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func TestIsStrictSubpath(t *testing.T) {
@@ -23,14 +24,10 @@ func TestIsStrictSubpath(t *testing.T) {
 }
 
 func TestCreateLinkAndScope(t *testing.T) {
-	root := t.TempDir()
+	root := dbtest.Init(t)
 	parent := filepath.Join(root, "git")
 	child := filepath.Join(parent, "foo")
 	if err := os.MkdirAll(child, 0755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", root)
-	if err := db.Init(); err != nil {
 		t.Fatal(err)
 	}
 	if err := CreateLink(parent, child, false); err != nil {
@@ -59,14 +56,10 @@ func TestScopeSQL(t *testing.T) {
 }
 
 func TestOwningProject(t *testing.T) {
-	root := t.TempDir()
+	root := dbtest.Init(t)
 	parent := filepath.Join(root, "git")
 	child := filepath.Join(parent, "foo")
 	if err := os.MkdirAll(child, 0755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", root)
-	if err := db.Init(); err != nil {
 		t.Fatal(err)
 	}
 	if err := CreateLink(parent, child, false); err != nil {
@@ -79,14 +72,10 @@ func TestOwningProject(t *testing.T) {
 }
 
 func TestResolveScopeWithRepoSiblings(t *testing.T) {
-	root := t.TempDir()
+	root := dbtest.Init(t)
 	main := filepath.Join(root, "git", "repo")
 	linked := filepath.Join(root, "space", "repo")
 	if err := os.MkdirAll(main, 0755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", root)
-	if err := db.Init(); err != nil {
 		t.Fatal(err)
 	}
 	gitRun := func(args ...string) {

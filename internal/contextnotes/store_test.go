@@ -6,14 +6,12 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 func testNotesDB(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 }
 
 func TestStoreFetchFlush(t *testing.T) {

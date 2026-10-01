@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 // present reports paths as existing unless listed in missing.
@@ -76,11 +77,7 @@ func TestRecordScanForgetsUntrackedPaths(t *testing.T) {
 // Deleting a whole WTG space must take every repo under it, since each checkout
 // is its own project_path.
 func TestSweepPurgesEveryRepoOfADeletedSpace(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 	ResetMissCounts()
 
 	space := filepath.Join(home, "spaces", "throwaway")
@@ -136,11 +133,7 @@ func TestSweepPurgesEveryRepoOfADeletedSpace(t *testing.T) {
 // Spaces are created and destroyed frequently, so a user-initiated cleanup (Prune)
 // must not make them wait out SweepDeletedProjects' consecutive-miss debounce.
 func TestSweepDeletedProjectsNowPurgesImmediately(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 	ResetMissCounts()
 
 	space := filepath.Join(home, "spaces", "throwaway")
@@ -184,11 +177,7 @@ func TestSweepDeletedProjectsNowPurgesImmediately(t *testing.T) {
 // reason it's a separate, scoped function rather than just reusing
 // SweepDeletedProjectsNow (which would also sweep unrelated ~/git projects).
 func TestSweepDeletedSpaceProjectsNowIsScopedToSpaces(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 	ResetMissCounts()
 
 	spaceRepo := filepath.Join(home, "spaces", "throwaway", "slapi")
@@ -227,11 +216,7 @@ func TestProjectDataRequiresPath(t *testing.T) {
 }
 
 func TestKnownProjectPathsIncludesIndexedButUnwatched(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	home := dbtest.Init(t)
 	p := filepath.Join(home, "git", "lonely")
 	if err := os.MkdirAll(p, 0755); err != nil {
 		t.Fatal(err)
