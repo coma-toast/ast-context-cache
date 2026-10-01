@@ -281,6 +281,15 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 		setWalSkipReason("throttle_45s", lastMaintAt.Add(45*time.Second))
 		return 0, 0, 0, nil
 	}
+	// A pausing pass quiesces the index pool, which waits for Init's FTS rebuild —
+	// minutes on a large index, with reads gated and embed workers paused the whole
+	// time. The rebuild holds the write lock anyway, so TRUNCATE would only come back
+	// busy. No backoff: retry as soon as the next cycle once it's done.
+	if (force || indexWal >= walTruncateBytes) && ftsRebuildRunning() {
+		setWalSkipReason("fts_rebuild", time.Time{})
+		logWalSkip("fts_rebuild", "startup FTS rebuild still running")
+		return 1, 0, 0, nil
+	}
 
 	if indexWal >= walTruncateBytes {
 		log.Printf("WAL maintenance starting reason=%s force=%v index_wal=%s", reason, force, FormatFileSize(indexWal))

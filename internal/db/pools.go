@@ -59,6 +59,7 @@ func applyPragmas(conn *sql.DB) {
 func Close() {
 	stopWriteBatchers()
 	stopIndexWriter()
+	cancelFTSRebuild()
 	for _, c := range []*sql.DB{IndexDB, ContextDB, DB} {
 		if c != nil {
 			c.Close()
