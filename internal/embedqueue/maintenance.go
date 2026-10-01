@@ -78,6 +78,13 @@ func pauseAuxForMaintenance() {
 // RestoreAfterMaintenance resumes workers paused by PauseAllForMaintenance.
 func RestoreAfterMaintenance() {
 	RestoreWorkersAfterSwap()
+	restoreAuxAfterMaintenance()
+}
+
+// restoreAuxAfterMaintenance undoes one pauseAuxForMaintenance. A caller that
+// paused only aux uses it rather than RestoreAfterMaintenance, which would also
+// undo a swap pause that caller never took.
+func restoreAuxAfterMaintenance() {
 	auxWorkerMu.Lock()
 	defer auxWorkerMu.Unlock()
 	if maintenanceAuxDepth <= 0 {

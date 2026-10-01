@@ -56,6 +56,7 @@ func StartQuietPeriodLoop() {
 
 // maybeQuietOnWorkersPaused runs quiet maintenance when the primary worker target hits 0.
 // Aux is paused too so it cannot keep writing while we wait for a quiet WAL window.
+// Only that aux pause is undone afterwards: an embedder swap may hold its own.
 func maybeQuietOnWorkersPaused(n int) {
 	if n != 0 {
 		return
@@ -67,7 +68,7 @@ func maybeQuietOnWorkersPaused(n int) {
 	go func() {
 		defer quietOnPause.Done()
 		pauseAuxForMaintenance()
-		defer RestoreAfterMaintenance()
+		defer restoreAuxAfterMaintenance()
 		deadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(deadline) {
 			if QueueIdleForWAL() && WorkerLive() == 0 && AuxWorkerLive() == 0 {
@@ -87,7 +88,8 @@ func maybeQuietOnWorkersPaused(n int) {
 // stopQuietOnPause ends every quiet-on-pause wait early, skipping its quiet
 // period, and waits for each to restore the aux workers it paused. Tests call
 // it so one test's SetWorkerCount(0) can't pause aux workers under the next.
-// Not with workerMu held: the restore takes it.
+// Not with workerMu or auxWorkerMu held: the wait loop's QueueIdleForWAL takes
+// both, and the restore takes auxWorkerMu.
 func stopQuietOnPause() {
 	quietOnPauseMu.Lock()
 	close(quietOnPauseStop)
