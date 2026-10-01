@@ -2,6 +2,7 @@ package embedqueue
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -9,11 +10,7 @@ import (
 )
 
 func TestBeginRunLock_stalePID(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	useRunLockHome(t)
 	path := runLockPath()
 	if err := os.WriteFile(path, []byte("999999"), 0o644); err != nil {
 		t.Fatal(err)
@@ -35,17 +32,24 @@ func TestBeginRunLock_stalePID(t *testing.T) {
 }
 
 func TestBeginRunLock_cleanStart(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	useRunLockHome(t)
 	if BeginRunLock() {
 		t.Fatal("expected normal start with no prior lock")
 	}
 	EndRunLock()
 	if BeginRunLock() {
 		t.Fatal("expected normal start after clean EndRunLock")
+	}
+}
+
+// useRunLockHome gives the test a run lock of its own. It doesn't reopen the db
+// pools there: the run lock only needs the directory, and TestMain's pools are
+// shared with Start's goroutines for the rest of the package.
+func useRunLockHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(runLockPath()), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

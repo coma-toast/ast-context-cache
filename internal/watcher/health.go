@@ -21,10 +21,12 @@ func scheduleCatchUp(projectPath string) {
 	debounceMu.Lock()
 	defer debounceMu.Unlock()
 	if t, ok := debounceTimers[key]; ok {
-		t.Stop()
+		stopDebounce(t)
 	}
+	bg.Add(1)
 	var t *time.Timer
 	t = time.AfterFunc(catchUpAfterLostEvents, func() {
+		defer bg.Done()
 		debounceMu.Lock()
 		if debounceTimers[key] == t {
 			delete(debounceTimers, key)

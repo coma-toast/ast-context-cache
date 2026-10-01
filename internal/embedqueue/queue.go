@@ -440,6 +440,13 @@ func enqueuePendingRetry(j job) bool {
 	if MaintenancePaused() {
 		return false
 	}
+	return enqueuePendingRetryOn(pendingCh, j)
+}
+
+// enqueuePendingRetryOn is enqueuePendingRetry past its maintenance check, on
+// the given channel, so a test can hand it a full one without swapping out the
+// pendingCh that running workers read.
+func enqueuePendingRetryOn(ch chan job, j job) bool {
 	k := jobKey(j)
 	pendingMu.Lock()
 	if pending == nil {
@@ -459,12 +466,12 @@ func enqueuePendingRetry(j job) bool {
 	}
 	pendingChQueued[k] = struct{}{}
 	pendingMu.Unlock()
-	if pendingCh == nil {
+	if ch == nil {
 		unmarkPendingChQueued(j)
 		return false
 	}
 	select {
-	case pendingCh <- j:
+	case ch <- j:
 		realtime.Notify(realtime.EmbedFinished)
 		return true
 	default:

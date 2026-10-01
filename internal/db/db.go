@@ -39,6 +39,8 @@ func Init() error {
 		}
 	}
 	startup.SetMessage("Opening databases…")
+	// A previous Init's batchers read DB; stop them before it's reassigned.
+	stopWriteBatchers()
 	var err error
 	IndexDB, err = openPool(idxPath)
 	if err != nil {

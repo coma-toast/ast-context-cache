@@ -7,6 +7,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
+// TestMain opens the db pools once, for every test in the package. Start's
+// goroutines run for the rest of the process and read those pools, so a test
+// calling db.Init again after any test has called Start races them.
 func TestMain(m *testing.M) {
 	if db.IndexDB != nil {
 		db.Close()

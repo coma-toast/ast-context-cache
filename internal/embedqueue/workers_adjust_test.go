@@ -1,22 +1,25 @@
 package embedqueue
 
-import (
-	"testing"
-
-	"github.com/coma-toast/ast-context-cache/internal/db"
-)
+import "testing"
 
 func TestAdjustWorkersUsesTargetWhenThrottled(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
+	Start(stubEmbedder{})
+	resetPauseStateForTest()
+	t.Cleanup(func() {
+		resetPauseStateForTest()
+		_, _ = SetWorkerCount(0)
+		waitLiveZero(t, &workerLive)
+	})
+	// Target 10, live pool held at 4 (the WAL throttle's shape). Through
+	// applyWorkerCountLocked rather than assigning workerStop/workerCount, which
+	// running workers read and Start's pool has to keep matching.
+	workerMu.Lock()
+	workerTarget = 10
+	err := applyWorkerCountLocked(4, false)
+	workerMu.Unlock()
+	if err != nil {
 		t.Fatal(err)
 	}
-	workerMu.Lock()
-	workerStop = make(chan struct{}, AbsoluteMaxWorkers)
-	workerCount = 4
-	workerTarget = 10
-	workerMu.Unlock()
 	n, err := AdjustWorkers(1)
 	if err != nil {
 		t.Fatal(err)

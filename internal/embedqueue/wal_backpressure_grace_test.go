@@ -3,8 +3,6 @@ package embedqueue
 import (
 	"testing"
 	"time"
-
-	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
 // TestApplyPrimaryCeilingRespectsRecentManualOverride reproduces the reported bug: an
@@ -19,12 +17,6 @@ import (
 // package's binary, so replacing workerStop or setting workerCount without spawning
 // matching goroutines leaves stale stop-signals that corrupt whichever test runs next.
 func TestApplyPrimaryCeilingRespectsRecentManualOverride(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
-
 	Start(stubEmbedder{})
 	resetPauseStateForTest()
 	if _, err := SetWorkerCount(5); err != nil {
@@ -61,12 +53,6 @@ func TestApplyPrimaryCeilingRespectsRecentManualOverride(t *testing.T) {
 // TestApplyAuxCeilingRespectsRecentManualOverride mirrors the primary-pool test for the
 // aux pool, since a manual aux worker-count change hit the identical bug.
 func TestApplyAuxCeilingRespectsRecentManualOverride(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
-
 	Start(stubEmbedder{})
 	ensureAuxStopForTest()
 	resetPauseStateForTest()

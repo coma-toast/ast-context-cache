@@ -37,14 +37,14 @@ var (
 	workerMu              sync.Mutex
 	workerStop            chan struct{}
 	startupWorkerOverride *int
-	processingReadyAt     time.Time
+	processingReadyAt     atomic.Int64 // UnixNano workers wait for; 0 = none. Polled by running workers.
 	lastThrottleApplied   int
 	backpressureKick      atomic.Bool
 	manualOverrideAt      time.Time
 )
 
 func beginProcessingWindow() {
-	processingReadyAt = time.Now().Add(startupProcessingDelay)
+	processingReadyAt.Store(time.Now().Add(startupProcessingDelay).UnixNano())
 	if startupProcessingDelay > 0 {
 		log.Printf("embed queue: processing starts in %s", startupProcessingDelay)
 	}
@@ -52,10 +52,11 @@ func beginProcessingWindow() {
 
 func waitForProcessingReady() {
 	for {
-		if processingReadyAt.IsZero() {
+		at := processingReadyAt.Load()
+		if at == 0 {
 			return
 		}
-		d := time.Until(processingReadyAt)
+		d := time.Until(time.Unix(0, at))
 		if d <= 0 {
 			return
 		}

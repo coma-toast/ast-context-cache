@@ -16,11 +16,9 @@ func TestSetWorkerCountValidation(t *testing.T) {
 }
 
 func TestMaxWorkersSetting(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() {
+		_, _ = db.DB.Exec(`DELETE FROM settings WHERE key = ?`, embedWorkerMaxSetting)
+	})
 	if err := db.SetSetting("embed_worker_max", "25"); err != nil {
 		t.Fatal(err)
 	}

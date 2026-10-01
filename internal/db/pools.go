@@ -57,6 +57,7 @@ func applyPragmas(conn *sql.DB) {
 
 // Close closes all database pools (tests and shutdown).
 func Close() {
+	stopWriteBatchers()
 	stopIndexWriter()
 	for _, c := range []*sql.DB{IndexDB, ContextDB, DB} {
 		if c != nil {

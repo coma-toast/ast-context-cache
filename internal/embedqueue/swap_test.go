@@ -56,23 +56,40 @@ func TestPrepareForEmbedderSwap_nestedPause(t *testing.T) {
 	SetWorkerCount(0)
 }
 
+// Uses its own full channel: pendingCh is shared with the workers earlier
+// tests started, which read it while running — swapping it out raced them.
 func TestEnqueuePendingRetry_nonBlocking(t *testing.T) {
-	Start(stubEmbedder{})
-	pendingCh = make(chan job, 1)
-	pendingCh <- job{file: "fill", projectPath: "/p"}
+	full := make(chan job, 1)
+	full <- job{file: "fill", projectPath: "/p"}
+	j := job{file: "b", projectPath: "/p"}
+	k := jobKey(j)
 	pendingMu.Lock()
-	pending = map[string]job{"a\x00/p": {file: "a", projectPath: "/p"}}
-	pendingChQueued = map[string]struct{}{}
+	if pending == nil {
+		pending = map[string]job{}
+	}
+	pending[k] = j // only pending jobs are retried
 	pendingMu.Unlock()
-	done := make(chan struct{})
-	go func() {
-		enqueuePendingRetry(job{file: "b", projectPath: "/p"})
-		close(done)
-	}()
+	t.Cleanup(func() {
+		pendingMu.Lock()
+		delete(pending, k)
+		delete(pendingChQueued, k)
+		pendingMu.Unlock()
+	})
+	done := make(chan bool, 1)
+	go func() { done <- enqueuePendingRetryOn(full, j) }()
 	select {
-	case <-done:
+	case queued := <-done:
+		if queued {
+			t.Fatal("enqueuePendingRetry reported queuing onto a full channel")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("enqueuePendingRetry blocked on full pendingCh")
+	}
+	pendingMu.Lock()
+	_, marked := pendingChQueued[k]
+	pendingMu.Unlock()
+	if marked {
+		t.Fatal("a retry that wasn't queued must not stay marked queued")
 	}
 }
 
