@@ -35,6 +35,11 @@ var (
 	debounceMu     sync.Mutex
 	debounceTimers = map[string]*time.Timer{}
 	catchUpSlots   = make(chan struct{}, 2)
+
+	// bg counts the goroutines watchers start — event loops, catch-ups, and
+	// debounce callbacks from when they're scheduled — so tests can wait for
+	// all of them before the next test changes what they read.
+	bg sync.WaitGroup
 )
 
 func init() {
@@ -179,7 +184,9 @@ func StartWatcher(projectPath string) {
 		})
 	}
 
+	bg.Add(2)
 	go func() {
+		defer bg.Done()
 		for {
 			select {
 			case event, ok := <-w.Events():
@@ -200,7 +207,10 @@ func StartWatcher(projectPath string) {
 		}
 	}()
 
-	go catchUp(projectPath)
+	go func() {
+		defer bg.Done()
+		catchUp(projectPath)
+	}()
 	log.Printf("File watcher started for %s (%s)", projectPath, w.Name())
 	realtime.Notify(realtime.WatchersChanged)
 }
@@ -208,6 +218,12 @@ func StartWatcher(projectPath string) {
 func catchUp(projectPath string) {
 	catchUpSlots <- struct{}{}
 	defer func() { <-catchUpSlots }()
+	// DeleteWatcher doesn't wait for a catch-up already under way, so the
+	// catch-up checks instead, and stops before re-indexing a project that was
+	// deleted (and purged) while it waited for a slot or walked the tree.
+	if projectDeleted(projectPath) {
+		return
+	}
 	indexed := db.GetIndexedFiles(projectPath)
 	seen := map[string]bool{}
 	stale := 0
@@ -237,6 +253,9 @@ func catchUp(projectPath string) {
 		if idxTime, ok := indexed[path]; ok && !info.ModTime().After(idxTime) {
 			return nil
 		}
+		if projectDeleted(projectPath) {
+			return filepath.SkipAll
+		}
 		n, fullT, skelT, err := indexer.IndexFile(path, projectPath)
 		if err == nil {
 			stale++
@@ -249,8 +268,11 @@ func catchUp(projectPath string) {
 		}
 		return nil
 	})
+	if projectDeleted(projectPath) {
+		return
+	}
 	removed := 0
-		for file := range indexed {
+	for file := range indexed {
 		if !seen[file] {
 			_ = db.IndexWrite(func(tx *sql.Tx) error {
 				if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", file, projectPath); err != nil {
@@ -315,9 +337,11 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 	key := debounceKey(projectPath, path)
 	debounceMu.Lock()
 	if t, ok := debounceTimers[key]; ok {
-		t.Stop()
+		stopDebounce(t)
 	}
+	bg.Add(1)
 	debounceTimers[key] = time.AfterFunc(500*time.Millisecond, func() {
+		defer bg.Done()
 		start := time.Now()
 		if removed {
 			_ = db.IndexWrite(func(tx *sql.Tx) error {
@@ -451,11 +475,28 @@ func cancelDebounceTimersForProject(projectPath string) {
 	debounceMu.Lock()
 	for key, t := range debounceTimers {
 		if debounceKeyOwnedBy(key, projectPath) {
-			t.Stop()
+			stopDebounce(t)
 			delete(debounceTimers, key)
 		}
 	}
 	debounceMu.Unlock()
+}
+
+// stopDebounce cancels a debounce timer. If that keeps its callback from ever
+// running, it also drops the callback's count in bg.
+func stopDebounce(t *time.Timer) {
+	if t.Stop() {
+		bg.Done()
+	}
+}
+
+// projectDeleted reports whether DeleteWatcher has forgotten the project.
+// StopWatcher (idle unload) keeps it known, and leaves a catch-up running.
+func projectDeleted(projectPath string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	_, known := knownProjects[projectPath]
+	return !known
 }
 
 // debounceKey keys a file's pending re-index by project as well as path.

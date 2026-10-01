@@ -28,9 +28,12 @@ func ensureAuxStopForTest() {
 }
 
 // resetPauseStateForTest clears swap/maintenance pause left by prior tests
-// (e.g. maybeQuietOnWorkersPaused after SetWorkerCount(0)).
+// (e.g. maybeQuietOnWorkersPaused after SetWorkerCount(0)). It ends those
+// goroutines first: one still starting up could otherwise pause aux workers
+// right after the reset.
 func resetPauseStateForTest() {
-	processingReadyAt = time.Time{}
+	stopQuietOnPause()
+	processingReadyAt.Store(0)
 	workerMu.Lock()
 	swapPauseDepth = 0
 	swapRestoreWorkers = 0

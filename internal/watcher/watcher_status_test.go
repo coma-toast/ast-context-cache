@@ -9,11 +9,6 @@ import (
 )
 
 func TestGetStatusIncludesIndexedProjectWithoutWatcher(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := db.Init(); err != nil {
-		t.Fatalf("db init: %v", err)
-	}
 	dir := t.TempDir()
 	projectPath := NormalizeProjectPath(dir)
 	file := filepath.Join(dir, "sample.go")

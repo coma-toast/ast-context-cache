@@ -15,6 +15,7 @@ import (
 // the cache the moment a file under that directory changes.
 func TestHandleFSEventInvalidatesRepoScriptCache(t *testing.T) {
 	dir := t.TempDir()
+	cleanupWatchers(t) // handleFSEvent below queues a re-index of v.js
 	scriptsDir := filepath.Join(dir, "scripts", "code-mode")
 	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
 		t.Fatal(err)

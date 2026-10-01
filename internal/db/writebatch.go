@@ -78,24 +78,67 @@ var (
 	queryBuf   []queryLogRow
 	sessBufMu  sync.Mutex
 	sessBuf    []sessionLogRow
+
+	// A full buffer kicks its batcher rather than spawning a flush goroutine of
+	// its own, so every background flush runs on a batcher that Init/Close stop.
+	queryFlushKick = make(chan struct{}, 1)
+	sessFlushKick  = make(chan struct{}, 1)
+
+	batcherMu   sync.Mutex
+	batcherStop chan struct{}
+	batcherDone sync.WaitGroup
 )
 
-// StartWriteBatchers starts periodic flush of buffered query/session analytics rows.
+// StartWriteBatchers starts periodic flush of buffered query/session analytics
+// rows. It is a no-op while they are already running.
 func StartWriteBatchers() {
-	go func() {
-		t := time.NewTicker(queryLogFlushInterval)
-		defer t.Stop()
-		for range t.C {
-			flushQueryLogBuffer()
+	batcherMu.Lock()
+	defer batcherMu.Unlock()
+	if batcherStop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	batcherStop = stop
+	batcherDone.Add(2)
+	go runWriteBatcher(stop, queryLogFlushInterval, queryFlushKick, flushQueryLogBuffer)
+	go runWriteBatcher(stop, sessionFlushInterval, sessFlushKick, flushSessionLogBuffer)
+}
+
+func runWriteBatcher(stop <-chan struct{}, every time.Duration, kick <-chan struct{}, flush func()) {
+	defer batcherDone.Done()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+		case <-kick:
 		}
-	}()
-	go func() {
-		t := time.NewTicker(sessionFlushInterval)
-		defer t.Stop()
-		for range t.C {
-			flushSessionLogBuffer()
-		}
-	}()
+		flush()
+	}
+}
+
+// stopWriteBatchers stops the batchers and waits out a flush in progress. Init
+// and Close call it before reassigning or closing the pools: the batchers read
+// DB, and used to outlive the Init that started them — every Init added two
+// more, each racing the next Init's write of DB.
+func stopWriteBatchers() {
+	batcherMu.Lock()
+	defer batcherMu.Unlock()
+	if batcherStop == nil {
+		return
+	}
+	close(batcherStop)
+	batcherStop = nil
+	batcherDone.Wait()
+}
+
+func kickFlush(kick chan<- struct{}) {
+	select {
+	case kick <- struct{}{}:
+	default:
+	}
 }
 
 func flushQueryLogBuffer() {
@@ -206,7 +249,7 @@ func EnqueueSessionReturned(sessionID string, symbolID int, symbolName string, s
 	n := len(sessBuf)
 	sessBufMu.Unlock()
 	if n >= sessionFlushSize {
-		go flushSessionLogBuffer()
+		kickFlush(sessFlushKick)
 	}
 }
 
@@ -241,7 +284,7 @@ func enqueueQueryLog(toolName string, args map[string]interface{}, m QueryLogMet
 	n := len(queryBuf)
 	queryBufMu.Unlock()
 	if n >= queryLogFlushSize {
-		go flushQueryLogBuffer()
+		kickFlush(queryFlushKick)
 	}
 }
 

@@ -2,6 +2,7 @@ package embedqueue
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -11,6 +12,14 @@ import (
 const (
 	quietIdlePoll    = time.Minute
 	quietIdleSustain = 2 * time.Minute
+)
+
+var (
+	// quietOnPause counts maybeQuietOnWorkersPaused's goroutines, which can wait
+	// up to 30s for a quiet window; closing quietOnPauseStop ends that wait.
+	quietOnPause     sync.WaitGroup
+	quietOnPauseMu   sync.Mutex
+	quietOnPauseStop = make(chan struct{})
 )
 
 func runQuietPeriod(reason string) {
@@ -51,7 +60,12 @@ func maybeQuietOnWorkersPaused(n int) {
 	if n != 0 {
 		return
 	}
+	quietOnPauseMu.Lock()
+	stop := quietOnPauseStop
+	quietOnPause.Add(1)
+	quietOnPauseMu.Unlock()
 	go func() {
+		defer quietOnPause.Done()
 		pauseAuxForMaintenance()
 		defer RestoreAfterMaintenance()
 		deadline := time.Now().Add(30 * time.Second)
@@ -60,8 +74,24 @@ func maybeQuietOnWorkersPaused(n int) {
 				runQuietPeriod("workers_paused")
 				return
 			}
-			time.Sleep(200 * time.Millisecond)
+			select {
+			case <-stop:
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
 		}
 		runQuietPeriod("workers_paused")
 	}()
+}
+
+// stopQuietOnPause ends every quiet-on-pause wait early, skipping its quiet
+// period, and waits for each to restore the aux workers it paused. Tests call
+// it so one test's SetWorkerCount(0) can't pause aux workers under the next.
+// Not with workerMu held: the restore takes it.
+func stopQuietOnPause() {
+	quietOnPauseMu.Lock()
+	close(quietOnPauseStop)
+	quietOnPauseStop = make(chan struct{})
+	quietOnPauseMu.Unlock()
+	quietOnPause.Wait()
 }

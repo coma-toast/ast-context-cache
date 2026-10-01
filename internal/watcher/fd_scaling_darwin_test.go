@@ -61,12 +61,9 @@ func openFDs(t *testing.T) int {
 // wtg worktrees watched. On macOS each watcher must now cost O(1) descriptors
 // whatever the tree size, and still pick up edits.
 func TestWatchersOnManyProjectsStayCheapInFileDescriptors(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	t.Setenv(watcherBackendEnv, "")
-	if err := db.Init(); err != nil {
-		t.Fatalf("db init: %v", err)
-	}
 	base := t.TempDir()
+	cleanupWatchers(t)
 
 	const projects = 12
 	var paths []string
@@ -122,12 +119,9 @@ func TestWatchersOnManyProjectsStayCheapInFileDescriptors(t *testing.T) {
 // Control for the test above: the same tree under the kqueue backend costs a
 // descriptor per path, so a regression back to it would fail that test.
 func TestFsnotifyBackendCostsDescriptorPerPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	t.Setenv(watcherBackendEnv, "fsnotify")
-	if err := db.Init(); err != nil {
-		t.Fatalf("db init: %v", err)
-	}
 	p := NormalizeProjectPath(filepath.Join(t.TempDir(), "repo"))
+	cleanupWatchers(t)
 	makeScaleProject(t, p)
 	db.GetIndexedFiles(p)
 	before := openFDs(t)
@@ -147,16 +141,13 @@ func TestFsnotifyBackendCostsDescriptorPerPath(t *testing.T) {
 // directory, none for the files in it. That triggers a catch-up rescan, which
 // indexes them.
 func TestDirectoryMovedIntoProjectIsIndexed(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	t.Setenv(watcherBackendEnv, "")
-	if err := db.Init(); err != nil {
-		t.Fatalf("db init: %v", err)
-	}
 	prev := catchUpAfterLostEvents
 	catchUpAfterLostEvents = 100 * time.Millisecond
 	t.Cleanup(func() { catchUpAfterLostEvents = prev })
 
 	base := t.TempDir()
+	cleanupWatchers(t) // registered after the restore, so it runs first: event loops read catchUpAfterLostEvents
 	p := NormalizeProjectPath(filepath.Join(base, "repo"))
 	if err := os.MkdirAll(p, 0o755); err != nil {
 		t.Fatal(err)
@@ -185,12 +176,9 @@ func TestDirectoryMovedIntoProjectIsIndexed(t *testing.T) {
 // timer and only one project ever saw the change (found validating this
 // branch against ~/spaces: a deleted file stayed indexed under the space root).
 func TestNestedProjectsBothPickUpChanges(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	t.Setenv(watcherBackendEnv, "")
-	if err := db.Init(); err != nil {
-		t.Fatalf("db init: %v", err)
-	}
 	outer := NormalizeProjectPath(filepath.Join(t.TempDir(), "space"))
+	cleanupWatchers(t)
 	inner := filepath.Join(outer, "repo")
 	if err := os.MkdirAll(inner, 0o755); err != nil {
 		t.Fatal(err)

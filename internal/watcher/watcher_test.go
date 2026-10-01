@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -28,19 +29,26 @@ func TestDeleteWatcherCancelsPendingDebounceTimersForItsProject(t *testing.T) {
 	deletedProject := NormalizeProjectPath(t.TempDir())
 	otherProject := NormalizeProjectPath(t.TempDir())
 
-	var deletedFired, otherFired bool
+	var deletedFired, otherFired atomic.Bool
 	debounceMu.Lock()
-	debounceTimers[filepath.Join(deletedProject, "a.go")] = time.AfterFunc(50*time.Millisecond, func() { deletedFired = true })
-	debounceTimers[filepath.Join(otherProject, "b.go")] = time.AfterFunc(50*time.Millisecond, func() { otherFired = true })
+	bg.Add(2) // as handleFSEvent does for each timer it queues
+	debounceTimers[filepath.Join(deletedProject, "a.go")] = time.AfterFunc(50*time.Millisecond, func() {
+		defer bg.Done()
+		deletedFired.Store(true)
+	})
+	debounceTimers[filepath.Join(otherProject, "b.go")] = time.AfterFunc(50*time.Millisecond, func() {
+		defer bg.Done()
+		otherFired.Store(true)
+	})
 	debounceMu.Unlock()
 
 	DeleteWatcher(deletedProject)
 
-	time.Sleep(100 * time.Millisecond)
-	if deletedFired {
+	bg.Wait() // b.go's timer fires; a.go's must have been cancelled
+	if deletedFired.Load() {
 		t.Fatal("debounce timer for the deleted project should have been cancelled, not fired")
 	}
-	if !otherFired {
+	if !otherFired.Load() {
 		t.Fatal("debounce timer for an unrelated project should not be cancelled")
 	}
 
