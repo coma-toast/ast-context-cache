@@ -405,6 +405,7 @@ func resolveStartupWorkers(flagVal int) int {
 func startBackgroundServices() {
 	go docs.EmbedAllSources()
 	purge.StartDeletedProjectSweep()
+	db.StartFTSSelfCheck()
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()

@@ -22,6 +22,9 @@ func DefaultLogPath() string {
 	return filepath.Join(home, ".astcache", "ast-mcp.log")
 }
 
+// initFTSRebuild tracks Init's background FTS rebuild, so tests can wait it out.
+var initFTSRebuild sync.WaitGroup
+
 func Init() error {
 	if _, err := ResolveDataDir(); err != nil {
 		return fmt.Errorf("configured data directory unavailable: %w — reconnect the drive, or delete %s to use the default location", err, locationOverridePath())
@@ -55,7 +58,11 @@ func Init() error {
 	initIndexSchema(IndexDB)
 	initUsageSchema(DB)
 	initContextSchema(ContextDB)
-	ensureIndexFTSTriggers(IndexDB)
+	if err := createFTSTriggers(IndexDB); err != nil {
+		// Not fatal: StartFTSSelfCheck retries, and search still works on whatever
+		// the indexes already hold.
+		log.Printf("FTS: %v", err)
+	}
 	startIndexWriter()
 	StartWriteBatchers()
 	// Capture the pool handle rather than closing over the IndexDB package var: if a
@@ -63,9 +70,14 @@ func Init() error {
 	// or nils IndexDB while this goroutine is still running, an Exec on a *closed*
 	// *sql.DB just returns an error — but an Exec on a *nil* one panics.
 	idx := IndexDB
+	initFTSRebuild.Add(1)
 	go func() {
-		idx.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-		idx.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
+		defer initFTSRebuild.Done()
+		for _, table := range symbolFTSTables {
+			if err := rebuildFTSTable(idx, table); err != nil {
+				log.Printf("FTS: startup %v", err)
+			}
+		}
 	}()
 	return nil
 }
@@ -144,13 +156,6 @@ func AddAgentConfig(agentType, installPath string, isGlobal bool, hash string) e
 func RemoveAgentConfig(agentType, installPath string) error {
 	_, err := DB.Exec("DELETE FROM agent_configs WHERE agent_type = ? AND install_path = ?", agentType, installPath)
 	return err
-}
-
-// EnsureFTSTriggers ensures symbol FTS triggers on the index database.
-func EnsureFTSTriggers() {
-	if conn, err := IndexReader(); err == nil {
-		ensureIndexFTSTriggers(conn)
-	}
 }
 
 func LogQuery(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {

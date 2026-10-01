@@ -279,25 +279,22 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 	projectPath := req["project_path"]
 
 	if projectPath == "all" {
-		conn, err := db.IndexReader()
+		// One transaction, so a failure (or a WAL quiesce) can't leave symbols
+		// without its FTS triggers or the indexes out of step with it.
+		err := db.IndexWrite(func(tx *sql.Tx) error {
+			return db.WithoutFTSTriggers(tx, func() error {
+				for _, table := range []string{"symbols", "edges", "indexed_files"} {
+					if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+						return fmt.Errorf("delete %s: %w", table, err)
+					}
+				}
+				return nil
+			})
+		})
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_ins")
-		conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_del")
-		if _, err := conn.Exec("DELETE FROM symbols"); err != nil {
-			db.EnsureFTSTriggers()
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		conn.Exec("DELETE FROM edges")
-		conn.Exec("DELETE FROM indexed_files")
-		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-		conn.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
-		db.EnsureFTSTriggers()
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
 		log.Printf("dashboard: reset cleared ALL indexed data across every project (project_path=\"all\")")

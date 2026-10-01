@@ -97,18 +97,3 @@ func initIndexSchema(conn *sql.DB) {
 		CREATE INDEX IF NOT EXISTS idx_embed_pending_project ON embed_pending(project_path);
 	`)
 }
-
-func ensureIndexFTSTriggers(conn *sql.DB) {
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS symbols_fts_ins AFTER INSERT ON symbols BEGIN
-		INSERT INTO symbols_fts(rowid, name, fqn, code) VALUES (new.id, new.name, new.fqn, new.code);
-	END`)
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS symbols_fts_del AFTER DELETE ON symbols BEGIN
-		INSERT INTO symbols_fts(symbols_fts, rowid, name, fqn, code) VALUES('delete', old.id, old.name, old.fqn, old.code);
-	END`)
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS symbols_trigram_ins AFTER INSERT ON symbols BEGIN
-		INSERT INTO symbols_trigram(rowid, name, fqn) VALUES (new.id, new.name, new.fqn);
-	END`)
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS symbols_trigram_del AFTER DELETE ON symbols BEGIN
-		INSERT INTO symbols_trigram(symbols_trigram, rowid, name, fqn) VALUES('delete', old.id, old.name, old.fqn);
-	END`)
-}
