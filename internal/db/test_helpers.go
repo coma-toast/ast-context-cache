@@ -23,3 +23,6 @@ func SetHomeForTest(dir string) func() {
 	os.Setenv("HOME", dir)
 	return func() { os.Setenv("HOME", prev) }
 }
+
+// WaitInitFTSRebuildForTest blocks until Init's background FTS rebuild finishes (tests only).
+func WaitInitFTSRebuildForTest() { initFTSRebuild.Wait() }

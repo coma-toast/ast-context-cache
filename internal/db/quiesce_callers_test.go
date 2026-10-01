@@ -34,8 +34,11 @@ func TestExportedIndexCallersSurviveQuiesce(t *testing.T) {
 		t.Fatal("expected nil IndexDB during quiesce")
 	}
 
-	// None of these must panic while IndexDB is nil.
-	EnsureFTSTriggers()
+	// None of these must panic while IndexDB is nil, and EnsureFTSTriggers must say
+	// it didn't run: purge used to rely on it silently doing nothing here.
+	if err := EnsureFTSTriggers(); err == nil {
+		t.Fatal("EnsureFTSTriggers during quiesce = nil, want an error")
+	}
 	if got := GetIndexedFiles("/some/project"); len(got) != 0 {
 		t.Fatalf("GetIndexedFiles during quiesce = %v, want empty", got)
 	}

@@ -6,6 +6,7 @@
 package purge
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 
@@ -50,29 +51,8 @@ func ProjectData(projectPath string) error {
 	// link from ever being created at this path again.
 	projectlinks.RemoveLinksForPath(projectPath)
 
-	conn, err := db.IndexReader()
-	if err != nil {
-		return err
-	}
-	// FTS triggers are dropped around the bulk delete and the index rebuilt after,
-	// which is far cheaper than firing a trigger per removed symbol.
-	conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_ins")
-	conn.Exec("DROP TRIGGER IF EXISTS symbols_fts_del")
-	conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_ins")
-	conn.Exec("DROP TRIGGER IF EXISTS symbols_trigram_del")
-	_, delErr := conn.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath)
-	if delErr == nil {
-		conn.Exec("DELETE FROM edges WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM vectors WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM indexed_files WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM summaries WHERE project_path = ?", projectPath)
-		conn.Exec("DELETE FROM embed_pending WHERE project_path = ?", projectPath)
-		conn.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-		conn.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
-	}
-	db.EnsureFTSTriggers()
-	if delErr != nil {
-		return delErr
+	if err := deleteIndexData(projectPath); err != nil {
+		return fmt.Errorf("purge index data: %w", err)
 	}
 
 	if db.DB != nil {
@@ -88,6 +68,49 @@ func ProjectData(projectPath string) error {
 	search.Cache.DeleteByProject(projectPath)
 	log.Printf("purge: deleted all indexed data and memory for project %s", projectPath)
 	return nil
+}
+
+// afterSymbolDelete, when set by tests, runs inside deleteIndexData's transaction
+// right after the project's symbols are deleted; a non-nil error aborts the purge.
+var afterSymbolDelete func() error
+
+// deleteIndexData removes projectPath's rows from index.db in one write
+// transaction on the index writer. The symbol FTS indexes are therefore either
+// fully updated or untouched: a failed statement rolls everything back, and a WAL
+// quiesce can't land part-way through, because it flushes the index writer (and
+// so waits for this transaction) before closing the pool.
+func deleteIndexData(projectPath string) error {
+	return db.IndexWrite(func(tx *sql.Tx) error {
+		// Clear the trigger-free tables first. That takes the write lock before the
+		// symbol counts below are read, so nothing can change them before the delete.
+		for _, table := range []string{"edges", "vectors", "indexed_files", "summaries", "embed_pending"} {
+			if _, err := tx.Exec("DELETE FROM "+table+" WHERE project_path = ?", projectPath); err != nil {
+				return fmt.Errorf("delete %s: %w", table, err)
+			}
+		}
+		var projectSymbols, totalSymbols int
+		if err := tx.QueryRow(`SELECT (SELECT count(*) FROM symbols WHERE project_path = ?), (SELECT count(*) FROM symbols)`,
+			projectPath).Scan(&projectSymbols, &totalSymbols); err != nil {
+			return fmt.Errorf("count symbols: %w", err)
+		}
+		deleteSymbols := func() error {
+			if _, err := tx.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath); err != nil {
+				return fmt.Errorf("delete symbols: %w", err)
+			}
+			if afterSymbolDelete != nil {
+				return afterSymbolDelete()
+			}
+			return nil
+		}
+		// A full FTS rebuild re-tokenizes every remaining symbol, while the delete
+		// triggers only touch this project's rows, so the rebuild only pays off when
+		// this project is most of the index. A deleted worktree is usually a few
+		// thousand symbols out of hundreds of thousands.
+		if projectSymbols*2 > totalSymbols {
+			return db.WithoutFTSTriggers(tx, deleteSymbols)
+		}
+		return deleteSymbols()
+	})
 }
 
 // purgeContextData removes stored notes and structured memory for the project.
