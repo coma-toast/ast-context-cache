@@ -32,6 +32,8 @@ func Init() error {
 	if err := os.MkdirAll(cacheDir(), 0755); err != nil {
 		return err
 	}
+	// Once per process, before any pool opens: sweep zero-byte legacy DB files.
+	removeEmptyLegacyDBs(cacheDir())
 	if needsSplitMigration(usePath, idxPath) {
 		startup.SetMessage("Migrating database to split layout…")
 		if err := migrateSplitDB(usePath, idxPath, ctxPath); err != nil {

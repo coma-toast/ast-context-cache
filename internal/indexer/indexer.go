@@ -696,6 +696,12 @@ func collectTopLevelNodes(root *sitter.Node, lang string) []*sitter.Node {
 }
 
 func IndexDirectory(dirPath, projectPath string) (int, error) {
+	return IndexDirectoryProgress(dirPath, projectPath, nil)
+}
+
+// IndexDirectoryProgress is IndexDirectory with an optional per-file callback (symbols
+// indexed or reused for that file), used by async index_files jobs to report progress.
+func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int)) (int, error) {
 	dirPath = filepath.Clean(dirPath)
 	projectPath = projectlinks.NormalizePath(projectPath)
 	if dirPath == projectPath {
@@ -737,6 +743,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 			if n, ok := ReuseFile(path, projectPath, reuse); ok {
 				count += n
 				reused++
+				if onFile != nil {
+					onFile(n)
+				}
 				return nil
 			}
 		}
@@ -745,6 +754,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 			fmt.Printf("Error: %v\n", err)
 		}
 		count += n
+		if onFile != nil {
+			onFile(n)
+		}
 		return nil
 	})
 	if reused > 0 {

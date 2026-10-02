@@ -130,7 +130,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "index_files",
-			Description: "Index source files using tree-sitter AST parsing. Container projects auto-link already-indexed subdirectories and skip duplicate indexing; search includes linked subprojects.",
+			Description: "Index source files using tree-sitter AST parsing. Container projects auto-link already-indexed subdirectories and skip duplicate indexing; search includes linked subprojects. A single file is indexed synchronously ({indexed}). A directory runs as a background job: if it finishes within ~2s you get {indexed, status: completed}; otherwise the call returns immediately with {job_id, status: queued|running, files_done, poll} — poll index_status for progress. Repeat calls for a directory already being indexed join that job (already_running: true).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -143,7 +143,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "index_status",
-			Description: "Get statistics about indexed symbols in a project. Returns own and linked subproject counts when container links exist. resources reports the server's open file descriptors against its limit (level ok|warning|critical) and the file-watcher backend; watcher shows this project's watcher, or blocked_reason when the path is a container of projects (e.g. ~/spaces) that is never watched.",
+			Description: "Get statistics about indexed symbols in a project. Returns own and linked subproject counts when container links exist. resources reports the server's open file descriptors against its limit (level ok|warning|critical) and the file-watcher backend; watcher shows this project's watcher, or blocked_reason when the path is a container of projects (e.g. ~/spaces) that is never watched. index_jobs lists recent directory index_files jobs (newest first: job_id, status queued|running|completed|failed, files_done, symbols_indexed, elapsed_ms, error); indexing: true while one is active. disk_pressure appears when the data volume is low on free space (embedding throttled or paused).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -511,7 +511,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "search_docs",
-			Description: "Search locally cached documentation by title or content (FTS). Try this before WebFetch or web search for library/framework docs.",
+			Description: "Search locally cached documentation by title or content (FTS + vectors). Try this before WebFetch or web search for library/framework docs. Sections below a relevance floor are dropped: no_match: true (with a hint, below_floor = sections discarded) means nothing cached is relevant — use fetch_doc instead of trusting weak hits. score is rank fusion (max ~0.033), not a relevance percentage; see term_coverage / vector_similarity per result.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

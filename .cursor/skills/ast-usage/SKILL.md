@@ -29,7 +29,7 @@ Use this skill when the user asks to:
 
 ```
 1. index_status(project_path="/absolute/path/to/repo")
-2. index_files(path="...", project_path="...")     # if needed; starts watcher + embed queue
+2. index_files(path="...", project_path="...")     # if needed; dirs may return a job → poll index_status
 3. get_project_map(project_path="...", depth=2)    # ~200 tokens orientation
 4. get_context_capsule(query="...", project_path="...", mode="auto", session_id="...")
 5. get_file_context(file="...", project_path="...", mode="skeleton")  # one file; default skeleton
@@ -349,9 +349,13 @@ remove_doc_source(id=1)
 
 Tracked sources re-fetch when older than **7 days** (daily background check). Types: `markdown`, `html`, `json`.
 
+**No-match signal:** `search_docs` (and `search_semantic` with `doc_type=doc`) drop sections below a relevance floor and always return `no_match` and `below_floor`. `no_match: true` (with a `hint`) means nothing cached is relevant — call `fetch_doc`; do not treat leftover low-ranked sections as answers. The returned `score` is rank fusion (max ≈0.033), not a relevance percentage; hybrid rows also carry `term_coverage` (share of query terms present, floor 0.5) and `vector_similarity` (cosine; a section without lexical support needs ≥0.6, override with `AST_DOCS_MIN_VECTOR_SIMILARITY`).
+
 ## Indexing notes for agents
 
 - **`index_files`** starts a file watcher (FSEvents on macOS, fsnotify elsewhere) and queues **embeddings** (priority + background channels). Large repos fill the queue gradually—use **`index_status`** and dashboard embed gauges if the user cares about progress.
+- **Directory `index_files` runs as a background job.** If it finishes within ~2s the reply is the usual `{"indexed": n, "status": "completed", ...}`; otherwise it returns at once with `status` `queued`/`running`, a `job_id`, `files_done`, and a `poll` hint. Poll **`index_status(project_path=...)`**: `index_jobs` lists recent jobs (newest first) with `files_done`, `symbols_indexed`, `elapsed_ms`, `status` (`completed`/`failed` + `error`), and `indexing: true` while one is active. A repeat call for the same directory (or a subdirectory of a running job) joins that job (`already_running: true`) instead of indexing twice. Single files stay synchronous.
+- **`index_status` → `disk_pressure`** appears only when the data directory's volume is low on space (`low` < 5 GiB: embedding capped at 2 workers; `critical` < 1 GiB: embedding paused). Tell the user to free space; nothing is lost, embedding resumes on its own.
 - **Plain `.log` / `.txt`** are not indexed unless enabled in dashboard Settings (FTS only, no embeddings).
 - **Watcher ignore globs** in Settings skip noisy paths (e.g. `dist/**`, `*.pb.go`).
 - **`file_watcher`** events are logged for observability—they are **not** MCP tools and do not appear in the Tool Usage chart.
