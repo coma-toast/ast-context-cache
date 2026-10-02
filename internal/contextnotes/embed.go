@@ -1,7 +1,6 @@
 package contextnotes
 
 import (
-	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
@@ -33,12 +32,4 @@ func EmbedNote(ref, sessionID, label, content string, emb embedder.Interface) {
 		Vector:      vec,
 	}
 	_ = search.Cache.Upsert([]search.VectorEntry{entry})
-}
-
-func deleteNoteVector(ref string) {
-	key := noteVectorKey(ref)
-	if conn, err := db.IndexReader(); err == nil {
-		conn.Exec(`DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?`, key)
-	}
-	search.Cache.DeleteNoteByRef(key)
 }

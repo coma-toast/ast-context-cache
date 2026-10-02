@@ -175,7 +175,10 @@ func evictSessionLRU(sessionID string, needTokens int, lim Limits) ([]string, er
 		if !ok {
 			return evicted, limitErr
 		}
-		deleteRefs([]string{ref}, "")
+		// Stop on a failed delete: the same note would come back as the oldest.
+		if _, _, _, err := deleteRefs([]string{ref}, ""); err != nil {
+			return evicted, fmt.Errorf("evict %s: %w", ref, err)
+		}
 		evicted = append(evicted, ref)
 	}
 }
@@ -205,8 +208,17 @@ func noteByRef(ref string) (Note, error) {
 	return scanNote(row)
 }
 
-func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, sessions map[string]int) {
-	sessions = map[string]int{}
+// deleteRefs deletes the given notes, only sessionID's when it is set. Their
+// vectors live in index.db and are deleted first, in one index write: if that
+// fails (a WAL quiesce gates index writes), no note is deleted, so nothing is
+// left with an orphaned vector and the caller can retry.
+func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, sessions map[string]int, err error) {
+	type target struct {
+		ref, sid string
+		tok      int
+	}
+	var targets []target
+	var keys []string
 	for _, ref := range refs {
 		ref = strings.TrimSpace(ref)
 		if ref == "" {
@@ -214,25 +226,33 @@ func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, se
 		}
 		var sid string
 		var tok int
-		err := db.ContextDB.QueryRow(`SELECT session_id, token_est FROM context_notes WHERE ref = ?`, ref).Scan(&sid, &tok)
-		if err != nil {
+		if err := db.ContextDB.QueryRow(`SELECT session_id, token_est FROM context_notes WHERE ref = ?`, ref).Scan(&sid, &tok); err != nil {
 			continue
 		}
 		if sessionID != "" && sid != sessionID {
 			continue
 		}
-		db.ContextDB.Exec(`DELETE FROM context_notes WHERE ref = ?`, ref)
-		deleteNoteFTS(ref)
-		deleteNoteVector(ref)
-		tokensFreed += tok
-		count++
-		sessions[sid] += tok
-		adjustSessionStore(sid, -1, -tok)
+		targets = append(targets, target{ref, sid, tok})
+		keys = append(keys, noteVectorKey(ref))
 	}
-	return tokensFreed, count, sessions
+	sessions = map[string]int{}
+	if err := search.Cache.DeleteRefs("note", keys); err != nil {
+		return 0, 0, sessions, fmt.Errorf("delete note vectors: %w", err)
+	}
+	for _, t := range targets {
+		if _, err := db.ContextDB.Exec(`DELETE FROM context_notes WHERE ref = ?`, t.ref); err != nil {
+			return tokensFreed, count, sessions, fmt.Errorf("delete note %s: %w", t.ref, err)
+		}
+		deleteNoteFTS(t.ref)
+		tokensFreed += t.tok
+		count++
+		sessions[t.sid] += t.tok
+		adjustSessionStore(t.sid, -1, -t.tok)
+	}
+	return tokensFreed, count, sessions, nil
 }
 
-func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int) {
+func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int, err error) {
 	q := `SELECT ref, token_est FROM context_notes WHERE session_id = ?`
 	args := []any{sessionID}
 	if projectPath != "" {
@@ -241,7 +261,7 @@ func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int)
 	}
 	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
-		return 0, 0
+		return 0, 0, err
 	}
 	defer rows.Close()
 	var refs []string
@@ -251,14 +271,14 @@ func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int)
 		rows.Scan(&ref, &tok)
 		refs = append(refs, ref)
 	}
-	tokensFreed, count, _ = deleteRefs(refs, sessionID)
-	return tokensFreed, count
+	tokensFreed, count, _, err = deleteRefs(refs, sessionID)
+	return tokensFreed, count, err
 }
 
-func deleteAll() (tokensFreed int, count int) {
+func deleteAll() (tokensFreed int, count int, err error) {
 	rows, err := db.ContextDB.Query(`SELECT ref FROM context_notes`)
 	if err != nil {
-		return 0, 0
+		return 0, 0, err
 	}
 	defer rows.Close()
 	var refs []string
@@ -267,10 +287,13 @@ func deleteAll() (tokensFreed int, count int) {
 		rows.Scan(&ref)
 		refs = append(refs, ref)
 	}
-	tokensFreed, count, _ = deleteRefs(refs, "")
+	tokensFreed, count, _, err = deleteRefs(refs, "")
+	if err != nil {
+		return tokensFreed, count, err
+	}
 	db.DB.Exec(`DELETE FROM context_session_stats`)
 	log.Printf("contextnotes: flush_context all=true deleted %d notes (%d tokens) across every session/project", count, tokensFreed)
-	return tokensFreed, count
+	return tokensFreed, count, nil
 }
 
 func parseRefList(raw interface{}) []string {
@@ -414,19 +437,23 @@ type FlushResult struct {
 func Flush(sessionID string, refsRaw interface{}, projectPath string, all bool) (*FlushResult, error) {
 	refs := parseRefList(refsRaw)
 	var tokensFreed, count int
+	var err error
 	scope := ""
 	switch {
 	case all:
-		tokensFreed, count = deleteAll()
+		tokensFreed, count, err = deleteAll()
 		scope = "all"
 	case len(refs) > 0:
-		tokensFreed, count, _ = deleteRefs(refs, sessionID)
+		tokensFreed, count, _, err = deleteRefs(refs, sessionID)
 		scope = "refs"
 	case sessionID != "":
-		tokensFreed, count = deleteBySession(sessionID, projectPath)
+		tokensFreed, count, err = deleteBySession(sessionID, projectPath)
 		scope = "session"
 	default:
 		return nil, errors.New("scope required: session_id, refs, or all=true")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("flush %s: %w", scope, err)
 	}
 	inv := LiveInventory("")
 	stats := map[string]interface{}{

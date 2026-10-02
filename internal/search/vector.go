@@ -447,24 +447,29 @@ func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int
 	return out
 }
 
-func (vc *VectorCache) DeleteNoteByRef(sourceFile string) {
-	if conn, err := db.IndexReader(); err == nil {
-		conn.Exec("DELETE FROM vectors WHERE doc_type = 'note' AND source_file = ?", sourceFile)
+// DeleteRefs deletes the docType vectors stored under sourceFiles (note and
+// memory vectors are keyed "note:<ref>" / "mem:<ref>") in one index write, then
+// drops them from memory. It fails rather than skipping the delete while the
+// index is quiesced, so callers must delete the vectors before the rows that own
+// them: a failure then leaves both in place for a retry instead of orphaning the
+// vectors.
+func (vc *VectorCache) DeleteRefs(docType string, sourceFiles []string) error {
+	if len(sourceFiles) == 0 {
+		return nil
 	}
-	vc.mu.Lock()
-	defer vc.mu.Unlock()
-	if !vc.loaded {
-		return
-	}
-	n := 0
-	for _, e := range vc.entries {
-		if e.DocType == "note" && e.SourceFile == sourceFile {
-			continue
+	err := db.IndexWrite(func(tx *sql.Tx) error {
+		for _, f := range sourceFiles {
+			if _, err := tx.Exec("DELETE FROM vectors WHERE doc_type = ? AND source_file = ?", docType, f); err != nil {
+				return fmt.Errorf("delete %s vector %s: %w", docType, f, err)
+			}
 		}
-		vc.entries[n] = e
-		n++
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	vc.entries = vc.entries[:n]
+	vc.DeleteBySourceFiles(docType, sourceFiles)
+	return nil
 }
 
 func docEntryIDFromSource(sourceFile string) int {
@@ -475,15 +480,22 @@ func docEntryIDFromSource(sourceFile string) int {
 	return entryID
 }
 
-func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
-	p := strings.TrimSuffix(prefix, "%")
-	if conn, err := db.IndexReader(); err == nil {
-		conn.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+// DeleteDocByPrefix deletes the doc vectors whose source file matches the LIKE
+// pattern prefix (e.g. "doc:12:%"), then drops them from memory. Like DeleteRefs
+// it fails while the index is quiesced instead of skipping the delete.
+func (vc *VectorCache) DeleteDocByPrefix(prefix string) error {
+	err := db.IndexWrite(func(tx *sql.Tx) error {
+		_, err := tx.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+		return err
+	})
+	if err != nil {
+		return err
 	}
+	p := strings.TrimSuffix(prefix, "%")
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	if !vc.loaded {
-		return
+		return nil
 	}
 	n := 0
 	for _, e := range vc.entries {
@@ -494,6 +506,7 @@ func (vc *VectorCache) DeleteDocByPrefix(prefix string) {
 		n++
 	}
 	vc.entries = vc.entries[:n]
+	return nil
 }
 
 // PurgeOrphanCodeVectors removes code vectors whose symbol_id no longer exists.
@@ -555,11 +568,10 @@ func (vc *VectorCache) purgeOrphansFromMemory() {
 	vc.entries = out
 }
 
+// DeleteByFile drops a file's in-memory vectors. Callers are responsible for
+// deleting the matching database rows, in the same index write that replaces or
+// removes the file's symbols.
 func (vc *VectorCache) DeleteByFile(filePath, projectPath string) {
-	if conn, err := db.IndexReader(); err == nil {
-		conn.Exec("DELETE FROM vectors WHERE source_file = ? AND project_path = ?", filePath, projectPath)
-	}
-
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	if !vc.loaded {
