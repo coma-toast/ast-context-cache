@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Alert,
   Box,
@@ -15,7 +15,10 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
+import { api } from '../api/client'
+import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { RingGauge } from '../components/charts/RingGauge'
+import { useToast } from '../context/ToastContext'
 import type { ContextSessionStory, ContextSessionsResponse, Stats, WeeklyDigest } from '../api/types'
 import { formatStat } from '../components/HealthBar'
 import { MetricStatCard } from '../components/charts/MetricStatCard'
@@ -30,10 +33,15 @@ export function OverviewTab({
   stats,
   weeklyDigest,
   contextSessions,
+  projectPath,
+  onChanged,
 }: {
   stats: Stats | null
   weeklyDigest?: WeeklyDigest | null
   contextSessions?: ContextSessionsResponse | null
+  /** Dashboard project filter; scopes actions to the same set the stats describe. */
+  projectPath?: string
+  onChanged?: () => void
 }) {
   if (!stats) return <Typography color="text.secondary">Loading stats…</Typography>
 
@@ -88,10 +96,16 @@ export function OverviewTab({
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 7 }}>
-          <WeekCard digest={weeklyDigest ?? null} />
+          <WeekCard digest={weeklyDigest ?? null} onChanged={onChanged} />
         </Grid>
         <Grid size={{ xs: 12, lg: 5 }}>
-          <VirtualContextCard stats={stats} digest={weeklyDigest ?? null} sessions={contextSessions ?? null} />
+          <VirtualContextCard
+            stats={stats}
+            digest={weeklyDigest ?? null}
+            sessions={contextSessions ?? null}
+            projectPath={projectPath}
+            onChanged={onChanged}
+          />
         </Grid>
       </Grid>
     </Box>
@@ -113,18 +127,35 @@ function SectionHeader({ title, hint }: { title: string; hint?: string }) {
   )
 }
 
-function InlineStat({ label, value, color }: { label: string; value: string; color?: string }) {
+function InlineStat({ label, value, color, action }: { label: string; value: string; color?: string; action?: ReactNode }) {
   return (
     <Box sx={{ minWidth: 0 }}>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>
         {label}
       </Typography>
-      <Typography sx={{ fontFamily: mono, fontWeight: 700, fontSize: 18, lineHeight: 1.3, color }}>{value}</Typography>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+        <Typography sx={{ fontFamily: mono, fontWeight: 700, fontSize: 18, lineHeight: 1.3, color }}>{value}</Typography>
+        {action}
+      </Stack>
     </Box>
   )
 }
 
-function WeekCard({ digest }: { digest: WeeklyDigest | null }) {
+function WeekCard({ digest, onChanged }: { digest: WeeklyDigest | null; onChanged?: () => void }) {
+  const { showToast } = useToast()
+  const [retrying, setRetrying] = useState(false)
+  const retryNow = async () => {
+    setRetrying(true)
+    try {
+      const r = await api.retryPendingEmbeds()
+      showToast(r.queued > 0 ? `Re-queued ${formatStat(r.queued)} file${r.queued === 1 ? '' : 's'} for embedding` : 'Nothing left to retry', 'success')
+      onChanged?.()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Retry failed', 'error')
+    } finally {
+      setRetrying(false)
+    }
+  }
   if (!digest) {
     return (
       <Card variant="outlined" sx={{ height: '100%' }}>
@@ -154,7 +185,15 @@ function WeekCard({ digest }: { digest: WeeklyDigest | null }) {
           />
         </Stack>
         {pendingFailures > 0 && (
-          <Alert severity="warning" sx={{ mb: 1.5, py: 0 }}>
+          <Alert
+            severity="warning"
+            sx={{ mb: 1.5, py: 0, alignItems: 'center' }}
+            action={
+              <Button color="inherit" size="small" disabled={retrying} onClick={() => void retryNow()}>
+                {retrying ? 'Retrying…' : 'Retry now'}
+              </Button>
+            }
+          >
             {formatStat(pendingFailures)} file{pendingFailures === 1 ? '' : 's'} waiting to retry embedding
           </Alert>
         )}
@@ -193,12 +232,31 @@ function VirtualContextCard({
   stats,
   digest,
   sessions,
+  projectPath,
+  onChanged,
 }: {
   stats: Stats
   digest: WeeklyDigest | null
   sessions: ContextSessionsResponse | null
+  projectPath?: string
+  onChanged?: () => void
 }) {
+  const { showToast } = useToast()
   const [showAll, setShowAll] = useState(false)
+  const [purging, setPurging] = useState(false)
+  const purgeOrphans = async () => {
+    setPurging(true)
+    try {
+      const r = await api.flushContextOrphans(projectPath)
+      const kept = r.kept_recent > 0 ? ` · kept ${r.kept_recent} stored in the last hour` : ''
+      showToast(`Deleted ${r.flushed_refs} orphan${r.flushed_refs === 1 ? '' : 's'} (${formatStat(r.virtual_tokens_freed)} tokens)${kept}`, 'success')
+      onChanged?.()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Orphan purge failed', 'error')
+    } finally {
+      setPurging(false)
+    }
+  }
   const rows = sessions?.Sessions ?? []
   const visible = showAll ? rows : rows.slice(0, SESSIONS_PREVIEW)
   const max = stats.VirtualMaxTokensGlobal
@@ -221,6 +279,16 @@ function VirtualContextCard({
               label="Orphans"
               value={formatStat(stats.VirtualOrphanCount)}
               color={stats.VirtualOrphanCount > 0 ? chartColors.orange : undefined}
+              action={
+                stats.VirtualOrphanCount > 0 && (
+                  <ConfirmDeleteButton
+                    label="orphaned notes"
+                    tooltip="Delete orphans: notes stored but never fetched back (ones stored in the last hour are kept)"
+                    disabled={purging}
+                    onConfirm={() => void purgeOrphans()}
+                  />
+                )
+              }
             />
             {digest && (
               <InlineStat label="7d store / fetch" value={`${formatStat(digest.VirtualStored)} / ${formatStat(digest.VirtualAccessed)}`} />

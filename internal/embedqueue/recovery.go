@@ -125,14 +125,37 @@ func FlushPendingIfReady() {
 	flushPendingIfReady()
 }
 
-func flushPendingIfReady() {
+// pendingRetryBlocked explains why pending files can't be re-queued right now, or "".
+func pendingRetryBlocked() string {
 	if MaintenancePaused() {
+		return "embedding is paused for WAL maintenance"
+	}
+	if state, _ := embedder.HealthState(); state == "error" && !auxCanCatchUp() {
+		return "the embedder is down; retry the embedder first"
+	}
+	return ""
+}
+
+// RetryPendingNow re-queues every file awaiting an embed retry immediately instead of
+// waiting for the reconciler's next idle tick. It returns how many were queued, or why
+// nothing could be.
+func RetryPendingNow() (queued int, blocked string) {
+	if blocked = pendingRetryBlocked(); blocked != "" {
+		return 0, blocked
+	}
+	queued = PendingCount()
+	if queued > 0 {
+		log.Printf("embedqueue: manual retry of %d pending", queued)
+		FlushPending()
+	}
+	return queued, ""
+}
+
+func flushPendingIfReady() {
+	if pendingRetryBlocked() != "" {
 		return
 	}
 	state, _ := embedder.HealthState()
-	if state == "error" && !auxCanCatchUp() {
-		return
-	}
 	if PendingCount() == 0 {
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
@@ -294,6 +295,56 @@ func deleteAll() (tokensFreed int, count int, err error) {
 	db.DB.Exec(`DELETE FROM context_session_stats`)
 	log.Printf("contextnotes: flush_context all=true deleted %d notes (%d tokens) across every session/project", count, tokensFreed)
 	return tokensFreed, count, nil
+}
+
+// OrphanPurgeGrace keeps recent notes out of an orphan purge: a note stored minutes ago
+// has access_count = 0 simply because its session hasn't needed it back yet (the whole
+// point of virtual context is store now, fetch after compaction).
+const OrphanPurgeGrace = time.Hour
+
+// FlushOrphans deletes notes that were stored but never fetched back (access_count = 0)
+// and are older than grace, scoped to projectPath when set. keptRecent counts orphans
+// skipped because they are still inside the grace window.
+func FlushOrphans(projectPath string, grace time.Duration) (res *FlushResult, keptRecent int, err error) {
+	q := `SELECT ref, created_at >= datetime('now', ?) FROM context_notes WHERE access_count = 0`
+	args := []any{fmt.Sprintf("-%d seconds", int(grace.Seconds()))}
+	if projectPath != "" {
+		q += ` AND project_path = ?`
+		args = append(args, projectPath)
+	}
+	rows, err := db.ContextDB.Query(q, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	var refs []string
+	for rows.Next() {
+		var ref string
+		var recent bool
+		if err := rows.Scan(&ref, &recent); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		if recent {
+			keptRecent++
+			continue
+		}
+		refs = append(refs, ref)
+	}
+	rows.Close()
+	tokensFreed, count, _ := deleteRefs(refs, "")
+	if count > 0 {
+		log.Printf("contextnotes: purged %d orphan notes (%d tokens) project=%q, kept %d recent", count, tokensFreed, projectPath, keptRecent)
+	}
+	inv := LiveInventory("")
+	return &FlushResult{
+		FlushedRefs:        count,
+		VirtualTokensFreed: tokensFreed,
+		Scope:              "orphans",
+		Stats: map[string]interface{}{
+			"active_inventory_tokens": inv.ActiveInventoryTok,
+			"active_notes_count":      inv.ActiveNotesCount,
+		},
+	}, keptRecent, nil
 }
 
 func parseRefList(raw interface{}) []string {

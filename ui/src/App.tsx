@@ -319,6 +319,8 @@ function DashboardInner() {
                 stats={stats}
                 weeklyDigest={weeklyDigest}
                 contextSessions={contextSessions}
+                projectPath={pid}
+                onChanged={() => load(['stats', 'weeklyDigest', 'contextSessions', 'indexHealth'])}
               />
               {indexHealth && (
                 <WatchersPanel

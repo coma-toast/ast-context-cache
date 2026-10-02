@@ -76,6 +76,23 @@ func handleFlushContextAPI(w http.ResponseWriter, r *http.Request) {
 	sessionID, _ := body["session_id"].(string)
 	projectPath, _ := body["project_path"].(string)
 	all, _ := body["all"].(bool)
+	if orphans, _ := body["orphans"].(bool); orphans {
+		res, kept, err := contextnotes.FlushOrphans(projectPath, contextnotes.OrphanPurgeGrace)
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		realtime.Notify(realtime.Stats | realtime.IndexHealth)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"flushed_refs":         res.FlushedRefs,
+			"virtual_tokens_freed": res.VirtualTokensFreed,
+			"kept_recent":          kept,
+			"scope":                res.Scope,
+			"stats":                res.Stats,
+		})
+		return
+	}
 	refs := body["refs"]
 	if refs == nil {
 		if r, ok := body["ref"].(string); ok {

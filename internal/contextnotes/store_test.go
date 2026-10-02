@@ -124,3 +124,63 @@ func TestDashboardStats(t *testing.T) {
 		t.Fatalf("limits: %+v", ds.Limits)
 	}
 }
+
+func TestFlushOrphansRespectsGraceScopeAndAccess(t *testing.T) {
+	testNotesDB(t)
+	store := func(project, content string) string {
+		t.Helper()
+		res, err := Store("sess-o", content, "", project, "", "", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Ref
+	}
+	backdate := func(ref string) {
+		t.Helper()
+		if _, err := db.ContextDB.Exec(`UPDATE context_notes SET created_at = datetime('now', '-2 hours') WHERE ref = ?`, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := func(ref string) bool {
+		_, err := noteByRef(ref)
+		return err == nil
+	}
+
+	oldOrphanP1 := store("/p1", "old orphan one")
+	oldOrphanP2 := store("/p2", "old orphan two")
+	recentOrphanP1 := store("/p1", "recent orphan")
+	oldFetchedP1 := store("/p1", "old but fetched")
+	for _, r := range []string{oldOrphanP1, oldOrphanP2, oldFetchedP1} {
+		backdate(r)
+	}
+	if _, err := Fetch([]string{oldFetchedP1}, "sess-o", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	res, kept, err := FlushOrphans("/p1", OrphanPurgeGrace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FlushedRefs != 1 || kept != 1 {
+		t.Fatalf("project-scoped purge: flushed=%d kept=%d, want 1/1", res.FlushedRefs, kept)
+	}
+	if exists(oldOrphanP1) {
+		t.Fatal("old orphan in /p1 should be purged")
+	}
+	if !exists(recentOrphanP1) {
+		t.Fatal("recent orphan must survive the grace window")
+	}
+	if !exists(oldFetchedP1) {
+		t.Fatal("a note that was fetched is not an orphan")
+	}
+	if !exists(oldOrphanP2) {
+		t.Fatal("orphan in another project must survive a project-scoped purge")
+	}
+
+	if res, _, err = FlushOrphans("", OrphanPurgeGrace); err != nil || res.FlushedRefs != 1 {
+		t.Fatalf("global purge: %+v err=%v", res, err)
+	}
+	if exists(oldOrphanP2) {
+		t.Fatal("global purge should remove the remaining old orphan")
+	}
+}
