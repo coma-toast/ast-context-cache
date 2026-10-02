@@ -103,9 +103,10 @@ func ReuseFile(filePath, projectPath string, src *ReuseSource) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	var indexed int
-	if conn.QueryRow(`SELECT 1 FROM indexed_files WHERE file = ? AND project_path = ?`,
-		sibFile, src.ProjectPath).Scan(&indexed) != nil {
+	// The sibling's rows are only worth copying if today's parser produced them.
+	var version int
+	if conn.QueryRow(`SELECT COALESCE(parser_version, 0) FROM indexed_files WHERE file = ? AND project_path = ?`,
+		sibFile, src.ProjectPath).Scan(&version) != nil || version < ParserVersion(filePath) {
 		return 0, false
 	}
 

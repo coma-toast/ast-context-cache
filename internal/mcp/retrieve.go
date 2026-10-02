@@ -26,13 +26,14 @@ type RetrieveResult struct {
 }
 
 type RetrieveChunk struct {
-	Type    string  `json:"type"`
-	Name    string  `json:"name"`
-	Kind    string  `json:"kind"`
-	File    string  `json:"file"`
-	Score   float64 `json:"score"`
-	Source  string  `json:"source"`
-	Content string  `json:"content"`
+	Type          string  `json:"type"`
+	Name          string  `json:"name"`
+	QualifiedName string  `json:"qualified_name,omitempty"` // Class.method for a member
+	Kind          string  `json:"kind"`
+	File          string  `json:"file"`
+	Score         float64 `json:"score"`
+	Source        string  `json:"source"`
+	Content       string  `json:"content"`
 }
 
 type RetrieveStats struct {
@@ -236,11 +237,17 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 			continue
 		}
 		owner := projectlinks.OwningProject(file, projectPath)
-		var startLine, endLine int
-		if indexDB, err := db.IndexReader(); err == nil {
-			indexDB.QueryRow(
-				"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
-				name, file, owner).Scan(&startLine, &endLine)
+		qualified, _ := r.Data["qualified_name"].(string)
+		// Use the hit's own lines: a bare-name lookup can't tell same-named
+		// methods of different classes apart.
+		startLine, _ := r.Data["start_line"].(int)
+		endLine, _ := r.Data["end_line"].(int)
+		if startLine == 0 {
+			if indexDB, err := db.IndexReader(); err == nil {
+				indexDB.QueryRow(
+					"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
+					name, file, owner).Scan(&startLine, &endLine)
+			}
 		}
 		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
 			meta.dedupCount++
@@ -255,13 +262,14 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 			fullCount++
 		}
 		chunks = append(chunks, RetrieveChunk{
-			Type:    "code",
-			Name:    name,
-			Kind:    kind,
-			File:    db.RelPath(file, projectPath),
-			Score:   r.Score,
-			Source:  "code",
-			Content: content,
+			Type:          "code",
+			Name:          name,
+			QualifiedName: qualified,
+			Kind:          kind,
+			File:          db.RelPath(file, projectPath),
+			Score:         r.Score,
+			Source:        "code",
+			Content:       content,
 		})
 		context.LogReturned(sessionID, file, name, projectPath, startLine, mode, db.EstimateTokens(content))
 	}

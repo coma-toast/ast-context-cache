@@ -188,23 +188,15 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 		scope = projectlinks.ResolveScopeSet(projectPath)
 	}
 	results := vc.topMatches(query, projectPath, scope, docType, limit, filters)
-	// symbolLinesFromEntry hits index.db per result; run it after RUnlock so pool waits
+	// symbolRowFromEntry hits index.db per result; run it after RUnlock so pool waits
 	// can't pin vc.mu (a queued Upsert writer would then block every RLock caller).
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
-		startLine, endLine := symbolLinesFromEntry(r.entry)
-		out[i] = ScoredResult{
-			Data: map[string]interface{}{
-				"name":         r.entry.Name,
-				"kind":         r.entry.Kind,
-				"file":         r.entry.SourceFile,
-				"start_line":   startLine,
-				"end_line":     endLine,
-				"similarity":   r.sim,
-				"content_hash": r.entry.ContentHash,
-			},
-			Score: r.sim,
-		}
+		startLine, endLine, fqn := symbolRowFromEntry(r.entry)
+		data := symbolResult(r.entry.Name, r.entry.Kind, r.entry.SourceFile, fqn, startLine, endLine)
+		data["similarity"] = r.sim
+		data["content_hash"] = r.entry.ContentHash
+		out[i] = ScoredResult{Data: data, Score: r.sim}
 	}
 	return out
 }
@@ -264,20 +256,22 @@ func (vc *VectorCache) topMatches(query []float32, projectPath string, scope pro
 	return out
 }
 
-func symbolLinesFromEntry(e VectorEntry) (start, end int) {
+// symbolRowFromEntry returns the lines and fqn of the symbol a vector was
+// embedded from.
+func symbolRowFromEntry(e VectorEntry) (start, end int, fqn string) {
 	conn, err := db.IndexReader()
 	if err != nil {
-		return start, end
+		return start, end, fqn
 	}
 	if e.SymbolID > 0 {
-		conn.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
+		conn.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end, &fqn)
 	}
 	if start == 0 {
 		conn.QueryRow(
-			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
-			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end)
+			"SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
+			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end, &fqn)
 	}
-	return start, end
+	return start, end, fqn
 }
 
 func (vc *VectorCache) Upsert(entries []VectorEntry) error {

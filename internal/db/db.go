@@ -165,35 +165,58 @@ func RelPath(file, projectPath string) string {
 	return file
 }
 
+// QualifiedName returns a symbol's in-file qualified name — Class.method for a
+// member, the bare name for a top-level symbol — from the fqn the indexer stores
+// as "<file basename>.<qualified name>". Any other fqn shape (plaintext rows use
+// "<path>#plaintext") yields name, so callers can treat q != name as "member".
+func QualifiedName(fqn, file, name string) string {
+	if q, ok := strings.CutPrefix(fqn, filepath.Base(file)+"."); ok && q != "" {
+		return q
+	}
+	return name
+}
+
 func UpsertIndexedFile(file, projectPath string, indexedAt time.Time) {
 	_ = IndexWrite(func(tx *sql.Tx) error {
 		return UpsertIndexedFileWith(tx, file, projectPath, indexedAt)
 	})
 }
 
+// ParserVersion reports the symbol-extractor version a file would be indexed
+// with today. The indexer installs it (db cannot import indexer); files whose
+// indexed_files row carries an older version are treated as stale.
+var ParserVersion = func(file string) int { return 0 }
+
 // UpsertIndexedFileWith writes indexed_files using the given executor (e.g. within a transaction).
 func UpsertIndexedFileWith(e Execer, file, projectPath string, indexedAt time.Time) error {
-	_, err := e.Exec(`INSERT INTO indexed_files (file, project_path, indexed_at) VALUES (?, ?, ?)
-		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at`,
-		file, projectPath, indexedAt.Format(time.RFC3339))
+	_, err := e.Exec(`INSERT INTO indexed_files (file, project_path, indexed_at, parser_version) VALUES (?, ?, ?, ?)
+		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at, parser_version = excluded.parser_version`,
+		file, projectPath, indexedAt.Format(time.RFC3339), ParserVersion(file))
 	return err
 }
 
+// GetIndexedFiles maps each indexed file to when it was indexed. A file indexed
+// by an older parser (see ParserVersion) maps to the zero time so mtime-based
+// catch-up re-indexes it even though it hasn't changed on disk.
 func GetIndexedFiles(projectPath string) map[string]time.Time {
 	result := map[string]time.Time{}
 	conn, err := IndexReader()
 	if err != nil {
 		return result
 	}
-	rows, err := conn.Query("SELECT file, indexed_at FROM indexed_files WHERE project_path = ?", projectPath)
+	rows, err := conn.Query("SELECT file, indexed_at, COALESCE(parser_version, 0) FROM indexed_files WHERE project_path = ?", projectPath)
 	if err != nil {
 		return result
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var file, ts string
-		rows.Scan(&file, &ts)
+		var version int
+		rows.Scan(&file, &ts, &version)
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			if version < ParserVersion(file) {
+				t = time.Time{}
+			}
 			result[file] = t
 		}
 	}

@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -280,27 +279,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	case "check_deletion_safety":
 		result = json.RawMessage(impact.HandleCheckDeletionSafety(toolArgs, projectPath))
 	case "cache_summary":
-		file, _ := toolArgs["file"].(string)
-		summary, _ := toolArgs["summary"].(string)
-		symbol, _ := toolArgs["symbol"].(string)
-		if file == "" || summary == "" || projectPath == "" {
-			result = map[string]string{"error": "file, summary, and project_path required"}
-		} else {
-			contentHash := search.ContentHash(summary)
-			err := db.IndexWrite(func(tx *sql.Tx) error {
-				_, err := tx.Exec(
-					`INSERT INTO summaries (file_path, symbol_name, summary_text, content_hash, project_path) 
-				 VALUES (?, ?, ?, ?, ?)
-				 ON CONFLICT(file_path, symbol_name, project_path) DO UPDATE SET summary_text=excluded.summary_text, content_hash=excluded.content_hash, created_at=datetime('now')`,
-					file, symbol, summary, contentHash, projectPath)
-				return err
-			})
-			if err != nil {
-				result = map[string]string{"error": err.Error()}
-			} else {
-				result = map[string]string{"status": "cached", "file": file, "symbol": symbol}
-			}
-		}
+		result = handleCacheSummary(toolArgs, projectPath)
 	case "search_semantic":
 		query := ""
 		if q, ok := toolArgs["query"].(string); ok {

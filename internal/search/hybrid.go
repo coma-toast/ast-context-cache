@@ -89,8 +89,13 @@ func HybridSearch(query, projectPath string, emb embedder.Interface, limit int, 
 	return merged, metrics
 }
 
+// resultKey identifies a hit's symbol for fusion. Same-named methods of
+// different classes in one file differ only by qualified_name.
 func resultKey(r ScoredResult) string {
 	name, _ := r.Data["name"].(string)
+	if q, _ := r.Data["qualified_name"].(string); q != "" {
+		name = q
+	}
 	file, _ := r.Data["file"].(string)
 	kind, _ := r.Data["kind"].(string)
 	return file + "|" + name + "|" + kind

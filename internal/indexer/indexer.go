@@ -145,12 +145,13 @@ func extractSymbol(node *sitter.Node, content []byte, lang string) *SymbolDef {
 		switch nodeType {
 		case "function_declaration":
 			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "function"}
-		case "class_declaration":
-			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "class"}
+		// TS names classes, interfaces and type aliases with a type_identifier, not an identifier.
+		case "class_declaration", "abstract_class_declaration":
+			return &SymbolDef{nodeName(node, content), "class"}
 		case "interface_declaration":
-			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "interface"}
+			return &SymbolDef{nodeName(node, content), "interface"}
 		case "type_alias_declaration":
-			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "type"}
+			return &SymbolDef{nodeName(node, content), "type"}
 		case "enum_declaration":
 			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "enum"}
 		case "lexical_declaration", "variable_declaration":
@@ -609,28 +610,28 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 		}
 		walkNodes := collectTopLevelNodes(root, lang)
 		for _, node := range walkNodes {
-			sym := extractSymbol(node, content, lang)
-			if sym == nil || sym.Name == "" {
-				continue
-			}
-			start := node.StartPoint()
-			end := node.EndPoint()
-			code := ""
-			if int(start.Row) < len(lines) {
-				code = strings.TrimSpace(lines[start.Row])
-			}
-			fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Name)
-			skeleton := ""
-			if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
-				src := strings.Join(lines[start.Row:end.Row+1], "\n")
-				fullTokens += db.EstimateTokens(src)
-				skeleton = ExtractSkeleton(src, lang, sym.Kind)
-				skeletonTokens += db.EstimateTokens(skeleton)
-			}
-			embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
-			if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-				sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
-				count++
+			for _, sym := range declaredSymbols(node, content, lang) {
+				start := sym.Node.StartPoint()
+				end := sym.Node.EndPoint()
+				code := ""
+				fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Qualified())
+				skeleton := ""
+				if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
+					src := nodeSource(lines, start, end)
+					code = strings.TrimSpace(strings.SplitN(src, "\n", 2)[0])
+					// A member's source is already inside its class's, so only
+					// top-level symbols add to the file's full-source baseline.
+					if sym.Node.Equal(node) {
+						fullTokens += db.EstimateTokens(src)
+					}
+					skeleton = ExtractSkeleton(src, lang, sym.Kind)
+					skeletonTokens += db.EstimateTokens(skeleton)
+				}
+				embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
+				if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
+					count++
+				}
 			}
 		}
 		return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
@@ -644,9 +645,10 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	return count, fullTokens, skeletonTokens, nil
 }
 
-// ParseSymbols returns the top-level symbols tree-sitter finds in content without
-// touching the index, so two revisions of a file can be compared. Languages with
-// their own indexing path (yaml, fish, plaintext) yield no symbols here.
+// ParseSymbols returns the symbols tree-sitter finds in content (top-level
+// declarations plus class methods) without touching the index, so two revisions
+// of a file can be compared. Languages with their own indexing path (yaml, fish,
+// plaintext) yield no symbols here.
 func ParseSymbols(content []byte, lang string) []SymbolDef {
 	sitterLang := getSitterLanguage(lang)
 	if sitterLang == nil || lang == "yaml" || lang == "markdown" {
@@ -661,8 +663,8 @@ func ParseSymbols(content []byte, lang string) []SymbolDef {
 	defer tree.Close()
 	var out []SymbolDef
 	for _, node := range collectTopLevelNodes(tree.RootNode(), lang) {
-		if sym := extractSymbol(node, content, lang); sym != nil && sym.Name != "" {
-			out = append(out, *sym)
+		for _, sym := range declaredSymbols(node, content, lang) {
+			out = append(out, sym.SymbolDef)
 		}
 	}
 	return out

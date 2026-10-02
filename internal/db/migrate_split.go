@@ -137,12 +137,45 @@ func copyTablesFromAttach(dest *sql.DB, srcPath string, tables []string) error {
 		if err := dest.QueryRow(`SELECT COUNT(*) FROM src.sqlite_master WHERE type='table' AND name=?`, t).Scan(&n); err != nil || n == 0 {
 			continue
 		}
-		if _, err := dest.Exec(`INSERT INTO main.` + t + ` SELECT * FROM src.` + t); err != nil {
+		// Copy by name: the destination may have columns added since the
+		// monolithic DB was written (e.g. indexed_files.parser_version).
+		cols := strings.Join(tableColumns(dest, "src", t), ", ")
+		if _, err := dest.Exec(`INSERT INTO main.` + t + ` (` + cols + `) SELECT ` + cols + ` FROM src.` + t); err != nil {
 			return fmt.Errorf("copy %s: %w", t, err)
 		}
 		log.Printf("db split: copied table %s", t)
 	}
 	return nil
+}
+
+// tableColumns returns the columns of schema.table (quoted) that main.table also has.
+func tableColumns(conn *sql.DB, schema, table string) []string {
+	names := func(s string) []string {
+		rows, err := conn.Query(`SELECT name FROM pragma_table_info(?, ?)`, table, s)
+		if err != nil {
+			return nil
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var n string
+			if rows.Scan(&n) == nil {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	have := map[string]bool{}
+	for _, n := range names("main") {
+		have[n] = true
+	}
+	var cols []string
+	for _, n := range names(schema) {
+		if have[n] {
+			cols = append(cols, `"`+strings.ReplaceAll(n, `"`, `""`)+`"`)
+		}
+	}
+	return cols
 }
 
 func trimMonolithicTables(usage *sql.DB) error {

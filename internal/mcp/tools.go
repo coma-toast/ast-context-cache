@@ -190,7 +190,7 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"symbol":       map[string]string{"type": "string", "description": "Symbol name to look up (case-insensitive)"},
+					"symbol":       map[string]string{"type": "string", "description": "Symbol name to look up (case-insensitive): a bare name (load_model) or a member qualified by its class (LlamaCppClient.load_model)"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
 				},
 				"required": []string{"symbol", "project_path"},
@@ -215,12 +215,12 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "cache_summary",
-			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens.",
+			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens. The file (and symbol, if given) must already be indexed; unknown symbols are rejected with an error.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"file":         map[string]string{"type": "string", "description": "Absolute path to the file"},
-					"symbol":       map[string]string{"type": "string", "description": "Symbol name (optional, omit for file-level summary)"},
+					"symbol":       map[string]string{"type": "string", "description": "Indexed symbol name, or Class.method for a member (optional, omit for file-level summary)"},
 					"summary":      map[string]string{"type": "string", "description": "The summary text to cache"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
 				},

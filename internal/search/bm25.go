@@ -24,7 +24,7 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 	ftsQuery := BuildFTSQuery(terms)
 	if ftsQuery != "" {
 		q := `
-			SELECT s.name, s.kind, s.file, s.start_line, s.end_line, f.rank
+			SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,''), f.rank
 			FROM symbols_fts f
 			JOIN symbols s ON f.rowid = s.id
 			WHERE `
@@ -42,15 +42,12 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
-				var name, kind, file string
+				var name, kind, file, fqn string
 				var startLine, endLine int
 				var rank float64
-				rows.Scan(&name, &kind, &file, &startLine, &endLine, &rank)
+				rows.Scan(&name, &kind, &file, &startLine, &endLine, &fqn, &rank)
 				scored = append(scored, ScoredResult{
-					Data: map[string]interface{}{
-						"name": name, "kind": kind, "file": file,
-						"start_line": startLine, "end_line": endLine,
-					},
+					Data:  symbolResult(name, kind, file, fqn, startLine, endLine),
 					Score: -rank,
 				})
 			}
@@ -67,6 +64,20 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 
 	scored = filterScoredResults(scored, projectPath, filters)
 	return scored
+}
+
+// symbolResult is one symbol search hit. A member (a method, or a class nested
+// in another) also carries its qualified_name (LlamaCppClient.load_model), since
+// its bare name alone doesn't say which class it belongs to.
+func symbolResult(name, kind, file, fqn string, startLine, endLine int) map[string]interface{} {
+	data := map[string]interface{}{
+		"name": name, "kind": kind, "file": file,
+		"start_line": startLine, "end_line": endLine,
+	}
+	if q := db.QualifiedName(fqn, file, name); q != name {
+		data["qualified_name"] = q
+	}
+	return data
 }
 
 // TrigramSearch matches terms as substrings anywhere in a symbol's name or fqn, using
@@ -86,7 +97,7 @@ func TrigramSearch(terms []string, projectPath string, filters *SearchFilters) [
 		return nil
 	}
 	q := `
-		SELECT s.name, s.kind, s.file, s.start_line, s.end_line, t.rank
+		SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,''), t.rank
 		FROM symbols_trigram t
 		JOIN symbols s ON t.rowid = s.id
 		WHERE `
@@ -108,15 +119,12 @@ func TrigramSearch(terms []string, projectPath string, filters *SearchFilters) [
 
 	var scored []ScoredResult
 	for rows.Next() {
-		var name, kind, file string
+		var name, kind, file, fqn string
 		var startLine, endLine int
 		var rank float64
-		rows.Scan(&name, &kind, &file, &startLine, &endLine, &rank)
+		rows.Scan(&name, &kind, &file, &startLine, &endLine, &fqn, &rank)
 		scored = append(scored, ScoredResult{
-			Data: map[string]interface{}{
-				"name": name, "kind": kind, "file": file,
-				"start_line": startLine, "end_line": endLine,
-			},
+			Data:  symbolResult(name, kind, file, fqn, startLine, endLine),
 			Score: -rank,
 		})
 	}
@@ -162,7 +170,7 @@ func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) 
 	if err != nil {
 		return nil
 	}
-	rows, err := conn.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
+	rows, err := conn.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,'') FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
 	if err != nil {
 		return nil
 	}
@@ -170,9 +178,9 @@ func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) 
 
 	var scored []ScoredResult
 	for rows.Next() {
-		var name, kind, file string
+		var name, kind, file, fqn string
 		var startLine, endLine int
-		rows.Scan(&name, &kind, &file, &startLine, &endLine)
+		rows.Scan(&name, &kind, &file, &startLine, &endLine, &fqn)
 		s := 0.0
 		nameLower := strings.ToLower(name)
 		for _, t := range terms {
@@ -187,10 +195,7 @@ func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) 
 			}
 		}
 		scored = append(scored, ScoredResult{
-			Data: map[string]interface{}{
-				"name": name, "kind": kind, "file": file,
-				"start_line": startLine, "end_line": endLine,
-			},
+			Data:  symbolResult(name, kind, file, fqn, startLine, endLine),
 			Score: s,
 		})
 	}

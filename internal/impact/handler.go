@@ -110,8 +110,9 @@ func Graph(symbol, projectPath string, includeSiblings bool) (*Result, error) {
 // declaration a code change can break, so non-code files are reported only when
 // nothing in code defines the name (e.g. asking about an Ansible role or key).
 func definitionFiles(conn *sql.DB, scopeFrag string, scopeArgs []interface{}, symbol string) (defs []string, codeDefs bool, err error) {
-	rows, err := conn.Query("SELECT DISTINCT file FROM symbols WHERE "+scopeFrag+" AND name = ? ORDER BY file",
-		append(append([]interface{}{}, scopeArgs...), symbol)...)
+	nameFrag, nameArgs := exactNameMatchSQL("", symbol)
+	rows, err := conn.Query("SELECT DISTINCT file FROM symbols WHERE "+scopeFrag+" AND "+nameFrag+" ORDER BY file",
+		append(append([]interface{}{}, scopeArgs...), nameArgs...)...)
 	if err != nil {
 		return nil, false, err
 	}
