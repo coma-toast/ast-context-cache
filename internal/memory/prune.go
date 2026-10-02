@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -35,9 +36,18 @@ func PruneSuperseded(maxAgeDays int) (int64, error) {
 	if len(refs) == 0 {
 		return 0, nil
 	}
+	// The vectors live in index.db. Delete them first and stop if that fails (a
+	// WAL quiesce gates index writes): the rows stay for the next prune, rather
+	// than going away and leaving their vectors orphaned.
+	keys := make([]string, len(refs))
+	for i, ref := range refs {
+		keys[i] = memoryVectorKey(ref)
+	}
+	if err := search.Cache.DeleteRefs("memory", keys); err != nil {
+		return 0, fmt.Errorf("delete memory vectors: %w", err)
+	}
 	for _, ref := range refs {
 		deleteFTS(ref)
-		deleteMemoryVector(ref)
 	}
 	res, err := db.ContextDB.Exec(`DELETE FROM structured_memory WHERE valid_until IS NOT NULL AND valid_until != '' AND valid_until < ?`, cutoff)
 	if err != nil {
@@ -48,11 +58,4 @@ func PruneSuperseded(maxAgeDays int) (int64, error) {
 		log.Printf("memory: pruned %d superseded fact(s)/procedure(s) older than %d days", n, maxAgeDays)
 	}
 	return n, nil
-}
-
-func deleteMemoryVector(ref string) {
-	if conn, err := db.IndexReader(); err == nil {
-		conn.Exec(`DELETE FROM vectors WHERE doc_type = 'memory' AND source_file = ?`, memoryVectorKey(ref))
-	}
-	search.Cache.DeleteNoteByRef(memoryVectorKey(ref))
 }

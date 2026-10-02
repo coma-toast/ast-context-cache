@@ -274,14 +274,10 @@ func catchUp(projectPath string) {
 	removed := 0
 	for file := range indexed {
 		if !seen[file] {
-			_ = db.IndexWrite(func(tx *sql.Tx) error {
-				if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", file, projectPath); err != nil {
-					return err
-				}
-				_, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", file, projectPath)
-				return err
-			})
-			db.DeleteIndexedFile(file, projectPath)
+			if err := removeFileFromIndex(file, projectPath); err != nil {
+				log.Printf("Catch-up: remove %s from the index: %v", file, err)
+				continue
+			}
 			removed++
 			if PostIndexHook != nil {
 				go PostIndexHook(file, projectPath, true)
@@ -294,6 +290,27 @@ func catchUp(projectPath string) {
 	if removed > 0 {
 		realtime.Notify(realtime.IndexCommitted)
 	}
+}
+
+// removeFileFromIndex deletes a removed file's symbols, edges, code vectors and
+// indexed_files row in one index write. The vectors are deleted here rather than
+// left to PostIndexHook, which runs after this transaction, when a WAL quiesce
+// may already gate index writes. If the write fails, nothing is deleted and the
+// file stays recorded as indexed, so the next catch-up scan retries it.
+func removeFileFromIndex(file, projectPath string) error {
+	return db.IndexWrite(func(tx *sql.Tx) error {
+		for _, q := range []string{
+			"DELETE FROM symbols WHERE file = ? AND project_path = ?",
+			"DELETE FROM edges WHERE source_file = ? AND project_path = ?",
+			"DELETE FROM vectors WHERE source_file = ? AND project_path = ? AND COALESCE(doc_type, 'code') = 'code'",
+			"DELETE FROM indexed_files WHERE file = ? AND project_path = ?",
+		} {
+			if _, err := tx.Exec(q, file, projectPath); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
@@ -345,20 +362,18 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 		defer bg.Done()
 		start := time.Now()
 		if removed {
-			_ = db.IndexWrite(func(tx *sql.Tx) error {
-				if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", path, projectPath); err != nil {
-					return err
+			if err := removeFileFromIndex(path, projectPath); err != nil {
+				// The file is still recorded as indexed, so the next catch-up scan
+				// retries the removal.
+				log.Printf("Remove deleted file %s from the index: %v", path, err)
+			} else {
+				log.Printf("Removed symbols for deleted file: %s", path)
+				db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, db.QueryLogMetrics{}, projectPath, "")
+				if PostIndexHook != nil {
+					go PostIndexHook(path, projectPath, true)
 				}
-				_, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", path, projectPath)
-				return err
-			})
-			db.DeleteIndexedFile(path, projectPath)
-			log.Printf("Removed symbols for deleted file: %s", path)
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, db.QueryLogMetrics{}, projectPath, "")
-			if PostIndexHook != nil {
-				go PostIndexHook(path, projectPath, true)
+				realtime.Notify(realtime.IndexCommitted)
 			}
-			realtime.Notify(realtime.IndexCommitted)
 		} else {
 			n, fullT, skelT, err := indexer.IndexFile(path, projectPath)
 			if err == nil {

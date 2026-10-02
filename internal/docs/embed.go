@@ -40,7 +40,10 @@ func EmbedSource(sourceID int) {
 	if docEmbedder == nil {
 		return
 	}
-	deleteDocVectors(sourceID)
+	if err := deleteDocVectors(sourceID); err != nil {
+		log.Printf("docs: embed source %d: %v", sourceID, err)
+		return
+	}
 	entries, err := ListEntriesBySource(sourceID)
 	if err != nil || len(entries) == 0 {
 		return
@@ -93,8 +96,12 @@ func docVectorKey(sourceID, entryID int) string {
 	return fmt.Sprintf("doc:%d:%d", sourceID, entryID)
 }
 
-func deleteDocVectors(sourceID int) {
-	prefix := fmt.Sprintf("doc:%d:%%", sourceID)
-	db.ContextDB.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
-	search.Cache.DeleteDocByPrefix(prefix)
+// deleteDocVectors deletes a doc source's section vectors from index.db. It
+// fails while the index is quiesced, so callers delete the vectors before the
+// doc_content rows they belong to and stop on an error.
+func deleteDocVectors(sourceID int) error {
+	if err := search.Cache.DeleteDocByPrefix(fmt.Sprintf("doc:%d:%%", sourceID)); err != nil {
+		return fmt.Errorf("delete vectors for doc source %d: %w", sourceID, err)
+	}
+	return nil
 }

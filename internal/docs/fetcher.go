@@ -52,7 +52,9 @@ func AddSource(name, docType, docURL, version string) (int, error) {
 }
 
 func RemoveSource(id int) error {
-	deleteDocVectors(id)
+	if err := deleteDocVectors(id); err != nil {
+		return err
+	}
 	db.ContextDB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
 	_, err := db.ContextDB.Exec("DELETE FROM doc_sources WHERE id = ?", id)
 	rebuildDocsFTS()
@@ -113,7 +115,9 @@ func UpdateSource(id int) (usedPlaywright bool, err error) {
 		return false, fmt.Errorf("fetch failed: %w", err)
 	}
 
-	deleteDocVectors(id)
+	if err := deleteDocVectors(id); err != nil {
+		return false, err
+	}
 	db.ContextDB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
 	if err := storeEntries(id, content); err != nil {
 		return false, err
