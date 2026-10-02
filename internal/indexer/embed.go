@@ -53,6 +53,9 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 	if ShouldSkipEmbed(filePath) {
 		return nil
 	}
+	if dropStaleEmbedJob(filePath, projectPath) {
+		return nil
+	}
 	rows, err := conn.Query(
 		"SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?",
 		filePath, projectPath)

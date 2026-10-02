@@ -251,6 +251,8 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 		log.Printf("embedqueue: startup workers override: %d", n)
 	}
 	startup.SetMessage("Starting embed queue…")
+	// Purged files (deleted from disk, symlink aliases) must leave the pending retry set too.
+	indexer.OnFilePurged = embedqueue.ForgetFile
 	embedqueue.Start(emb)
 	if err := embedder.InitAuxRuntime(modelDir); err != nil {
 		log.Printf("aux embedder: %v (aux catch-up workers disabled)", err)

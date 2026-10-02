@@ -7,7 +7,6 @@
 package watcher
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -227,7 +226,7 @@ func catchUp(projectPath string) {
 	indexed := db.GetIndexedFiles(projectPath)
 	seen := map[string]bool{}
 	stale := 0
-	filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -244,6 +243,9 @@ func catchUp(projectPath string) {
 			return nil
 		}
 		if !indexer.IsCodeFile(path) {
+			return nil
+		}
+		if indexer.SkipSymlinkAlias(path, projectPath, info) {
 			return nil
 		}
 		seen[path] = true
@@ -272,16 +274,14 @@ func catchUp(projectPath string) {
 		return
 	}
 	removed := 0
-	for file := range indexed {
-		if !seen[file] {
-			if err := removeFileFromIndex(file, projectPath); err != nil {
-				log.Printf("Catch-up: remove %s from the index: %v", file, err)
-				continue
-			}
-			removed++
-			if PostIndexHook != nil {
-				go PostIndexHook(file, projectPath, true)
-			}
+	for _, file := range catchUpRemovals(projectPath, indexed, seen, walkErr == nil) {
+		if err := removeFileFromIndex(file, projectPath); err != nil {
+			log.Printf("Catch-up: purge %s: %v", file, err)
+			continue
+		}
+		removed++
+		if PostIndexHook != nil {
+			go PostIndexHook(file, projectPath, true)
 		}
 	}
 	if stale > 0 || removed > 0 {
@@ -292,25 +292,46 @@ func catchUp(projectPath string) {
 	}
 }
 
-// removeFileFromIndex deletes a removed file's symbols, edges, code vectors and
-// indexed_files row in one index write. The vectors are deleted here rather than
-// left to PostIndexHook, which runs after this transaction, when a WAL quiesce
-// may already gate index writes. If the write fails, nothing is deleted and the
-// file stays recorded as indexed, so the next catch-up scan retries it.
+// removeFileFromIndex purges a removed file's rows (symbols, edges, code vectors,
+// summaries, pending embeds, indexed_files) in one index write; see
+// indexer.PurgeFile. If the write fails (a WAL quiesce gates index writes),
+// nothing is deleted and the file stays recorded as indexed, so the next
+// catch-up scan retries it.
 func removeFileFromIndex(file, projectPath string) error {
-	return db.IndexWrite(func(tx *sql.Tx) error {
-		for _, q := range []string{
-			"DELETE FROM symbols WHERE file = ? AND project_path = ?",
-			"DELETE FROM edges WHERE source_file = ? AND project_path = ?",
-			"DELETE FROM vectors WHERE source_file = ? AND project_path = ? AND COALESCE(doc_type, 'code') = 'code'",
-			"DELETE FROM indexed_files WHERE file = ? AND project_path = ?",
-		} {
-			if _, err := tx.Exec(q, file, projectPath); err != nil {
-				return err
-			}
+	return indexer.PurgeFile(file, projectPath)
+}
+
+// catchUpRemovals lists index entries catch-up must purge. Candidates are every
+// file with rows for the project (not only indexed_files, so rows that lost or
+// never had an indexed_files entry are reconciled too). A tracked file under the
+// project that a complete walk did not visit is removed, as before; anything else
+// (untracked rows, paths outside the project, or any file after an aborted walk)
+// is removed only when it is provably gone from disk.
+func catchUpRemovals(projectPath string, indexed map[string]time.Time, seen map[string]bool, walkComplete bool) []string {
+	candidates := map[string]bool{}
+	for f := range indexed {
+		candidates[f] = true
+	}
+	for _, f := range indexer.ProjectFilesInIndex(projectPath) {
+		candidates[f] = true
+	}
+	prefix := projectPath + string(filepath.Separator)
+	var out []string
+	for f := range candidates {
+		if seen[f] || !filepath.IsAbs(f) {
+			continue
 		}
-		return nil
-	})
+		_, tracked := indexed[f]
+		if tracked && walkComplete && strings.HasPrefix(f, prefix) {
+			out = append(out, f)
+			continue
+		}
+		if indexer.FileGone(f) {
+			out = append(out, f)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {

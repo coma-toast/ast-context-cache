@@ -549,6 +549,11 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	if projectlinks.IsUnderLinkedChild(filePath, projectPath) {
 		return 0, 0, 0, nil
 	}
+	if target, alias := SymlinkAlias(filePath, projectPath); alias {
+		// Drop rows from before symlink dedup so the target's symbols appear once.
+		_ = PurgeFile(filePath, projectPath)
+		return 0, 0, 0, fmt.Errorf("%w: %s (target %q)", ErrSymlinkAlias, filePath, target)
+	}
 	lang := GetLanguage(filePath)
 	if lang == "" {
 		return 0, 0, 0, fmt.Errorf("unsupported: %s", filePath)
@@ -718,6 +723,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		if !IsCodeFile(path) {
 			return nil
 		}
+		if SkipSymlinkAlias(path, projectPath, info) {
+			return nil
+		}
 		if ignorepatterns.Match(path, projectPath, ignorepatterns.List()) {
 			return nil
 		}
@@ -738,6 +746,9 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 	if reused > 0 {
 		log.Printf("index: reused %d unchanged files from %s for %s", reused, reuse.ProjectPath, projectPath)
 	}
+	// Files deleted while no watcher was running (e.g. server down) are never seen
+	// by the walk above; drop their rows so search stops returning them.
+	PruneMissingFiles(dirPath, projectPath)
 	return count, err
 }
 
