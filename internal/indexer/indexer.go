@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -707,6 +706,7 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 	reuse := FindReuseSource(projectPath)
 	reused := 0
 	count := 0
+	filter := NewPathFilter(projectPath)
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -718,6 +718,10 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 			if projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
 				return filepath.SkipDir
 			}
+			// The walk root may be a subdirectory, so check its ancestors too.
+			if (path == dirPath && filter.IgnoredByFiles(path, true)) || filter.SkipDir(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !IsCodeFile(path) {
@@ -726,7 +730,7 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 		if SkipSymlinkAlias(path, projectPath, info) {
 			return nil
 		}
-		if ignorepatterns.Match(path, projectPath, ignorepatterns.List()) {
+		if filter.SkipFile(path) {
 			return nil
 		}
 		if reuse != nil {

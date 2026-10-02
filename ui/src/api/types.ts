@@ -268,6 +268,8 @@ export interface SettingsData {
   DataDirSize?: string
   WatcherIgnoreGlobs: string
   ProjectExcludePaths: string
+  /** Project path → per-project exclude patterns (gitignore syntax, relative to the project root). */
+  ProjectIndexExcludes?: Record<string, string[]> | null
   IndexLogFiles: boolean
   LogRetentionEnabled: boolean
   LogRetentionRoots: string

@@ -20,6 +20,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/ignorefiles"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
@@ -163,6 +164,8 @@ func StartWatcher(projectPath string) {
 	lastActivity[projectPath] = time.Now()
 	mu.Unlock()
 
+	indexer.InvalidatePathFilter(projectPath) // ignore files may have changed while unwatched
+	filter := indexer.CachedPathFilter(projectPath)
 	// A recursive backend already covers every subdirectory; handleFSEvent
 	// filters out the ones this walk would have pruned.
 	if !w.Recursive() {
@@ -175,6 +178,9 @@ func StartWatcher(projectPath string) {
 					return filepath.SkipDir
 				}
 				if projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
+					return filepath.SkipDir
+				}
+				if filter.SkipDir(path) {
 					return filepath.SkipDir
 				}
 				w.Add(path)
@@ -226,6 +232,7 @@ func catchUp(projectPath string) {
 	indexed := db.GetIndexedFiles(projectPath)
 	seen := map[string]bool{}
 	stale := 0
+	filter := indexer.NewPathFilter(projectPath)
 	walkErr := filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -235,6 +242,9 @@ func catchUp(projectPath string) {
 				return filepath.SkipDir
 			}
 			if projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
+				return filepath.SkipDir
+			}
+			if filter.SkipDir(path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -248,10 +258,12 @@ func catchUp(projectPath string) {
 		if indexer.SkipSymlinkAlias(path, projectPath, info) {
 			return nil
 		}
-		seen[path] = true
-		if MatchWatcherIgnore(path, projectPath, GetWatcherIgnorePatterns()) {
+		// Excluded files are left out of seen, so rows indexed before the exclude
+		// existed are purged below along with deleted files.
+		if filter.SkipFile(path) {
 			return nil
 		}
+		seen[path] = true
 		if idxTime, ok := indexed[path]; ok && !info.ModTime().After(idxTime) {
 			return nil
 		}
@@ -348,9 +360,14 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 	mu.Unlock()
 
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		if event.Has(fsnotify.Create) && !indexer.ShouldSkipDir(info.Name()) && !projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
+		if event.Has(fsnotify.Create) && !indexer.ShouldSkipDir(info.Name()) && !projectlinks.ShouldSkipDirDuringWalk(path, projectPath) &&
+			!indexer.CachedPathFilter(projectPath).IgnoredByFiles(path, true) {
 			w.Add(path)
 		}
+		return
+	}
+	if ignorefiles.IsIgnoreFileName(filepath.Base(path)) {
+		onIgnoreFileChanged(projectPath)
 		return
 	}
 
@@ -367,6 +384,9 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 		return
 	}
 	if MatchWatcherIgnore(path, projectPath, GetWatcherIgnorePatterns()) {
+		return
+	}
+	if indexer.CachedPathFilter(projectPath).IgnoredByFiles(path, false) {
 		return
 	}
 
