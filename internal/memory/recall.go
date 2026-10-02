@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -323,14 +325,27 @@ type ForgetInput struct {
 	All         bool
 }
 
-// ForgetResult reports invalidated entries.
+// ForgetResult reports invalidated entries. For refs mode the per-ref lists
+// say what happened to every ref passed in, so nothing is dropped silently.
 type ForgetResult struct {
-	InvalidatedRefs      int `json:"invalidated_refs"`
-	VirtualTokensFreed   int `json:"virtual_tokens_freed"`
+	InvalidatedRefs    int      `json:"invalidated_refs"`
+	VirtualTokensFreed int      `json:"virtual_tokens_freed"`
+	Invalidated        []string `json:"invalidated,omitempty"`
+	NotFound           []string `json:"not_found,omitempty"`
+	AlreadyInvalid     []string `json:"already_invalid,omitempty"`
+	ScopeMismatch      []string `json:"scope_mismatch,omitempty"`
 }
 
 // Forget soft-invalidates structured memory.
 func Forget(in ForgetInput) (*ForgetResult, error) {
+	if in.All && len(in.Refs) > 0 {
+		return nil, errors.New("pass either refs or all=true, not both")
+	}
+	switch in.Scope {
+	case "", ScopeSession, ScopeProject, ScopeGlobal:
+	default:
+		return nil, fmt.Errorf("invalid scope: %s (want session, project, or global)", in.Scope)
+	}
 	if in.All {
 		rows, err := db.ContextDB.Query(`SELECT ref, token_est FROM structured_memory WHERE valid_until IS NULL OR valid_until = ''`)
 		if err != nil {
@@ -353,17 +368,7 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		return &ForgetResult{InvalidatedRefs: len(refs), VirtualTokensFreed: tokens}, nil
 	}
 	if len(in.Refs) > 0 {
-		tokens := 0
-		count := 0
-		for _, ref := range in.Refs {
-			var tok int
-			if db.ContextDB.QueryRow(`SELECT token_est FROM structured_memory WHERE ref = ?`, ref).Scan(&tok) == nil {
-				invalidateRef(ref)
-				tokens += tok
-				count++
-			}
-		}
-		return &ForgetResult{InvalidatedRefs: count, VirtualTokensFreed: tokens}, nil
+		return forgetRefs(in)
 	}
 	if in.Subject != "" {
 		pred := in.Predicate
@@ -382,6 +387,61 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 
 func invalidateRef(ref string) {
 	db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ?`, ref)
+}
+
+// forgetRefs invalidates exactly the named refs. Each ref's scope comes from its
+// stored row, so callers need not pass scope/session_id; when they do pass a
+// scope it acts as a guard (a ref outside it is reported, not invalidated).
+// Unknown and already-invalid refs are reported back rather than counted as 0.
+func forgetRefs(in ForgetInput) (*ForgetResult, error) {
+	res := &ForgetResult{}
+	seen := map[string]bool{}
+	for _, ref := range in.Refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		e, err := entryByRef(ref)
+		if errors.Is(err, sql.ErrNoRows) {
+			res.NotFound = append(res.NotFound, ref)
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("look up %s: %w", ref, err)
+		}
+		if e.ValidUntil != "" {
+			res.AlreadyInvalid = append(res.AlreadyInvalid, ref)
+			continue
+		}
+		if !refInScope(e, in) {
+			res.ScopeMismatch = append(res.ScopeMismatch, ref)
+			continue
+		}
+		if _, err := db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`, ref); err != nil {
+			return nil, fmt.Errorf("invalidate %s: %w", ref, err)
+		}
+		res.Invalidated = append(res.Invalidated, ref)
+		res.InvalidatedRefs++
+		res.VirtualTokensFreed += e.TokenEst
+	}
+	return res, nil
+}
+
+// refInScope reports whether e passes the caller's optional scope guard. With no
+// scope given every ref passes; with scope=session and a session_id, the ref
+// must belong to that session.
+func refInScope(e Entry, in ForgetInput) bool {
+	if in.Scope == "" {
+		return true
+	}
+	if e.Scope != in.Scope {
+		return false
+	}
+	if in.Scope == ScopeSession && in.SessionID != "" && e.SessionID != in.SessionID {
+		return false
+	}
+	return true
 }
 
 // RecordAccess tracks recall for dashboard stats.

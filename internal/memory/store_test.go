@@ -19,14 +19,108 @@ func TestExtractFromText(t *testing.T) {
 	ex := ExtractFromText(`FACT: user.stack | prefers | Go errs package
 RULE: Use skeleton mode when exploring unfamiliar code
 user.style: compact functions`)
-	if len(ex.Facts) != 2 {
-		t.Fatalf("facts=%d", len(ex.Facts))
+	if len(ex.Facts) != 1 {
+		t.Fatalf("facts=%d (unmarked lines must not become facts): %+v", len(ex.Facts), ex.Facts)
 	}
 	if len(ex.Procedures) != 1 {
 		t.Fatalf("procedures=%d", len(ex.Procedures))
 	}
 	if ex.Facts[0].Subject != "user.stack" || ex.Facts[0].Predicate != "prefers" {
 		t.Fatalf("fact0: %+v", ex.Facts[0])
+	}
+}
+
+// fieldReportNote mirrors the field-report note (issue #7): headings, prose,
+// path:line text, and exactly 2 FACT: + 2 RULE: lines.
+const fieldReportNote = `# bonsai model routing
+
+## BROKEN NOW
+bonsai/plugin.py:33 SERVICE_MODEL=Ternary-Bonsai is hardcoded
+litellm_sync.py:120 to_litellm_params drops api_base
+
+## WRONG BEHAVIOR
+The sync job overwrites manual edits: every run.
+- Status: investigating
+Note: see ctx_fe05bd0e56a6 for the full trace.
+
+` + "```" + `
+FACT: inside | a | code fence
+RULE: this is example code, not a rule
+` + "```" + `
+
+FACT: bonsai.service_model | is_set_at | bonsai/plugin.py:33 SERVICE_MODEL=Ternary-Bonsai
+- FACT: litellm_sync.py:120 drops api_base when to_litellm_params: runs
+RULE: Never hardcode SERVICE_MODEL; read it from config: models.yaml
+* rule: Run sync-litellm-models --dry-run before applying
+`
+
+func TestExtractFromTextOnlyMarkedLines(t *testing.T) {
+	ex := ExtractFromText(fieldReportNote)
+	if len(ex.Facts) != 2 || len(ex.Procedures) != 2 {
+		t.Fatalf("want 2 facts + 2 rules, got facts=%+v procedures=%+v", ex.Facts, ex.Procedures)
+	}
+	gotFacts := []string{
+		FormatLine(Entry{Kind: KindFact, Subject: ex.Facts[0].Subject, Predicate: ex.Facts[0].Predicate, Object: ex.Facts[0].Object}),
+		FormatLine(Entry{Kind: KindFact, Subject: ex.Facts[1].Subject, Predicate: ex.Facts[1].Predicate, Object: ex.Facts[1].Object}),
+	}
+	wantFacts := []string{
+		"bonsai.service_model is_set_at bonsai/plugin.py:33 SERVICE_MODEL=Ternary-Bonsai",
+		"litellm_sync.py:120 drops api_base when to_litellm_params: runs",
+	}
+	for i := range wantFacts {
+		if gotFacts[i] != wantFacts[i] {
+			t.Fatalf("fact %d = %q, want %q (text must be preserved)", i, gotFacts[i], wantFacts[i])
+		}
+	}
+	wantRules := []string{
+		"Never hardcode SERVICE_MODEL; read it from config: models.yaml",
+		"Run sync-litellm-models --dry-run before applying",
+	}
+	for i := range wantRules {
+		if ex.Procedures[i].Rule != wantRules[i] {
+			t.Fatalf("rule %d = %q, want %q", i, ex.Procedures[i].Rule, wantRules[i])
+		}
+	}
+	for _, f := range ex.Facts {
+		if f.Predicate == "is" || strings.HasPrefix(f.Subject, "#") {
+			t.Fatalf("mangled or heading fact: %+v", f)
+		}
+	}
+	if len(ex.Skipped) != 0 {
+		t.Fatalf("skipped=%v", ex.Skipped)
+	}
+}
+
+func TestExtractFromTextReportsUnparseableMarkedLines(t *testing.T) {
+	ex := ExtractFromText("FACT: bonsai/plugin.py:33 SERVICE_MODEL=Ternary-Bonsai\nRULE:\nFACT: a | b | c")
+	if len(ex.Facts) != 1 || len(ex.Procedures) != 0 {
+		t.Fatalf("facts=%+v procedures=%+v", ex.Facts, ex.Procedures)
+	}
+	if len(ex.Skipped) != 2 || ex.Skipped[0] != "FACT: bonsai/plugin.py:33 SERVICE_MODEL=Ternary-Bonsai" {
+		t.Fatalf("skipped=%q", ex.Skipped)
+	}
+}
+
+func TestStoreExtractedFieldReportNote(t *testing.T) {
+	testMemoryDB(t)
+	stored, err := StoreExtracted("s-note", "", "ctx_test", ExtractFromText(fieldReportNote), ScopeSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 4 {
+		t.Fatalf("stored %d entries, want 4: %+v", len(stored), stored)
+	}
+	var n int
+	if err := db.ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory WHERE session_id = 's-note'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 4 {
+		t.Fatalf("structured_memory rows=%d, want 4", n)
+	}
+	for _, s := range stored {
+		if strings.Contains(s.Line, "plugin.py is 33") || strings.Contains(s.Line, "BROKEN") {
+			t.Fatalf("mangled line stored: %q", s.Line)
+		}
 	}
 }
 

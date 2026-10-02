@@ -64,6 +64,9 @@ func handleStoreContext(toolArgs map[string]interface{}, emb embedder.Interface,
 			}
 			out["memory_extracted"] = lines
 		}
+		if len(ex.Skipped) > 0 {
+			out["memory_skipped"] = ex.Skipped
+		}
 	}
 	resultJSON, _ := json.Marshal(out)
 	logToolQuery("store_context", args, len(resultJSON), db.EstimateTokens(content), 0, context.SavingsMeta{TokensSaved: res.VirtualTokensStored}, start, cpuStart, projectPath, "")

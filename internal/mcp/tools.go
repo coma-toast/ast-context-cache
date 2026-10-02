@@ -241,7 +241,7 @@ func GetTools() []Tool {
 					"tags":         map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
 					"kind":         map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
 					"metadata":     map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
-					"extract_memory": map[string]string{"type": "boolean", "description": "Parse FACT:/RULE: lines into compact mem_* entries (token savings)"},
+					"extract_memory": map[string]string{"type": "boolean", "description": "Also save explicitly marked lines as session-scoped mem_* entries: only lines starting with FACT: (subject | predicate | object, or subject predicate object...) or RULE: (free text). Headings, prose, and fenced code are ignored; text is kept as written. Response: memory_extracted (ref, kind, line) and memory_skipped (marked lines that could not be parsed, e.g. a FACT: under 3 words)."},
 				},
 				"required": []string{"content", "session_id"},
 			},
@@ -371,15 +371,15 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "forget_memory",
-			Description: "Invalidate structured memory (soft-delete via valid_until). Scope: refs, subject+predicate, or all=true.",
+			Description: "Invalidate structured memory (soft-delete via valid_until). Modes: refs, subject+predicate, or all=true. With refs, each mem_* ref's scope is read from the stored entry (no scope/session_id needed) and only the named refs are touched; the response lists invalidated, not_found, already_invalid, and scope_mismatch refs, and sets error if no ref was invalidated or already invalid.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"refs":         map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate"},
+					"refs":         map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate: one ref, a JSON array, or a comma-separated list"},
 					"session_id":   map[string]string{"type": "string", "description": "Session for subject-based forget"},
 					"subject":      map[string]string{"type": "string", "description": "Invalidate active fact with this subject"},
 					"predicate":    map[string]string{"type": "string", "description": "Predicate (default is)"},
-					"scope":        map[string]string{"type": "string", "description": "session, project, or global"},
+					"scope":        map[string]string{"type": "string", "description": "session, project, or global. For subject-based forget (default session). With refs it is optional and acts as a guard: refs outside it are reported in scope_mismatch"},
 					"all":          map[string]string{"type": "boolean", "description": "Invalidate all active structured memory"},
 				},
 			},

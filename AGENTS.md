@@ -221,7 +221,7 @@ Dashboard **Virtual context** card: active inventory, 30d stored vs accessed, ut
 |------|------|------|
 | `store_memory` | extended | Save fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope: `session` / `project` / `global` |
 | `recall_memory` | core | Retrieve within `token_budget` (default 800); optional `query`, `as_of` for temporal facts |
-| `forget_memory` | extended | Invalidate by `refs`, `subject`+`predicate`, or `all=true` |
+| `forget_memory` | extended | Invalidate by `refs` (array or comma list; scope read from each ref; `not_found` lists unknown refs), `subject`+`predicate`, or `all=true` |
 
 **When to use:** user prefs ("always use fish"), coding conventions, procedural rules — not long analysis. Facts auto-invalidate prior same subject+predicate in scope.
 

@@ -180,16 +180,18 @@ If `store_context` is missing from `tools/list`, ask the user to set `AST_MCP_TI
 |------|------|------|
 | `store_memory` | extended | Fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope `session` / `project` / `global` |
 | `recall_memory` | core | Retrieve within `token_budget` (default 800); optional `query`, `as_of` |
-| `forget_memory` | extended | Invalidate by `refs`, `subject`+`predicate`, or `all=true` |
+| `forget_memory` | extended | Invalidate by `refs` (array or comma list; scope read from each ref), `subject`+`predicate`, or `all=true` |
 
 ```
 store_memory(kind="fact", session_id="conv-uuid", subject="user.shell", predicate="is", object="fish")
 store_memory(kind="procedure", session_id="conv-uuid", rule="Always run make test before committing")
 recall_memory(session_id="conv-uuid", query="shell", token_budget=800)
-forget_memory(refs=["mem_..."])  # or subject+predicate, or all=true
+forget_memory(refs=["mem_a", "mem_b"])  # or "mem_a,mem_b"; or subject+predicate, or all=true
 ```
 
-Facts auto-invalidate prior same subject+predicate in scope (`invalidate_previous` default true). Optional: `store_context(..., extract_memory=true)` parses `FACT:` / `RULE:` lines into `mem_*`. RAG: `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
+`forget_memory(refs=…)` needs no `scope`/`session_id` and touches only the named refs; the response lists `invalidated`, `not_found`, `already_invalid`, and `scope_mismatch` (if you pass `scope`, it only guards), and is an error when nothing was invalidated.
+
+Facts auto-invalidate prior same subject+predicate in scope (`invalidate_previous` default true). Optional: `store_context(..., extract_memory=true)` saves only lines that start with `FACT:` (`subject | predicate | object`, or `subject predicate object…`) or `RULE:` as session-scoped `mem_*`; headings, prose, and fenced code are ignored and text is kept as written. Unparseable marked lines come back in `memory_skipped`. RAG: `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
 
 ## KV repair archives (quantized KV recovery)
 

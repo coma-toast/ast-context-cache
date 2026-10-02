@@ -47,8 +47,8 @@ Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compac
 
 1. **`store_memory`** (extended) — fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope `session` / `project` / `global`.
 2. **`recall_memory`** (core) — prefer over `fetch_context` for prefs/rules; optional `as_of`, `token_budget` (default 800).
-3. **`forget_memory`** (extended) — invalidate by refs, subject+predicate, or `all=true`.
-4. Optional: `retrieve(..., include_memory=true)`; `store_context(..., extract_memory=true)` parses `FACT:`/`RULE:` lines into `mem_*`.
+3. **`forget_memory`** (extended) — invalidate by refs (array or comma list; scope read from each ref, unknown refs returned in `not_found`), subject+predicate, or `all=true`.
+4. Optional: `retrieve(..., include_memory=true)`; `store_context(..., extract_memory=true)` saves only lines starting with `FACT:`/`RULE:` as `mem_*` (other text ignored, text kept as written).
 
 **KV repair:** **`report_kv_repair_event`** (extended) before/after `fetch_context` on `kind=kv_repair` archives.
 
