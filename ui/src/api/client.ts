@@ -146,6 +146,8 @@ export const api = {
     post<{ status?: string; symbols?: number }>('/api/index-project', { project_path }),
   setProjectLabel: (project_path: string, label: string) =>
     post<{ status?: string; label?: string; custom?: boolean }>('/api/project-label', { project_path, label }),
+  setProjectExcludes: (project_path: string, patterns: string[]) =>
+    post<{ status?: string; patterns?: string[] | null }>('/api/project-excludes', { project_path, patterns }),
   linkProject: (parent_path: string, child_path: string) =>
     post('/api/project-links', { parent_path, child_path }),
   unlinkProject: (parent_path: string, child_path: string) =>

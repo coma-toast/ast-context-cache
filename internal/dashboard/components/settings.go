@@ -14,6 +14,7 @@ type SettingsData struct {
 	IdleUnloadMinutes        int
 	WatcherIgnoreGlobs       string
 	ProjectExcludePaths      string
+	ProjectIndexExcludes     map[string][]string // project path → gitignore-syntax excludes
 	IndexLogFiles            bool
 	LogRetentionEnabled      bool
 	LogRetentionRoots        string

@@ -130,7 +130,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "index_files",
-			Description: "Index source files using tree-sitter AST parsing. Container projects auto-link already-indexed subdirectories and skip duplicate indexing; search includes linked subprojects.",
+			Description: "Index source files using tree-sitter AST parsing. Container projects auto-link already-indexed subdirectories and skip duplicate indexing; search includes linked subprojects. A single file is indexed synchronously ({indexed}). A directory runs as a background job: if it finishes within ~2s you get {indexed, status: completed}; otherwise the call returns immediately with {job_id, status: queued|running, files_done, poll} — poll index_status for progress. Repeat calls for a directory already being indexed join that job (already_running: true).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -143,7 +143,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "index_status",
-			Description: "Get statistics about indexed symbols in a project. Returns own and linked subproject counts when container links exist. resources reports the server's open file descriptors against its limit (level ok|warning|critical) and the file-watcher backend; watcher shows this project's watcher, or blocked_reason when the path is a container of projects (e.g. ~/spaces) that is never watched.",
+			Description: "Get statistics about indexed symbols in a project. Returns own and linked subproject counts when container links exist. resources reports the server's open file descriptors against its limit (level ok|warning|critical) and the file-watcher backend; watcher shows this project's watcher, or blocked_reason when the path is a container of projects (e.g. ~/spaces) that is never watched. index_jobs lists recent directory index_files jobs (newest first: job_id, status queued|running|completed|failed, files_done, symbols_indexed, elapsed_ms, error); indexing: true while one is active. disk_pressure appears when the data volume is low on free space (embedding throttled or paused).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -190,7 +190,7 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"symbol":       map[string]string{"type": "string", "description": "Symbol name to look up (case-insensitive)"},
+					"symbol":       map[string]string{"type": "string", "description": "Symbol name to look up (case-insensitive): a bare name (load_model) or a member qualified by its class (LlamaCppClient.load_model)"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
 				},
 				"required": []string{"symbol", "project_path"},
@@ -215,12 +215,12 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "cache_summary",
-			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens.",
+			Description: "Store a summary for a file or symbol. LLMs call this to 'write back' what they learned about code. Summaries are cached and used by get_context in summary mode to dramatically reduce tokens. The file (and symbol, if given) must already be indexed; unknown symbols are rejected with an error.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"file":         map[string]string{"type": "string", "description": "Absolute path to the file"},
-					"symbol":       map[string]string{"type": "string", "description": "Symbol name (optional, omit for file-level summary)"},
+					"symbol":       map[string]string{"type": "string", "description": "Indexed symbol name, or Class.method for a member (optional, omit for file-level summary)"},
 					"summary":      map[string]string{"type": "string", "description": "The summary text to cache"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
 				},
@@ -241,7 +241,7 @@ func GetTools() []Tool {
 					"tags":         map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
 					"kind":         map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
 					"metadata":     map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
-					"extract_memory": map[string]string{"type": "boolean", "description": "Parse FACT:/RULE: lines into compact mem_* entries (token savings)"},
+					"extract_memory": map[string]string{"type": "boolean", "description": "Also save explicitly marked lines as session-scoped mem_* entries: only lines starting with FACT: (subject | predicate | object, or subject predicate object...) or RULE: (free text). Headings, prose, and fenced code are ignored; text is kept as written. Response: memory_extracted (ref, kind, line) and memory_skipped (marked lines that could not be parsed, e.g. a FACT: under 3 words)."},
 				},
 				"required": []string{"content", "session_id"},
 			},
@@ -371,15 +371,15 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "forget_memory",
-			Description: "Invalidate structured memory (soft-delete via valid_until). Scope: refs, subject+predicate, or all=true.",
+			Description: "Invalidate structured memory (soft-delete via valid_until). Modes: refs, subject+predicate, or all=true. With refs, each mem_* ref's scope is read from the stored entry (no scope/session_id needed) and only the named refs are touched; the response lists invalidated, not_found, already_invalid, and scope_mismatch refs, and sets error if no ref was invalidated or already invalid.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"refs":         map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate"},
+					"refs":         map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate: one ref, a JSON array, or a comma-separated list"},
 					"session_id":   map[string]string{"type": "string", "description": "Session for subject-based forget"},
 					"subject":      map[string]string{"type": "string", "description": "Invalidate active fact with this subject"},
 					"predicate":    map[string]string{"type": "string", "description": "Predicate (default is)"},
-					"scope":        map[string]string{"type": "string", "description": "session, project, or global"},
+					"scope":        map[string]string{"type": "string", "description": "session, project, or global. For subject-based forget (default session). With refs it is optional and acts as a guard: refs outside it are reported in scope_mismatch"},
 					"all":          map[string]string{"type": "boolean", "description": "Invalidate all active structured memory"},
 				},
 			},
@@ -511,7 +511,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "search_docs",
-			Description: "Search locally cached documentation by title or content (FTS). Try this before WebFetch or web search for library/framework docs.",
+			Description: "Search locally cached documentation by title or content (FTS + vectors). Try this before WebFetch or web search for library/framework docs. Sections below a relevance floor are dropped: no_match: true (with a hint, below_floor = sections discarded) means nothing cached is relevant — use fetch_doc instead of trusting weak hits. score is rank fusion (max ~0.033), not a relevance percentage; see term_coverage / vector_similarity per result.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

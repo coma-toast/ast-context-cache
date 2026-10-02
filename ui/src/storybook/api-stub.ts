@@ -62,6 +62,7 @@ export const api = {
   stopWatcher: noop,
   indexProject: noop,
   setProjectLabel: noop,
+  setProjectExcludes: noop,
   linkProject: noop,
   unlinkProject: noop,
   flushContextAll: noop,

@@ -139,14 +139,18 @@ func handleForgetMemory(toolArgs map[string]interface{}, start time.Time, cpuSta
 		SessionID:   sessionID,
 		ProjectPath: pp,
 		Subject:     strArg(toolArgs, "subject"),
-		Predicate: strArg(toolArgs, "predicate"),
-		All:       boolArg(toolArgs, "all"),
+		Predicate:   strArg(toolArgs, "predicate"),
+		All:         boolArg(toolArgs, "all"),
 	}
 	if scope, ok := toolArgs["scope"].(string); ok {
-		in.Scope = memory.Scope(strings.ToLower(scope))
+		in.Scope = memory.Scope(strings.ToLower(strings.TrimSpace(scope)))
 	}
-	if refs := toolArgs["refs"]; refs != nil {
-		in.Refs = parseStringList(refs)
+	refsRaw := toolArgs["refs"]
+	if refsRaw == nil {
+		refsRaw = toolArgs["ref"]
+	}
+	if refsRaw != nil {
+		in.Refs = parseStringList(refsRaw)
 	}
 	res, err := memory.Forget(in)
 	if err != nil {
@@ -156,12 +160,39 @@ func handleForgetMemory(toolArgs map[string]interface{}, start time.Time, cpuSta
 		return out
 	}
 	out := map[string]interface{}{
-		"invalidated_refs":       res.InvalidatedRefs,
+		"invalidated_refs":     res.InvalidatedRefs,
 		"virtual_tokens_freed": res.VirtualTokensFreed,
 	}
+	if len(in.Refs) > 0 {
+		out["invalidated"] = nonNil(res.Invalidated)
+		if len(res.NotFound) > 0 {
+			out["not_found"] = res.NotFound
+		}
+		if len(res.AlreadyInvalid) > 0 {
+			out["already_invalid"] = res.AlreadyInvalid
+		}
+		if len(res.ScopeMismatch) > 0 {
+			out["scope_mismatch"] = res.ScopeMismatch
+		}
+		if res.InvalidatedRefs == 0 && len(res.AlreadyInvalid) == 0 {
+			msg := "no active mem_* entry matched the given refs"
+			if len(res.ScopeMismatch) > 0 {
+				msg += " (scope_mismatch refs are outside the given scope; omit scope to resolve it from each ref)"
+			}
+			out["error"] = msg
+		}
+	}
+	errMsg, _ := out["error"].(string)
 	resultJSON, _ := json.Marshal(out)
-	logToolQuery("forget_memory", args, len(resultJSON), res.VirtualTokensFreed, 0, context.SavingsMeta{FileBaseline: res.VirtualTokensFreed}, start, cpuStart, pp, "")
+	logToolQuery("forget_memory", args, len(resultJSON), res.VirtualTokensFreed, 0, context.SavingsMeta{FileBaseline: res.VirtualTokensFreed}, start, cpuStart, pp, errMsg)
 	return out
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func strArg(m map[string]interface{}, key string) string {
@@ -178,28 +209,42 @@ func boolArg(m map[string]interface{}, key string) bool {
 	return false
 }
 
+// parseStringList accepts a JSON array, a single string, a comma-separated
+// string ("mem_a,mem_b"), or a string holding a JSON array ("[\"mem_a\"]",
+// which some clients send when the schema type is string).
 func parseStringList(raw interface{}) []string {
+	var out []string
+	add := func(s string) {
+		for _, part := range strings.Split(s, ",") {
+			if p := strings.Trim(strings.TrimSpace(part), `"'`); p != "" {
+				out = append(out, p)
+			}
+		}
+	}
 	switch v := raw.(type) {
 	case string:
-		if strings.TrimSpace(v) != "" {
-			return []string{strings.TrimSpace(v)}
+		t := strings.TrimSpace(v)
+		if strings.HasPrefix(t, "[") {
+			var arr []string
+			if json.Unmarshal([]byte(t), &arr) == nil {
+				for _, s := range arr {
+					add(s)
+				}
+				return out
+			}
+			t = strings.TrimSuffix(strings.TrimPrefix(t, "["), "]")
 		}
+		add(t)
 	case []interface{}:
-		var out []string
 		for _, item := range v {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
+			if s, ok := item.(string); ok {
+				add(s)
 			}
 		}
-		return out
 	case []string:
-		var out []string
 		for _, s := range v {
-			if strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
+			add(s)
 		}
-		return out
 	}
-	return nil
+	return out
 }

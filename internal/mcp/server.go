@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
-	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/version"
@@ -211,43 +209,25 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			info, statErr := os.Stat(path)
 			if statErr != nil {
 				result = map[string]string{"error": "path not found: " + statErr.Error()}
+			} else if info.IsDir() {
+				// Directories run as a background job; see index_jobs.go.
+				result = withLinkedProjects(handleIndexDirectory(path, projectPath), projectPath)
 			} else {
-				var n int
-				var indexErr error
-				if info.IsDir() {
-					n, indexErr = indexer.IndexDirectory(path, projectPath)
-					if indexErr == nil {
-						projectmeta.ClearDeleted(projectPath)
-						embedqueue.UnmarkProjectCancelled(projectPath)
-						watcher.EnsureWatcher(projectPath)
-						if emb != nil {
-							go embedqueue.EnqueueAllSymbolsFiles(projectPath)
-						}
-					}
-				} else {
-					n, _, _, indexErr = indexer.IndexFile(path, projectPath)
-					if indexErr == nil {
-						projectmeta.ClearDeleted(projectPath)
-						embedqueue.UnmarkProjectCancelled(projectPath)
-						if emb != nil {
-							go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
-						}
-					}
-				}
+				n, _, _, indexErr := indexer.IndexFile(path, projectPath)
 				if indexErr != nil {
 					result = map[string]string{"error": indexErr.Error()}
 				} else {
-					out := map[string]interface{}{"indexed": n}
-					if linked, _ := projectlinks.Links(projectPath); len(linked) > 0 {
-						out["linked_projects"] = linked
+					projectmeta.ClearDeleted(projectPath)
+					embedqueue.UnmarkProjectCancelled(projectPath)
+					if emb != nil {
+						go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
 					}
-					result = out
+					result = withLinkedProjects(map[string]interface{}{"indexed": n}, projectPath)
 				}
 			}
 		}
 	case "index_status":
-		stats, err := indexer.GetIndexStats(projectPath)
-		result = withResourceHealth(stats, err, projectPath)
+		result = indexStatusResult(projectPath)
 	case "get_context_capsule":
 		query := ""
 		if q, ok := toolArgs["query"].(string); ok {
@@ -280,27 +260,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	case "check_deletion_safety":
 		result = json.RawMessage(impact.HandleCheckDeletionSafety(toolArgs, projectPath))
 	case "cache_summary":
-		file, _ := toolArgs["file"].(string)
-		summary, _ := toolArgs["summary"].(string)
-		symbol, _ := toolArgs["symbol"].(string)
-		if file == "" || summary == "" || projectPath == "" {
-			result = map[string]string{"error": "file, summary, and project_path required"}
-		} else {
-			contentHash := search.ContentHash(summary)
-			err := db.IndexWrite(func(tx *sql.Tx) error {
-				_, err := tx.Exec(
-					`INSERT INTO summaries (file_path, symbol_name, summary_text, content_hash, project_path) 
-				 VALUES (?, ?, ?, ?, ?)
-				 ON CONFLICT(file_path, symbol_name, project_path) DO UPDATE SET summary_text=excluded.summary_text, content_hash=excluded.content_hash, created_at=datetime('now')`,
-					file, symbol, summary, contentHash, projectPath)
-				return err
-			})
-			if err != nil {
-				result = map[string]string{"error": err.Error()}
-			} else {
-				result = map[string]string{"status": "cached", "file": file, "symbol": symbol}
-			}
-		}
+		result = handleCacheSummary(toolArgs, projectPath)
 	case "search_semantic":
 		query := ""
 		if q, ok := toolArgs["query"].(string); ok {
@@ -317,12 +277,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
 				limit = int(l)
 			}
-			scored, err := docs.SearchDocsHybrid(query, limit, emb)
+			r, err := docs.SearchDocsHybridResult(query, limit, emb)
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
-				results := make([]map[string]interface{}, 0, len(scored))
-				for _, s := range scored {
+				results := make([]map[string]interface{}, 0, len(r.Docs))
+				for _, s := range r.Docs {
 					results = append(results, map[string]interface{}{
 						"title":     s.Entry.Title,
 						"content":   s.Entry.Content,
@@ -332,12 +292,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 						"doc_type":  "doc",
 					})
 				}
-				result = map[string]interface{}{
-					"query":   query,
+				result = withDocNoMatch(map[string]interface{}{
+					"query":    query,
 					"doc_type": "doc",
-					"results": results,
-					"total":   len(results),
-				}
+					"results":  results,
+					"total":    len(results),
+				}, r.BelowFloor)
 			}
 		} else if projectPath == "" {
 			result = map[string]string{"error": "project_path required unless doc_type=doc"}
@@ -437,42 +397,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		}
 		if query == "" {
 			result = map[string]string{"error": "query is required"}
-		} else if emb != nil {
-			scored, err := docs.SearchDocsHybrid(query, limit, emb)
-			if err != nil {
-				result = map[string]string{"error": err.Error()}
-			} else {
-				results := make([]map[string]interface{}, 0, len(scored))
-				for _, s := range scored {
-					results = append(results, map[string]interface{}{
-						"id":         s.Entry.ID,
-						"source_id":  s.Entry.SourceID,
-						"title":      s.Entry.Title,
-						"content":    s.Entry.Content,
-						"path":       s.Entry.Path,
-						"content_hash": s.Entry.ContentHash,
-						"updated_at": s.Entry.UpdatedAt,
-						"score":      s.Score,
-					})
-				}
-				result = map[string]interface{}{
-					"query":   query,
-					"results": results,
-					"total":   len(results),
-					"hybrid":  true,
-				}
-			}
 		} else {
-			entries, err := docs.SearchDocs(query, limit)
-			if err != nil {
-				result = map[string]string{"error": err.Error()}
-			} else {
-				result = map[string]interface{}{
-					"query":   query,
-					"results": entries,
-					"total":   len(entries),
-				}
-			}
+			result = handleSearchDocs(query, limit)
 		}
 	case "fetch_doc":
 		name, _ := toolArgs["name"].(string)

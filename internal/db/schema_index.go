@@ -85,6 +85,9 @@ func initIndexSchema(conn *sql.DB) {
 			PRIMARY KEY (file, project_path)
 		);
 	`)
+	// parser_version records which symbol extractor indexed the file (see
+	// ParserVersion); older rows are re-indexed by the next catch-up.
+	conn.Exec(`ALTER TABLE indexed_files ADD COLUMN parser_version INTEGER NOT NULL DEFAULT 0`)
 
 	conn.Exec(`
 		CREATE TABLE IF NOT EXISTS embed_pending (

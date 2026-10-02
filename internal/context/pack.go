@@ -1,6 +1,8 @@
 package context
 
 import (
+	"path/filepath"
+
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -27,6 +29,10 @@ func EffectiveMode(mode string, score, maxScore float64, fullCount int) string {
 	return "skeleton"
 }
 
+// LoadSummary returns the cached summary for a symbol, falling back to the
+// file-level summary. name is the symbol's in-file qualified name
+// (db.QualifiedName: Class.method for a member, the bare name otherwise), which
+// is what cache_summary keys summaries by.
 func LoadSummary(file, name, projectPath string) string {
 	var summary, storedHash string
 	conn, err := db.IndexReader()
@@ -53,12 +59,16 @@ func LoadSummary(file, name, projectPath string) string {
 	return summary
 }
 
+// symbolContentHash hashes the code of the symbol whose qualified name is name,
+// preferring an exact fqn match so a member's hash isn't taken from another
+// class's same-named method.
 func symbolContentHash(file, name, projectPath string) string {
 	var code string
 	if conn, err := db.IndexReader(); err == nil {
+		fqn := filepath.Base(file) + "." + name
 		conn.QueryRow(
-			"SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
-			file, name, projectPath).Scan(&code)
+			"SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? AND (fqn = ? OR name = ?) ORDER BY fqn = ? DESC, start_line LIMIT 1",
+			file, projectPath, fqn, name, fqn).Scan(&code)
 	}
 	if code != "" {
 		return search.ContentHash(code)
@@ -87,18 +97,16 @@ func ApplyMode(data map[string]interface{}, effectiveMode, file, name, projectPa
 			data["skeleton"] = indexer.ExtractSkeleton(fullSrc, indexer.GetLanguage(file), kind)
 		}
 	case "summary":
-		if summary := LoadSummary(file, name, projectPath); summary != "" {
+		var fqn, skeleton string
+		if connErr == nil {
+			conn.QueryRow("SELECT COALESCE(fqn,''), COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
+				file, name, projectPath, startLine).Scan(&fqn, &skeleton)
+		}
+		if summary := LoadSummary(file, db.QualifiedName(fqn, file, name), projectPath); summary != "" {
 			data["summary"] = summary
-		} else {
-			var skeleton string
-			if connErr == nil {
-				conn.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-					file, name, projectPath, startLine).Scan(&skeleton)
-			}
-			if skeleton != "" {
-				data["skeleton"] = skeleton
-				data["_fallback"] = "skeleton"
-			}
+		} else if skeleton != "" {
+			data["skeleton"] = skeleton
+			data["_fallback"] = "skeleton"
 		}
 	default:
 		if fullSrc != "" {

@@ -14,53 +14,96 @@ const docRRFK = 60
 type ScoredDoc struct {
 	Entry DocEntry
 	Score float64
+	// TermCoverage is the fraction of the query's terms found in the section (0..1).
+	TermCoverage float64
+	// Similarity is cosine similarity to the query when vector recall found the section.
+	Similarity float64
+}
+
+// DocSearchResult is a doc search after the relevance floor (relevance.go): the
+// sections that passed, and how many distinct candidate sections fell below it.
+type DocSearchResult struct {
+	Docs       []ScoredDoc
+	BelowFloor int
 }
 
 // SearchDocs runs FTS over cached doc sections with LIKE fallback.
 func SearchDocs(query string, limit int) ([]DocEntry, error) {
-	scored, err := searchDocsFTS(query, limit)
+	r, err := SearchDocsLexical(query, limit)
 	if err != nil {
 		return nil, err
 	}
-	if len(scored) == 0 {
-		scored, err = searchDocsLike(query, limit)
-		if err != nil {
-			return nil, err
-		}
-	}
-	out := make([]DocEntry, len(scored))
-	for i, s := range scored {
+	out := make([]DocEntry, len(r.Docs))
+	for i, s := range r.Docs {
 		out[i] = s.Entry
 	}
 	return out, nil
 }
 
-// SearchDocsHybrid merges FTS and vector recall for doc sections.
-func SearchDocsHybrid(query string, limit int, emb embedder.Interface) ([]ScoredDoc, error) {
+// SearchDocsLexical is SearchDocs with scores and the relevance-floor count.
+func SearchDocsLexical(query string, limit int) (DocSearchResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	fts, err := searchDocsFTS(query, limit*2)
+	terms := coverageTerms(query)
+	raw, kept, err := lexicalDocs(query, terms, limit)
 	if err != nil {
-		return nil, err
+		return DocSearchResult{}, err
 	}
-	if len(fts) == 0 {
-		fts, err = searchDocsLike(query, limit*2)
-		if err != nil {
-			return nil, err
-		}
+	if len(kept) > limit {
+		kept = kept[:limit]
 	}
-	var vector []ScoredDoc
+	return DocSearchResult{Docs: kept, BelowFloor: countBelowFloor([][]ScoredDoc{raw}, [][]ScoredDoc{kept})}, nil
+}
+
+// lexicalDocs returns FTS candidates and those passing the lexical floor, falling back to
+// a whole-query LIKE match when no FTS hit survives the floor.
+func lexicalDocs(query string, terms [][]string, limit int) (raw, kept []ScoredDoc, err error) {
+	raw, err = searchDocsFTS(query, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	kept = applyLexicalFloor(terms, raw)
+	if len(kept) > 0 {
+		return raw, kept, nil
+	}
+	like, err := searchDocsLike(query, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(raw, like...), applyLexicalFloor(terms, like), nil
+}
+
+// SearchDocsHybrid merges FTS and vector recall for doc sections.
+func SearchDocsHybrid(query string, limit int, emb embedder.Interface) ([]ScoredDoc, error) {
+	r, err := SearchDocsHybridResult(query, limit, emb)
+	return r.Docs, err
+}
+
+// SearchDocsHybridResult is SearchDocsHybrid plus the relevance-floor count. Floors
+// apply per signal before fusion because the fused RRF score is rank-only.
+func SearchDocsHybridResult(query string, limit int, emb embedder.Interface) (DocSearchResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	terms := coverageTerms(query)
+	lexRaw, lex, err := lexicalDocs(query, terms, limit*2)
+	if err != nil {
+		return DocSearchResult{}, err
+	}
+	var vecRaw, vector []ScoredDoc
 	if emb != nil {
-		vector, _ = searchDocsVector(query, limit*2, emb)
+		vecRaw, _ = searchDocsVector(query, limit*2, emb)
+		vector = applyVectorFloor(terms, vecRaw)
 	}
+	below := countBelowFloor([][]ScoredDoc{lexRaw, vecRaw}, [][]ScoredDoc{lex, vector})
 	if len(vector) == 0 {
-		if len(fts) > limit {
-			fts = fts[:limit]
+		if len(lex) > limit {
+			lex = lex[:limit]
 		}
-		return fts, nil
+		return DocSearchResult{Docs: lex, BelowFloor: below}, nil
 	}
-	return fuseDocResults(fts, vector, limit), nil
+	return DocSearchResult{Docs: fuseDocResults(lex, vector, limit), BelowFloor: below}, nil
 }
 
 func searchDocsFTS(query string, limit int) ([]ScoredDoc, error) {
@@ -122,6 +165,9 @@ func searchDocsVector(query string, limit int, emb embedder.Interface) ([]Scored
 		}
 		out = append(out, ScoredDoc{Entry: entry, Score: s.Score})
 	}
+	// VectorCache.SearchDoc only orders results when it has more than limit candidates;
+	// RRF needs true rank order.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
 	return out, nil
 }
 
@@ -138,21 +184,20 @@ func entryFromVectorHit(s search.ScoredResult) (DocEntry, bool) {
 }
 
 func fuseDocResults(fts, vector []ScoredDoc, limit int) []ScoredDoc {
-	type fused struct {
-		entry DocEntry
-		score float64
-	}
-	seen := map[int]*fused{}
+	seen := map[int]*ScoredDoc{}
 	add := func(rank int, s ScoredDoc) {
 		if s.Entry.ID == 0 {
 			return
 		}
 		bump := 1.0 / float64(docRRFK+rank+1)
-		if e, ok := seen[s.Entry.ID]; ok {
-			e.score += bump
-		} else {
-			seen[s.Entry.ID] = &fused{entry: s.Entry, score: bump}
+		e, ok := seen[s.Entry.ID]
+		if !ok {
+			e = &ScoredDoc{Entry: s.Entry}
+			seen[s.Entry.ID] = e
 		}
+		e.Score += bump
+		e.TermCoverage = max(e.TermCoverage, s.TermCoverage)
+		e.Similarity = max(e.Similarity, s.Similarity)
 	}
 	for i, s := range fts {
 		add(i, s)
@@ -162,7 +207,7 @@ func fuseDocResults(fts, vector []ScoredDoc, limit int) []ScoredDoc {
 	}
 	out := make([]ScoredDoc, 0, len(seen))
 	for _, e := range seen {
-		out = append(out, ScoredDoc{Entry: e.entry, Score: e.score})
+		out = append(out, *e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
 	if len(out) > limit {

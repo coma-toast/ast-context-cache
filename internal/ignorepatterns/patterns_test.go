@@ -44,3 +44,21 @@ func TestEnsureDefaultsPersists(t *testing.T) {
 		t.Fatalf("expected persisted defaults, got %q", raw)
 	}
 }
+
+func TestMatchDirOnlyPrunesDirPatterns(t *testing.T) {
+	proj := filepath.Join("/tmp", "p")
+	globs := []string{"**/gen/**", "gen*", "**/foo", "*.pb.go"}
+	if !MatchDir(filepath.Join(proj, "a", "gen"), proj, globs) {
+		t.Error("**/gen/** should prune a/gen: every file below it matches")
+	}
+	// These match the directory name but not the files inside it, so pruning
+	// would change which files are skipped.
+	for _, d := range []string{"generated", "foo", "x.pb.go"} {
+		if MatchDir(filepath.Join(proj, d), proj, globs) {
+			t.Errorf("%s must not be pruned by a non-/** glob", d)
+		}
+	}
+	if !MatchDir(filepath.Join(proj, "web", "node_modules"), proj, DefaultGlobs) {
+		t.Error("default node_modules glob should prune")
+	}
+}

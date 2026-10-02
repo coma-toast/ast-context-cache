@@ -80,6 +80,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		IdleUnloadMinutes:        idleMinutes,
 		WatcherIgnoreGlobs:       watcherIgn,
 		ProjectExcludePaths:      projectExclude,
+		ProjectIndexExcludes:     db.GetProjectIndexExcludes(),
 		IndexLogFiles:            indexLog,
 		LogRetentionEnabled:      logRetentionEn,
 		LogRetentionRoots:        logRoots,

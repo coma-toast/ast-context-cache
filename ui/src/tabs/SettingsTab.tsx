@@ -62,6 +62,7 @@ export function SettingsTab({
   const [projectPage, setProjectPage] = useState(1)
   const [renaming, setRenaming] = useState<Record<string, string>>({})
   const [pendingPaths, setPendingPaths] = useState<Record<string, boolean>>({})
+  const [editingExcludes, setEditingExcludes] = useState<Record<string, string>>({})
 
   if (!data) return <Typography color="text.secondary">Loading settings…</Typography>
 
@@ -91,6 +92,24 @@ export function SettingsTab({
   }
 
   const projects = data.Projects || []
+  const projectExcludes = (path: string) => data.ProjectIndexExcludes?.[path] ?? []
+  const closeExcludes = (path: string) =>
+    setEditingExcludes((prev) => {
+      const { [path]: _drop, ...rest } = prev
+      return rest
+    })
+  const saveExcludes = (path: string) =>
+    withPending(path, async () => {
+      const patterns = (editingExcludes[path] ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
+      try {
+        await api.setProjectExcludes(path, patterns)
+        closeExcludes(path)
+        showToast(patterns.length ? 'Excludes saved; matching indexed files are being purged' : 'Excludes cleared', 'success')
+        onRefresh()
+      } catch (e) {
+        showToast(String(e), 'error')
+      }
+    })
   const linkable = (parent: Project) =>
     projects.filter((p) => p.Path !== parent.Path && p.LinkedParent === '' && !parent.LinkedChildren?.includes(p.Path))
 
@@ -271,6 +290,10 @@ export function SettingsTab({
             File watcher & indexing
           </Typography>
           <TextField label="Watcher ignore globs (JSON)" multiline minRows={2} fullWidth size="small" defaultValue={data.WatcherIgnoreGlobs} onBlur={(e) => save('watcher_ignore_globs', e.target.value)} sx={{ mb: 1 }} />
+          <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+            Applies to every project. Each repo's .gitignore (nested), .stignore and .astignore are also honored, and
+            per-project excludes live under Projects → Excludes. Excluded directories are pruned, not walked.
+          </Typography>
           <Button size="small" onClick={() => save('index_log_files', data.IndexLogFiles ? 'false' : 'true')}>
             Index .log files: {data.IndexLogFiles ? 'On' : 'Off'}
           </Button>
@@ -430,6 +453,17 @@ export function SettingsTab({
                     })}>
                       {p.Pinned ? 'Unpin' : 'Pin'}
                     </Button>
+                    <Button
+                      size="small"
+                      disabled={!!pendingPaths[p.Path]}
+                      onClick={() =>
+                        p.Path in editingExcludes
+                          ? closeExcludes(p.Path)
+                          : setEditingExcludes({ ...editingExcludes, [p.Path]: projectExcludes(p.Path).join('\n') })
+                      }
+                    >
+                      Excludes{projectExcludes(p.Path).length > 0 ? ` (${projectExcludes(p.Path).length})` : ''}
+                    </Button>
                     <Button size="small" color="warning" disabled={!!pendingPaths[p.Path]} onClick={() => {
                       if (!confirm(`Reset ${p.Label}? This wipes and re-indexes all its data.`)) return
                       void withPending(p.Path, async () => {
@@ -462,6 +496,29 @@ export function SettingsTab({
                     />
                   </Stack>
                 </Stack>
+                {p.Path in editingExcludes && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <TextField
+                      label="Exclude patterns (gitignore syntax, one per line)"
+                      multiline
+                      minRows={2}
+                      fullWidth
+                      size="small"
+                      value={editingExcludes[p.Path]}
+                      placeholder={'llama-cpp-*/\n/restore/\n*.generated.go'}
+                      helperText="Relative to the project root. The repo's .gitignore, .stignore and .astignore are honored automatically. Already-indexed files that match are purged on save."
+                      onChange={(e) => setEditingExcludes({ ...editingExcludes, [p.Path]: e.target.value })}
+                    />
+                    <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                      <Button size="small" variant="contained" disabled={!!pendingPaths[p.Path]} onClick={() => void saveExcludes(p.Path)}>
+                        Save excludes
+                      </Button>
+                      <Button size="small" onClick={() => closeExcludes(p.Path)}>
+                        Cancel
+                      </Button>
+                    </Stack>
+                  </Box>
+                )}
                 {!p.LinkedParent && linkable(p).length > 0 && (
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1 }}>
                     <FormControl size="small" sx={{ minWidth: 200 }}>

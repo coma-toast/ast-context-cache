@@ -228,12 +228,19 @@ func applyWalBackpressure() {
 	if paused {
 		return
 	}
-	ceiling := db.UpdateWalBackpressure(max(target, AuxWorkerTarget()))
+	ceiling := backpressureCeiling(target)
 	applyPrimaryCeiling(target, ceiling)
 	applyAuxCeiling(ceiling)
 	if ceiling == 0 {
 		kickBackpressureCheckpoint()
 	}
+}
+
+// backpressureCeiling is the embed-worker ceiling from WAL size, tightened by low free
+// space on the data volume (critical -> 0, which also kicks a WAL TRUNCATE to give space
+// back). -1 means no ceiling.
+func backpressureCeiling(target int) int {
+	return db.DiskSpaceCeiling(db.UpdateWalBackpressure(max(target, AuxWorkerTarget())))
 }
 
 func applyPrimaryCeiling(target, ceiling int) {

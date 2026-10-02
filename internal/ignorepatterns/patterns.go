@@ -134,6 +134,20 @@ func Match(absPath, projectRoot string, patterns []string) bool {
 	return false
 }
 
+// MatchDir reports whether a directory can be pruned from a walk: only patterns
+// ending in "/**" are considered, because for those a matching directory implies
+// every file below it matches Match too. Other patterns (e.g. "**/foo", "gen*")
+// can match a directory name without matching its files, so they stay per-file.
+func MatchDir(absDir, projectRoot string, patterns []string) bool {
+	var dirGlobs []string
+	for _, p := range patterns {
+		if strings.HasSuffix(filepath.ToSlash(p), "/**") {
+			dirGlobs = append(dirGlobs, p)
+		}
+	}
+	return Match(absDir, projectRoot, dirGlobs)
+}
+
 // MatchAnyPath reports whether path matches any glob or literal pattern against the full slash path.
 func MatchAnyPath(path string, patterns []string) bool {
 	path = filepath.ToSlash(filepath.Clean(path))

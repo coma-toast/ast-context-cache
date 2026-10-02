@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -145,12 +144,13 @@ func extractSymbol(node *sitter.Node, content []byte, lang string) *SymbolDef {
 		switch nodeType {
 		case "function_declaration":
 			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "function"}
-		case "class_declaration":
-			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "class"}
+		// TS names classes, interfaces and type aliases with a type_identifier, not an identifier.
+		case "class_declaration", "abstract_class_declaration":
+			return &SymbolDef{nodeName(node, content), "class"}
 		case "interface_declaration":
-			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "interface"}
+			return &SymbolDef{nodeName(node, content), "interface"}
 		case "type_alias_declaration":
-			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "type"}
+			return &SymbolDef{nodeName(node, content), "type"}
 		case "enum_declaration":
 			return &SymbolDef{getFirstChildByType(node, content, "identifier"), "enum"}
 		case "lexical_declaration", "variable_declaration":
@@ -242,43 +242,14 @@ func extractHCLBlock(node *sitter.Node, content []byte) *SymbolDef {
 	return &SymbolDef{name, blockType}
 }
 
+// extractImports returns the modules a single Go/HCL top-level node or bash
+// command imports. Python and JS/TS imports are collected by collectImports
+// (imports.go), which also walks function bodies.
 func extractImports(node *sitter.Node, content []byte, lang string) []string {
 	var imports []string
 	nodeType := node.Type()
 
 	switch lang {
-	case "python":
-		switch nodeType {
-		case "import_statement":
-			for i := 0; i < int(node.NamedChildCount()); i++ {
-				child := node.NamedChild(i)
-				if child.Type() == "dotted_name" || child.Type() == "aliased_import" {
-					imports = append(imports, child.Content(content))
-				}
-			}
-		case "import_from_statement":
-			for i := 0; i < int(node.NamedChildCount()); i++ {
-				child := node.NamedChild(i)
-				if child.Type() == "dotted_name" || child.Type() == "relative_import" {
-					imports = append(imports, child.Content(content))
-					break
-				}
-			}
-		}
-
-	case "javascript", "typescript", "tsx":
-		if nodeType == "import_statement" {
-			for i := 0; i < int(node.NamedChildCount()); i++ {
-				child := node.NamedChild(i)
-				if child.Type() == "string" || child.Type() == "string_fragment" {
-					src := strings.Trim(child.Content(content), "'\"")
-					if src != "" {
-						imports = append(imports, src)
-					}
-				}
-			}
-		}
-
 	case "go":
 		if nodeType == "import_declaration" {
 			for i := 0; i < int(node.NamedChildCount()); i++ {
@@ -577,6 +548,11 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	if projectlinks.IsUnderLinkedChild(filePath, projectPath) {
 		return 0, 0, 0, nil
 	}
+	if target, alias := SymlinkAlias(filePath, projectPath); alias {
+		// Drop rows from before symlink dedup so the target's symbols appear once.
+		_ = PurgeFile(filePath, projectPath)
+		return 0, 0, 0, fmt.Errorf("%w: %s (target %q)", ErrSymlinkAlias, filePath, target)
+	}
 	lang := GetLanguage(filePath)
 	if lang == "" {
 		return 0, 0, 0, fmt.Errorf("unsupported: %s", filePath)
@@ -633,36 +609,33 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 			return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
 		}
 
+		if err := insertImportEdges(tx, collectImports(root, content, lang), filePath, projectPath); err != nil {
+			return err
+		}
 		walkNodes := collectTopLevelNodes(root, lang)
 		for _, node := range walkNodes {
-			for _, imp := range extractImports(node, content, lang) {
-				if _, err := tx.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
-					filePath, imp, projectPath); err != nil {
-					return err
+			for _, sym := range declaredSymbols(node, content, lang) {
+				start := sym.Node.StartPoint()
+				end := sym.Node.EndPoint()
+				code := ""
+				fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Qualified())
+				skeleton := ""
+				if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
+					src := nodeSource(lines, start, end)
+					code = strings.TrimSpace(strings.SplitN(src, "\n", 2)[0])
+					// A member's source is already inside its class's, so only
+					// top-level symbols add to the file's full-source baseline.
+					if sym.Node.Equal(node) {
+						fullTokens += db.EstimateTokens(src)
+					}
+					skeleton = ExtractSkeleton(src, lang, sym.Kind)
+					skeletonTokens += db.EstimateTokens(skeleton)
 				}
-			}
-			sym := extractSymbol(node, content, lang)
-			if sym == nil || sym.Name == "" {
-				continue
-			}
-			start := node.StartPoint()
-			end := node.EndPoint()
-			code := ""
-			if int(start.Row) < len(lines) {
-				code = strings.TrimSpace(lines[start.Row])
-			}
-			fqn := fmt.Sprintf("%s.%s", filepath.Base(filePath), sym.Name)
-			skeleton := ""
-			if int(start.Row) < len(lines) && int(end.Row) < len(lines) {
-				src := strings.Join(lines[start.Row:end.Row+1], "\n")
-				fullTokens += db.EstimateTokens(src)
-				skeleton = ExtractSkeleton(src, lang, sym.Kind)
-				skeletonTokens += db.EstimateTokens(skeleton)
-			}
-			embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
-			if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-				sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
-				count++
+				embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
+				if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
+					count++
+				}
 			}
 		}
 		return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
@@ -676,9 +649,10 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	return count, fullTokens, skeletonTokens, nil
 }
 
-// ParseSymbols returns the top-level symbols tree-sitter finds in content without
-// touching the index, so two revisions of a file can be compared. Languages with
-// their own indexing path (yaml, fish, plaintext) yield no symbols here.
+// ParseSymbols returns the symbols tree-sitter finds in content (top-level
+// declarations plus class methods) without touching the index, so two revisions
+// of a file can be compared. Languages with their own indexing path (yaml, fish,
+// plaintext) yield no symbols here.
 func ParseSymbols(content []byte, lang string) []SymbolDef {
 	sitterLang := getSitterLanguage(lang)
 	if sitterLang == nil || lang == "yaml" || lang == "markdown" {
@@ -693,8 +667,8 @@ func ParseSymbols(content []byte, lang string) []SymbolDef {
 	defer tree.Close()
 	var out []SymbolDef
 	for _, node := range collectTopLevelNodes(tree.RootNode(), lang) {
-		if sym := extractSymbol(node, content, lang); sym != nil && sym.Name != "" {
-			out = append(out, *sym)
+		for _, sym := range declaredSymbols(node, content, lang) {
+			out = append(out, sym.SymbolDef)
 		}
 	}
 	return out
@@ -722,6 +696,12 @@ func collectTopLevelNodes(root *sitter.Node, lang string) []*sitter.Node {
 }
 
 func IndexDirectory(dirPath, projectPath string) (int, error) {
+	return IndexDirectoryProgress(dirPath, projectPath, nil)
+}
+
+// IndexDirectoryProgress is IndexDirectory with an optional per-file callback (symbols
+// indexed or reused for that file), used by async index_files jobs to report progress.
+func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int)) (int, error) {
 	dirPath = filepath.Clean(dirPath)
 	projectPath = projectlinks.NormalizePath(projectPath)
 	if dirPath == projectPath {
@@ -732,6 +712,7 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 	reuse := FindReuseSource(projectPath)
 	reused := 0
 	count := 0
+	filter := NewPathFilter(projectPath)
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -743,18 +724,28 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 			if projectlinks.ShouldSkipDirDuringWalk(path, projectPath) {
 				return filepath.SkipDir
 			}
+			// The walk root may be a subdirectory, so check its ancestors too.
+			if (path == dirPath && filter.IgnoredByFiles(path, true)) || filter.SkipDir(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !IsCodeFile(path) {
 			return nil
 		}
-		if ignorepatterns.Match(path, projectPath, ignorepatterns.List()) {
+		if SkipSymlinkAlias(path, projectPath, info) {
+			return nil
+		}
+		if filter.SkipFile(path) {
 			return nil
 		}
 		if reuse != nil {
 			if n, ok := ReuseFile(path, projectPath, reuse); ok {
 				count += n
 				reused++
+				if onFile != nil {
+					onFile(n)
+				}
 				return nil
 			}
 		}
@@ -763,11 +754,17 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 			fmt.Printf("Error: %v\n", err)
 		}
 		count += n
+		if onFile != nil {
+			onFile(n)
+		}
 		return nil
 	})
 	if reused > 0 {
 		log.Printf("index: reused %d unchanged files from %s for %s", reused, reuse.ProjectPath, projectPath)
 	}
+	// Files deleted while no watcher was running (e.g. server down) are never seen
+	// by the walk above; drop their rows so search stops returning them.
+	PruneMissingFiles(dirPath, projectPath)
 	return count, err
 }
 

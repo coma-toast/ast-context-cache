@@ -132,7 +132,7 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 	}
 	owner := projectlinks.OwningProject(file, projectPath)
 	rows, err := indexDB.Query(
-		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
+		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,''), COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
 		file, owner)
 	if err != nil {
 		data, _ := json.Marshal(map[string]string{"error": err.Error()})
@@ -150,9 +150,9 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 	maxScore := 1.0
 
 	for rows.Next() {
-		var name, kind, skeleton, code string
+		var name, kind, skeleton, code, fqn string
 		var startLine, endLine int
-		rows.Scan(&name, &kind, &startLine, &endLine, &skeleton, &code)
+		rows.Scan(&name, &kind, &startLine, &endLine, &skeleton, &code, &fqn)
 		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
 			skipped++
 			dedupTokens += context.WouldSendTokens(file, name, projectPath, mode, startLine, endLine, maxScore, maxScore, fullCount, fileCache)
@@ -163,6 +163,9 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 			"kind":       kind,
 			"start_line": startLine,
 			"end_line":   endLine,
+		}
+		if q := db.QualifiedName(fqn, file, name); q != name {
+			sym["qualified_name"] = q
 		}
 		effectiveMode := context.EffectiveMode(mode, maxScore, maxScore, fullCount)
 		context.ApplyMode(sym, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)

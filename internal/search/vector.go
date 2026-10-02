@@ -183,22 +183,47 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 		return nil
 	}
 	vc.ensureLoaded()
+	var scope projectlinks.ScopeSet
+	if projectPath != "" {
+		scope = projectlinks.ResolveScopeSet(projectPath)
+	}
+	results := vc.topMatches(query, projectPath, scope, docType, limit, filters)
+	// symbolRowFromEntry hits index.db per result; run it after RUnlock so pool waits
+	// can't pin vc.mu (a queued Upsert writer would then block every RLock caller).
+	out := make([]ScoredResult, len(results))
+	for i, r := range results {
+		startLine, endLine, fqn := symbolRowFromEntry(r.entry)
+		data := symbolResult(r.entry.Name, r.entry.Kind, r.entry.SourceFile, fqn, startLine, endLine)
+		data["similarity"] = r.sim
+		data["content_hash"] = r.entry.ContentHash
+		out[i] = ScoredResult{Data: data, Score: r.sim}
+	}
+	return out
+}
 
+type scoredEntry struct {
+	entry VectorEntry
+	sim   float64
+}
+
+// topMatches scores entries under RLock and returns the top-limit copies. It must not touch
+// the database: scope is resolved by the caller before the lock is taken. Candidates are
+// tracked by index so a full-cache scan doesn't copy every VectorEntry.
+func (vc *VectorCache) topMatches(query []float32, projectPath string, scope projectlinks.ScopeSet, docType string, limit int, filters *SearchFilters) []scoredEntry {
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
-
-	type scored struct {
-		entry VectorEntry
-		sim   float64
+	type scoredIdx struct {
+		idx int
+		sim float64
 	}
-	var results []scored
-
-	for _, e := range vc.entries {
+	var results []scoredIdx
+	for i := range vc.entries {
+		e := &vc.entries[i]
 		if e.DocType == "doc" {
 			if docType != "doc" {
 				continue
 			}
-		} else if projectPath != "" && !projectlinks.ScopeContains(projectPath, e.ProjectPath) {
+		} else if projectPath != "" && !scope.Contains(e.ProjectPath) {
 			continue
 		}
 		if docType != "" && e.DocType != docType {
@@ -209,10 +234,8 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 				continue
 			}
 		}
-		sim := cosineSimilarity(query, e.Vector)
-		results = append(results, scored{entry: e, sim: sim})
+		results = append(results, scoredIdx{idx: i, sim: cosineSimilarity(query, e.Vector)})
 	}
-
 	// Partial sort: find top-limit by score
 	if len(results) > limit {
 		for i := 0; i < limit; i++ {
@@ -226,40 +249,29 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 		}
 		results = results[:limit]
 	}
-
-	out := make([]ScoredResult, len(results))
+	out := make([]scoredEntry, len(results))
 	for i, r := range results {
-		startLine, endLine := symbolLinesFromEntry(r.entry)
-		out[i] = ScoredResult{
-			Data: map[string]interface{}{
-				"name":         r.entry.Name,
-				"kind":         r.entry.Kind,
-				"file":         r.entry.SourceFile,
-				"start_line":   startLine,
-				"end_line":     endLine,
-				"similarity":   r.sim,
-				"content_hash": r.entry.ContentHash,
-			},
-			Score: r.sim,
-		}
+		out[i] = scoredEntry{entry: vc.entries[r.idx], sim: r.sim}
 	}
 	return out
 }
 
-func symbolLinesFromEntry(e VectorEntry) (start, end int) {
+// symbolRowFromEntry returns the lines and fqn of the symbol a vector was
+// embedded from.
+func symbolRowFromEntry(e VectorEntry) (start, end int, fqn string) {
 	conn, err := db.IndexReader()
 	if err != nil {
-		return start, end
+		return start, end, fqn
 	}
 	if e.SymbolID > 0 {
-		conn.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end)
+		conn.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end, &fqn)
 	}
 	if start == 0 {
 		conn.QueryRow(
-			"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
-			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end)
+			"SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
+			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end, &fqn)
 	}
-	return start, end
+	return start, end, fqn
 }
 
 func (vc *VectorCache) Upsert(entries []VectorEntry) error {
@@ -634,6 +646,10 @@ func (vc *VectorCache) DeleteBySourceFiles(docType string, sourceFiles []string)
 }
 
 func (vc *VectorCache) Count(projectPath string) int {
+	var scope projectlinks.ScopeSet
+	if projectPath != "" {
+		scope = projectlinks.ResolveScopeSet(projectPath)
+	}
 	vc.mu.RLock()
 	if vc.loaded {
 		defer vc.mu.RUnlock()
@@ -642,7 +658,7 @@ func (vc *VectorCache) Count(projectPath string) int {
 		}
 		count := 0
 		for _, e := range vc.entries {
-			if projectlinks.ScopeContains(projectPath, e.ProjectPath) {
+			if scope.Contains(e.ProjectPath) {
 				count++
 			}
 		}

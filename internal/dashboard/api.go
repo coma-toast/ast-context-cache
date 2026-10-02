@@ -71,6 +71,7 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/project-label", handleProjectLabel)
+	mux.HandleFunc("/api/project-excludes", handleProjectExcludes)
 	mux.HandleFunc("/api/project-links", handleProjectLinks)
 	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
 	mux.HandleFunc("/api/embed-aux-workers", handleEmbedAuxWorkers)
@@ -491,9 +492,9 @@ func handleTopImports(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
+		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? AND kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20", pid)
 	} else {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
+		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -588,6 +589,48 @@ func handleProjectLabel(w http.ResponseWriter, r *http.Request) {
 		"project_path": projectPath,
 		"label":        label,
 		"custom":       strings.TrimSpace(req.Label) != "",
+	})
+}
+
+// handleProjectExcludes saves a project's per-project exclude patterns (gitignore
+// syntax, relative to the project root). Already-indexed files the new list
+// excludes are purged in the background; the watcher and future walks skip them.
+func handleProjectExcludes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	var req struct {
+		ProjectPath string   `json:"project_path"`
+		Patterns    []string `json:"patterns"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	projectPath := watcher.NormalizeProjectPath(req.ProjectPath)
+	if projectPath == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+		return
+	}
+	if err := db.SetProjectIndexExcludes(projectPath, req.Patterns); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	indexer.InvalidatePathFilter(projectPath)
+	go func() {
+		if n := watcher.PurgeExcluded(projectPath); n > 0 {
+			invalidateProjectsCache()
+			realtime.Notify(realtime.IndexHealth)
+		}
+	}()
+	realtime.Notify(realtime.SettingsChanged)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":       "ok",
+		"project_path": projectPath,
+		"patterns":     db.ProjectIndexExcludes(projectPath),
 	})
 }
 
@@ -823,6 +866,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if key == "watcher_ignore_globs" {
 			ignorepatterns.InvalidateCache()
+			indexer.InvalidateAllPathFilters()
 		}
 		if key == "project_exclude_paths" {
 			projectmeta.InvalidateExcludeCache()

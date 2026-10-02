@@ -34,10 +34,7 @@ func ExtractSkeleton(source, lang, kind string) string {
 func extractGoSkeleton(lines []string, kind string) string {
 	switch kind {
 	case "function", "method":
-		sig := lines[0]
-		if strings.Contains(sig, "{") {
-			sig = strings.TrimSpace(strings.SplitN(sig, "{", 2)[0])
-		}
+		sig, _ := scanSignature(lines, goSignature)
 		return sig
 	case "struct":
 		var result []string
@@ -88,7 +85,10 @@ func extractGoSkeleton(lines []string, kind string) string {
 
 func extractTSSkeleton(lines []string, kind string) string {
 	switch kind {
-	case "function", "variable":
+	case "function", "method":
+		sig, _ := scanSignature(lines, tsSignature)
+		return sig
+	case "variable":
 		sig := lines[0]
 		if strings.Contains(sig, "{") {
 			sig = strings.TrimSpace(strings.SplitN(sig, "{", 2)[0])
@@ -98,33 +98,31 @@ func extractTSSkeleton(lines []string, kind string) string {
 		}
 		return sig
 	case "class":
-		var result []string
-		result = append(result, lines[0])
-		depth := 0
-		for _, line := range lines {
+		result := []string{lines[0]}
+		depth, skipTo, opened := 0, 0, false
+		for i, line := range lines {
 			trimmed := strings.TrimSpace(line)
-			if strings.Contains(trimmed, "{") {
-				depth++
-			}
-			if depth == 1 && trimmed != "" {
-				isMethod := strings.Contains(trimmed, "(") && !strings.HasPrefix(trimmed, "//")
-				isProperty := !strings.Contains(trimmed, "(") && (strings.Contains(trimmed, ":") || strings.Contains(trimmed, "="))
-				if isMethod {
-					methodSig := trimmed
-					if strings.Contains(methodSig, "{") {
-						methodSig = strings.TrimSpace(strings.SplitN(methodSig, "{", 2)[0])
+			if depth == 1 && i >= skipTo && trimmed != "" && !strings.HasPrefix(trimmed, "//") && !strings.HasPrefix(trimmed, "}") {
+				if isTSMethodLine(trimmed) {
+					// Keep a wrapped parameter list whole, re-indented under the class.
+					sig, end := scanSignature(lines[i:], tsSignature)
+					indent := len(line) - len(strings.TrimLeft(line, " \t"))
+					for _, l := range strings.Split(sig, "\n") {
+						result = append(result, "  "+trimIndent(l, indent))
 					}
-					result = append(result, "  "+methodSig)
-				} else if isProperty && !strings.Contains(trimmed, "{") && !strings.Contains(trimmed, "}") {
+					skipTo = i + end + 1
+				} else if (strings.Contains(trimmed, ":") || strings.Contains(trimmed, "=")) && !strings.ContainsAny(trimmed, "{}") {
 					result = append(result, "  "+trimmed)
 				}
 			}
-			if strings.Contains(trimmed, "}") {
-				depth--
-				if depth == 0 {
-					result = append(result, "}")
-					break
+			opened = opened || strings.Contains(line, "{")
+			depth += strings.Count(line, "{") - strings.Count(line, "}")
+			if opened && depth <= 0 {
+				if i == 0 {
+					return lines[0] // whole class on one line
 				}
+				result = append(result, "}")
+				break
 			}
 		}
 		return strings.Join(result, "\n")
@@ -150,6 +148,17 @@ func extractTSSkeleton(lines []string, kind string) string {
 	default:
 		return lines[0]
 	}
+}
+
+// isTSMethodLine reports whether a class-body line starts a method: its "(" comes
+// before any ":" or "=" (which would make it a typed or initialized property).
+func isTSMethodLine(trimmed string) bool {
+	paren := strings.Index(trimmed, "(")
+	if paren < 0 {
+		return false
+	}
+	other := strings.IndexAny(trimmed, ":=")
+	return other < 0 || paren < other
 }
 
 func extractHCLSkeleton(lines []string, kind string) string {
@@ -300,69 +309,151 @@ func extractYAMLKeySkeleton(lines []string) string {
 
 func extractPythonSkeleton(lines []string, kind string) string {
 	switch kind {
-	case "function":
-		var result []string
-		result = append(result, lines[0])
-		// Include docstring if present
-		if len(lines) > 1 {
-			nextLine := strings.TrimSpace(lines[1])
-			if strings.HasPrefix(nextLine, `"""`) || strings.HasPrefix(nextLine, `'''`) {
-				quote := nextLine[:3]
-				if strings.Count(nextLine, quote) >= 2 {
-					result = append(result, "    "+nextLine)
-				} else {
-					for i := 1; i < len(lines); i++ {
-						result = append(result, "    "+strings.TrimSpace(lines[i]))
-						if i > 1 && strings.Contains(lines[i], quote) {
-							break
-						}
-					}
-				}
-			}
-		}
-		return strings.Join(result, "\n")
+	case "function", "method":
+		sig, last := scanSignature(lines, pythonSignature)
+		return strings.Join(append([]string{sig}, pythonDocstring(lines, last+1)...), "\n")
 	case "class":
-		var result []string
-		result = append(result, lines[0])
-		baseIndent := ""
-		if len(lines) > 1 {
-			for _, ch := range lines[1] {
-				if ch == ' ' || ch == '\t' {
-					baseIndent += string(ch)
-				} else {
-					break
-				}
-			}
-		}
-		for i := 1; i < len(lines); i++ {
+		header, last := scanSignature(lines, pythonSignature)
+		result := []string{header}
+		baseIndent, haveBase := "", false
+		for i := last + 1; i < len(lines); i++ {
 			trimmed := strings.TrimSpace(lines[i])
 			if trimmed == "" {
 				continue
 			}
-			indent := ""
-			for _, ch := range lines[i] {
-				if ch == ' ' || ch == '\t' {
-					indent += string(ch)
-				} else {
-					break
-				}
+			indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
+			if !haveBase {
+				baseIndent, haveBase = indent, true
 			}
-			if indent == baseIndent {
-				if strings.HasPrefix(trimmed, "def ") {
-					sig := trimmed
-					if strings.Contains(sig, ":") {
-						sig = strings.SplitN(sig, ":", 2)[0] + ":"
-					}
-					result = append(result, baseIndent+sig)
-				} else if strings.HasPrefix(trimmed, "class ") {
-					result = append(result, baseIndent+trimmed)
-				} else if !strings.HasPrefix(trimmed, "#") && (strings.Contains(trimmed, "=") || strings.Contains(trimmed, ":")) {
-					result = append(result, baseIndent+trimmed)
-				}
+			if indent != baseIndent {
+				continue
+			}
+			switch {
+			case strings.HasPrefix(trimmed, "def "), strings.HasPrefix(trimmed, "async def "), strings.HasPrefix(trimmed, "class "):
+				// Keep a wrapped parameter or base-class list whole, and skip its
+				// continuation lines (a closing "):" sits at the member indent).
+				sig, end := scanSignature(lines[i:], pythonSignature)
+				result = append(result, sig)
+				i += end
+			case !strings.HasPrefix(trimmed, "#") && (strings.Contains(trimmed, "=") || strings.Contains(trimmed, ":")):
+				result = append(result, baseIndent+trimmed)
 			}
 		}
 		return strings.Join(result, "\n")
 	default:
 		return lines[0]
 	}
+}
+
+// pythonDocstring returns the docstring starting at lines[from], if any, indented
+// under its def.
+func pythonDocstring(lines []string, from int) []string {
+	if from >= len(lines) {
+		return nil
+	}
+	first := strings.TrimSpace(lines[from])
+	if !strings.HasPrefix(first, `"""`) && !strings.HasPrefix(first, `'''`) {
+		return nil
+	}
+	quote := first[:3]
+	if strings.Count(first, quote) >= 2 {
+		return []string{"    " + first}
+	}
+	var out []string
+	for i := from; i < len(lines); i++ {
+		out = append(out, "    "+strings.TrimSpace(lines[i]))
+		if i > from && strings.Contains(lines[i], quote) {
+			break
+		}
+	}
+	return out
+}
+
+// signatureSyntax describes where a language's declaration header ends.
+type signatureSyntax struct {
+	// terminators end the header when met outside brackets and strings.
+	terminators string
+	// keepTerminator keeps the terminator in the header (Python's ":").
+	keepTerminator bool
+	// lineComment starts a comment that runs to end of line.
+	lineComment string
+	// typeBraces names keywords whose following "{" opens a type literal
+	// (Go's interface{} / struct{...}) rather than the body.
+	typeBraces []string
+	// angleBrackets counts <...> as brackets (TS/JS generics).
+	angleBrackets bool
+}
+
+var (
+	pythonSignature = signatureSyntax{terminators: ":", keepTerminator: true, lineComment: "#"}
+	goSignature     = signatureSyntax{terminators: "{", lineComment: "//", typeBraces: []string{"interface", "struct"}}
+	tsSignature     = signatureSyntax{terminators: "{;", lineComment: "//", angleBrackets: true}
+)
+
+// maxSignatureLines bounds how far a header may wrap before we give up on it.
+const maxSignatureLines = 40
+
+// scanSignature returns a declaration's header — everything before its body —
+// keeping a parameter list that wraps across lines whole instead of cutting it
+// at the first line. It also returns the index of the header's last line. A
+// header with no terminator (an abstract or overload signature) is returned
+// whole when short enough; otherwise the first line is used.
+func scanSignature(lines []string, syn signatureSyntax) (string, int) {
+	depth := 0
+	var quote byte
+	for li := 0; li < len(lines) && li < maxSignatureLines; li++ {
+		line := lines[li]
+		for i := 0; i < len(line); i++ {
+			c := line[i]
+			if quote != 0 {
+				if c == '\\' {
+					i++
+				} else if c == quote {
+					quote = 0
+				}
+				continue
+			}
+			if syn.lineComment != "" && strings.HasPrefix(line[i:], syn.lineComment) {
+				break
+			}
+			switch {
+			case c == '"' || c == '\'' || c == '`':
+				quote = c
+			case c == '(' || c == '[' || (syn.angleBrackets && c == '<'):
+				depth++
+			case c == ')' || c == ']' || (syn.angleBrackets && c == '>' && (i == 0 || line[i-1] != '=')):
+				if depth > 0 {
+					depth--
+				}
+			case c == '{' && (depth > 0 || endsWithKeyword(line[:i], syn.typeBraces)):
+				depth++
+			case c == '}' && depth > 0:
+				depth--
+			case depth == 0 && strings.IndexByte(syn.terminators, c) >= 0:
+				end := i
+				if syn.keepTerminator {
+					end++
+				}
+				header := append(append([]string{}, lines[:li]...), strings.TrimRight(line[:end], " \t"))
+				return strings.Join(header, "\n"), li
+			}
+		}
+		if quote == '"' || quote == '\'' {
+			quote = 0 // unterminated short string: don't let it swallow later lines
+		}
+	}
+	if len(lines) <= maxSignatureLines {
+		return strings.TrimRight(strings.Join(lines, "\n"), " \t\n"), len(lines) - 1
+	}
+	return lines[0], 0
+}
+
+func endsWithKeyword(s string, keywords []string) bool {
+	s = strings.TrimRight(s, " \t")
+	for _, k := range keywords {
+		if strings.HasSuffix(s, k) {
+			return true
+		}
+	}
+	return false
 }

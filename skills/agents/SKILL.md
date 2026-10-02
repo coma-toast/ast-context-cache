@@ -112,14 +112,14 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 ## Quick Workflow
 
 1. `index_status` — check if project is indexed
-2. `index_files` — index if needed (starts file watcher)
+2. `index_files` — index if needed (starts file watcher). Large directories return a `job_id` with `status: running`; poll `index_status` (`index_jobs`, `indexing`) until `completed`
 3. `get_project_map depth=2` — orient yourself (~200 tokens)
 4. `get_context_capsule mode=auto` + `session_id` — search code (top hits full, rest skeleton)
 5. `get_file_context mode=skeleton` — all symbols in a file (default skeleton, not full)
 6. `get_impact_graph` — blast radius before modifying a symbol
 7. `cache_summary` — save what you learned for future queries
 8. `retrieve` — RAG-style retrieval (code + docs in one call)
-9. `search_docs` — search cached library/framework documentation
+9. `search_docs` — search cached library/framework documentation; `no_match: true` means nothing relevant is cached → `fetch_doc`
 10. `store_context` — offload bulky thread text before host compaction (extended); keep `ctx_*` stubs
 11. `fetch_context` / `search_context` — recover offloaded notes after compaction (core)
 
