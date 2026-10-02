@@ -51,9 +51,14 @@ func ProjectData(projectPath string) error {
 	// link from ever being created at this path again.
 	projectlinks.RemoveLinksForPath(projectPath)
 
-	if err := deleteIndexData(projectPath); err != nil {
+	refs, err := collectContextRefs(projectPath)
+	if err != nil {
+		return fmt.Errorf("list notes and memory: %w", err)
+	}
+	if err := deleteIndexData(projectPath, refs); err != nil {
 		return fmt.Errorf("purge index data: %w", err)
 	}
+	refs.dropCachedVectors()
 
 	if db.DB != nil {
 		db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
@@ -62,7 +67,7 @@ func ProjectData(projectPath string) error {
 		// session_id, not by project), so scope by the file_path prefix instead.
 		db.DB.Exec("DELETE FROM sessions WHERE file_path LIKE ?", projectPath+"/%")
 	}
-	purgeContextData(projectPath)
+	purgeContextData(projectPath, refs)
 
 	cache.GlobalCache.ClearProject(projectPath)
 	search.Cache.DeleteByProject(projectPath)
@@ -79,7 +84,13 @@ var afterSymbolDelete func() error
 // fully updated or untouched: a failed statement rolls everything back, and a WAL
 // quiesce can't land part-way through, because it flushes the index writer (and
 // so waits for this transaction) before closing the pool.
-func deleteIndexData(projectPath string) error {
+//
+// The project's note and memory vectors go in the same transaction, because they
+// are keyed by ref rather than project_path and the notes themselves are deleted
+// from context.db afterwards, when index writes may already be quiesced. If the
+// transaction fails, ProjectData stops before touching context.db and the
+// project's symbols are still indexed, so the deleted-project sweep retries it.
+func deleteIndexData(projectPath string, refs contextRefs) error {
 	return db.IndexWrite(func(tx *sql.Tx) error {
 		// Clear the trigger-free tables first. That takes the write lock before the
 		// symbol counts below are read, so nothing can change them before the delete.
@@ -87,6 +98,9 @@ func deleteIndexData(projectPath string) error {
 			if _, err := tx.Exec("DELETE FROM "+table+" WHERE project_path = ?", projectPath); err != nil {
 				return fmt.Errorf("delete %s: %w", table, err)
 			}
+		}
+		if err := refs.deleteVectors(tx); err != nil {
+			return err
 		}
 		var projectSymbols, totalSymbols int
 		if err := tx.QueryRow(`SELECT (SELECT count(*) FROM symbols WHERE project_path = ?), (SELECT count(*) FROM symbols)`,
@@ -113,49 +127,93 @@ func deleteIndexData(projectPath string) error {
 	})
 }
 
+// contextRefs are the refs of a project's stored notes and structured memory.
+// Their vectors live in index.db under doc_type note/memory with source_file
+// "note:<ref>" / "mem:<ref>", and project_path set to the session ID.
+type contextRefs struct {
+	notes, memories []string
+}
+
+func collectContextRefs(projectPath string) (contextRefs, error) {
+	var refs contextRefs
+	if db.ContextDB == nil {
+		return refs, nil
+	}
+	var err error
+	if refs.notes, err = queryRefs(`SELECT ref FROM context_notes WHERE project_path = ? AND ref != ''`, projectPath); err != nil {
+		return refs, fmt.Errorf("context notes: %w", err)
+	}
+	if refs.memories, err = queryRefs(`SELECT ref FROM structured_memory WHERE project_path = ? AND ref != ''`, projectPath); err != nil {
+		return refs, fmt.Errorf("structured memory: %w", err)
+	}
+	return refs, nil
+}
+
+func (r contextRefs) noteKeys() []string   { return prefixed("note:", r.notes) }
+func (r contextRefs) memoryKeys() []string { return prefixed("mem:", r.memories) }
+
+func (r contextRefs) deleteVectors(tx *sql.Tx) error {
+	del := func(docType string, keys []string) error {
+		for _, key := range keys {
+			if _, err := tx.Exec(`DELETE FROM vectors WHERE doc_type = ? AND source_file = ?`, docType, key); err != nil {
+				return fmt.Errorf("delete %s vector %s: %w", docType, key, err)
+			}
+		}
+		return nil
+	}
+	if err := del("note", r.noteKeys()); err != nil {
+		return err
+	}
+	return del("memory", r.memoryKeys())
+}
+
+func (r contextRefs) dropCachedVectors() {
+	search.Cache.DeleteBySourceFiles("note", r.noteKeys())
+	search.Cache.DeleteBySourceFiles("memory", r.memoryKeys())
+}
+
 // purgeContextData removes stored notes and structured memory for the project.
-// Both carry standalone FTS mirrors and vectors keyed by ref rather than by
-// project_path, so rows are collected first and cleaned up by ref.
-func purgeContextData(projectPath string) {
+// Both carry standalone FTS mirrors keyed by ref rather than by project_path, so
+// they are cleaned up by the refs collected at the start of the purge. Their
+// vectors were already deleted with the rest of the index data.
+func purgeContextData(projectPath string, refs contextRefs) {
 	if db.ContextDB == nil {
 		return
 	}
-	noteRefs := contextRefs(`SELECT ref FROM context_notes WHERE project_path = ?`, projectPath)
-	for _, ref := range noteRefs {
+	for _, ref := range refs.notes {
 		db.ContextDB.Exec(`DELETE FROM context_notes_fts WHERE ref = ?`, ref)
-		deleteRefVector("note", "note:"+ref)
 	}
 	db.ContextDB.Exec(`DELETE FROM context_notes WHERE project_path = ?`, projectPath)
 
-	memRefs := contextRefs(`SELECT ref FROM structured_memory WHERE project_path = ?`, projectPath)
-	for _, ref := range memRefs {
+	for _, ref := range refs.memories {
 		db.ContextDB.Exec(`DELETE FROM structured_memory_fts WHERE ref = ?`, ref)
-		deleteRefVector("memory", "mem:"+ref)
 	}
 	db.ContextDB.Exec(`DELETE FROM structured_memory WHERE project_path = ?`, projectPath)
 
 	db.ContextDB.Exec(`DELETE FROM kv_repair_events WHERE project_path = ?`, projectPath)
 }
 
-func contextRefs(query, projectPath string) []string {
+func queryRefs(query, projectPath string) ([]string, error) {
 	rows, err := db.ContextDB.Query(query, projectPath)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
 		var ref string
-		if rows.Scan(&ref) == nil && ref != "" {
-			out = append(out, ref)
+		if err := rows.Scan(&ref); err != nil {
+			return nil, err
 		}
+		out = append(out, ref)
 	}
-	return out
+	return out, rows.Err()
 }
 
-func deleteRefVector(docType, key string) {
-	if conn, err := db.IndexReader(); err == nil {
-		conn.Exec(`DELETE FROM vectors WHERE doc_type = ? AND source_file = ?`, docType, key)
+func prefixed(prefix string, refs []string) []string {
+	out := make([]string, len(refs))
+	for i, ref := range refs {
+		out[i] = prefix + ref
 	}
-	search.Cache.DeleteNoteByRef(key)
+	return out
 }

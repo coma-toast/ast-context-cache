@@ -137,25 +137,40 @@ func (vc *VectorCache) idleLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			timeout := vc.idleTimeout()
-			if timeout == 0 {
-				continue
-			}
-			vc.mu.Lock()
-			if vc.loaded && time.Since(vc.lastUsed) > timeout {
-				n := len(vc.entries)
-				vc.entries = nil
-				vc.loaded = false
-				log.Printf("Vector cache unloaded after %v idle (%d entries freed)", timeout, n)
-				vc.mu.Unlock()
-				realtime.Notify(realtime.IndexHealth)
-				continue
-			}
-			vc.mu.Unlock()
+			vc.idleTick()
 		case <-vc.stopIdle:
 			return
 		}
 	}
+}
+
+// idleTick unloads the cache once it has sat unused past idleTimeout.
+func (vc *VectorCache) idleTick() {
+	// Nothing loaded means nothing to unload, so don't touch the db. This
+	// loop starts in init() and runs in every binary that imports search,
+	// while tests open and close db's package-global pools with no lock
+	// this loop could share.
+	vc.mu.RLock()
+	loaded := vc.loaded
+	vc.mu.RUnlock()
+	if !loaded {
+		return
+	}
+	timeout := vc.idleTimeout()
+	if timeout == 0 {
+		return
+	}
+	vc.mu.Lock()
+	if vc.loaded && time.Since(vc.lastUsed) > timeout {
+		n := len(vc.entries)
+		vc.entries = nil
+		vc.loaded = false
+		log.Printf("Vector cache unloaded after %v idle (%d entries freed)", timeout, n)
+		vc.mu.Unlock()
+		realtime.Notify(realtime.IndexHealth)
+		return
+	}
+	vc.mu.Unlock()
 }
 
 func (vc *VectorCache) Load() error {
@@ -572,6 +587,32 @@ func (vc *VectorCache) DeleteByProject(projectPath string) {
 	n := 0
 	for _, e := range vc.entries {
 		if e.ProjectPath == projectPath {
+			continue
+		}
+		vc.entries[n] = e
+		n++
+	}
+	vc.entries = vc.entries[:n]
+}
+
+// DeleteBySourceFiles drops in-memory vectors of docType whose source file is in
+// sourceFiles. Callers are responsible for deleting the matching database rows.
+func (vc *VectorCache) DeleteBySourceFiles(docType string, sourceFiles []string) {
+	if len(sourceFiles) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(sourceFiles))
+	for _, f := range sourceFiles {
+		drop[f] = true
+	}
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if !vc.loaded {
+		return
+	}
+	n := 0
+	for _, e := range vc.entries {
+		if e.DocType == docType && drop[e.SourceFile] {
 			continue
 		}
 		vc.entries[n] = e

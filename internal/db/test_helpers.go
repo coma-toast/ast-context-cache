@@ -25,4 +25,4 @@ func SetHomeForTest(dir string) func() {
 }
 
 // WaitInitFTSRebuildForTest blocks until Init's background FTS rebuild finishes (tests only).
-func WaitInitFTSRebuildForTest() { initFTSRebuild.Wait() }
+func WaitInitFTSRebuildForTest() { waitFTSRebuild() }

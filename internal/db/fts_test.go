@@ -15,7 +15,7 @@ func TestCheckFTSHealthRepairsMissingTriggersAndDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer Close()
-	initFTSRebuild.Wait()
+	waitFTSRebuild()
 
 	insert := func(name string) int64 {
 		t.Helper()
@@ -88,7 +88,7 @@ func TestCheckFTSHealthHealthyIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer Close()
-	initFTSRebuild.Wait()
+	waitFTSRebuild()
 
 	if _, err := IndexDB.Exec(`INSERT INTO symbols (name, kind, file, project_path) VALUES ('Fine', 'function', '/p/a.go', '/p')`); err != nil {
 		t.Fatal(err)

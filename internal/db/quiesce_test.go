@@ -158,7 +158,7 @@ func TestQuiesceIndexPoolTruncateShrinksWal(t *testing.T) {
 	}()
 	// Init's background FTS rebuild holds a write transaction open; if it is still
 	// running, the TRUNCATE below can only report busy.
-	initFTSRebuild.Wait()
+	waitFTSRebuild()
 
 	idxPath := indexDBPath()
 	growIndexWal(t)
