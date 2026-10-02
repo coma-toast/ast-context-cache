@@ -491,9 +491,9 @@ func handleTopImports(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? GROUP BY target ORDER BY count DESC LIMIT 20", pid)
+		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? AND kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20", pid)
 	} else {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges GROUP BY target ORDER BY count DESC LIMIT 20")
+		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20")
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})

@@ -242,43 +242,14 @@ func extractHCLBlock(node *sitter.Node, content []byte) *SymbolDef {
 	return &SymbolDef{name, blockType}
 }
 
+// extractImports returns the modules a single Go/HCL top-level node or bash
+// command imports. Python and JS/TS imports are collected by collectImports
+// (imports.go), which also walks function bodies.
 func extractImports(node *sitter.Node, content []byte, lang string) []string {
 	var imports []string
 	nodeType := node.Type()
 
 	switch lang {
-	case "python":
-		switch nodeType {
-		case "import_statement":
-			for i := 0; i < int(node.NamedChildCount()); i++ {
-				child := node.NamedChild(i)
-				if child.Type() == "dotted_name" || child.Type() == "aliased_import" {
-					imports = append(imports, child.Content(content))
-				}
-			}
-		case "import_from_statement":
-			for i := 0; i < int(node.NamedChildCount()); i++ {
-				child := node.NamedChild(i)
-				if child.Type() == "dotted_name" || child.Type() == "relative_import" {
-					imports = append(imports, child.Content(content))
-					break
-				}
-			}
-		}
-
-	case "javascript", "typescript", "tsx":
-		if nodeType == "import_statement" {
-			for i := 0; i < int(node.NamedChildCount()); i++ {
-				child := node.NamedChild(i)
-				if child.Type() == "string" || child.Type() == "string_fragment" {
-					src := strings.Trim(child.Content(content), "'\"")
-					if src != "" {
-						imports = append(imports, src)
-					}
-				}
-			}
-		}
-
 	case "go":
 		if nodeType == "import_declaration" {
 			for i := 0; i < int(node.NamedChildCount()); i++ {
@@ -633,14 +604,11 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 			return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
 		}
 
+		if err := insertImportEdges(tx, collectImports(root, content, lang), filePath, projectPath); err != nil {
+			return err
+		}
 		walkNodes := collectTopLevelNodes(root, lang)
 		for _, node := range walkNodes {
-			for _, imp := range extractImports(node, content, lang) {
-				if _, err := tx.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
-					filePath, imp, projectPath); err != nil {
-					return err
-				}
-			}
 			sym := extractSymbol(node, content, lang)
 			if sym == nil || sym.Name == "" {
 				continue
