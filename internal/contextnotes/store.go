@@ -331,7 +331,10 @@ func FlushOrphans(projectPath string, grace time.Duration) (res *FlushResult, ke
 		refs = append(refs, ref)
 	}
 	rows.Close()
-	tokensFreed, count, _ := deleteRefs(refs, "")
+	tokensFreed, count, _, err := deleteRefs(refs, "")
+	if err != nil {
+		return nil, keptRecent, err
+	}
 	if count > 0 {
 		log.Printf("contextnotes: purged %d orphan notes (%d tokens) project=%q, kept %d recent", count, tokensFreed, projectPath, keptRecent)
 	}
