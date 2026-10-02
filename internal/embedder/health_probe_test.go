@@ -205,3 +205,31 @@ func TestMarkErrorDeferDuringInFlight(t *testing.T) {
 		t.Fatal("want error message")
 	}
 }
+
+// A probe superseded mid-flight (stopConnectivityProbe bumps the epoch, as does
+// another loop's probe) used to drop its result, so runConnectivityProbe sat out
+// its whole timeout — up to 120s — even though the embed call had returned.
+func TestSupersededProbeReturnsWhenEmbedDoes(t *testing.T) {
+	e := &slowEmbedder{block: 50 * time.Millisecond}
+	start := time.Now()
+	done := make(chan probeResult, 1)
+	go func() {
+		res, _ := runConnectivityProbe(e, 10*time.Second, false)
+		done <- res
+	}()
+	for e.calls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	probeEpoch.Add(1)
+	select {
+	case res := <-done:
+		if res != probeSkipped {
+			t.Fatalf("superseded probe = %v, want probeSkipped", res)
+		}
+		if d := time.Since(start); d > 5*time.Second {
+			t.Fatalf("superseded probe took %v to return", d)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("superseded probe still waiting 5s after its embed call returned")
+	}
+}

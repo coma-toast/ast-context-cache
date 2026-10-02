@@ -30,6 +30,6 @@ func TestInvalidateProjectsCacheKeepsServingStaleSnapshot(t *testing.T) {
 		t.Fatalf("expected stale snapshot to still be served, got %+v", ps)
 	}
 
-	// Let the background refresh invalidate kicked off finish before the next test runs.
-	time.Sleep(50 * time.Millisecond)
+	// Let the background refresh it kicked off finish before the next test runs.
+	projectsRefreshes.Wait()
 }

@@ -49,13 +49,25 @@ func loadProjectsForPage() ([]components.Project, bool) {
 		stale := time.Since(projectsCacheAt) >= projectsCacheTTL
 		projectsCacheMu.Unlock()
 		if stale {
-			go func() { loadProjects("") }()
+			refreshProjectsInBackground()
 		}
 		return out, false
 	}
 	projectsCacheMu.Unlock()
-	go func() { loadProjects("") }()
+	refreshProjectsInBackground()
 	return nil, true
+}
+
+// projectsRefreshes counts background loadProjects calls still running, so tests
+// can wait for them before the db pools they read are reassigned.
+var projectsRefreshes sync.WaitGroup
+
+func refreshProjectsInBackground() {
+	projectsRefreshes.Add(1)
+	go func() {
+		defer projectsRefreshes.Done()
+		loadProjects("")
+	}()
 }
 
 func loadProjectsFresh() []components.Project {
