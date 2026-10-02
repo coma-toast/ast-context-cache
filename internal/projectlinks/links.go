@@ -5,10 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/repokey"
 )
+
+// linksQueries counts project_links lookups so tests can assert hot loops resolve scope once.
+var linksQueries atomic.Int64
+
+// LinksQueryCountForTest returns how many Links queries have run in this process.
+func LinksQueryCountForTest() int64 { return linksQueries.Load() }
 
 // ProjectLink records a parent container project referencing an indexed child project.
 type ProjectLink struct {
@@ -135,6 +142,7 @@ func Links(parent string) ([]string, error) {
 	if parent == "" || db.DB == nil {
 		return nil, nil
 	}
+	linksQueries.Add(1)
 	rows, err := db.DB.Query(`SELECT child_path FROM project_links WHERE parent_path = ? ORDER BY child_path`, parent)
 	if err != nil {
 		return nil, err
@@ -219,15 +227,33 @@ func ResolveScopeWithRepoSiblings(projectPath string, includeSiblings bool) []st
 }
 
 // ScopeContains reports whether projectPath is in the resolved scope of root.
+// It queries project_links on every call — hot loops must use ResolveScopeSet once instead.
 func ScopeContains(root, projectPath string) bool {
-	root = NormalizePath(root)
-	projectPath = NormalizePath(projectPath)
-	for _, p := range ResolveScope(root) {
-		if p == projectPath {
-			return true
-		}
+	return ResolveScopeSet(root).Contains(projectPath)
+}
+
+// ScopeSet is a resolved project scope (root + linked children) for repeated membership checks.
+type ScopeSet map[string]struct{}
+
+// ResolveScopeSet resolves root's scope with a single project_links query. The vector
+// cache used to call ScopeContains per entry — ~240k usage-DB queries per search or
+// per index-health Count, which took ~40-60s and starved the 4-connection usage pool.
+func ResolveScopeSet(root string) ScopeSet {
+	scope := ResolveScope(root)
+	s := make(ScopeSet, len(scope))
+	for _, p := range scope {
+		s[p] = struct{}{}
 	}
-	return false
+	return s
+}
+
+// Contains reports whether projectPath is in the scope.
+func (s ScopeSet) Contains(projectPath string) bool {
+	if _, ok := s[projectPath]; ok {
+		return true
+	}
+	_, ok := s[NormalizePath(projectPath)]
+	return ok
 }
 
 // IsUnderLinkedChild reports whether absPath falls under a linked child of parent.

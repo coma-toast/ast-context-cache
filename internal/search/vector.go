@@ -183,50 +183,13 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 		return nil
 	}
 	vc.ensureLoaded()
-
-	vc.mu.RLock()
-	defer vc.mu.RUnlock()
-
-	type scored struct {
-		entry VectorEntry
-		sim   float64
+	var scope projectlinks.ScopeSet
+	if projectPath != "" {
+		scope = projectlinks.ResolveScopeSet(projectPath)
 	}
-	var results []scored
-
-	for _, e := range vc.entries {
-		if e.DocType == "doc" {
-			if docType != "doc" {
-				continue
-			}
-		} else if projectPath != "" && !projectlinks.ScopeContains(projectPath, e.ProjectPath) {
-			continue
-		}
-		if docType != "" && e.DocType != docType {
-			continue
-		}
-		if filters != nil && !filters.Empty() && e.DocType != "doc" {
-			if !filters.MatchesSymbol(e.SourceFile, e.Kind, projectPath) {
-				continue
-			}
-		}
-		sim := cosineSimilarity(query, e.Vector)
-		results = append(results, scored{entry: e, sim: sim})
-	}
-
-	// Partial sort: find top-limit by score
-	if len(results) > limit {
-		for i := 0; i < limit; i++ {
-			maxIdx := i
-			for j := i + 1; j < len(results); j++ {
-				if results[j].sim > results[maxIdx].sim {
-					maxIdx = j
-				}
-			}
-			results[i], results[maxIdx] = results[maxIdx], results[i]
-		}
-		results = results[:limit]
-	}
-
+	results := vc.topMatches(query, projectPath, scope, docType, limit, filters)
+	// symbolLinesFromEntry hits index.db per result; run it after RUnlock so pool waits
+	// can't pin vc.mu (a queued Upsert writer would then block every RLock caller).
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
 		startLine, endLine := symbolLinesFromEntry(r.entry)
@@ -242,6 +205,61 @@ func (vc *VectorCache) Search(query []float32, projectPath string, docType strin
 			},
 			Score: r.sim,
 		}
+	}
+	return out
+}
+
+type scoredEntry struct {
+	entry VectorEntry
+	sim   float64
+}
+
+// topMatches scores entries under RLock and returns the top-limit copies. It must not touch
+// the database: scope is resolved by the caller before the lock is taken. Candidates are
+// tracked by index so a full-cache scan doesn't copy every VectorEntry.
+func (vc *VectorCache) topMatches(query []float32, projectPath string, scope projectlinks.ScopeSet, docType string, limit int, filters *SearchFilters) []scoredEntry {
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+	type scoredIdx struct {
+		idx int
+		sim float64
+	}
+	var results []scoredIdx
+	for i := range vc.entries {
+		e := &vc.entries[i]
+		if e.DocType == "doc" {
+			if docType != "doc" {
+				continue
+			}
+		} else if projectPath != "" && !scope.Contains(e.ProjectPath) {
+			continue
+		}
+		if docType != "" && e.DocType != docType {
+			continue
+		}
+		if filters != nil && !filters.Empty() && e.DocType != "doc" {
+			if !filters.MatchesSymbol(e.SourceFile, e.Kind, projectPath) {
+				continue
+			}
+		}
+		results = append(results, scoredIdx{idx: i, sim: cosineSimilarity(query, e.Vector)})
+	}
+	// Partial sort: find top-limit by score
+	if len(results) > limit {
+		for i := 0; i < limit; i++ {
+			maxIdx := i
+			for j := i + 1; j < len(results); j++ {
+				if results[j].sim > results[maxIdx].sim {
+					maxIdx = j
+				}
+			}
+			results[i], results[maxIdx] = results[maxIdx], results[i]
+		}
+		results = results[:limit]
+	}
+	out := make([]scoredEntry, len(results))
+	for i, r := range results {
+		out[i] = scoredEntry{entry: vc.entries[r.idx], sim: r.sim}
 	}
 	return out
 }
@@ -634,6 +652,10 @@ func (vc *VectorCache) DeleteBySourceFiles(docType string, sourceFiles []string)
 }
 
 func (vc *VectorCache) Count(projectPath string) int {
+	var scope projectlinks.ScopeSet
+	if projectPath != "" {
+		scope = projectlinks.ResolveScopeSet(projectPath)
+	}
 	vc.mu.RLock()
 	if vc.loaded {
 		defer vc.mu.RUnlock()
@@ -642,7 +664,7 @@ func (vc *VectorCache) Count(projectPath string) int {
 		}
 		count := 0
 		for _, e := range vc.entries {
-			if projectlinks.ScopeContains(projectPath, e.ProjectPath) {
+			if scope.Contains(e.ProjectPath) {
 				count++
 			}
 		}
