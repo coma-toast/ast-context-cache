@@ -265,6 +265,10 @@ var (
 	probeEpoch  atomic.Uint64
 	probeStopMu sync.Mutex
 	probeStop   chan struct{}
+	// probeLoops counts StartConnectivityProbe goroutines that haven't returned.
+	// stopConnectivityProbe doesn't wait for them (Reload shouldn't block on a
+	// probe in flight); tests do, before changing what they read.
+	probeLoops sync.WaitGroup
 )
 
 // NudgeResult is returned by a manual dashboard/API recovery probe.
@@ -368,7 +372,9 @@ func StartConnectivityProbe(e Interface) {
 	stop := make(chan struct{})
 	probeStop = stop
 	probeStopMu.Unlock()
+	probeLoops.Add(1)
 	go func() {
+		defer probeLoops.Done()
 		for {
 			select {
 			case <-stop:
@@ -496,12 +502,12 @@ func runConnectivityProbeCycle(e Interface) probeResult {
 
 func runConnectivityProbe(e Interface, timeout time.Duration, deferFailure bool) (probeResult, error) {
 	epoch := probeEpoch.Add(1)
+	// Buffered, and always sent to: a probe superseded mid-flight (by
+	// stopConnectivityProbe, or another loop's probe) used to drop its result, so
+	// this waited out the whole timeout — up to 120s — before noticing.
 	ch := make(chan error, 1)
 	go func() {
 		_, err := e.Embed([]string{"connectivity probe"})
-		if probeEpoch.Load() != epoch {
-			return
-		}
 		ch <- err
 	}()
 	select {

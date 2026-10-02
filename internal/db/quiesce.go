@@ -48,6 +48,7 @@ func quiesceIndexPool() error {
 		return fmt.Errorf("close index pool: %w", err)
 	}
 	IndexDB = nil
+	syncPoolsOpen()
 	return nil
 }
 
@@ -62,6 +63,7 @@ func restoreIndexPool() error {
 		return err
 	}
 	IndexDB = conn
+	syncPoolsOpen()
 	resetIndexWriter()
 	indexReadGate.Store(false)
 	return nil

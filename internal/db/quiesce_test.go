@@ -186,3 +186,35 @@ func TestQuiesceIndexPoolTruncateShrinksWal(t *testing.T) {
 		t.Fatalf("wal before=%d after=%d want shrink", before, after)
 	}
 }
+
+// PoolsReady answers from a flag rather than the pool vars (which a goroutine
+// polling it raced with Init/Close); the flag must track every change to them.
+func TestPoolsReadyFollowsPoolLifecycle(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if PoolsReady() {
+		Close()
+	}
+	if err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(Close)
+	if !PoolsReady() {
+		t.Fatal("not ready after Init")
+	}
+	if err := quiesceIndexPool(); err != nil {
+		t.Fatal(err)
+	}
+	if PoolsReady() {
+		t.Fatal("ready while the index pool is quiesced")
+	}
+	if err := restoreIndexPool(); err != nil {
+		t.Fatal(err)
+	}
+	if !PoolsReady() {
+		t.Fatal("not ready after restoring the index pool")
+	}
+	Close()
+	if PoolsReady() {
+		t.Fatal("ready after Close")
+	}
+}

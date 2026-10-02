@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -27,9 +28,20 @@ func Context() *sql.DB { return ContextDB }
 // Usage returns the usage/analytics pool (same as DB).
 func Usage() *sql.DB { return DB }
 
+// poolsOpen mirrors whether all three pools are open. It's updated after every
+// assignment to them, so PoolsReady can answer without reading the pool vars:
+// the dashboard's live-refresh loop polls it from a goroutine started at package
+// init (before main's Init), and in tests while each one's Init/Close reassigns
+// the pools, which was a data race.
+var poolsOpen atomic.Bool
+
+func syncPoolsOpen() {
+	poolsOpen.Store(IndexDB != nil && ContextDB != nil && DB != nil)
+}
+
 // PoolsReady reports whether all database pools are open.
 func PoolsReady() bool {
-	return IndexDB != nil && ContextDB != nil && DB != nil
+	return poolsOpen.Load()
 }
 
 func openPool(path string) (*sql.DB, error) {
@@ -57,6 +69,7 @@ func applyPragmas(conn *sql.DB) {
 
 // Close closes all database pools (tests and shutdown).
 func Close() {
+	poolsOpen.Store(false)
 	stopWriteBatchers()
 	stopIndexWriter()
 	cancelFTSRebuild()
@@ -66,6 +79,7 @@ func Close() {
 		}
 	}
 	IndexDB, ContextDB, DB = nil, nil, nil
+	syncPoolsOpen()
 }
 
 func statWalBytes(path string) int64 {

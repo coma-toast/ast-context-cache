@@ -39,6 +39,10 @@ func Init() error {
 		}
 	}
 	startup.SetMessage("Opening databases…")
+	// Not ready while the pools are reassigned; re-checked on every return below,
+	// including the errors, which leave some of them open.
+	poolsOpen.Store(false)
+	defer syncPoolsOpen()
 	// A previous Init's batchers read DB; stop them before it's reassigned.
 	stopWriteBatchers()
 	var err error
