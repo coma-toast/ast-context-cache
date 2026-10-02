@@ -69,6 +69,7 @@ func applyPragmas(conn *sql.DB) {
 
 // Close closes all database pools (tests and shutdown).
 func Close() {
+	poolsOpen.Store(false)
 	stopWriteBatchers()
 	stopIndexWriter()
 	cancelFTSRebuild()
