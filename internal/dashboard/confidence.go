@@ -14,8 +14,28 @@ import (
 const tokensPerRoundEstimate = 4000
 
 const (
-	tokensUsedSum         = "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_used ELSE 0 END),0)"
-	symbolBaselineSumExpr = "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN symbol_baseline_tokens ELSE 0 END),0)"
+	tokensUsedSum                    = "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_used ELSE 0 END),0)"
+	symbolBaselineSumExpr            = "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN symbol_baseline_tokens ELSE 0 END),0)"
+	windowOffsetFilter               = "timestamp >= datetime('now', ?)"
+	virtualContextToolsFilter        = " AND tool_name IN ('store_context','fetch_context','search_context','flush_context')"
+	contextSessionsWindowFilter      = `(COALESCE(last_store_at,'') >= ? OR COALESCE(last_access_at,'') >= ?)`
+	selectTokensReturnedBaseQuery    = `SELECT ` + tokensUsedSum + `, ` + symbolBaselineSumExpr + ` FROM queries WHERE `
+	selectTokensSavedWindowBaseQuery = `SELECT COUNT(*), ` + tokensSavedSum + ` FROM queries WHERE `
+	selectVirtualWindowBaseQuery     = `SELECT
+		COALESCE(SUM(CASE WHEN tool_name='store_context' THEN tokens_saved ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN tool_name IN ('fetch_context','search_context') THEN tokens_used ELSE 0 END),0)
+		FROM queries WHERE `
+	selectTopToolsBaseQuery = `SELECT tool_name, COUNT(*), COALESCE(SUM(tokens_saved),0), COALESCE(AVG(duration_ms),0)
+		FROM queries WHERE `
+	topToolsGroupOrderLimitClause  = ` GROUP BY tool_name ORDER BY COUNT(*) DESC LIMIT ?`
+	selectContextSessionsBaseQuery = `SELECT session_id, COALESCE(project_path,''), COALESCE(notes_count,0),
+		COALESCE(virtual_tokens_stored,0), COALESCE(virtual_tokens_accessed,0),
+		COALESCE(last_store_at,''), COALESCE(last_access_at,'')
+		FROM context_session_stats WHERE `
+	contextSessionsOrderLimitClause = `
+		ORDER BY CASE WHEN last_access_at > last_store_at THEN last_access_at ELSE last_store_at END DESC
+		LIMIT ?`
+	selectSessionNoteTotalsQuery = `SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`
 )
 
 // ValueHeuristic is an approximate before/after estimate of agent token value.
@@ -122,13 +142,13 @@ func queryTokensReturnedAndBaseline(projectID string, days int) (tokensReturned,
 	if db.DB == nil {
 		return 0, 0
 	}
-	where := "timestamp >= datetime('now', ?)"
+	where := windowOffsetFilter
 	args := []any{fmtDaysOffset(days)}
 	if projectID != "" {
-		where += " AND project_path = ?"
+		where += projectPathClause
 		args = append(args, projectID)
 	}
-	db.DB.QueryRow(`SELECT `+tokensUsedSum+`, `+symbolBaselineSumExpr+` FROM queries WHERE `+where, args...).
+	db.DB.QueryRow(selectTokensReturnedBaseQuery+where, args...).
 		Scan(&tokensReturned, &symbolBaseline)
 	return tokensReturned, symbolBaseline
 }
@@ -137,13 +157,13 @@ func queryTokensSavedWindow(projectID string, days int) (tokensSaved, queries in
 	if db.DB == nil {
 		return 0, 0
 	}
-	where := "timestamp >= datetime('now', ?)"
+	where := windowOffsetFilter
 	args := []any{fmtDaysOffset(days)}
 	if projectID != "" {
-		where += " AND project_path = ?"
+		where += projectPathClause
 		args = append(args, projectID)
 	}
-	db.DB.QueryRow(`SELECT COUNT(*), `+tokensSavedSum+` FROM queries WHERE `+where, args...).
+	db.DB.QueryRow(selectTokensSavedWindowBaseQuery+where, args...).
 		Scan(&queries, &tokensSaved)
 	return tokensSaved, queries
 }
@@ -152,16 +172,13 @@ func queryVirtualWindow(projectID string, days int) (stored, accessed int) {
 	if db.DB == nil {
 		return 0, 0
 	}
-	where := "timestamp >= datetime('now', ?) AND tool_name IN ('store_context','fetch_context','search_context','flush_context')"
+	where := windowOffsetFilter + virtualContextToolsFilter
 	args := []any{fmtDaysOffset(days)}
 	if projectID != "" {
-		where += " AND project_path = ?"
+		where += projectPathClause
 		args = append(args, projectID)
 	}
-	db.DB.QueryRow(`SELECT
-		COALESCE(SUM(CASE WHEN tool_name='store_context' THEN tokens_saved ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN tool_name IN ('fetch_context','search_context') THEN tokens_used ELSE 0 END),0)
-		FROM queries WHERE `+where, args...).Scan(&stored, &accessed)
+	db.DB.QueryRow(selectVirtualWindowBaseQuery+where, args...).Scan(&stored, &accessed)
 	return stored, accessed
 }
 
@@ -169,14 +186,13 @@ func queryTopToolsWindow(projectID string, days, limit int) []WeeklyDigestTool {
 	if db.DB == nil || limit <= 0 {
 		return nil
 	}
-	where := "tool_name != 'file_watcher' AND timestamp >= datetime('now', ?)"
+	where := excludeWatcherFromToolStats + " AND " + windowOffsetFilter
 	args := []any{fmtDaysOffset(days)}
 	if projectID != "" {
-		where += " AND project_path = ?"
+		where += projectPathClause
 		args = append(args, projectID)
 	}
-	q := `SELECT tool_name, COUNT(*), COALESCE(SUM(tokens_saved),0), COALESCE(AVG(duration_ms),0)
-		FROM queries WHERE ` + where + ` GROUP BY tool_name ORDER BY COUNT(*) DESC LIMIT ?`
+	q := selectTopToolsBaseQuery + where + topToolsGroupOrderLimitClause
 	args = append(args, limit)
 	rows, err := db.DB.Query(q, args...)
 	if err != nil {
@@ -236,18 +252,13 @@ func buildContextSessions(projectID string, days, limit int) ContextSessionsResp
 		return resp
 	}
 	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
-	where := `(COALESCE(last_store_at,'') >= ? OR COALESCE(last_access_at,'') >= ?)`
+	where := contextSessionsWindowFilter
 	args := []any{cutoff, cutoff}
 	if projectID != "" {
-		where += ` AND project_path = ?`
+		where += projectPathClause
 		args = append(args, projectID)
 	}
-	q := `SELECT session_id, COALESCE(project_path,''), COALESCE(notes_count,0),
-		COALESCE(virtual_tokens_stored,0), COALESCE(virtual_tokens_accessed,0),
-		COALESCE(last_store_at,''), COALESCE(last_access_at,'')
-		FROM context_session_stats WHERE ` + where + `
-		ORDER BY CASE WHEN last_access_at > last_store_at THEN last_access_at ELSE last_store_at END DESC
-		LIMIT ?`
+	q := selectContextSessionsBaseQuery + where + contextSessionsOrderLimitClause
 	args = append(args, limit)
 	rows, err := db.DB.Query(q, args...)
 	if err != nil {
@@ -261,7 +272,7 @@ func buildContextSessions(projectID string, days, limit int) ContextSessionsResp
 		}
 		s.FetchedAfterStore = s.VirtualTokensAccessed > 0 && s.VirtualTokensStored > 0
 		if db.ContextDB != nil && s.SessionID != "" {
-			db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, s.SessionID).
+			db.ContextDB.QueryRow(selectSessionNoteTotalsQuery, s.SessionID).
 				Scan(&s.ActiveNotes, &s.ActiveTokens)
 		}
 		resp.Sessions = append(resp.Sessions, s)

@@ -13,6 +13,11 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 )
 
+const (
+	selectSymbolCountsByProjectQuery = "SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path"
+	selectQueryCountsByProjectQuery  = "SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.' GROUP BY project_path"
+)
+
 var serverStartTime = time.Now()
 
 var (
@@ -82,7 +87,7 @@ func loadProjectsFresh() []components.Project {
 	defer cancel()
 	symCounts := map[string]symCount{}
 	if conn, ierr := db.IndexReader(); ierr == nil {
-		symRows, err := conn.QueryContext(ctx, "SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+		symRows, err := conn.QueryContext(ctx, selectSymbolCountsByProjectQuery)
 		if err == nil {
 			defer symRows.Close()
 			for symRows.Next() {
@@ -94,7 +99,7 @@ func loadProjectsFresh() []components.Project {
 		}
 	}
 	queryCounts := map[string]int{}
-	rows, err := db.DB.QueryContext(ctx, "SELECT DISTINCT project_path, COUNT(*) FROM queries WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.' GROUP BY project_path")
+	rows, err := db.DB.QueryContext(ctx, selectQueryCountsByProjectQuery)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {

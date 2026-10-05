@@ -18,6 +18,15 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
+const (
+	countProjectSymbolsAndFilesQuery = "SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?"
+	countSymbolsAndFilesQuery        = "SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols"
+	countProjectEdgesQuery           = "SELECT COUNT(*) FROM edges WHERE project_path = ?"
+	countEdgesQuery                  = "SELECT COUNT(*) FROM edges"
+	countProjectSymbolsQuery         = "SELECT COUNT(*) FROM symbols WHERE project_path = ?"
+	countSymbolsQuery                = "SELECT COUNT(*) FROM symbols"
+)
+
 var (
 	indexHealthCacheMu sync.Mutex
 	indexHealthCache   struct {
@@ -122,11 +131,11 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 		return h
 	}
 	if projectID != "" {
-		conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
-		conn.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", projectID).Scan(&h.TotalEdges)
+		conn.QueryRow(countProjectSymbolsAndFilesQuery, projectID).Scan(&h.TotalSymbols, &h.TotalFiles)
+		conn.QueryRow(countProjectEdgesQuery, projectID).Scan(&h.TotalEdges)
 	} else {
-		conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&h.TotalSymbols, &h.TotalFiles)
-		conn.QueryRow("SELECT COUNT(*) FROM edges").Scan(&h.TotalEdges)
+		conn.QueryRow(countSymbolsAndFilesQuery).Scan(&h.TotalSymbols, &h.TotalFiles)
+		conn.QueryRow(countEdgesQuery).Scan(&h.TotalEdges)
 	}
 	h.TotalVectors = search.Cache.Count(projectID)
 	h.VectorMemMB = search.Cache.MemoryMB()
@@ -257,9 +266,9 @@ func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
 		return m
 	}
 	if projectID != "" {
-		conn.QueryRow("SELECT COUNT(*) FROM symbols WHERE project_path = ?", projectID).Scan(&m.TotalSymbols)
+		conn.QueryRow(countProjectSymbolsQuery, projectID).Scan(&m.TotalSymbols)
 	} else {
-		conn.QueryRow("SELECT COUNT(*) FROM symbols").Scan(&m.TotalSymbols)
+		conn.QueryRow(countSymbolsQuery).Scan(&m.TotalSymbols)
 	}
 	m.TotalVectors = search.Cache.Count(projectID)
 	m.VectorMemMB = search.Cache.MemoryMB()

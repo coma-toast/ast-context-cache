@@ -2,7 +2,6 @@ package logretention
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,7 +27,7 @@ func RunOnce() {
 	raw := db.GetSetting("log_retention_roots", "[]")
 	var roots []string
 	if err := json.Unmarshal([]byte(raw), &roots); err != nil {
-		log.Printf("log retention: bad log_retention_roots JSON: %v", err)
+		logger.Warn("Failed to parse log_retention_roots JSON", "error", err)
 		return
 	}
 	maxAgeDays, _ := strconv.Atoi(strings.TrimSpace(db.GetSetting("log_retention_max_age_days", "0")))
@@ -37,7 +36,7 @@ func RunOnce() {
 	dry := strings.ToLower(strings.TrimSpace(db.GetSetting("log_retention_dry_run", "false"))) == "true"
 
 	if maxAgeDays <= 0 && maxTotal <= 0 {
-		log.Printf("log retention: enabled but set log_retention_max_age_days and/or log_retention_max_total_bytes")
+		logger.Warn("Log retention enabled without limits; set log_retention_max_age_days and/or log_retention_max_total_mib")
 		return
 	}
 
@@ -49,18 +48,18 @@ func RunOnce() {
 		}
 		r = filepath.Clean(r)
 		if !filepath.IsAbs(r) {
-			log.Printf("log retention: skip non-absolute root %q", r)
+			logger.Warn("Skipping non-absolute log retention root", "root", r)
 			continue
 		}
 		st, err := os.Stat(r)
 		if err != nil || !st.IsDir() {
-			log.Printf("log retention: skip missing or non-dir %q", r)
+			logger.Warn("Skipping missing or non-directory log retention root", "root", r)
 			continue
 		}
 		absRoots = append(absRoots, r)
 	}
 	if len(absRoots) == 0 {
-		log.Printf("log retention: no valid roots")
+		logger.Warn("No valid log retention roots")
 		return
 	}
 
@@ -129,13 +128,13 @@ func RunOnce() {
 			}
 		}
 		if dry {
-			log.Printf("log retention dry-run: would delete %s", p)
+			logger.Info("Log retention dry run would delete file", "path", p)
 			deleted++
 			deletedBytes += sz
 			continue
 		}
 		if err := os.Remove(p); err != nil {
-			log.Printf("log retention: remove %s: %v", p, err)
+			logger.Warn("Failed to remove log file", "path", p, "error", err)
 			continue
 		}
 		deleted++
@@ -151,6 +150,6 @@ func RunOnce() {
 	_ = db.SetSetting("log_retention_last_run", string(meta))
 	realtime.Notify(realtime.SettingsChanged)
 	if deleted > 0 || dry {
-		log.Printf("log retention: done deleted=%d bytes_freed=%d dry_run=%v", deleted, deletedBytes, dry)
+		logger.Info("Finished log retention run", "deleted", deleted, "bytes_freed", deletedBytes, "dry_run", dry)
 	}
 }
