@@ -4,32 +4,44 @@ import (
 	"database/sql"
 	"errors"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+)
+
+const (
+	deleteFileSummariesQuery     = "DELETE FROM summaries WHERE file_path = ? AND project_path = ?"
+	deleteIndexedFileQuery       = "DELETE FROM indexed_files WHERE file = ? AND project_path = ?"
+	deleteFileEmbedPendingQuery  = "DELETE FROM embed_pending WHERE file = ? AND project_path = ?"
+	selectProjectIndexFilesQuery = `
+		SELECT file FROM indexed_files WHERE project_path = ?1
+		UNION SELECT DISTINCT file FROM symbols WHERE project_path = ?1
+		UNION SELECT DISTINCT source_file FROM edges WHERE project_path = ?1
+		UNION SELECT DISTINCT file FROM embed_pending WHERE project_path = ?1
+		UNION SELECT DISTINCT source_file FROM vectors WHERE project_path = ?1 AND COALESCE(doc_type, 'code') = 'code'`
 )
 
 // ErrSymlinkAlias is returned by IndexFile for a path that is not indexed under
 // its own name: a symlink to another file inside the project (the target is
 // indexed under its real path instead, so its symbols appear once), or a
 // dangling / looping / non-regular symlink.
-var ErrSymlinkAlias = errors.New("symlink not indexed")
+var ErrSymlinkAlias = errs.New("symlink not indexed")
 
 // purgeFileQueries delete every per-file index row. Only code vectors go:
 // doc, note and memory vectors are keyed by their own sources, never by an
 // indexed file's path.
 var purgeFileQueries = []string{
-	"DELETE FROM symbols WHERE file = ? AND project_path = ?",
-	"DELETE FROM edges WHERE source_file = ? AND project_path = ?",
-	"DELETE FROM vectors WHERE source_file = ? AND project_path = ? AND COALESCE(doc_type, 'code') = 'code'",
-	"DELETE FROM summaries WHERE file_path = ? AND project_path = ?",
-	"DELETE FROM indexed_files WHERE file = ? AND project_path = ?",
-	"DELETE FROM embed_pending WHERE file = ? AND project_path = ?",
+	deleteFileSymbolsQuery,
+	deleteFileEdgesQuery,
+	deleteFileCodeVectorsQuery,
+	deleteFileSummariesQuery,
+	deleteIndexedFileQuery,
+	deleteFileEmbedPendingQuery,
 }
 
 // OnFilePurged, when set (main wires embedqueue.ForgetFile), runs after
@@ -159,14 +171,9 @@ func ProjectFilesInIndex(projectPath string) []string {
 	if err != nil {
 		return nil
 	}
-	rows, err := conn.Query(`
-		SELECT file FROM indexed_files WHERE project_path = ?1
-		UNION SELECT DISTINCT file FROM symbols WHERE project_path = ?1
-		UNION SELECT DISTINCT source_file FROM edges WHERE project_path = ?1
-		UNION SELECT DISTINCT file FROM embed_pending WHERE project_path = ?1
-		UNION SELECT DISTINCT source_file FROM vectors WHERE project_path = ?1 AND COALESCE(doc_type, 'code') = 'code'`, projectPath)
+	rows, err := conn.Query(selectProjectIndexFilesQuery, projectPath)
 	if err != nil {
-		log.Printf("index: list files for %s: %v", projectPath, err)
+		logger.Warn("Failed to list indexed files", "project", projectPath, "error", err)
 		return nil
 	}
 	defer rows.Close()
@@ -200,13 +207,13 @@ func PruneMissingFiles(dirPath, projectPath string) int {
 			continue
 		}
 		if err := PurgeFile(f, projectPath); err != nil {
-			log.Printf("index: purge missing %s: %v", f, err)
+			logger.Warn("Failed to purge missing file", "file", f, "error", err)
 			continue
 		}
 		n++
 	}
 	if n > 0 {
-		log.Printf("index: purged %d files no longer on disk under %s", n, dirPath)
+		logger.Info("Purged files no longer on disk", "files", n, "dir", dirPath)
 	}
 	return n
 }
@@ -221,19 +228,19 @@ func PruneMissingFiles(dirPath, projectPath string) int {
 func dropStaleEmbedJob(filePath, projectPath string) bool {
 	if FileGone(filePath) {
 		if fi, err := os.Stat(projectPath); err != nil || !fi.IsDir() {
-			log.Printf("embed: skip %s: project root %s unavailable", filePath, projectPath)
+			logger.Debug("Skipping embed job, project root unavailable", "file", filePath, "project", projectPath)
 			return true
 		}
 		if err := PurgeFile(filePath, projectPath); err != nil {
-			log.Printf("embed: purge missing %s: %v", filePath, err)
+			logger.Warn("Failed to purge missing file", "file", filePath, "error", err)
 		} else {
-			log.Printf("embed: %s no longer on disk; purged its index rows", filePath)
+			logger.Debug("Purged index rows for file no longer on disk", "file", filePath)
 		}
 		return true
 	}
 	if target, alias := SymlinkAlias(filePath, projectPath); alias {
 		if err := PurgeFile(filePath, projectPath); err == nil {
-			log.Printf("embed: %s is a symlink alias (target %q); purged its index rows", filePath, target)
+			logger.Debug("Purged index rows for symlink alias", "file", filePath, "target", target)
 		}
 		return true
 	}

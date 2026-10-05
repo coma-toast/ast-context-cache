@@ -2,7 +2,6 @@ package watcher
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +76,7 @@ func logRefusalOnce(projectPath, reason string) {
 	refusalLogged[projectPath] = true
 	refusalMu.Unlock()
 	if !seen {
-		log.Printf("Watcher not started for %s: %s", projectPath, reason)
+		logger.Info("Watcher not started", "project", projectPath, "reason", reason)
 	}
 }
 

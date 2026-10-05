@@ -2,7 +2,6 @@ package watcher
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/fsnotify/fsevents"
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 const nativeBackendName = "fsevents"
@@ -64,7 +65,7 @@ func newNativeBackend(root string) (backend, error) {
 		Flags: fsevents.FileEvents | fsevents.NoDefer,
 	}
 	if err := b.stream.Start(); err != nil {
-		return nil, fmt.Errorf("fsevents: %w", err)
+		return nil, errs.WrapMessage("failed to start fsevents stream", err, "root", b.realRoot)
 	}
 	go b.loop()
 	return b, nil
