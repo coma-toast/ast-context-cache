@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 )
@@ -41,7 +42,7 @@ func HandleCheckDeletionSafety(args map[string]interface{}, projectPath string) 
 	}
 	lang := indexer.GetLanguage(rel)
 	if lang == "" {
-		return errJSON(fmt.Errorf("unsupported file type: %s", rel))
+		return errJSON(errs.NewCode(errs.CodeUnsupported, fmt.Sprintf("unsupported file type: %s", rel), "file", rel))
 	}
 
 	baseContent, err := runGit(projectPath, "show", baseRef+":./"+filepath.ToSlash(rel))
@@ -167,7 +168,7 @@ func relativeToProject(file, projectPath string) (string, error) {
 	}
 	rel, err := filepath.Rel(projectPath, filepath.Clean(file))
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("file must live inside project_path")
+		return "", errs.NewCode(errs.CodeInvalidInput, "file must live inside project_path", "file", file)
 	}
 	return rel, nil
 }

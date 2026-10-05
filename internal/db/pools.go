@@ -8,6 +8,18 @@ import (
 	"sync/atomic"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+)
+
+const (
+	pragmaJournalModeWAL    = `PRAGMA journal_mode=WAL`
+	pragmaBusyTimeout       = `PRAGMA busy_timeout=15000`
+	pragmaSynchronousNormal = `PRAGMA synchronous=NORMAL`
+	pragmaCacheSize         = `PRAGMA cache_size=-32000`
+	pragmaWALAutocheckpoint = `PRAGMA wal_autocheckpoint=200`
+	poolDSNParams           = "?_journal_mode=WAL&_busy_timeout=15000"
+	handoffTxLockParam      = "&_txlock=immediate"
 )
 
 var (
@@ -15,8 +27,12 @@ var (
 	DB *sql.DB
 	// IndexDB holds symbols, edges, vectors, embed_pending, summaries.
 	IndexDB *sql.DB
-	// ContextDB holds context notes, structured memory, docs, kv_repair_events.
+	// ContextDB holds context notes, structured memory, docs, kv_repair_events, and handoff trees.
 	ContextDB *sql.DB
+	// HandoffWriteDB is a second, one-connection pool on context.db whose transactions begin
+	// IMMEDIATE. Every handoff, scratchpad, and claim write goes through it (see HandoffTx), so
+	// they are linearized and a read-then-write never has to upgrade a DEFERRED transaction.
+	HandoffWriteDB *sql.DB
 )
 
 // Index returns the code index pool (read-only callers may use directly).
@@ -45,26 +61,34 @@ func PoolsReady() bool {
 }
 
 func openPool(path string) (*sql.DB, error) {
-	if err := os.MkdirAll(cacheDir(), 0755); err != nil {
+	return openPoolWith(path, poolDSNParams, 4)
+}
+
+// openHandoffWritePool opens HandoffWriteDB's single connection on the context database.
+func openHandoffWritePool(path string) (*sql.DB, error) {
+	return openPoolWith(path, poolDSNParams+handoffTxLockParam, 1)
+}
+
+func openPoolWith(path, params string, conns int) (*sql.DB, error) {
+	if err := os.MkdirAll(cacheDir(), 0o755); err != nil {
 		return nil, err
 	}
-	dsn := path + "?_journal_mode=WAL&_busy_timeout=15000"
-	conn, err := sql.Open("sqlite3", dsn)
+	conn, err := sql.Open("sqlite3", path+params)
 	if err != nil {
 		return nil, err
 	}
-	conn.SetMaxOpenConns(4)
-	conn.SetMaxIdleConns(4)
+	conn.SetMaxOpenConns(conns)
+	conn.SetMaxIdleConns(conns)
 	applyPragmas(conn)
 	return conn, nil
 }
 
 func applyPragmas(conn *sql.DB) {
-	conn.Exec(`PRAGMA journal_mode=WAL`)
-	conn.Exec(`PRAGMA busy_timeout=15000`)
-	conn.Exec(`PRAGMA synchronous=NORMAL`)
-	conn.Exec(`PRAGMA cache_size=-32000`)
-	conn.Exec(`PRAGMA wal_autocheckpoint=200`)
+	conn.Exec(pragmaJournalModeWAL)
+	conn.Exec(pragmaBusyTimeout)
+	conn.Exec(pragmaSynchronousNormal)
+	conn.Exec(pragmaCacheSize)
+	conn.Exec(pragmaWALAutocheckpoint)
 }
 
 // Close closes all database pools (tests and shutdown).
@@ -73,12 +97,12 @@ func Close() {
 	stopWriteBatchers()
 	stopIndexWriter()
 	cancelFTSRebuild()
-	for _, c := range []*sql.DB{IndexDB, ContextDB, DB} {
+	for _, c := range []*sql.DB{IndexDB, HandoffWriteDB, ContextDB, DB} {
 		if c != nil {
 			c.Close()
 		}
 	}
-	IndexDB, ContextDB, DB = nil, nil, nil
+	IndexDB, HandoffWriteDB, ContextDB, DB = nil, nil, nil, nil
 	syncPoolsOpen()
 }
 
@@ -126,5 +150,5 @@ func dbLabel(path string) string {
 }
 
 func fmtOpenErr(which, path string, err error) error {
-	return fmt.Errorf("open %s db %s: %w", which, path, err)
+	return errs.WrapMessage(fmt.Sprintf("failed to open %s db %s", which, path), err, "db", which, "path", path)
 }

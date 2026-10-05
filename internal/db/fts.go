@@ -3,9 +3,33 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+)
+
+const (
+	createSymbolsFTSInsertTrigger = `CREATE TRIGGER IF NOT EXISTS symbols_fts_ins AFTER INSERT ON symbols BEGIN
+		INSERT INTO symbols_fts(rowid, name, fqn, code) VALUES (new.id, new.name, new.fqn, new.code);
+	END`
+	createSymbolsFTSDeleteTrigger = `CREATE TRIGGER IF NOT EXISTS symbols_fts_del AFTER DELETE ON symbols BEGIN
+		INSERT INTO symbols_fts(symbols_fts, rowid, name, fqn, code) VALUES('delete', old.id, old.name, old.fqn, old.code);
+	END`
+	createSymbolsTrigramInsertTrigger = `CREATE TRIGGER IF NOT EXISTS symbols_trigram_ins AFTER INSERT ON symbols BEGIN
+		INSERT INTO symbols_trigram(rowid, name, fqn) VALUES (new.id, new.name, new.fqn);
+	END`
+	createSymbolsTrigramDeleteTrigger = `CREATE TRIGGER IF NOT EXISTS symbols_trigram_del AFTER DELETE ON symbols BEGIN
+		INSERT INTO symbols_trigram(symbols_trigram, rowid, name, fqn) VALUES('delete', old.id, old.name, old.fqn);
+	END`
+	rebuildFTSTableQueryTemplate     = `INSERT INTO %[1]s(%[1]s) VALUES('rebuild')`
+	dropTriggerIfExistsQueryTemplate = "DROP TRIGGER IF EXISTS %s"
+	selectSymbolsTriggersQuery       = `SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'symbols'`
+	selectFTSDriftCountsQuery        = `SELECT
+		(SELECT count(*) FROM symbols s WHERE NOT EXISTS (SELECT 1 FROM symbols_fts_docsize d WHERE d.id = s.id)),
+		(SELECT count(*) FROM symbols_fts_docsize d WHERE NOT EXISTS (SELECT 1 FROM symbols s WHERE s.id = d.id)),
+		(SELECT count(*) FROM symbols s WHERE NOT EXISTS (SELECT 1 FROM symbols_trigram_docsize d WHERE d.id = s.id)),
+		(SELECT count(*) FROM symbols_trigram_docsize d WHERE NOT EXISTS (SELECT 1 FROM symbols s WHERE s.id = d.id))`
 )
 
 // symbolFTSTables are the full-text indexes over symbols. Both use symbols as
@@ -17,18 +41,10 @@ var symbolFTSTables = []string{"symbols_fts", "symbols_trigram"}
 // deleted from symbols. With any of them missing, symbol writes skip that index and
 // BM25/trigram search silently degrades.
 var symbolFTSTriggers = []struct{ name, ddl string }{
-	{"symbols_fts_ins", `CREATE TRIGGER IF NOT EXISTS symbols_fts_ins AFTER INSERT ON symbols BEGIN
-		INSERT INTO symbols_fts(rowid, name, fqn, code) VALUES (new.id, new.name, new.fqn, new.code);
-	END`},
-	{"symbols_fts_del", `CREATE TRIGGER IF NOT EXISTS symbols_fts_del AFTER DELETE ON symbols BEGIN
-		INSERT INTO symbols_fts(symbols_fts, rowid, name, fqn, code) VALUES('delete', old.id, old.name, old.fqn, old.code);
-	END`},
-	{"symbols_trigram_ins", `CREATE TRIGGER IF NOT EXISTS symbols_trigram_ins AFTER INSERT ON symbols BEGIN
-		INSERT INTO symbols_trigram(rowid, name, fqn) VALUES (new.id, new.name, new.fqn);
-	END`},
-	{"symbols_trigram_del", `CREATE TRIGGER IF NOT EXISTS symbols_trigram_del AFTER DELETE ON symbols BEGIN
-		INSERT INTO symbols_trigram(symbols_trigram, rowid, name, fqn) VALUES('delete', old.id, old.name, old.fqn);
-	END`},
+	{"symbols_fts_ins", createSymbolsFTSInsertTrigger},
+	{"symbols_fts_del", createSymbolsFTSDeleteTrigger},
+	{"symbols_trigram_ins", createSymbolsTrigramInsertTrigger},
+	{"symbols_trigram_del", createSymbolsTrigramDeleteTrigger},
 }
 
 // execer is satisfied by both *sql.DB and *sql.Tx.
@@ -39,15 +55,15 @@ type execer interface {
 func createFTSTriggers(e execer) error {
 	for _, t := range symbolFTSTriggers {
 		if _, err := e.Exec(t.ddl); err != nil {
-			return fmt.Errorf("create trigger %s: %w", t.name, err)
+			return errs.WrapMessage("failed to create trigger", err, "trigger", t.name)
 		}
 	}
 	return nil
 }
 
 func rebuildFTSTable(e execer, table string) error {
-	if _, err := e.Exec(`INSERT INTO ` + table + `(` + table + `) VALUES('rebuild')`); err != nil {
-		return fmt.Errorf("rebuild %s: %w", table, err)
+	if _, err := e.Exec(fmt.Sprintf(rebuildFTSTableQueryTemplate, table)); err != nil {
+		return errs.WrapMessage("failed to rebuild FTS table", err, "table", table)
 	}
 	return nil
 }
@@ -69,8 +85,8 @@ func EnsureFTSTriggers() error {
 // restores them along with the deleted rows.
 func WithoutFTSTriggers(tx *sql.Tx, bulkDelete func() error) error {
 	for _, t := range symbolFTSTriggers {
-		if _, err := tx.Exec("DROP TRIGGER IF EXISTS " + t.name); err != nil {
-			return fmt.Errorf("drop trigger %s: %w", t.name, err)
+		if _, err := tx.Exec(fmt.Sprintf(dropTriggerIfExistsQueryTemplate, t.name)); err != nil {
+			return errs.WrapMessage("failed to drop trigger", err, "trigger", t.name)
 		}
 	}
 	if err := bulkDelete(); err != nil {
@@ -97,9 +113,9 @@ func (h FTSHealth) ftsDrift() bool     { return h.FTSMissing+h.FTSOrphans > 0 }
 func (h FTSHealth) trigramDrift() bool { return h.TrigramMissing+h.TrigramOrphans > 0 }
 
 func missingFTSTriggers(conn *sql.DB) ([]string, error) {
-	rows, err := conn.Query(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'symbols'`)
+	rows, err := conn.Query(selectSymbolsTriggersQuery)
 	if err != nil {
-		return nil, fmt.Errorf("list symbols triggers: %w", err)
+		return nil, errs.WrapMessage("failed to list symbols triggers", err)
 	}
 	defer rows.Close()
 	present := map[string]bool{}
@@ -139,14 +155,9 @@ func MeasureFTSHealth(measureDrift bool) (FTSHealth, error) {
 		return h, nil
 	}
 	// One statement, so all four counts come from the same read snapshot.
-	err = conn.QueryRow(`SELECT
-		(SELECT count(*) FROM symbols s WHERE NOT EXISTS (SELECT 1 FROM symbols_fts_docsize d WHERE d.id = s.id)),
-		(SELECT count(*) FROM symbols_fts_docsize d WHERE NOT EXISTS (SELECT 1 FROM symbols s WHERE s.id = d.id)),
-		(SELECT count(*) FROM symbols s WHERE NOT EXISTS (SELECT 1 FROM symbols_trigram_docsize d WHERE d.id = s.id)),
-		(SELECT count(*) FROM symbols_trigram_docsize d WHERE NOT EXISTS (SELECT 1 FROM symbols s WHERE s.id = d.id))`,
-	).Scan(&h.FTSMissing, &h.FTSOrphans, &h.TrigramMissing, &h.TrigramOrphans)
+	err = conn.QueryRow(selectFTSDriftCountsQuery).Scan(&h.FTSMissing, &h.FTSOrphans, &h.TrigramMissing, &h.TrigramOrphans)
 	if err != nil {
-		return h, fmt.Errorf("measure FTS drift: %w", err)
+		return h, errs.WrapMessage("failed to measure FTS drift", err)
 	}
 	return h, nil
 }
@@ -161,9 +172,9 @@ func CheckFTSHealth(measureDrift bool) (FTSHealth, error) {
 		return h, err
 	}
 	if len(h.MissingTriggers) > 0 {
-		log.Printf("FTS self-check: symbols is missing triggers %v; recreating them", h.MissingTriggers)
+		logger.Warn("FTS self-check found missing symbols triggers, recreating them", "triggers", h.MissingTriggers)
 		if err := EnsureFTSTriggers(); err != nil {
-			return h, fmt.Errorf("recreate FTS triggers: %w", err)
+			return h, errs.WrapMessage("failed to recreate FTS triggers", err)
 		}
 		measureDrift = true
 	}
@@ -186,13 +197,12 @@ func CheckFTSHealth(measureDrift bool) (FTSHealth, error) {
 		if !idx.drift {
 			continue
 		}
-		log.Printf("FTS self-check: %s has drifted from symbols (%d rows unindexed, %d orphan entries); rebuilding",
-			idx.table, idx.missing, idx.orphans)
+		logger.Warn("FTS self-check found index drifted from symbols, rebuilding", "table", idx.table, "unindexed_rows", idx.missing, "orphan_entries", idx.orphans)
 		start := time.Now()
 		if err := IndexWrite(func(tx *sql.Tx) error { return rebuildFTSTable(tx, idx.table) }); err != nil {
 			return h, err
 		}
-		log.Printf("FTS self-check: rebuilt %s in %s", idx.table, time.Since(start).Round(time.Millisecond))
+		logger.Info("FTS self-check rebuilt index", "table", idx.table, "duration", time.Since(start).Round(time.Millisecond))
 	}
 	return h, nil
 }
@@ -221,7 +231,7 @@ func StartFTSSelfCheck() {
 				}
 				due := time.Since(lastDrift) >= ftsDriftCheckInterval
 				if _, err := CheckFTSHealth(due); err != nil {
-					log.Printf("FTS self-check: %v", err)
+					logger.Warn("FTS self-check failed", "error", err)
 					continue
 				}
 				if due {

@@ -1,8 +1,9 @@
 package embedder
 
 import (
-	"fmt"
 	"strings"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 // ListModels returns remote model ids for backends that support discovery.
@@ -34,7 +35,7 @@ func ListModels(s Settings) ([]string, error) {
 		}
 		return ListOpenAIModels(base, s.OpenAIAPIKey)
 	default:
-		return nil, fmt.Errorf("model listing not available for %q backend", backend)
+		return nil, errs.NewCode(errs.CodeUnsupported, "model listing not available for backend", "backend", backend)
 	}
 }
 

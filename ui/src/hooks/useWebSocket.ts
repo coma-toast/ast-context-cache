@@ -11,6 +11,7 @@ const panelToQuery: Record<string, string[]> = {
   'tool-chart': ['tools'],
   'import-chart': ['topImports'],
   settings: ['settings'],
+  handoffs: ['handoffTrees'],
 }
 
 export function useWebSocket(onRefresh: (panels: string[]) => void, onToast?: (data: Record<string, string>) => void) {

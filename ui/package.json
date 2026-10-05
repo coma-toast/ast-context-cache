@@ -12,7 +12,8 @@
     "build-storybook": "storybook build -o ../docs/storybook-static",
     "capture-screenshot": "node scripts/capture-screenshot.mjs",
     "verify-stories": "node scripts/verify-stories.mjs",
-    "verify-visual-vs-live": "node scripts/verify-visual-vs-live.mjs"
+    "verify-visual-vs-live": "node scripts/verify-visual-vs-live.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -33,10 +34,12 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.4",
+    "jsdom": "^30.1.2",
     "oxlint": "^1.71.0",
     "playwright": "^1.52.0",
     "storybook": "^10.4.4",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^5.0.3"
   }
 }

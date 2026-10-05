@@ -12,7 +12,7 @@ import (
 func TestExpectedEmbedHashMatchesEmbedPath(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "a.go")
-	if err := os.WriteFile(file, []byte("func f() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("func f() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got := ExpectedEmbedHash("function", "f", file, 1, 1)
@@ -25,7 +25,7 @@ func TestExpectedEmbedHashMatchesEmbedPath(t *testing.T) {
 func TestReindexDeletesCodeVectors(t *testing.T) {
 	project := "reindex-vec-test"
 	file := filepath.Join(t.TempDir(), "x.go")
-	if err := os.WriteFile(file, []byte("func g(){}\n"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("func g(){}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	db.IndexDB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)

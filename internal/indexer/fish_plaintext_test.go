@@ -17,7 +17,7 @@ func TestIndexFishFile(t *testing.T) {
 	projectPath := dir
 	file := filepath.Join(dir, "helper.fish")
 	script := "function greet\n    echo hello\nend\n"
-	if err := os.WriteFile(file, []byte(script), 0644); err != nil {
+	if err := os.WriteFile(file, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +47,7 @@ func TestIndexPlaintextFile(t *testing.T) {
 	dir := t.TempDir()
 	projectPath := dir
 	file := filepath.Join(dir, "notes.txt")
-	if err := os.WriteFile(file, []byte("first line\nsecond line\n"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("first line\nsecond line\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

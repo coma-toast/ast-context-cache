@@ -1,0 +1,8 @@
+{
+  "session_id": "82de5123-70a6-4982-b7cc-aa839be2cd89",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}

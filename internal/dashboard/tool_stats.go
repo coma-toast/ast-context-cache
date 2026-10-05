@@ -5,7 +5,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
-const toolStatsSelect = `SELECT tool_name,
+const (
+	selectToolStatsBaseQuery = `SELECT tool_name,
 	COUNT(*),
 	COALESCE(AVG(duration_ms), 0),
 	COALESCE(SUM(cpu_ms), 0),
@@ -18,13 +19,15 @@ const toolStatsSelect = `SELECT tool_name,
 	COALESCE(AVG(result_chars), 0),
 	SUM(CASE WHEN COALESCE(error, '') != '' THEN 1 ELSE 0 END)
 FROM queries WHERE `
+	toolStatsGroupOrderClause = " GROUP BY tool_name ORDER BY COUNT(*) DESC"
+)
 
 func queryToolStats(projectID string) []components.ToolStat {
 	if db.DB == nil {
 		return nil
 	}
 	where, args := toolStatsWhere(projectID)
-	q := toolStatsSelect + where + " GROUP BY tool_name ORDER BY COUNT(*) DESC"
+	q := selectToolStatsBaseQuery + where + toolStatsGroupOrderClause
 	rows, err := db.DB.Query(q, args...)
 	if err != nil {
 		return nil

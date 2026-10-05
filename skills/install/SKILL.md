@@ -8,6 +8,7 @@ Use this skill when the user asks to:
 - Setup MCP server for their agent
 - Configure Cursor, OpenCode, Claude, etc.
 - Troubleshoot installation issues
+- Verify, repair, or remove an editor integration (`ast-mcp install` / `verify` / `uninstall`)
 
 ## Installation Steps
 
@@ -22,83 +23,48 @@ make setup
 ```bash
 make run
 ```
-Server runs at `http://localhost:7821/mcp`
-Dashboard at `http://localhost:7830`
+Server runs at `http://127.0.0.1:7821/mcp`, dashboard at `http://127.0.0.1:7830`. Both bind loopback only; use `--listen` / `AST_LISTEN` (for example `0.0.0.0` in Docker) to expose them, knowing there is no authentication.
 
-### 3. Configure Your Agent
+### 3. Connect Your Agents (installer)
 
-#### OpenCode
-Add to `~/.config/opencode/opencode.jsonc`:
-```jsonc
-{
-  "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
-    }
-  }
-}
+Use the installer instead of hand-editing config. It previews a per-file diff, backs up each file before writing, merges only its own entry or marker block (comments in JSONC/TOML survive), and never deletes files it did not create.
+
+```bash
+ast-mcp install --target cursor --dry-run        # preview only
+ast-mcp install --target cursor --yes            # apply
+ast-mcp install --target all --yes               # every host; unsupported parts are skipped
+ast-mcp verify                                   # installed / outdated / modified_by_user / …
+ast-mcp uninstall --target cursor --yes          # remove only what was added
+ast-mcp backups && ast-mcp restore --yes <id>    # undo a change
 ```
 
-#### Cursor
-Add to `.cursor/mcp.json` in your project:
-```json
-{
-  "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp",
-      "env": {
-        "AST_MCP_TIER": "extended"
-      }
-    }
-  }
-}
-```
+- Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code subagent-handoff hooks: available, opt-in; turn on the `feature_handoff_hooks` flag first, then `--target claude_code --component hooks`, and restart Claude Code. See [docs/handoff.md](../../docs/handoff.md#claude-code-hooks)).
+- `--mcp-port` / `--mcp-url` when the server is not on 7821 (default `$AST_MCP_PORT`, then 7821). `--json` for scripts.
+- Exit codes: 0 ok, 1 error, 2 needs `--yes`, 3 conflict or unparseable config (nothing written), 4 unsupported.
+- `ast-mcp` here is the shell function from `make install`, which passes these subcommands to the built binary; `./ast-mcp` in the repo works the same.
+- Same flow in the dashboard: Settings → **Agent integration** (Preview, Apply, Backups).
+- Upgrading from 3.x: re-run install. The old Claude Code installer could overwrite `~/.claude.json`; restore it from `~/.claude/backups/` if needed. Close Claude Code before applying changes to `~/.claude.json`.
 
-**Tier note:** `store_context` and `flush_context` (virtual context compaction) require **extended** tier or higher. Read tools (`fetch_context`, `list_context`, `search_context`) are **core**. Set `AST_MCP_TIER=extended` on the ast-mcp process (or in MCP server env above) and restart after changes.
+Reference: [docs/INSTALL.md](../../docs/INSTALL.md#connect-your-agents) (flags, manual snippets); files and keys per host: [docs/host-integration.md](../../docs/host-integration.md).
 
-#### Claude Desktop
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "ast-context-cache": {
-      "command": "http",
-      "url": "http://localhost:7821/mcp"
-    }
-  }
-}
-```
+**Manual config:** use the exact entries in [agents/SKILL.md](../agents/SKILL.md#editor-mcp-configuration-manual). **Never add an `env` block to a `url` entry** — hosts apply `env` only to processes they launch, so it does nothing for an HTTP server. Set `AST_MCP_TIER` on the `ast-mcp` process instead.
 
-#### Claude Code
-Add `CLAUDE.md` to your project:
-```markdown
-# Code Context Instructions
-
-Use ast-context-cache MCP server (http://localhost:7821/mcp) for efficient code search.
-- get_context_capsule: Search code with token-efficient modes
-- store_context / fetch_context: Virtual context compaction (extended to store)
-- cache_summary: Cache your own summaries
-- analyze_dead_code: Find unused code
-```
-
-See [usage/SKILL.md](../usage/SKILL.md) for full workflows including virtual context compaction.
+See [usage/SKILL.md](../usage/SKILL.md) for full workflows including virtual context compaction and subagent handoff.
 
 ### 4. Agent instructions (all editors)
 
-Paste the block from [agents/SKILL.md](../agents/SKILL.md) into project **`AGENTS.md`** or **`CLAUDE.md`**, or rely on Cursor project skills under `.cursor/skills/`.
-
-**Cursor global rule (recommended):** Copy [AGENTS.md](../../AGENTS.md) guidance into `~/.cursor/rules/ast-context-cache.mdc` with `alwaysApply: true` so every session knows all MCP tools and **must use `store_context` before host compaction** when extended tier is enabled. See [agents/SKILL.md — Cursor Rules](../agents/SKILL.md#cursor-rules-global-or-project).
+The installer's `skills` and `rules` components install the canonical skills and instruction block for each host (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.cursor/rules/ast-context-cache.mdc`). For a project `AGENTS.md` / `CLAUDE.md`, paste the block from [agents/SKILL.md](../agents/SKILL.md#agent-instructions-block-paste-into-agentsmd-or-claudemd).
 
 ## Tool tiers
 
-| Tier | Virtual context |
-|------|-----------------|
-| core | `fetch_context`, `list_context`, `search_context` |
-| extended | + `store_context`, `flush_context` |
+| Tier | Virtual context | Handoff |
+|------|-----------------|---------|
+| core | `fetch_context`, `list_context`, `search_context` | `handoff`, `open_handoff`, `scratchpad` |
+| extended | + `store_context`, `flush_context` | (same) |
 
-Default server tier is `complete`. For read-only agents: `AST_MCP_TIER=core`. For indexing without compaction writes: `AST_MCP_TIER=extended`.
+Default server tier is `complete`. For read-only agents: `AST_MCP_TIER=core` (the handoff tools still appear; turn them off with `AST_FEATURE_HANDOFF=false` or Settings → Features). For indexing without code mode: `AST_MCP_TIER=extended`.
 
-Per-tool overrides: `~/.astcache/tools.json` — see [tools.json.example](../tools.json.example). Restart ast-mcp after edits.
+Per-tool overrides: `~/.astcache/tools.json` (or `AST_MCP_TOOLS_CONFIG`) — see [tools.json.example](../tools.json.example). Restart ast-mcp after edits. Feature flags apply live, no restart.
 
 ## Troubleshooting
 
@@ -116,6 +82,12 @@ make download-model
 ```bash
 lsof -i :7821
 ```
+
+### 403 `forbidden origin` / `forbidden host`
+A browser tool or proxy reached the server with a non-loopback `Origin` or `Host`. Use `http://localhost:<port>`; for deliberate LAN access start ast-mcp with `--listen <address>`.
+
+### Installer exits 3
+The target config failed to parse (nothing was written) or changed since the preview. Fix the file or re-run the command.
 
 ## Shell Function (Optional)
 ```bash

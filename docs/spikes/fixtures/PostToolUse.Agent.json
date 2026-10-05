@@ -1,0 +1,27 @@
+{
+  "session_id": "82de5123-70a6-4982-b7cc-aa839be2cd89",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/scratchpad",
+  "prompt_id": "b9dc77a3-c0bc-4875-8f64-42d4859667e6",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Report canaries",
+    "prompt": "Report the subagent canary and the session canary if you know them, otherwise say NONE for each. Do not use any tools.\n\nAlso include the literal text CANARY-PROMPT-9915 in your answer.",
+    "subagent_type": "general-purpose"
+  },
+  "tool_response": {
+    "isAsync": true,
+    "status": "async_launched",
+    "agentId": "ae37e4a6c4dca43fd",
+    "description": "Report canaries",
+    "resolvedModel": "claude-haiku-4-5-20251001",
+    "prompt": "Report the subagent canary and the session canary if you know them, otherwise say NONE for each. Do not use any tools.\n\nAlso include the literal text CANARY-PROMPT-9915 in your answer.",
+    "outputFile": "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/tasks/ae37e4a6c4dca43fd.output",
+    "canReadOutputFile": true
+  },
+  "tool_use_id": "toolu_01UDto3QG8vcCwa2XBPaKX2T",
+  "duration_ms": 4
+}

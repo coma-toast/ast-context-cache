@@ -10,14 +10,15 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
 // isolateIndexJobs gives a test fresh job state and restores the package hooks once
 // every job it started has finished. HOME and the DB are isolated by TestMain.
 func isolateIndexJobs(t *testing.T) {
 	t.Helper()
-	origCfg, origRun, origAfter, origWait := srvCfg, runIndexDirectory, afterIndexDirectory, indexJobSyncWait
-	srvCfg = DefaultConfig()
+	origCfg, origRun, origAfter, origWait := GetConfig(), runIndexDirectory, afterIndexDirectory, indexJobSyncWait
+	SetConfig(DefaultConfig())
 	indexJobsMu.Lock()
 	indexJobs = nil
 	projectLocks = map[string]*sync.Mutex{}
@@ -34,7 +35,8 @@ func isolateIndexJobs(t *testing.T) {
 				t.Errorf("job %s still running at cleanup", j.ID)
 			}
 		}
-		srvCfg, runIndexDirectory, afterIndexDirectory, indexJobSyncWait = origCfg, origRun, origAfter, origWait
+		SetConfig(origCfg)
+		runIndexDirectory, afterIndexDirectory, indexJobSyncWait = origRun, origAfter, origWait
 		indexJobsMu.Lock()
 		indexJobs = nil
 		indexJobsMu.Unlock()
@@ -202,6 +204,8 @@ func TestIndexFilesConcurrentCallsShareOneJob(t *testing.T) {
 
 // A directory job that finishes within the sync wait keeps the old synchronous answer.
 func TestIndexFilesSmallDirectoryCompletesSynchronously(t *testing.T) {
+	// Its own database: an earlier test's dbtest.Init closes the one TestMain opened.
+	dbtest.Init(t)
 	isolateIndexJobs(t)
 	project := t.TempDir()
 	src := "package demo\n\nfunc Hello() string { return \"hi\" }\n\nfunc World() {}\n"
@@ -255,6 +259,7 @@ func TestPruneIndexJobsKeepsActiveAndRecent(t *testing.T) {
 // visible to the agent in index_status, not only in the server log — and clear once space
 // is back. The free-space probe is faked; nothing fills a disk.
 func TestIndexStatusReportsDiskPressure(t *testing.T) {
+	dbtest.Init(t)
 	isolateIndexJobs(t)
 	free := uint64(3 << 30)
 	restore := db.SetFreeBytesFuncForTest(func(string) (uint64, error) { return free, nil })

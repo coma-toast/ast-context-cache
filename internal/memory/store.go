@@ -3,12 +3,26 @@ package memory
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+)
+
+const (
+	insertEntryQuery = `INSERT INTO structured_memory
+			(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	selectActiveFactRefsQuery = `SELECT ref FROM structured_memory WHERE kind = 'fact' AND subject = ? AND predicate = ? AND (valid_until IS NULL OR valid_until = '')`
+	andSessionScopeClause     = ` AND scope = 'session' AND session_id = ?`
+	andProjectScopeClause     = ` AND scope = 'project' AND project_path = ?`
+	andGlobalScopeClause      = ` AND scope = 'global'`
+	supersedeEntryQuery       = `UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ? WHERE ref = ?`
+	selectEntryByRefQuery     = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		FROM structured_memory WHERE ref = ?`
 )
 
 // factSupersessionMu serializes the read-then-write fact-supersession sequence
@@ -20,25 +34,25 @@ var factSupersessionMu sync.Mutex
 
 // StoreInput is the payload for store_memory.
 type StoreInput struct {
-	Kind                Kind
-	Scope               Scope
-	SessionID           string
-	ProjectPath         string
-	Subject             string
-	Predicate           string
-	Object              string
-	Rule                string
-	SourceRef           string
-	InvalidatePrevious  bool
+	Kind               Kind
+	Scope              Scope
+	SessionID          string
+	ProjectPath        string
+	Subject            string
+	Predicate          string
+	Object             string
+	Rule               string
+	SourceRef          string
+	InvalidatePrevious bool
 }
 
 // StoreResult is returned from Store.
 type StoreResult struct {
-	Ref                 string `json:"ref"`
-	Kind                Kind   `json:"kind"`
-	VirtualTokensStored int    `json:"virtual_tokens_stored"`
+	Ref                 string   `json:"ref"`
+	Kind                Kind     `json:"kind"`
+	VirtualTokensStored int      `json:"virtual_tokens_stored"`
 	InvalidatedRefs     []string `json:"invalidated_refs,omitempty"`
-	Line                string `json:"line"`
+	Line                string   `json:"line"`
 }
 
 func newRef(prefix string) (string, error) {
@@ -53,18 +67,18 @@ func normalizeScope(s Scope, sessionID, projectPath string) (Scope, error) {
 	switch s {
 	case "", ScopeSession:
 		if strings.TrimSpace(sessionID) == "" {
-			return "", errors.New("session_id required for session scope")
+			return "", errs.NewCode(errs.CodeInvalidInput, "session_id required for session scope")
 		}
 		return ScopeSession, nil
 	case ScopeProject:
 		if strings.TrimSpace(projectPath) == "" {
-			return "", errors.New("project_path required for project scope")
+			return "", errs.NewCode(errs.CodeInvalidInput, "project_path required for project scope")
 		}
 		return ScopeProject, nil
 	case ScopeGlobal:
 		return ScopeGlobal, nil
 	default:
-		return "", fmt.Errorf("invalid scope: %s", s)
+		return "", errs.NewCode(errs.CodeInvalidInput, fmt.Sprintf("invalid scope: %s", s), "scope", s)
 	}
 }
 
@@ -86,7 +100,7 @@ func Store(in StoreInput) (*StoreResult, error) {
 			in.Predicate = "is"
 		}
 		if in.Subject == "" || in.Object == "" {
-			return nil, errors.New("subject and object required for fact")
+			return nil, errs.NewCode(errs.CodeInvalidInput, "subject and object required for fact")
 		}
 		entry = Entry{
 			Kind:        KindFact,
@@ -101,7 +115,7 @@ func Store(in StoreInput) (*StoreResult, error) {
 	case KindProcedure:
 		in.Rule = strings.TrimSpace(in.Rule)
 		if in.Rule == "" {
-			return nil, errors.New("rule required for procedure")
+			return nil, errs.NewCode(errs.CodeInvalidInput, "rule required for procedure")
 		}
 		entry = Entry{
 			Kind:        KindProcedure,
@@ -112,7 +126,7 @@ func Store(in StoreInput) (*StoreResult, error) {
 			SourceRef:   in.SourceRef,
 		}
 	default:
-		return nil, errors.New("kind must be fact or procedure")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "kind must be fact or procedure")
 	}
 	ref, err := newRef("mem_")
 	if err != nil {
@@ -121,9 +135,7 @@ func Store(in StoreInput) (*StoreResult, error) {
 	entry.Ref = ref
 	entry.TokenEst = estimateEntryTokens(entry)
 	insert := func() error {
-		_, err := db.ContextDB.Exec(`INSERT INTO structured_memory
-			(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		_, err := db.ContextDB.Exec(insertEntryQuery,
 			ref, string(entry.Kind), string(scope), nullIfEmpty(in.SessionID), nullIfEmpty(in.ProjectPath),
 			nullIfEmpty(entry.Subject), nullIfEmpty(entry.Predicate), nullIfEmpty(entry.Object), nullIfEmpty(entry.Rule),
 			nullIfEmpty(entry.SourceRef), entry.TokenEst)
@@ -159,17 +171,17 @@ func nullIfEmpty(s string) interface{} {
 }
 
 func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predicate, newRef string) ([]string, error) {
-	q := `SELECT ref FROM structured_memory WHERE kind = 'fact' AND subject = ? AND predicate = ? AND (valid_until IS NULL OR valid_until = '')`
+	q := selectActiveFactRefsQuery
 	args := []any{subject, predicate}
 	switch scope {
 	case ScopeSession:
-		q += ` AND scope = 'session' AND session_id = ?`
+		q += andSessionScopeClause
 		args = append(args, sessionID)
 	case ScopeProject:
-		q += ` AND scope = 'project' AND project_path = ?`
+		q += andProjectScopeClause
 		args = append(args, projectPath)
 	case ScopeGlobal:
-		q += ` AND scope = 'global'`
+		q += andGlobalScopeClause
 	}
 	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
@@ -184,7 +196,7 @@ func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predica
 		}
 	}
 	for _, ref := range refs {
-		db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ? WHERE ref = ?`, newRef, ref)
+		db.ContextDB.Exec(supersedeEntryQuery, newRef, ref)
 	}
 	return refs, nil
 }
@@ -262,8 +274,6 @@ func strVal(v interface{}) string {
 }
 
 func entryByRef(ref string) (Entry, error) {
-	row := db.ContextDB.QueryRow(`SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
-		FROM structured_memory WHERE ref = ?`, ref)
+	row := db.ContextDB.QueryRow(selectEntryByRefQuery, ref)
 	return scanEntry(row)
 }

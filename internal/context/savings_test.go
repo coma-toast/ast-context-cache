@@ -5,15 +5,6 @@ import (
 	"testing"
 )
 
-func TestCacheHasSavingsMeta(t *testing.T) {
-	if CacheHasSavingsMeta(map[string]interface{}{"results": []any{}}) {
-		t.Fatal("results alone should not count")
-	}
-	if !CacheHasSavingsMeta(map[string]interface{}{"tokens_saved": float64(1)}) {
-		t.Fatal("tokens_saved should count")
-	}
-}
-
 func TestCoerceInt(t *testing.T) {
 	if coerceInt(float64(42)) != 42 {
 		t.Fatal("float64")

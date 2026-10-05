@@ -9,12 +9,33 @@ import (
 )
 
 const (
-	KindKvRepair     = "kv_repair"
-	TagKvRepair      = "kv_repair"
-	RepairProactive  = "proactive"
-	RepairCacheMiss  = "cache_miss"
-	RepairQuality    = "quality"
-	RepairManual     = "manual"
+	KindKvRepair    = "kv_repair"
+	TagKvRepair     = "kv_repair"
+	RepairProactive = "proactive"
+	RepairCacheMiss = "cache_miss"
+	RepairQuality   = "quality"
+	RepairManual    = "manual"
+)
+
+const (
+	kvRepairNoteWhereClause     = `(kind = ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)`
+	selectKvRepairArchivesQuery = `SELECT COUNT(*), COALESCE(SUM(CASE WHEN access_count=0 THEN 1 ELSE 0 END),0)
+		FROM context_notes WHERE `
+	countNotesWhereQuery             = `SELECT COUNT(*) FROM context_notes WHERE `
+	createdSinceClause               = ` AND created_at >= ?`
+	createdBetweenClause             = ` AND created_at >= ? AND created_at < ?`
+	repairAccessSinceClause          = `repair_reason != '' AND accessed_at >= ?`
+	repairAccessBetweenClause        = `repair_reason != '' AND accessed_at >= ? AND accessed_at < ?`
+	selectRepairAccessTotalsQuery    = `SELECT COUNT(*), COALESCE(SUM(virtual_tokens),0) FROM context_note_access WHERE `
+	countRepairAccessWhereQuery      = `SELECT COUNT(*) FROM context_note_access WHERE `
+	countRepairAccessByReasonQuery   = `SELECT COUNT(*) FROM context_note_access WHERE repair_reason = ? AND accessed_at >= ?`
+	eventCreatedSinceClause          = `created_at >= ?`
+	countKvRepairEventsByReasonQuery = `SELECT COUNT(*) FROM kv_repair_events WHERE repair_reason = ? AND `
+	countKvRepairEventsSuccessQuery  = `SELECT COUNT(*) FROM kv_repair_events WHERE outcome = 'success' AND `
+	countKvRepairEventsFailedQuery   = `SELECT COUNT(*) FROM kv_repair_events WHERE outcome = 'failed' AND `
+	insertKvRepairEventQuery         = `INSERT INTO kv_repair_events
+		(session_id, project_path, ref, repair_reason, outcome, model_id, kv_quant, token_est, detail, metadata_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 )
 
 // KvRepairMetadata is persisted in context_notes.metadata_json for kv_repair archives.
@@ -118,10 +139,10 @@ func ParseKvRepairMetadata(n Note) (KvRepairMetadata, error) {
 }
 
 func kvRepairNoteWhere(projectPath string) (where string, args []any) {
-	where = `(kind = ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)`
-	args = []any{KindKvRepair, "%"+TagKvRepair+",%", "%,"+TagKvRepair+"%", TagKvRepair}
+	where = kvRepairNoteWhereClause
+	args = []any{KindKvRepair, "%" + TagKvRepair + ",%", "%," + TagKvRepair + "%", TagKvRepair}
 	if projectPath != "" {
-		where = "(" + where + ") AND project_path = ?"
+		where = "(" + where + ")" + andProjectPathClause
 		args = append(args, projectPath)
 	}
 	return where, args
@@ -134,58 +155,57 @@ func KvRepairDashboardStatsFor(projectPath string, windowDays int) KvRepairDashb
 	}
 	ds := KvRepairDashboardStats{RepairsByReason: map[string]int{}}
 	where, args := kvRepairNoteWhere(projectPath)
-	db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE WHEN access_count=0 THEN 1 ELSE 0 END),0)
-		FROM context_notes WHERE `+where, args...).
+	db.ContextDB.QueryRow(selectKvRepairArchivesQuery+where, args...).
 		Scan(&ds.ArchivesActive, &ds.RepairOrphans)
 	cutoff := time.Now().AddDate(0, 0, -windowDays).Format("2006-01-02") + "T00:00:00"
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	storeWhere := where + ` AND created_at >= ?`
+	storeWhere := where + createdSinceClause
 	storeArgs := append(append([]any{}, args...), cutoff)
-	db.ContextDB.QueryRow(`SELECT COUNT(*) FROM context_notes WHERE `+storeWhere, storeArgs...).Scan(&ds.ArchivesStored30d)
+	db.ContextDB.QueryRow(countNotesWhereQuery+storeWhere, storeArgs...).Scan(&ds.ArchivesStored30d)
 	todayStoreArgs := append(append([]any{}, args...), todayStart, tomorrowStart)
-	db.ContextDB.QueryRow(`SELECT COUNT(*) FROM context_notes WHERE `+where+` AND created_at >= ? AND created_at < ?`, todayStoreArgs...).Scan(&ds.TodayArchives)
-	accessWhere := `repair_reason != '' AND accessed_at >= ?`
+	db.ContextDB.QueryRow(countNotesWhereQuery+where+createdBetweenClause, todayStoreArgs...).Scan(&ds.TodayArchives)
+	accessWhere := repairAccessSinceClause
 	accessArgs := []any{cutoff}
 	if projectPath != "" {
-		accessWhere += ` AND project_path = ?`
+		accessWhere += andProjectPathClause
 		accessArgs = append(accessArgs, projectPath)
 	}
-	db.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(virtual_tokens),0) FROM context_note_access WHERE `+accessWhere, accessArgs...).
+	db.DB.QueryRow(selectRepairAccessTotalsQuery+accessWhere, accessArgs...).
 		Scan(&ds.RepairsTotal30d, &ds.TokensRepaired30d)
 	todayAccessArgs := []any{todayStart, tomorrowStart}
-	todayAccessWhere := `repair_reason != '' AND accessed_at >= ? AND accessed_at < ?`
+	todayAccessWhere := repairAccessBetweenClause
 	if projectPath != "" {
-		todayAccessWhere += ` AND project_path = ?`
+		todayAccessWhere += andProjectPathClause
 		todayAccessArgs = append(todayAccessArgs, projectPath)
 	}
-	db.DB.QueryRow(`SELECT COUNT(*) FROM context_note_access WHERE `+todayAccessWhere, todayAccessArgs...).Scan(&ds.TodayRepairs)
+	db.DB.QueryRow(countRepairAccessWhereQuery+todayAccessWhere, todayAccessArgs...).Scan(&ds.TodayRepairs)
 	for _, reason := range []string{RepairCacheMiss, RepairQuality, RepairManual} {
-		q := `SELECT COUNT(*) FROM context_note_access WHERE repair_reason = ? AND accessed_at >= ?`
+		q := countRepairAccessByReasonQuery
 		qargs := []any{reason, cutoff}
 		if projectPath != "" {
-			q += ` AND project_path = ?`
+			q += andProjectPathClause
 			qargs = append(qargs, projectPath)
 		}
 		var n int
 		db.DB.QueryRow(q, qargs...).Scan(&n)
 		ds.RepairsByReason[reason] = n
 	}
-	eventWhere := `created_at >= ?`
+	eventWhere := eventCreatedSinceClause
 	eventArgs := []any{cutoff}
 	if projectPath != "" {
-		eventWhere += ` AND project_path = ?`
+		eventWhere += andProjectPathClause
 		eventArgs = append(eventArgs, projectPath)
 	}
-	db.ContextDB.QueryRow(`SELECT COUNT(*) FROM kv_repair_events WHERE repair_reason = ? AND `+eventWhere, append([]any{RepairQuality}, eventArgs...)...).Scan(&ds.QualitySignals30d)
-	db.ContextDB.QueryRow(`SELECT COUNT(*) FROM kv_repair_events WHERE repair_reason = ? AND `+eventWhere, append([]any{RepairCacheMiss}, eventArgs...)...).Scan(&ds.CacheMissSignals30d)
-	db.ContextDB.QueryRow(`SELECT COUNT(*) FROM kv_repair_events WHERE repair_reason = ? AND `+eventWhere, append([]any{RepairManual}, eventArgs...)...).Scan(&ds.ManualSignals30d)
+	db.ContextDB.QueryRow(countKvRepairEventsByReasonQuery+eventWhere, append([]any{RepairQuality}, eventArgs...)...).Scan(&ds.QualitySignals30d)
+	db.ContextDB.QueryRow(countKvRepairEventsByReasonQuery+eventWhere, append([]any{RepairCacheMiss}, eventArgs...)...).Scan(&ds.CacheMissSignals30d)
+	db.ContextDB.QueryRow(countKvRepairEventsByReasonQuery+eventWhere, append([]any{RepairManual}, eventArgs...)...).Scan(&ds.ManualSignals30d)
 	if ds.ArchivesStored30d > 0 {
 		ds.RepairUtilizationPct30d = float64(ds.RepairsTotal30d) / float64(ds.ArchivesStored30d) * 100
 	}
 	var success, failed int
-	db.ContextDB.QueryRow(`SELECT COUNT(*) FROM kv_repair_events WHERE outcome = 'success' AND `+eventWhere, eventArgs...).Scan(&success)
-	db.ContextDB.QueryRow(`SELECT COUNT(*) FROM kv_repair_events WHERE outcome = 'failed' AND `+eventWhere, eventArgs...).Scan(&failed)
+	db.ContextDB.QueryRow(countKvRepairEventsSuccessQuery+eventWhere, eventArgs...).Scan(&success)
+	db.ContextDB.QueryRow(countKvRepairEventsFailedQuery+eventWhere, eventArgs...).Scan(&failed)
 	if success+failed > 0 {
 		ds.RepairSuccessRate = float64(success) / float64(success+failed) * 100
 	}
@@ -209,9 +229,7 @@ func ReportKvRepairEvent(in ReportEventInput) error {
 			metaJSON = string(b)
 		}
 	}
-	_, err := db.ContextDB.Exec(`INSERT INTO kv_repair_events
-		(session_id, project_path, ref, repair_reason, outcome, model_id, kv_quant, token_est, detail, metadata_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := db.ContextDB.Exec(insertKvRepairEventQuery,
 		in.SessionID, in.ProjectPath, in.Ref, reason, outcome, in.ModelID, in.KvQuant, in.TokenEst, in.Detail, metaJSON)
 	return err
 }

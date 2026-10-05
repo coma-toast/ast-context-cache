@@ -1,0 +1,12 @@
+{
+  "session_id": "82de5123-70a6-4982-b7cc-aa839be2cd89",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "resume",
+  "seconds_since_last_response": 86,
+  "context_tokens": 31538,
+  "prompt_cache_likely_expired": false,
+  "estimated_cache_write_usd": 0.0631
+}

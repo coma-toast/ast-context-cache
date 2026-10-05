@@ -39,7 +39,7 @@ func setupDeletedFileJob(t *testing.T) (job, string) {
 	embedder.MarkReady()
 	proj := t.TempDir()
 	file := filepath.Join(proj, "dashboard.go")
-	if err := os.WriteFile(file, []byte("package p\n\nfunc Dashboard() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("package p\n\nfunc Dashboard() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := indexer.IndexFile(file, proj); err != nil {

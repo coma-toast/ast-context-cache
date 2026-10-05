@@ -4,6 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 )
 
 func TestFilterTools_disabledOverride(t *testing.T) {
@@ -75,7 +80,7 @@ func TestFilterTools_executeCodeRequiresCodeMode(t *testing.T) {
 func TestLoadToolConfigs_invalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tools.json")
-	if err := os.WriteFile(path, []byte("{not json"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AST_MCP_TOOLS_CONFIG", path)
@@ -88,7 +93,7 @@ func TestLoadToolConfigs_invalidJSON(t *testing.T) {
 func TestLoadToolConfigs_normalizesTier(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tools.json")
-	if err := os.WriteFile(path, []byte(`{"index_files":{"enabled":true,"tier":"EXTENDED"}}`), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"index_files":{"enabled":true,"tier":"EXTENDED"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AST_MCP_TOOLS_CONFIG", path)
@@ -120,5 +125,124 @@ func TestToolDenyMessage(t *testing.T) {
 	}
 	if msg := ToolDenyMessage("nope", cfg, denyUnknown); msg != "unknown tool: nope" {
 		t.Fatalf("got %q", msg)
+	}
+}
+
+// setFlagEnvs sets feature-flag env vars for the test and reloads the registry. The Reload
+// cleanup is registered before t.Setenv so it runs after the env vars are restored.
+func setFlagEnvs(t *testing.T, kv map[string]string) {
+	t.Helper()
+	t.Cleanup(flags.Reload)
+	for k, v := range kv {
+		t.Setenv(k, v)
+	}
+	flags.Reload()
+}
+
+// A scratchpad literal at extended tier (the real tool is core) lets these cases see the tier
+// check apply alongside the flags.
+func TestToolAccessFeatureFlags(t *testing.T) {
+	scratchpad := Tool{Name: "scratchpad", Tier: TierExtended}
+	tests := []struct {
+		name       string
+		master     string
+		child      string
+		active     Tier
+		configs    map[string]*ToolConfig
+		wantOK     bool
+		wantReason toolDenyReason
+	}{
+		{name: "flags on", master: "true", child: "true", active: TierExtended, wantOK: true, wantReason: denyNone},
+		{name: "child flag off hides tool", master: "true", child: "false", active: TierComplete, wantReason: denyFlag},
+		{name: "master flag off hides tool", master: "false", child: "true", active: TierComplete, wantReason: denyFlag},
+		{name: "tools.json cannot override flag", master: "true", child: "false", active: TierComplete, configs: map[string]*ToolConfig{"scratchpad": {Enabled: true, Tier: TierCore}}, wantReason: denyFlag},
+		{name: "tools.json disables with flag on", master: "true", child: "true", active: TierComplete, configs: map[string]*ToolConfig{"scratchpad": {Enabled: false}}, wantReason: denyDisabled},
+		{name: "tier still applies with flag on", master: "true", child: "true", active: TierCore, wantReason: denyTier},
+		{name: "tools.json promotes tier with flag on", master: "true", child: "true", active: TierCore, configs: map[string]*ToolConfig{"scratchpad": {Enabled: true, Tier: TierCore}}, wantOK: true, wantReason: denyNone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": tt.master, "AST_FEATURE_HANDOFF_SCRATCHPAD": tt.child})
+			ok, reason := toolAccess(scratchpad, ServerConfig{ActiveTier: tt.active, ToolConfigs: tt.configs})
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantReason, reason)
+		})
+	}
+}
+
+func TestFilterToolsHidesFlagDisabledTools(t *testing.T) {
+	all := []Tool{{Name: "scratchpad", Tier: TierCore}, {Name: "get_context_capsule", Tier: TierCore}}
+	cfg := ServerConfig{ActiveTier: TierComplete, ToolConfigs: map[string]*ToolConfig{"scratchpad": {Enabled: true, Description: "Custom scratchpad"}}}
+	names := func() []string {
+		var out []string
+		for _, tool := range filterTools(all, cfg) {
+			out = append(out, tool.Name)
+		}
+		return out
+	}
+	setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": "true", "AST_FEATURE_HANDOFF_SCRATCHPAD": "false"})
+	assert.Equal(t, []string{"get_context_capsule"}, names())
+	t.Setenv("AST_FEATURE_HANDOFF_SCRATCHPAD", "true")
+	flags.Reload()
+	visible := filterTools(all, cfg)
+	require.Len(t, visible, 2)
+	assert.Equal(t, "Custom scratchpad", visible[0].Description, "tools.json overrides still apply to flag-allowed tools")
+}
+
+func TestToolDenyMessageFeatureDisabled(t *testing.T) {
+	setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": "true", "AST_FEATURE_HANDOFF_SCRATCHPAD": "false"})
+	msg := ToolDenyMessage("scratchpad", ServerConfig{ActiveTier: TierComplete}, denyFlag)
+	assert.Contains(t, msg, "feature_disabled")
+	assert.Contains(t, msg, "scratchpad")
+	assert.Contains(t, msg, flags.KeyHandoffScratchpad)
+}
+
+func TestGetPromptsNames(t *testing.T) {
+	var names []string
+	for _, p := range GetPrompts() {
+		names = append(names, p.Name)
+		assert.NotEmpty(t, p.Description, p.Name)
+		assert.NotEmpty(t, p.Prompt, p.Name)
+	}
+	assert.Equal(t, []string{"efficient-context-usage", "virtual-context-compaction", "subagent-handoff", "context-mode-decisions"}, names)
+}
+
+// TestGetPromptsHandoffContent pins the TS-6 prompt updates: the handoff tools appear in the
+// compaction table and usage guide, and the handoff prompt covers W1, W3, W4, and recovery.
+func TestGetPromptsHandoffContent(t *testing.T) {
+	prompts := map[string]string{}
+	for _, p := range GetPrompts() {
+		prompts[p.Name] = p.Prompt
+	}
+	for _, tool := range []string{toolHandoff, toolOpenHandoff, toolScratchpad} {
+		assert.Contains(t, prompts["virtual-context-compaction"], "| "+tool+" | core |")
+		assert.Contains(t, prompts["subagent-handoff"], "| "+tool+" |")
+	}
+	assert.Contains(t, prompts["efficient-context-usage"], "### Subagent handoff")
+	for _, want := range []string{
+		"call open_handoff first",
+		"mode=fork: only when the host spawned a fork",
+		"Claims are advisory",
+		"handoff(action=list, session_id)",
+		"[result ctx_… for hof_…]",
+		"credentials",
+	} {
+		assert.Contains(t, prompts["subagent-handoff"], want)
+	}
+	// Every action the prompt names must exist in the tool schemas.
+	for tool, actions := range map[string][]string{
+		toolHandoff:     {"create", "complete", "collect", "list", "status", "flush"},
+		toolOpenHandoff: {"open", "expand", "resume"},
+		toolScratchpad:  {"post", "read", "retract", "claim", "release"},
+	} {
+		var def Tool
+		for _, tl := range GetTools() {
+			if tl.Name == tool {
+				def = tl
+			}
+		}
+		require.NotEmpty(t, def.Name, tool)
+		enum := def.InputSchema["properties"].(map[string]any)["action"].(map[string]any)["enum"]
+		assert.ElementsMatch(t, actions, enum, tool)
 	}
 }

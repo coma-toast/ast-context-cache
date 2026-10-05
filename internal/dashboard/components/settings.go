@@ -1,14 +1,6 @@
 package components
 
-type AgentInfo struct {
-	Type             string
-	Name             string
-	GlobalPath       string
-	ProjectPath      string
-	Description      string
-	GlobalInstalled  bool
-	ProjectInstalled bool
-}
+import "github.com/coma-toast/ast-context-cache/internal/handoff"
 
 type SettingsData struct {
 	IdleUnloadMinutes        int
@@ -55,7 +47,6 @@ type SettingsData struct {
 	EmbedEnvOverrides        []string
 	Projects                 []Project
 	ProjectsLoading          bool
-	Agents                   []AgentInfo
 	ContextMaxNotesSession   int
 	ContextMaxTokensSession  int
 	ContextMaxNotesGlobal    int
@@ -68,4 +59,9 @@ type SettingsData struct {
 	EmbedProbeIntervalSec    int
 	DataDir                  string
 	DataDirSize              string
+	// HandoffLimits are the effective handoff limits (env > setting > default).
+	HandoffLimits handoff.Limits
+	// HandoffEnvLocked lists the handoff limit settings keys whose AST_HANDOFF_* env var is set:
+	// saving them from the dashboard has no effect.
+	HandoffEnvLocked []string
 }

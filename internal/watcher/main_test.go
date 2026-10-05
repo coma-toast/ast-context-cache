@@ -39,20 +39,5 @@ func cleanupWatchers(t *testing.T) {
 // stopWatchersForTest deletes every watcher, cancels every pending debounce,
 // and waits for the goroutines they started to return.
 func stopWatchersForTest() {
-	mu.Lock()
-	projects := make([]string, 0, len(activeWatchers))
-	for p := range activeWatchers {
-		projects = append(projects, p)
-	}
-	mu.Unlock()
-	for _, p := range projects {
-		DeleteWatcher(p)
-	}
-	debounceMu.Lock()
-	for key, t := range debounceTimers {
-		stopDebounce(t)
-		delete(debounceTimers, key)
-	}
-	debounceMu.Unlock()
-	bg.Wait()
+	StopAll()
 }

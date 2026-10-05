@@ -21,7 +21,7 @@ func TestHandleReconcileSpacesPurgesMissingSpaceRepoOnly(t *testing.T) {
 	home := dbtest.Init(t)
 
 	spaceRepo := filepath.Join(home, "spaces", "throwaway", "slapi")
-	if err := os.MkdirAll(spaceRepo, 0755); err != nil {
+	if err := os.MkdirAll(spaceRepo, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	watcher.StartWatcher(spaceRepo)

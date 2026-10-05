@@ -23,6 +23,8 @@ services:
       HOME: /data
       ONNXRUNTIME_LIB: /usr/local/lib/libonnxruntime.so
       AST_MCP_TIER: extended
+      # Bind all interfaces inside the container so the published ports reach it.
+      AST_LISTEN: 0.0.0.0
       # Prefer a remote embedder unless you COPY onnxruntime into the image:
       # EMBED_BACKEND: ollama
       # OLLAMA_HOST: http://host.docker.internal:11434

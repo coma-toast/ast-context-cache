@@ -15,10 +15,10 @@ import (
 
 func writeGoFile(t *testing.T, path, fn string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("package p\n\nfunc "+fn+"() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("package p\n\nfunc "+fn+"() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -221,10 +221,10 @@ func TestCatchUpDeletedAndSymlinkedFilesInToolResults(t *testing.T) {
 	cleanupWatchers(t)
 	const goneRel = "llm-benchmark/model_registry.go"
 	gone := filepath.Join(proj, goneRel)
-	if err := os.MkdirAll(filepath.Dir(gone), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(gone), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(gone, []byte("package p\n\nimport \"example.com/hostsdict\"\n\nfunc BuildHostsDict() { hostsdict.New() }\n"), 0644); err != nil {
+	if err := os.WriteFile(gone, []byte("package p\n\nimport \"example.com/hostsdict\"\n\nfunc BuildHostsDict() { hostsdict.New() }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	realFile := filepath.Join(proj, "litellm_sync.go")

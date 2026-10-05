@@ -25,7 +25,7 @@ func TestScopedCountAndSearchResolveScopeOnce(t *testing.T) {
 	child := filepath.Join(parent, "child")
 	other := filepath.Join(dir, "other")
 	for _, p := range []string{child, other} {
-		if err := os.MkdirAll(p, 0755); err != nil {
+		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

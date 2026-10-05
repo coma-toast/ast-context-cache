@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 type openAIModelsListResponse struct {
@@ -37,7 +39,7 @@ func ListDMRModels(rawURL string) ([]string, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("no models returned from %s (is Model Runner running?)", host)
+	return nil, errs.NewCode(errs.CodeNotFound, fmt.Sprintf("no models returned from %s (is Model Runner running?)", host), "host", host)
 }
 
 // ListOpenAIModels lists models from an OpenAI-compatible GET {base}/models endpoint.
@@ -65,7 +67,7 @@ func ListOpenAIModelsWithClient(client *http.Client, baseURL, apiKey string) ([]
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("models: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, errs.New(fmt.Sprintf("models: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b))), "status_code", resp.StatusCode)
 	}
 	var list openAIModelsListResponse
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
@@ -105,7 +107,7 @@ func ListOllamaModelsWithClient(client *http.Client, host string) ([]string, err
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("ollama /api/tags: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, errs.New(fmt.Sprintf("ollama /api/tags: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b))), "status_code", resp.StatusCode)
 	}
 	var tags ollamaTagsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {

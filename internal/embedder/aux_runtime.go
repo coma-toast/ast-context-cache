@@ -1,12 +1,14 @@
 package embedder
 
 import (
-	"fmt"
-	"log"
 	"sync"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 const embedAuxBackendSetting = "EMBED_AUX_BACKEND"
+
+var errAuxRuntimeNotInitialized = errs.New("aux embedder runtime not initialized")
 
 var (
 	auxMu          sync.Mutex
@@ -66,7 +68,7 @@ func ReloadAuxRuntime() error {
 
 func reloadAuxRuntime() error {
 	if !auxInitialized {
-		return fmt.Errorf("aux embedder runtime not initialized")
+		return errAuxRuntimeNotInitialized
 	}
 	s := SettingsForStoredProfile(AuxBackend())
 	raw, err := NewFromSettings(s, auxModelDir)
@@ -79,6 +81,6 @@ func reloadAuxRuntime() error {
 	auxBackend = b
 	auxModel = m
 	auxMu.Unlock()
-	log.Printf("Aux embedder active: backend=%s model=%s", b, m)
+	logger.Info("Aux embedder active", "backend", b, "model", m)
 	return nil
 }

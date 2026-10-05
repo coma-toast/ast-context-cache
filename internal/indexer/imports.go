@@ -7,6 +7,11 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
+const (
+	insertScopedImportEdgeQuery = "INSERT INTO edges (source_file, source_symbol, target, kind, project_path) VALUES (?, NULLIF(?, ''), ?, 'import', ?)"
+	insertImportNamesEdgeQuery  = "INSERT INTO edges (source_file, source_symbol, target, kind, project_path) VALUES (?, NULLIF(?, ''), ?, 'import_names', ?)"
+)
+
 // ImportNamesSep joins an import_names edge's module and the names it binds:
 // target "model_manager.mm_config::HOSTS,load_config".
 const ImportNamesSep = "::"
@@ -53,14 +58,14 @@ func insertImportEdges(exec db.Execer, refs []importRef, filePath, projectPath s
 		if r.Module == "" {
 			continue
 		}
-		if _, err := exec.Exec("INSERT INTO edges (source_file, source_symbol, target, kind, project_path) VALUES (?, NULLIF(?, ''), ?, 'import', ?)",
+		if _, err := exec.Exec(insertScopedImportEdgeQuery,
 			filePath, r.Scope, r.Module, projectPath); err != nil {
 			return err
 		}
 		if len(r.Names) == 0 {
 			continue
 		}
-		if _, err := exec.Exec("INSERT INTO edges (source_file, source_symbol, target, kind, project_path) VALUES (?, NULLIF(?, ''), ?, 'import_names', ?)",
+		if _, err := exec.Exec(insertImportNamesEdgeQuery,
 			filePath, r.Scope, r.Module+ImportNamesSep+strings.Join(r.Names, ","), projectPath); err != nil {
 			return err
 		}

@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "ast-context-cache": {
-      "command": "http",
-      "url": "http://localhost:7821/mcp"
+      "command": "/usr/local/bin/mcp-local",
+      "args": ["bridge", "http://127.0.0.1:7821/mcp"]
     }
   }
 }

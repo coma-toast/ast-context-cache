@@ -7,19 +7,54 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
+const (
+	selectNoteInventoryQuery = "SELECT COUNT(*), COALESCE(SUM(token_est),0), COALESCE(SUM(CASE WHEN access_count=0 THEN 1 ELSE 0 END),0) FROM context_notes WHERE "
+	selectSessionStatsQuery  = `SELECT COALESCE(notes_count,0), COALESCE(virtual_tokens_stored,0), COALESCE(virtual_tokens_accessed,0)
+		FROM context_session_stats WHERE session_id = ?`
+	selectSessionNoteTotalsQuery = `SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`
+	selectGlobalNoteTotalsQuery  = `SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes`
+	upsertSessionStoreQuery      = `INSERT INTO context_session_stats (session_id, project_path, notes_count, virtual_tokens_stored, last_store_at)
+		VALUES (?, ?, 1, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			project_path = COALESCE(excluded.project_path, context_session_stats.project_path),
+			notes_count = context_session_stats.notes_count + 1,
+			virtual_tokens_stored = context_session_stats.virtual_tokens_stored + excluded.virtual_tokens_stored,
+			last_store_at = excluded.last_store_at`
+	adjustSessionStoreQuery = `UPDATE context_session_stats SET
+		notes_count = CASE WHEN notes_count + ? < 0 THEN 0 ELSE notes_count + ? END,
+		virtual_tokens_stored = CASE WHEN virtual_tokens_stored + ? < 0 THEN 0 ELSE virtual_tokens_stored + ? END
+		WHERE session_id = ?`
+	upsertSessionAccessQuery = `INSERT INTO context_session_stats (session_id, virtual_tokens_accessed, last_access_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			virtual_tokens_accessed = context_session_stats.virtual_tokens_accessed + excluded.virtual_tokens_accessed,
+			last_access_at = excluded.last_access_at`
+	updateNoteAccessQuery = `UPDATE context_notes SET access_count = access_count + 1,
+		tokens_fetched = tokens_fetched + ?,
+		last_accessed_at = ?
+		WHERE ref = ?`
+	insertNoteAccessQuery = `INSERT INTO context_note_access (ref, session_id, project_path, tool_name, virtual_tokens, repair_reason, accessed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	selectContextToolTokens30dQuery = `SELECT COALESCE(SUM(CASE WHEN tool_name='store_context' THEN tokens_saved ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN tool_name IN ('fetch_context','search_context') THEN tokens_used ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN tool_name='flush_context' THEN file_baseline_tokens ELSE 0 END),0)
+		FROM queries WHERE timestamp >= ? AND `
+	selectContextToolTokensTodayQuery = `SELECT COALESCE(SUM(CASE WHEN tool_name='store_context' THEN tokens_saved ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN tool_name IN ('fetch_context','search_context') THEN tokens_used ELSE 0 END),0)
+		FROM queries WHERE timestamp >= ? AND timestamp < ? AND `
+	selectToolCallsPrefixQuery = `SELECT COUNT(*), COALESCE(SUM(`
+	selectToolCallsSuffixQuery = `),0) FROM queries
+			WHERE timestamp >= ? AND tool_name = ?`
+	allNotesWhereClause      = "1=1"
+	projectPathWhereClause   = "project_path = ?"
+	contextToolsFilterClause = "tool_name IN ('store_context','fetch_context','search_context','flush_context')"
+)
+
 // SessionRollup is per-session virtual context totals.
 type SessionRollup struct {
 	NotesCount            int `json:"session_notes_count"`
 	VirtualTokensStored   int `json:"session_virtual_total"`
 	VirtualTokensAccessed int `json:"session_virtual_accessed_total"`
-}
-
-// QuotaStrings for agent-visible quota display.
-type QuotaStrings struct {
-	SessionNotes  string `json:"notes"`
-	SessionTokens string `json:"tokens"`
-	GlobalNotes   string `json:"notes"`
-	GlobalTokens  string `json:"tokens"`
 }
 
 // Inventory is live stored virtual context.
@@ -41,8 +76,8 @@ type DashboardStats struct {
 	TodayAccessed            int                    `json:"today_accessed"`
 	FlushedTokens30d         int                    `json:"flushed_tokens_30d"`
 	Limits                   map[string]interface{} `json:"limits"`
-	ByTool30d                map[string]ToolWindow          `json:"by_tool_30d"`
-	KvRepair                 KvRepairDashboardStats         `json:"kv_repair"`
+	ByTool30d                map[string]ToolWindow  `json:"by_tool_30d"`
+	KvRepair                 KvRepairDashboardStats `json:"kv_repair"`
 }
 
 type ToolWindow struct {
@@ -52,13 +87,13 @@ type ToolWindow struct {
 
 func LiveInventory(projectPath string) Inventory {
 	var inv Inventory
-	where := "1=1"
+	where := allNotesWhereClause
 	args := []any{}
 	if projectPath != "" {
-		where = "project_path = ?"
+		where = projectPathWhereClause
 		args = append(args, projectPath)
 	}
-	db.ContextDB.QueryRow("SELECT COUNT(*), COALESCE(SUM(token_est),0), COALESCE(SUM(CASE WHEN access_count=0 THEN 1 ELSE 0 END),0) FROM context_notes WHERE "+where, args...).
+	db.ContextDB.QueryRow(selectNoteInventoryQuery+where, args...).
 		Scan(&inv.ActiveNotesCount, &inv.ActiveInventoryTok, &inv.OrphanNotesCount)
 	return inv
 }
@@ -68,24 +103,23 @@ func SessionRollupFor(sessionID string) SessionRollup {
 	if sessionID == "" {
 		return r
 	}
-	db.DB.QueryRow(`SELECT COALESCE(notes_count,0), COALESCE(virtual_tokens_stored,0), COALESCE(virtual_tokens_accessed,0)
-		FROM context_session_stats WHERE session_id = ?`, sessionID).
+	db.DB.QueryRow(selectSessionStatsQuery, sessionID).
 		Scan(&r.NotesCount, &r.VirtualTokensStored, &r.VirtualTokensAccessed)
 	if r.NotesCount == 0 {
-		db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
+		db.ContextDB.QueryRow(selectSessionNoteTotalsQuery, sessionID).
 			Scan(&r.NotesCount, &r.VirtualTokensStored)
 	}
 	return r
 }
 
 func GlobalRollup() (notes, tokens int) {
-	db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes`).Scan(&notes, &tokens)
+	db.ContextDB.QueryRow(selectGlobalNoteTotalsQuery).Scan(&notes, &tokens)
 	return notes, tokens
 }
 
 func QuotaForSession(sessionID string) (sessionNotes, sessionTokens, globalNotes, globalTokens int) {
 	if sessionID != "" {
-		db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
+		db.ContextDB.QueryRow(selectSessionNoteTotalsQuery, sessionID).
 			Scan(&sessionNotes, &sessionTokens)
 	}
 	globalNotes, globalTokens = GlobalRollup()
@@ -124,23 +158,14 @@ func BuildStatsBlock(sessionID string, lim Limits) map[string]interface{} {
 
 func bumpSessionStore(sessionID, projectPath string, tokenEst int) {
 	now := time.Now().UTC().Format(time.RFC3339)
-	db.DB.Exec(`INSERT INTO context_session_stats (session_id, project_path, notes_count, virtual_tokens_stored, last_store_at)
-		VALUES (?, ?, 1, ?, ?)
-		ON CONFLICT(session_id) DO UPDATE SET
-			project_path = COALESCE(excluded.project_path, context_session_stats.project_path),
-			notes_count = context_session_stats.notes_count + 1,
-			virtual_tokens_stored = context_session_stats.virtual_tokens_stored + excluded.virtual_tokens_stored,
-			last_store_at = excluded.last_store_at`, sessionID, projectPath, tokenEst, now)
+	db.DB.Exec(upsertSessionStoreQuery, sessionID, projectPath, tokenEst, now)
 }
 
 func adjustSessionStore(sessionID string, notesDelta, tokensDelta int) {
 	if sessionID == "" || (notesDelta == 0 && tokensDelta == 0) {
 		return
 	}
-	db.DB.Exec(`UPDATE context_session_stats SET
-		notes_count = CASE WHEN notes_count + ? < 0 THEN 0 ELSE notes_count + ? END,
-		virtual_tokens_stored = CASE WHEN virtual_tokens_stored + ? < 0 THEN 0 ELSE virtual_tokens_stored + ? END
-		WHERE session_id = ?`, notesDelta, notesDelta, tokensDelta, tokensDelta, sessionID)
+	db.DB.Exec(adjustSessionStoreQuery, notesDelta, notesDelta, tokensDelta, tokensDelta, sessionID)
 }
 
 func bumpSessionAccess(sessionID string, tokens int) {
@@ -148,11 +173,7 @@ func bumpSessionAccess(sessionID string, tokens int) {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	db.DB.Exec(`INSERT INTO context_session_stats (session_id, virtual_tokens_accessed, last_access_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT(session_id) DO UPDATE SET
-			virtual_tokens_accessed = context_session_stats.virtual_tokens_accessed + excluded.virtual_tokens_accessed,
-			last_access_at = excluded.last_access_at`, sessionID, tokens, now)
+	db.DB.Exec(upsertSessionAccessQuery, sessionID, tokens, now)
 }
 
 func RecordAccess(ref, sessionID, projectPath, toolName string, virtualTokens int, repairReason string) {
@@ -161,12 +182,8 @@ func RecordAccess(ref, sessionID, projectPath, toolName string, virtualTokens in
 	}
 	reason := normalizeRepairReason(repairReason)
 	now := time.Now().UTC().Format(time.RFC3339)
-	db.ContextDB.Exec(`UPDATE context_notes SET access_count = access_count + 1,
-		tokens_fetched = tokens_fetched + ?,
-		last_accessed_at = ?
-		WHERE ref = ?`, virtualTokens, now, ref)
-	db.DB.Exec(`INSERT INTO context_note_access (ref, session_id, project_path, tool_name, virtual_tokens, repair_reason, accessed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, ref, sessionID, projectPath, toolName, virtualTokens, reason, now)
+	db.ContextDB.Exec(updateNoteAccessQuery, virtualTokens, now, ref)
+	db.DB.Exec(insertNoteAccessQuery, ref, sessionID, projectPath, toolName, virtualTokens, reason, now)
 	bumpSessionAccess(sessionID, virtualTokens)
 }
 
@@ -186,23 +203,18 @@ func DashboardStatsFor(projectPath string, windowDays int) DashboardStats {
 	cutoff := time.Now().AddDate(0, 0, -windowDays).Format("2006-01-02") + "T00:00:00"
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	toolFilter := "tool_name IN ('store_context','fetch_context','search_context','flush_context')"
+	toolFilter := contextToolsFilterClause
 	projectClause := ""
 	args30 := []any{cutoff}
 	argsToday := []any{todayStart, tomorrowStart}
 	if projectPath != "" {
-		projectClause = " AND project_path = ?"
+		projectClause = andProjectPathClause
 		args30 = append(args30, projectPath)
 		argsToday = append(argsToday, projectPath)
 	}
-	db.DB.QueryRow(`SELECT COALESCE(SUM(CASE WHEN tool_name='store_context' THEN tokens_saved ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN tool_name IN ('fetch_context','search_context') THEN tokens_used ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN tool_name='flush_context' THEN file_baseline_tokens ELSE 0 END),0)
-		FROM queries WHERE timestamp >= ? AND `+toolFilter+projectClause, args30...).
+	db.DB.QueryRow(selectContextToolTokens30dQuery+toolFilter+projectClause, args30...).
 		Scan(&ds.VirtualTokensStored30d, &ds.VirtualTokensAccessed30d, &ds.FlushedTokens30d)
-	db.DB.QueryRow(`SELECT COALESCE(SUM(CASE WHEN tool_name='store_context' THEN tokens_saved ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN tool_name IN ('fetch_context','search_context') THEN tokens_used ELSE 0 END),0)
-		FROM queries WHERE timestamp >= ? AND timestamp < ? AND `+toolFilter+projectClause, argsToday...).
+	db.DB.QueryRow(selectContextToolTokensTodayQuery+toolFilter+projectClause, argsToday...).
 		Scan(&ds.TodayStored, &ds.TodayAccessed)
 	if ds.VirtualTokensStored30d > 0 {
 		ds.UtilizationPct30d = float64(ds.VirtualTokensAccessed30d) / float64(ds.VirtualTokensStored30d) * 100
@@ -216,8 +228,7 @@ func DashboardStatsFor(projectPath string, windowDays int) DashboardStats {
 			tokCol = "file_baseline_tokens"
 		}
 		qargs := append([]any{cutoff, tool}, args30[1:]...)
-		db.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(`+tokCol+`),0) FROM queries
-			WHERE timestamp >= ? AND tool_name = ?`+projectClause, qargs...).
+		db.DB.QueryRow(selectToolCallsPrefixQuery+tokCol+selectToolCallsSuffixQuery+projectClause, qargs...).
 			Scan(&calls, &tok)
 		ds.ByTool30d[tool] = ToolWindow{Calls: calls, VirtualTokens: tok}
 	}

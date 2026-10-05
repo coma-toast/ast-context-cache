@@ -34,9 +34,9 @@ func TestResultIsError(t *testing.T) {
 // the error buried in content[].text, indistinguishable from a real empty
 // result to a caller checking only the protocol-level flag.
 func TestHandleToolCallSetsIsErrorOnFailure(t *testing.T) {
-	origCfg := srvCfg
-	srvCfg = DefaultConfig()
-	t.Cleanup(func() { srvCfg = origCfg })
+	origCfg := GetConfig()
+	SetConfig(DefaultConfig())
+	t.Cleanup(func() { SetConfig(origCfg) })
 
 	req := JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -67,9 +67,9 @@ func TestHandleToolCallSetsIsErrorOnFailure(t *testing.T) {
 // real failure (isError:true), not a success-shaped {"message": "..."} a
 // caller could mistake for a completed export/import.
 func TestExportImportBundleReportIsError(t *testing.T) {
-	origCfg := srvCfg
-	srvCfg = DefaultConfig()
-	t.Cleanup(func() { srvCfg = origCfg })
+	origCfg := GetConfig()
+	SetConfig(DefaultConfig())
+	t.Cleanup(func() { SetConfig(origCfg) })
 
 	// project_path must not exist: handleToolCall starts a watcher on any
 	// project_path that does, which /tmp/proj on a dev machine might.
@@ -108,9 +108,9 @@ func TestExportImportBundleReportIsError(t *testing.T) {
 // i.e. every tracked source unbounded, unlike the dashboard's own paginated
 // view of the same table.
 func TestListDocSourcesIsPaginated(t *testing.T) {
-	origCfg := srvCfg
-	srvCfg = DefaultConfig()
-	t.Cleanup(func() { srvCfg = origCfg })
+	origCfg := GetConfig()
+	SetConfig(DefaultConfig())
+	t.Cleanup(func() { SetConfig(origCfg) })
 	dbtest.Init(t)
 
 	for i := 0; i < 3; i++ {
@@ -165,9 +165,9 @@ func TestListDocSourcesIsPaginated(t *testing.T) {
 // database file" once that test's TempDir was gone). handleToolCall also starts
 // a watcher on project_path, stopped here before dbtest closes the pools.
 func TestHandleToolCallLeavesIsErrorFalseOnSuccess(t *testing.T) {
-	origCfg := srvCfg
-	srvCfg = DefaultConfig()
-	t.Cleanup(func() { srvCfg = origCfg })
+	origCfg := GetConfig()
+	SetConfig(DefaultConfig())
+	t.Cleanup(func() { SetConfig(origCfg) })
 	dbtest.Init(t)
 	project := t.TempDir()
 	t.Cleanup(func() { watcher.DeleteWatcher(project) })

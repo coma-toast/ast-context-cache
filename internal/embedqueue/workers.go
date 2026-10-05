@@ -2,13 +2,13 @@ package embedqueue
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
@@ -30,6 +30,8 @@ const (
 	manualOverrideGrace = 2 * time.Minute
 )
 
+var errQueueNotStarted = errs.New("embed queue not started")
+
 var (
 	workerCount           = defaultWorkers
 	workerTarget          = defaultWorkers
@@ -46,7 +48,7 @@ var (
 func beginProcessingWindow() {
 	processingReadyAt.Store(time.Now().Add(startupProcessingDelay).UnixNano())
 	if startupProcessingDelay > 0 {
-		log.Printf("embed queue: processing starts in %s", startupProcessingDelay)
+		logger.Info("Embed queue processing delayed", "delay", startupProcessingDelay)
 	}
 }
 
@@ -119,7 +121,7 @@ func clampWorkerCount(n int) int {
 
 func persistWorkerCount(n int) {
 	if err := db.SetSetting(embedWorkersSetting, strconv.Itoa(n)); err != nil {
-		log.Printf("embedqueue: persist workers: %v", err)
+		logger.Warn("Failed to persist workers", "error", err)
 	}
 }
 
@@ -139,7 +141,7 @@ func WorkerTarget() int {
 
 func applyWorkerCountLocked(n int, persist bool) error {
 	if workerStop == nil {
-		return fmt.Errorf("embed queue not started")
+		return errQueueNotStarted
 	}
 	for workerCount < n {
 		go worker()
@@ -152,7 +154,7 @@ func applyWorkerCountLocked(n int, persist bool) error {
 	if persist {
 		workerTarget = workerCount
 		persistWorkerCount(workerCount)
-		log.Printf("embed queue: workers set to %d", workerCount)
+		logger.Info("Workers set", "workers", workerCount)
 		maybeQuietOnWorkersPaused(workerCount)
 		manualOverrideAt = time.Now()
 	}
@@ -175,7 +177,7 @@ func ClampWorkersToMax() error {
 func SetWorkerCount(n int) (int, error) {
 	max := MaxWorkers()
 	if n < MinWorkers || n > max {
-		return WorkerTarget(), fmt.Errorf("workers must be %d–%d", MinWorkers, max)
+		return WorkerTarget(), workerRangeErr("workers", n, max)
 	}
 	workerMu.Lock()
 	defer workerMu.Unlock()
@@ -192,7 +194,7 @@ func AdjustWorkers(delta int) (int, error) {
 	n := workerTarget + delta
 	max := MaxWorkers()
 	if n < MinWorkers || n > max {
-		return workerTarget, fmt.Errorf("workers must be %d–%d", MinWorkers, max)
+		return workerTarget, workerRangeErr("workers", n, max)
 	}
 	if err := applyWorkerCountLocked(n, true); err != nil {
 		return workerTarget, err
@@ -268,9 +270,9 @@ func applyPrimaryCeiling(target, ceiling int) {
 	prev := lastThrottleApplied
 	lastThrottleApplied = got
 	if n < target {
-		log.Printf("embed queue: throttled workers %d -> %d (target %d wal=%s)", cur, n, target, db.FormatFileSize(db.WalFileBytes()))
+		logger.Info("Throttled workers", "from", cur, "to", n, "target", target, "wal", db.FormatFileSize(db.WalFileBytes()))
 	} else if got > prev || (got == target && cur < target) {
-		log.Printf("embed queue: restored workers to %d (wal=%s)", got, db.FormatFileSize(db.WalFileBytes()))
+		logger.Info("Restored workers", "workers", got, "wal", db.FormatFileSize(db.WalFileBytes()))
 	}
 }
 
@@ -294,10 +296,10 @@ func applyAuxCeiling(ceiling int) {
 		return
 	}
 	if err := applyAuxWorkerCountLocked(want, false); err != nil {
-		log.Printf("embedqueue: aux WAL throttle: %v", err)
+		logger.Warn("Failed to apply aux WAL throttle", "error", err)
 		return
 	}
-	log.Printf("embed queue: aux workers %d -> %d (WAL ceiling, target %d)", prev, want, auxWorkerTarget)
+	logger.Info("Aux workers adjusted for WAL ceiling", "from", prev, "to", want, "target", auxWorkerTarget)
 }
 
 // kickBackpressureCheckpoint asks for a forced TRUNCATE once the drained pools go quiet.
@@ -317,4 +319,8 @@ func kickBackpressureCheckpoint() {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}()
+}
+
+func workerRangeErr(pool string, n, max int) error {
+	return errs.NewCode(errs.CodeInvalidInput, fmt.Sprintf("%s must be %d–%d", pool, MinWorkers, max), "workers", n, "max", max)
 }

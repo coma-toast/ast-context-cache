@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -24,6 +24,14 @@ import (
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 	"github.com/smacker/go-tree-sitter/yaml"
+)
+
+const (
+	deleteFileSymbolsQuery   = "DELETE FROM symbols WHERE file = ? AND project_path = ?"
+	deleteFileEdgesQuery     = "DELETE FROM edges WHERE source_file = ? AND project_path = ?"
+	insertSymbolQuery        = "INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	countSymbolsQuery        = "SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols"
+	countProjectSymbolsQuery = "SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?"
 )
 
 var SkipDirs = map[string]bool{
@@ -470,10 +478,10 @@ func indexMarkdownFile(filePath, projectPath string) (count, fullTokens, skeleto
 		if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileSymbolsQuery, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileEdgesQuery, filePath, projectPath); err != nil {
 			return err
 		}
 
@@ -501,7 +509,7 @@ func indexMarkdownFile(filePath, projectPath string) (count, fullTokens, skeleto
 				skeletonTokens += db.EstimateTokens(skeleton)
 			}
 			embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
-			if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			if _, err := tx.Exec(insertSymbolQuery,
 				sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
 				count++
 			}
@@ -513,7 +521,7 @@ func indexMarkdownFile(filePath, projectPath string) (count, fullTokens, skeleto
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
 	db.InvalidateSummariesForFile(filePath, projectPath)
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return count, fullTokens, skeletonTokens, nil
 }
 
@@ -551,11 +559,11 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	if target, alias := SymlinkAlias(filePath, projectPath); alias {
 		// Drop rows from before symlink dedup so the target's symbols appear once.
 		_ = PurgeFile(filePath, projectPath)
-		return 0, 0, 0, fmt.Errorf("%w: %s (target %q)", ErrSymlinkAlias, filePath, target)
+		return 0, 0, 0, errs.WrapMessage(fmt.Sprintf("failed to index %s (target %q)", filePath, target), ErrSymlinkAlias, "file", filePath, "target", target)
 	}
 	lang := GetLanguage(filePath)
 	if lang == "" {
-		return 0, 0, 0, fmt.Errorf("unsupported: %s", filePath)
+		return 0, 0, 0, errs.NewCode(errs.CodeUnsupported, "unsupported file type", "file", filePath)
 	}
 	if lang == "plaintext" {
 		return indexPlaintextFile(filePath, projectPath)
@@ -574,7 +582,7 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 
 	sitterLang := getSitterLanguage(lang)
 	if sitterLang == nil {
-		return 0, 0, 0, fmt.Errorf("no parser for: %s", lang)
+		return 0, 0, 0, errs.NewCode(errs.CodeUnsupported, "no parser for language", "language", lang)
 	}
 
 	parser := sitter.NewParser()
@@ -590,10 +598,10 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 		if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileSymbolsQuery, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileEdgesQuery, filePath, projectPath); err != nil {
 			return err
 		}
 
@@ -632,7 +640,7 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 					skeletonTokens += db.EstimateTokens(skeleton)
 				}
 				embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, int(start.Row)+1, int(end.Row)+1)
-				if _, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				if _, err := tx.Exec(insertSymbolQuery,
 					sym.Name, sym.Kind, filePath, start.Row+1, end.Row+1, code, fqn, projectPath, skeleton, embedHash); err == nil {
 					count++
 				}
@@ -645,7 +653,7 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
 	db.InvalidateSummariesForFile(filePath, projectPath)
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return count, fullTokens, skeletonTokens, nil
 }
 
@@ -751,7 +759,7 @@ func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int
 		}
 		n, _, _, err := IndexFile(path, projectPath)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			logger.Warn("Failed to index file", "file", path, "error", err)
 		}
 		count += n
 		if onFile != nil {
@@ -760,7 +768,7 @@ func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int
 		return nil
 	})
 	if reused > 0 {
-		log.Printf("index: reused %d unchanged files from %s for %s", reused, reuse.ProjectPath, projectPath)
+		logger.Info("Reused unchanged files from sibling checkout", "files", reused, "sibling", reuse.ProjectPath, "project", projectPath)
 	}
 	// Files deleted while no watcher was running (e.g. server down) are never seen
 	// by the walk above; drop their rows so search stops returning them.
@@ -775,14 +783,14 @@ func GetIndexStats(projectPath string) (map[string]interface{}, error) {
 	}
 	if projectPath == "" {
 		var nodes, files int
-		err := conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&nodes, &files)
+		err := conn.QueryRow(countSymbolsQuery).Scan(&nodes, &files)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]interface{}{"total_nodes": nodes, "total_files": files}, nil
 	}
 	var ownNodes, ownFiles int
-	err = conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", projectPath).Scan(&ownNodes, &ownFiles)
+	err = conn.QueryRow(countProjectSymbolsQuery, projectPath).Scan(&ownNodes, &ownFiles)
 	if err != nil {
 		return nil, err
 	}

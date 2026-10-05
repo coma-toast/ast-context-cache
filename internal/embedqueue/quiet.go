@@ -1,7 +1,6 @@
 package embedqueue
 
 import (
-	"log"
 	"sync"
 	"time"
 
@@ -46,7 +45,7 @@ func StartQuietPeriodLoop() {
 			if time.Since(idleSince) < quietIdleSustain {
 				continue
 			}
-			log.Printf("embedqueue: quiet period sustained (%s idle) — running maintenance", quietIdleSustain)
+			logger.Info("Quiet period sustained; running maintenance", "idle", quietIdleSustain)
 			runQuietPeriod("queue_idle")
 			// Restart sustain window; WAL/docs cooldowns gate actual work.
 			idleSince = time.Now()

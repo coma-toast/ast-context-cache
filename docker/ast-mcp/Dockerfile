@@ -23,9 +23,12 @@ RUN ldconfig 2>/dev/null || true
 COPY ast-mcp /usr/local/bin/ast-mcp
 RUN chmod +x /usr/local/bin/ast-mcp
 
+# AST_LISTEN=0.0.0.0: ast-mcp binds 127.0.0.1 by default, which published ports
+# can't reach inside a container.
 ENV HOME=/data \
     ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.so \
-    AST_MCP_TIER=extended
+    AST_MCP_TIER=extended \
+    AST_LISTEN=0.0.0.0
 
 WORKDIR /data
 VOLUME ["/data"]

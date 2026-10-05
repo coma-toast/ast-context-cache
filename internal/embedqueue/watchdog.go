@@ -1,7 +1,6 @@
 package embedqueue
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,7 +75,7 @@ func maybeRecoverStuckWorkers() {
 	err := applyWorkerCountLocked(n, false)
 	workerMu.Unlock()
 	if err != nil {
-		log.Printf("embedqueue: auto-recover workers failed: %v", err)
+		logger.Warn("Failed to auto-recover workers", "error", err)
 		return
 	}
 
@@ -85,7 +84,7 @@ func maybeRecoverStuckWorkers() {
 		auxWorkerMu.Lock()
 		if auxWorkerTarget > 0 && auxWorkerCount == 0 {
 			if err := applyAuxWorkerCountLocked(db.CappedEmbedWorkers(auxWorkerTarget), false); err != nil {
-				log.Printf("embedqueue: auto-recover aux workers failed: %v", err)
+				logger.Warn("Failed to auto-recover aux workers", "error", err)
 			}
 		}
 		auxWorkerMu.Unlock()
@@ -93,7 +92,7 @@ func maybeRecoverStuckWorkers() {
 
 	lastAutoRecoverAt.Store(time.Now().Unix())
 	resetStuckClock()
-	log.Printf("embedqueue: auto-recovered workers after stuck pause (target=%d aux=%d)", target, auxTarget)
+	logger.Info("Auto-recovered workers after stuck pause", "target", target, "aux", auxTarget)
 }
 
 // LastAutoRecoverAt returns the unix time of the last stuck-worker auto-recover, or 0.

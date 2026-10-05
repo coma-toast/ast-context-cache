@@ -142,17 +142,17 @@ func embedSnapshotsMatch(activeBackend, activeModel, configuredBackend, configur
 
 // VerifyRunning probes the live process embedder and returns alignment + probe result.
 type VerifyRunningResult struct {
-	OK           bool   `json:"ok"`
-	InSync       bool   `json:"in_sync"`
-	Backend      string `json:"backend"`
-	Model        string `json:"model"`
-	Endpoint     string `json:"endpoint,omitempty"`
-	Dimensions   int    `json:"dimensions"`
-	LatencyMs    int64  `json:"latency_ms"`
-	Error        string `json:"error,omitempty"`
-	EnvOverrides []string `json:"env_overrides,omitempty"`
-	ConfiguredBackend string `json:"configured_backend"`
-	ConfiguredModel   string `json:"configured_model"`
+	OK                bool     `json:"ok"`
+	InSync            bool     `json:"in_sync"`
+	Backend           string   `json:"backend"`
+	Model             string   `json:"model"`
+	Endpoint          string   `json:"endpoint,omitempty"`
+	Dimensions        int      `json:"dimensions"`
+	LatencyMs         int64    `json:"latency_ms"`
+	Error             string   `json:"error,omitempty"`
+	EnvOverrides      []string `json:"env_overrides,omitempty"`
+	ConfiguredBackend string   `json:"configured_backend"`
+	ConfiguredModel   string   `json:"configured_model"`
 }
 
 func VerifyRunning(embed Interface) VerifyRunningResult {

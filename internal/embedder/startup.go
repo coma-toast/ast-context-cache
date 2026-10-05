@@ -1,7 +1,6 @@
 package embedder
 
 import (
-	"log"
 	"strings"
 )
 
@@ -27,8 +26,8 @@ func ResolveStartupBackend() string {
 	if BackendConfigReady(requested) {
 		return requested
 	}
-	log.Printf("WARNING: EMBED_BACKEND=%q is not fully configured (%s); using onnx until embed settings are completed in dashboard",
-		requested, backendMissingHint(requested))
+	logger.Warn("EMBED_BACKEND is not fully configured; using onnx until embed settings are completed in dashboard",
+		"backend", requested, "hint", backendMissingHint(requested))
 	return "onnx"
 }
 

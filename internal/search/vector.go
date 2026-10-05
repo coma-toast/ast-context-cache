@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math"
 	"strconv"
 	"strings"
@@ -13,8 +12,26 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
+)
+
+const (
+	selectAllVectorsQuery        = "SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors"
+	selectSymbolRowByIDQuery     = "SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE id = ?"
+	selectSymbolRowByNameQuery   = "SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1"
+	upsertVectorQuery            = `INSERT OR REPLACE INTO vectors (content_hash, vector, doc_type, source_file, name, kind, project_path, symbol_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	deleteVectorRefQuery         = "DELETE FROM vectors WHERE doc_type = ? AND source_file = ?"
+	deleteDocVectorsLikeQuery    = "DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?"
+	deleteOrphanCodeVectorsQuery = `
+		DELETE FROM vectors
+		WHERE COALESCE(doc_type, 'code') = 'code'
+		  AND symbol_id > 0
+		  AND symbol_id NOT IN (SELECT id FROM symbols)`
+	selectSymbolIDsQuery    = `SELECT id FROM symbols`
+	countVectorsQuery       = "SELECT COUNT(*) FROM vectors"
+	countScopedVectorsQuery = "SELECT COUNT(*) FROM vectors WHERE "
 )
 
 const VectorDims = 768
@@ -40,6 +57,10 @@ type VectorCache struct {
 }
 
 var Cache = &VectorCache{stopIdle: make(chan struct{})}
+
+// OnVectorsUpserted, when set (the candidate cache sets it), runs once per project
+// after Upsert commits vectors for it, so cached rankings that predate them are dropped.
+var OnVectorsUpserted func(projectPath string)
 
 func init() {
 	go Cache.idleLoop()
@@ -74,9 +95,9 @@ func (vc *VectorCache) loadFromDB() {
 	if err != nil {
 		return
 	}
-	rows, err := conn.Query("SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors")
+	rows, err := conn.Query(selectAllVectorsQuery)
 	if err != nil {
-		log.Printf("WARNING: load vectors: %v", err)
+		logger.Warn("Failed to load vectors", "error", err)
 		return
 	}
 	defer rows.Close()
@@ -95,7 +116,7 @@ func (vc *VectorCache) loadFromDB() {
 	vc.entries = entries
 	vc.loaded = true
 	vc.lastUsed = time.Now()
-	log.Printf("Loaded %d vectors into memory (%.1f MB)", len(entries), float64(len(entries)*VectorDims*4)/(1024*1024))
+	logger.Info("Loaded vectors into memory", "vectors", len(entries), "mb", math.Round(float64(len(entries)*VectorDims*4)/(1024*1024)*10)/10)
 }
 
 func (vc *VectorCache) Unload() {
@@ -107,7 +128,7 @@ func (vc *VectorCache) Unload() {
 	n := len(vc.entries)
 	vc.entries = nil
 	vc.loaded = false
-	log.Printf("Vector cache unloaded (%d entries freed)", n)
+	logger.Info("Vector cache unloaded", "entries_freed", n)
 	realtime.Notify(realtime.IndexHealth)
 }
 
@@ -165,7 +186,7 @@ func (vc *VectorCache) idleTick() {
 		n := len(vc.entries)
 		vc.entries = nil
 		vc.loaded = false
-		log.Printf("Vector cache unloaded after %v idle (%d entries freed)", timeout, n)
+		logger.Info("Vector cache unloaded after idle timeout", "timeout", timeout, "entries_freed", n)
 		vc.mu.Unlock()
 		realtime.Notify(realtime.IndexHealth)
 		return
@@ -264,12 +285,10 @@ func symbolRowFromEntry(e VectorEntry) (start, end int, fqn string) {
 		return start, end, fqn
 	}
 	if e.SymbolID > 0 {
-		conn.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE id = ?", e.SymbolID).Scan(&start, &end, &fqn)
+		conn.QueryRow(selectSymbolRowByIDQuery, e.SymbolID).Scan(&start, &end, &fqn)
 	}
 	if start == 0 {
-		conn.QueryRow(
-			"SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1",
-			e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end, &fqn)
+		conn.QueryRow(selectSymbolRowByNameQuery, e.SourceFile, e.Name, e.ProjectPath).Scan(&start, &end, &fqn)
 	}
 	return start, end, fqn
 }
@@ -277,7 +296,7 @@ func symbolRowFromEntry(e VectorEntry) (start, end int, fqn string) {
 func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 	vc.ensureLoaded()
 	err := db.IndexWrite(func(tx *sql.Tx) error {
-		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO vectors (content_hash, vector, doc_type, source_file, name, kind, project_path, symbol_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+		stmt, err := tx.Prepare(upsertVectorQuery)
 		if err != nil {
 			return err
 		}
@@ -285,7 +304,7 @@ func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 		for _, e := range entries {
 			blob := float32ToBlob(e.Vector)
 			if _, err := stmt.Exec(e.ContentHash, blob, e.DocType, e.SourceFile, e.Name, e.Kind, e.ProjectPath, e.SymbolID); err != nil {
-				return fmt.Errorf("insert vector for %s: %w", e.Name, err)
+				return errs.WrapMessage("failed to insert vector", err, "name", e.Name)
 			}
 		}
 		return nil
@@ -293,7 +312,20 @@ func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 	if err != nil {
 		return err
 	}
-	// Update in-memory cache
+	vc.upsertMemory(entries)
+	if OnVectorsUpserted != nil {
+		notified := map[string]bool{}
+		for _, e := range entries {
+			if e.ProjectPath != "" && !notified[e.ProjectPath] {
+				notified[e.ProjectPath] = true
+				OnVectorsUpserted(e.ProjectPath)
+			}
+		}
+	}
+	return nil
+}
+
+func (vc *VectorCache) upsertMemory(entries []VectorEntry) {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	hashMap := make(map[string]int, len(vc.entries))
@@ -308,7 +340,6 @@ func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 			vc.entries = append(vc.entries, e)
 		}
 	}
-	return nil
 }
 
 // SearchDoc returns top doc-section vector matches (doc_type=doc only).
@@ -409,8 +440,11 @@ func (vc *VectorCache) SearchNote(query []float32, sessionID string, limit int) 
 	return out
 }
 
-// SearchMemory returns top structured-memory vector matches (doc_type=memory).
-func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int) []ScoredResult {
+// SearchMemory returns top structured-memory vector matches (doc_type=memory),
+// best first. Memory vectors carry the storing session in ProjectPath; an empty
+// one (stored without a session) passes only when includeSessionless is set.
+// Callers must still re-check validity and scope against the rows.
+func (vc *VectorCache) SearchMemory(query []float32, sessionID string, includeSessionless bool, limit int) []ScoredResult {
 	if len(query) != VectorDims {
 		return nil
 	}
@@ -426,23 +460,27 @@ func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int
 		if e.DocType != "memory" {
 			continue
 		}
+		if e.ProjectPath == "" && !includeSessionless {
+			continue
+		}
 		if sessionID != "" && e.ProjectPath != sessionID && e.ProjectPath != "" {
 			continue
 		}
 		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
 	}
-	if len(results) > limit {
-		for i := 0; i < limit; i++ {
-			maxIdx := i
-			for j := i + 1; j < len(results); j++ {
-				if results[j].sim > results[maxIdx].sim {
-					maxIdx = j
-				}
+	// Partial selection sort, run even when every result fits, so callers get
+	// similarity order.
+	n := min(max(limit, 0), len(results))
+	for i := 0; i < n; i++ {
+		maxIdx := i
+		for j := i + 1; j < len(results); j++ {
+			if results[j].sim > results[maxIdx].sim {
+				maxIdx = j
 			}
-			results[i], results[maxIdx] = results[maxIdx], results[i]
 		}
-		results = results[:limit]
+		results[i], results[maxIdx] = results[maxIdx], results[i]
 	}
+	results = results[:n]
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
 		ref := strings.TrimPrefix(r.entry.SourceFile, "mem:")
@@ -471,8 +509,8 @@ func (vc *VectorCache) DeleteRefs(docType string, sourceFiles []string) error {
 	}
 	err := db.IndexWrite(func(tx *sql.Tx) error {
 		for _, f := range sourceFiles {
-			if _, err := tx.Exec("DELETE FROM vectors WHERE doc_type = ? AND source_file = ?", docType, f); err != nil {
-				return fmt.Errorf("delete %s vector %s: %w", docType, f, err)
+			if _, err := tx.Exec(deleteVectorRefQuery, docType, f); err != nil {
+				return errs.WrapMessage("failed to delete vector", err, "doc_type", docType, "source_file", f)
 			}
 		}
 		return nil
@@ -497,7 +535,7 @@ func docEntryIDFromSource(sourceFile string) int {
 // it fails while the index is quiesced instead of skipping the delete.
 func (vc *VectorCache) DeleteDocByPrefix(prefix string) error {
 	err := db.IndexWrite(func(tx *sql.Tx) error {
-		_, err := tx.Exec("DELETE FROM vectors WHERE doc_type = 'doc' AND source_file LIKE ?", prefix)
+		_, err := tx.Exec(deleteDocVectorsLikeQuery, prefix)
 		return err
 	})
 	if err != nil {
@@ -527,11 +565,7 @@ func PurgeOrphanCodeVectors() int {
 	if err != nil {
 		return 0
 	}
-	res, err := conn.Exec(`
-		DELETE FROM vectors
-		WHERE COALESCE(doc_type, 'code') = 'code'
-		  AND symbol_id > 0
-		  AND symbol_id NOT IN (SELECT id FROM symbols)`)
+	res, err := conn.Exec(deleteOrphanCodeVectorsQuery)
 	if err != nil {
 		return 0
 	}
@@ -547,7 +581,7 @@ func (vc *VectorCache) purgeOrphansFromMemory() {
 	if err != nil {
 		return
 	}
-	rows, err := conn.Query(`SELECT id FROM symbols`)
+	rows, err := conn.Query(selectSymbolIDsQuery)
 	if err != nil {
 		return
 	}
@@ -671,10 +705,10 @@ func (vc *VectorCache) Count(projectPath string) int {
 		return count
 	}
 	if projectPath == "" {
-		conn.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&count)
+		conn.QueryRow(countVectorsQuery).Scan(&count)
 	} else {
 		frag, args := projectlinks.ScopeSQL("", projectPath)
-		conn.QueryRow("SELECT COUNT(*) FROM vectors WHERE "+frag, args...).Scan(&count)
+		conn.QueryRow(countScopedVectorsQuery+frag, args...).Scan(&count)
 	}
 	return count
 }

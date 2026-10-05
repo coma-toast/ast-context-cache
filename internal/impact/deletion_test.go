@@ -45,7 +45,7 @@ func TestHandleCheckDeletionSafety(t *testing.T) {
 	}
 	git("branch", "-q", "base-branch")
 	// A bot-style trim that drops both page-object methods.
-	if err := os.WriteFile(pageFile, []byte("export function clickReset() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(pageFile, []byte("export function clickReset() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

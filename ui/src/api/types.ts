@@ -302,17 +302,10 @@ export interface SettingsData {
   EmbedderError: string
   Projects: Project[]
   ProjectsLoading: boolean
-  Agents: AgentInfo[]
-}
-
-export interface AgentInfo {
-  Type: string
-  Name: string
-  Description: string
-  GlobalPath: string
-  ProjectPath: string
-  GlobalInstalled: boolean
-  ProjectInstalled: boolean
+  /** Effective handoff limits (env > setting > default). */
+  HandoffLimits?: HandoffLimits
+  /** Handoff limit settings keys locked by their AST_HANDOFF_* env var. */
+  HandoffEnvLocked?: string[] | null
 }
 
 export interface MemoryData {
@@ -458,4 +451,245 @@ export interface BrowseDirResult {
   entries: BrowseDirEntry[]
   shortcuts?: BrowseDirEntry[]
   error?: string
+}
+
+/** Where a feature flag's own value came from; env locks the flag. */
+export type FlagSource = 'env' | 'setting' | 'default'
+
+/** One feature flag's resolved state (`internal/flags.FlagState`). */
+export interface FlagState {
+  key: string
+  description: string
+  source: FlagSource
+  /** Env var that overrides (and locks) the flag. */
+  env: string
+  /** Effective value: a feature_handoff_* child reads false while feature_handoff is off. */
+  enabled: boolean
+  default: boolean
+  locked: boolean
+}
+
+export interface FlagsResponse {
+  flags: FlagState[]
+}
+
+export interface SetFlagResponse extends FlagsResponse {
+  status: string
+}
+
+/** Handoff retention windows and caps (`internal/handoff.Limits`). */
+export interface HandoffLimits {
+  ttl_days: number
+  summary_max_tokens: number
+  child_inactive_minutes: number
+  tree_max_tokens: number
+  tree_max_entries: number
+  max_depth: number
+  max_children: number
+  open_budget_tokens: number
+}
+
+export type HandoffStatus = 'open' | 'done' | 'partial' | 'failed' | 'abandoned'
+
+export type HandoffMode = 'fresh' | 'fork'
+
+/** One child session of a handoff (`internal/handoff.ChildView`). */
+export interface HandoffChildView {
+  session_id: string
+  label?: string
+  status: HandoffStatus
+  depth: number
+  opened_at: string
+  last_activity_at: string
+  result_ref?: string
+  summary?: string
+  search_calls: number
+  repeat_calls: number
+  /** repeat_calls / search_calls (OB-1); 0 with no searches. */
+  repeat_rate: number
+  tokens_available: number
+  tokens_delivered: number
+  /** tokens_available − tokens_delivered, floored at 0 (OB-2). */
+  tokens_saved: number
+  active_claims: number
+  queued_claims: number
+}
+
+/** One handoff in a tree (`internal/handoff.HandoffView`). */
+export interface HandoffView {
+  handoff: string
+  label?: string
+  mode: HandoffMode
+  depth: number
+  parent_session_id: string
+  /** Set on a nested handoff: the child session that created it. */
+  parent_child_session_id?: string
+  created_at: string
+  children: HandoffChildView[]
+}
+
+/** One handoff tree (`internal/handoff.TreeView`). Times are UTC "YYYY-MM-DD HH:MM:SS". */
+export interface HandoffTreeView {
+  tree_id: string
+  root_session_id: string
+  project_path?: string
+  created_at: string
+  last_access_at: string
+  expires_at: string
+  expired: boolean
+  tokens_used: number
+  tokens_max: number
+  entries_used: number
+  entries_max: number
+  active_claims: number
+  queued_claims: number
+  search_calls: number
+  repeat_calls: number
+  repeat_rate: number
+  tokens_delivered: number
+  tokens_saved: number
+  handoffs: HandoffView[]
+}
+
+export interface HandoffTreesResponse {
+  trees: HandoffTreeView[]
+  limits: HandoffLimits
+  repeat_search_ratio_24h: number
+}
+
+export interface FlushHandoffTreeResponse {
+  status: string
+  flushed: {
+    tree_id: string
+    handoffs: number
+    children: number
+    notes_deleted: number
+    memory_deleted: number
+  }
+}
+
+/** Agent host the installer configures (`internal/installer.Target`). */
+export type InstallerTargetId =
+  | 'claude_code'
+  | 'cursor'
+  | 'opencode'
+  | 'codex'
+  | 'claude_desktop'
+  | 'vscode'
+  | 'jetbrains'
+
+/** Installable piece of a target, in display and apply order. */
+export type InstallerComponentId = 'mcp' | 'skills' | 'rules' | 'hooks'
+
+export type InstallerAction = 'install' | 'uninstall'
+
+/** A component's installed state, computed from the files on disk (IN-8). */
+export type InstallerStatus =
+  | 'installed'
+  | 'outdated'
+  | 'modified_by_user'
+  | 'missing'
+  | 'not_installed'
+  | 'externally_managed'
+  | 'unsupported'
+  | 'covered'
+
+/** What applying a change does to its file. */
+export type InstallerChangeKind = 'create' | 'modify' | 'remove-block' | 'delete' | 'none'
+
+/** One target × component cell of `GET /api/dashboard/installer`. */
+export interface InstallerComponent {
+  component: InstallerComponentId
+  supported: boolean
+  path?: string
+  /** Why the component is unsupported. */
+  reason?: string
+  status: InstallerStatus
+  /** Detail on the status, e.g. a parse error or which target already covers it. */
+  status_reason?: string
+}
+
+export interface InstallerTarget {
+  id: InstallerTargetId
+  name: string
+  components: InstallerComponent[]
+}
+
+export interface InstallerOverview {
+  targets: InstallerTarget[]
+  /** Findings of the one-time pre-4.0 install-record check (IN-13). */
+  legacy_warnings: string[]
+  hooks_enabled: boolean
+}
+
+export interface InstallerPlanRequest {
+  targets: InstallerTargetId[]
+  components: InstallerComponentId[]
+  action: InstallerAction
+  replace_external: boolean
+}
+
+/** One file a plan would touch (`internal/installer.FileChange`). */
+export interface InstallerFileChange {
+  target: InstallerTargetId
+  component: InstallerComponentId
+  path: string
+  kind: InstallerChangeKind
+  /** Unified diff; empty for a skipped change. */
+  diff: string
+  skipped: boolean
+  reason?: string
+}
+
+export interface InstallerComponentStatus {
+  target: InstallerTargetId
+  component: InstallerComponentId
+  status: InstallerStatus
+  path: string
+  reason?: string
+}
+
+/** A target aborted because one of its files could not be edited safely (IN-3). */
+export interface InstallerPlanError {
+  target: InstallerTargetId
+  component: InstallerComponentId
+  code: string
+  message: string
+}
+
+export interface InstallerPlan {
+  plan_id: string
+  action: InstallerAction
+  changes: InstallerFileChange[]
+  status: InstallerComponentStatus[]
+  warnings: string[]
+  errors?: InstallerPlanError[]
+  expires_at: string
+}
+
+export interface InstallerBackup {
+  /** `<timestamp dir>/<encoded name>`, passed back to restore. */
+  id: string
+  path: string
+  created_at: string
+  size: number
+  symlink?: boolean
+}
+
+export interface InstallerApplyResult {
+  plan_id: string
+  written: string[]
+  backups: InstallerBackup[]
+  status: InstallerComponentStatus[]
+  warnings: string[]
+}
+
+export interface InstallerBackupsResponse {
+  backups: InstallerBackup[]
+}
+
+/** Error thrown by API POSTs; installer apply sets `repreview` when the plan is stale (IN-5). */
+export interface ApiError extends Error {
+  code: string
+  repreview: boolean
 }

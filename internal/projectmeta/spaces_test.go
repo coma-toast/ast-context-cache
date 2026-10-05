@@ -9,7 +9,7 @@ import (
 // mkRepo creates a checkout whose .git is a directory (a plain clone).
 func mkRepo(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -17,10 +17,10 @@ func mkRepo(t *testing.T, dir string) {
 // mkWorktree creates a checkout whose .git is a FILE, as WTG worktrees are.
 func mkWorktree(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -34,11 +34,11 @@ func TestListSpaceRepoPaths(t *testing.T) {
 	mkWorktree(t, filepath.Join(space, "console"))
 	mkRepo(t, filepath.Join(space, "sandbox"))
 	// Not repos: a plain directory, a hidden directory, and a loose file.
-	if err := os.MkdirAll(filepath.Join(space, "notes"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(space, "notes"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	mkWorktree(t, filepath.Join(space, ".hidden"))
-	if err := os.WriteFile(filepath.Join(space, "README"), []byte("x"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(space, "README"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

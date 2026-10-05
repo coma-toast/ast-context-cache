@@ -1,0 +1,10 @@
+{
+	// User MCP servers
+	"servers": {
+		"playwright": {
+			"command": "npx",
+			"args": ["@playwright/mcp@latest"]
+		}
+	},
+	"inputs": []
+}

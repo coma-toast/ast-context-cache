@@ -46,4 +46,3 @@ func TestPendingPeakSinceZero(t *testing.T) {
 func atomicStoreFailed(n int64) {
 	failed = n
 }
-

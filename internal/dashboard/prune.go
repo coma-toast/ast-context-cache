@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -89,7 +88,7 @@ func runPrune() {
 	snap.Phase = "pruning superseded structured memory"
 	setPrune(snap)
 	if n, err := memory.PruneSuperseded(0); err != nil {
-		log.Printf("prune: memory.PruneSuperseded: %v", err)
+		logger.Warn("Failed to prune superseded memory", "error", err)
 	} else if n > 0 {
 		snap.MemoryPruned = n
 	}
@@ -104,9 +103,9 @@ func runPrune() {
 	snap.FinishedAt = time.Now()
 	snap.SizeAfterBytes = db.MainDBFilesSizeBytes()
 	setPrune(snap)
-	log.Printf("prune: reclaimed %s (%s -> %s), %d project(s) swept, %d orphan vector(s), %d old queries pruned, %d superseded memory row(s) pruned",
-		db.FormatFileSize(snap.SizeBeforeBytes-snap.SizeAfterBytes), db.FormatFileSize(snap.SizeBeforeBytes), db.FormatFileSize(snap.SizeAfterBytes),
-		snap.ProjectsPurged, snap.OrphanVectors, snap.QueriesPruned, snap.MemoryPruned)
+	logger.Info("Finished prune", "reclaimed", db.FormatFileSize(snap.SizeBeforeBytes-snap.SizeAfterBytes),
+		"size_before", db.FormatFileSize(snap.SizeBeforeBytes), "size_after", db.FormatFileSize(snap.SizeAfterBytes),
+		"projects_swept", snap.ProjectsPurged, "orphan_vectors", snap.OrphanVectors, "queries_pruned", snap.QueriesPruned, "memory_pruned", snap.MemoryPruned)
 }
 
 func pruneErrorf(format string, args ...interface{}) {

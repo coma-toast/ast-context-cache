@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 )
 
 type ToolConfig struct {
@@ -12,7 +14,9 @@ type ToolConfig struct {
 	Description string `json:"description"`
 }
 
-func getToolsConfigPath() string {
+// ToolsConfigPath is the per-tool overrides file: $AST_MCP_TOOLS_CONFIG, else
+// ~/.astcache/tools.json. The dashboard reports the same path the server loads.
+func ToolsConfigPath() string {
 	if p := os.Getenv("AST_MCP_TOOLS_CONFIG"); p != "" {
 		return p
 	}
@@ -21,7 +25,7 @@ func getToolsConfigPath() string {
 }
 
 func LoadToolConfigs() map[string]*ToolConfig {
-	path := getToolsConfigPath()
+	path := ToolsConfigPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return make(map[string]*ToolConfig)
@@ -39,15 +43,15 @@ func LoadToolConfigs() map[string]*ToolConfig {
 }
 
 func SaveToolConfigs(configs map[string]*ToolConfig) error {
-	path := getToolsConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	path := ToolsConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(configs, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 type toolDenyReason int
@@ -58,6 +62,7 @@ const (
 	denyDisabled
 	denyTier
 	denyCodeMode
+	denyFlag
 )
 
 func effectiveRequiredTier(t Tool, cfg ServerConfig) Tier {
@@ -67,7 +72,12 @@ func effectiveRequiredTier(t Tool, cfg ServerConfig) Tier {
 	return t.Tier
 }
 
+// toolAccess requires the tool's feature flags, tools.json, and the tier to all allow it (FF-8).
+// The flag is checked first so a call to a feature that is off reports feature_disabled.
 func toolAccess(t Tool, cfg ServerConfig) (bool, toolDenyReason) {
+	if !flags.ToolEnabled(t.Name) {
+		return false, denyFlag
+	}
 	if conf, ok := cfg.ToolConfigs[t.Name]; ok && !conf.Enabled {
 		return false, denyDisabled
 	}
@@ -83,6 +93,11 @@ func toolAccess(t Tool, cfg ServerConfig) (bool, toolDenyReason) {
 // ToolDenyMessage explains why a tool call was rejected.
 func ToolDenyMessage(toolName string, cfg ServerConfig, reason toolDenyReason) string {
 	switch reason {
+	case denyFlag:
+		if key := flags.ToolDisabledBy(toolName); key != "" {
+			return "feature_disabled: " + toolName + " is turned off by feature flag " + key
+		}
+		return "feature_disabled: " + toolName
 	case denyDisabled:
 		return "tool disabled in tools config: " + toolName
 	case denyTier:
@@ -113,15 +128,15 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":         map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
-					"project_path":  map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":          map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
-					"session_id":    map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
-					"path_prefix":   map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
-					"language":      map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, javascript, rust, ...). Uses file extensions."},
-					"kinds":         map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include (e.g. function,method)."},
-					"kind":          map[string]string{"type": "string", "description": "Optional: single symbol kind filter (same as one entry in kinds)."},
+					"query":        map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"mode":         map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
+					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
+					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
+					"path_prefix":  map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
+					"language":     map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, javascript, rust, ...). Uses file extensions."},
+					"kinds":        map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include (e.g. function,method)."},
+					"kind":         map[string]string{"type": "string", "description": "Optional: single symbol kind filter (same as one entry in kinds)."},
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -234,13 +249,13 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"content":      map[string]string{"type": "string", "description": "Text to offload (markdown OK)"},
-					"session_id":   map[string]string{"type": "string", "description": "Conversation session ID (required)"},
-					"label":        map[string]string{"type": "string", "description": "Short title for the note"},
-					"project_path": map[string]string{"type": "string", "description": "Optional project association"},
-					"tags":         map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
-					"kind":         map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
-					"metadata":     map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
+					"content":        map[string]string{"type": "string", "description": "Text to offload (markdown OK)"},
+					"session_id":     map[string]string{"type": "string", "description": "Conversation session ID (required)"},
+					"label":          map[string]string{"type": "string", "description": "Short title for the note"},
+					"project_path":   map[string]string{"type": "string", "description": "Optional project association"},
+					"tags":           map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
+					"kind":           map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
+					"metadata":       map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
 					"extract_memory": map[string]string{"type": "boolean", "description": "Also save explicitly marked lines as session-scoped mem_* entries: only lines starting with FACT: (subject | predicate | object, or subject predicate object...) or RULE: (free text). Headings, prose, and fenced code are ignored; text is kept as written. Response: memory_extracted (ref, kind, line) and memory_skipped (marked lines that could not be parsed, e.g. a FACT: under 3 words)."},
 				},
 				"required": []string{"content", "session_id"},
@@ -333,16 +348,16 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"kind":                 map[string]string{"type": "string", "description": "fact or procedure"},
-					"session_id":           map[string]string{"type": "string", "description": "Required for session scope"},
-					"scope":                map[string]string{"type": "string", "description": "session (default), project, or global"},
-					"project_path":         map[string]string{"type": "string", "description": "Required for project scope"},
-					"subject":              map[string]string{"type": "string", "description": "Fact subject (e.g. user.testing)"},
-					"predicate":            map[string]string{"type": "string", "description": "Fact relation (default: is)"},
-					"object":               map[string]string{"type": "string", "description": "Fact object/value"},
-					"rule":                 map[string]string{"type": "string", "description": "Procedural rule text (LangMem procedural)"},
-					"invalidate_previous":  map[string]string{"type": "boolean", "description": "For facts: supersede prior same subject+predicate (default true)"},
-					"source_ref":           map[string]string{"type": "string", "description": "Optional ctx_* ref this was extracted from"},
+					"kind":                map[string]string{"type": "string", "description": "fact or procedure"},
+					"session_id":          map[string]string{"type": "string", "description": "Required for session scope"},
+					"scope":               map[string]string{"type": "string", "description": "session (default), project, or global"},
+					"project_path":        map[string]string{"type": "string", "description": "Required for project scope"},
+					"subject":             map[string]string{"type": "string", "description": "Fact subject (e.g. user.testing)"},
+					"predicate":           map[string]string{"type": "string", "description": "Fact relation (default: is)"},
+					"object":              map[string]string{"type": "string", "description": "Fact object/value"},
+					"rule":                map[string]string{"type": "string", "description": "Procedural rule text (LangMem procedural)"},
+					"invalidate_previous": map[string]string{"type": "boolean", "description": "For facts: supersede prior same subject+predicate (default true)"},
+					"source_ref":          map[string]string{"type": "string", "description": "Optional ctx_* ref this was extracted from"},
 				},
 				"required": []string{"kind", "session_id"},
 			},
@@ -354,33 +369,36 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":        map[string]string{"type": "string", "description": "Search query (optional; empty lists recent active memory)"},
-					"session_id":   map[string]string{"type": "string", "description": "Session filter (recommended)"},
-					"project_path": map[string]string{"type": "string", "description": "Project filter"},
-					"kind":         map[string]string{"type": "string", "description": "fact or procedure"},
-					"kinds":        map[string]string{"type": "array", "description": "Filter kinds"},
-					"scope":        map[string]string{"type": "string", "description": "session, project, or global"},
-					"as_of":        map[string]string{"type": "string", "description": "SQLite datetime: facts valid at this time (Zep temporal)"},
-					"limit":        map[string]string{"type": "integer", "description": "Max entries (default 10)"},
-					"token_budget": map[string]string{"type": "integer", "description": "Max tokens in formatted output (default 800)"},
+					"query":         map[string]string{"type": "string", "description": "Search query (optional; empty lists recent active memory)"},
+					"session_id":    map[string]string{"type": "string", "description": "Session filter (recommended)"},
+					"project_path":  map[string]string{"type": "string", "description": "Project filter"},
+					"kind":          map[string]string{"type": "string", "description": "fact or procedure"},
+					"kinds":         map[string]string{"type": "array", "description": "Filter kinds"},
+					"scope":         map[string]string{"type": "string", "description": "session, project, or global"},
+					"as_of":         map[string]string{"type": "string", "description": "SQLite datetime: facts valid at this time (Zep temporal)"},
+					"limit":         map[string]string{"type": "integer", "description": "Max entries (default 10)"},
+					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens in formatted output (default 800)"},
 					"repo_siblings": map[string]string{"type": "boolean", "description": "Also match project memories stored in other checkouts of the same repo (default true)"},
 				},
 			},
 			Tier:     TierCore,
 			ReadOnly: true,
 		},
+		handoffTool(),
+		openHandoffTool(),
+		scratchpadTool(),
 		{
 			Name:        "forget_memory",
 			Description: "Invalidate structured memory (soft-delete via valid_until). Modes: refs, subject+predicate, or all=true. With refs, each mem_* ref's scope is read from the stored entry (no scope/session_id needed) and only the named refs are touched; the response lists invalidated, not_found, already_invalid, and scope_mismatch refs, and sets error if no ref was invalidated or already invalid.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"refs":         map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate: one ref, a JSON array, or a comma-separated list"},
-					"session_id":   map[string]string{"type": "string", "description": "Session for subject-based forget"},
-					"subject":      map[string]string{"type": "string", "description": "Invalidate active fact with this subject"},
-					"predicate":    map[string]string{"type": "string", "description": "Predicate (default is)"},
-					"scope":        map[string]string{"type": "string", "description": "session, project, or global. For subject-based forget (default session). With refs it is optional and acts as a guard: refs outside it are reported in scope_mismatch"},
-					"all":          map[string]string{"type": "boolean", "description": "Invalidate all active structured memory"},
+					"refs":       map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate: one ref, a JSON array, or a comma-separated list"},
+					"session_id": map[string]string{"type": "string", "description": "Session for subject-based forget"},
+					"subject":    map[string]string{"type": "string", "description": "Invalidate active fact with this subject"},
+					"predicate":  map[string]string{"type": "string", "description": "Predicate (default is)"},
+					"scope":      map[string]string{"type": "string", "description": "session, project, or global. For subject-based forget (default session). With refs it is optional and acts as a guard: refs outside it are reported in scope_mismatch"},
+					"all":        map[string]string{"type": "boolean", "description": "Invalidate all active structured memory"},
 				},
 			},
 			Tier: TierExtended,
@@ -391,16 +409,16 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":         map[string]string{"type": "string", "description": "Natural language search query (e.g. 'function that handles user authentication')"},
-					"project_path":  map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"limit":         map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
-					"doc_type":      map[string]string{"type": "string", "description": "Filter by document type: 'code', 'doc', etc. (optional)"},
-					"session_id":    map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens to return. Results packed greedily by score until budget exhausted."},
-					"path_prefix":   map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative or absolute prefix)."},
-					"language":      map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, ...)."},
-					"kinds":         map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
-					"kind":          map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
+					"query":        map[string]string{"type": "string", "description": "Natural language search query (e.g. 'function that handles user authentication')"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"limit":        map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
+					"doc_type":     map[string]string{"type": "string", "description": "Filter by document type: 'code', 'doc', etc. (optional)"},
+					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
+					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return. Results packed greedily by score until budget exhausted."},
+					"path_prefix":  map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative or absolute prefix)."},
+					"language":     map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, ...)."},
+					"kinds":        map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
+					"kind":         map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -529,12 +547,12 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"name":           map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
-					"type":           map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'webpage' (JS-rendered), 'json'"},
-					"url":            map[string]string{"type": "string", "description": "URL to fetch documentation from"},
-					"version":        map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
-					"force_refresh":  map[string]string{"type": "boolean", "description": "Re-fetch from URL even if cached content is fresh (default false)"},
-					"render_js":      map[string]string{"type": "boolean", "description": "Render page with Playwright Firefox before chunking (stores as type webpage). Default false."},
+					"name":          map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
+					"type":          map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'webpage' (JS-rendered), 'json'"},
+					"url":           map[string]string{"type": "string", "description": "URL to fetch documentation from"},
+					"version":       map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
+					"force_refresh": map[string]string{"type": "boolean", "description": "Re-fetch from URL even if cached content is fresh (default false)"},
+					"render_js":     map[string]string{"type": "boolean", "description": "Render page with Playwright Firefox before chunking (stores as type webpage). Default false."},
 				},
 				"required": []string{"name", "type", "url"},
 			},
@@ -621,9 +639,12 @@ func GetTools() []Tool {
 	}
 }
 
-// FilterTools returns only tools accessible at the given tier/config.
+// FilterTools returns only tools accessible at the given tier/config and current feature flags.
 func FilterTools(cfg ServerConfig) []Tool {
-	all := GetTools()
+	return filterTools(GetTools(), cfg)
+}
+
+func filterTools(all []Tool, cfg ServerConfig) []Tool {
 	filtered := make([]Tool, 0, len(all))
 	for _, t := range all {
 		ok, _ := toolAccess(t, cfg)
@@ -718,7 +739,13 @@ func GetPrompts() []Prompt {
 - list_context(session_id) to discover stored refs without full content
 - flush_context(session_id) when done or over quota (extended tier)
 - Dashboard Virtual context card: inventory, utilization, limits (separate from code tokens_saved)
-- Same session_id as get_context_capsule / retrieve for session scoping`,
+- Same session_id as get_context_capsule / retrieve for session scoping
+
+### Subagent handoff
+- If your prompt contains [handoff hof_…], call open_handoff before any search and use the child session_id it returns
+- To delegate, handoff(action=create) and paste the returned stub into the subagent prompt instead of re-explaining what you explored
+- The child ends with handoff(action=complete) and outputs the short return stub; fetch_context the full result only if needed
+- See the subagent-handoff prompt for fork vs fresh, fan-out, and the scratchpad`,
 		},
 		{
 			Name:        "virtual-context-compaction",
@@ -744,6 +771,11 @@ This is **not** cache_summary (symbol summaries) or retrieve (code RAG). It is f
 | list_context | core | Need refs/labels, not content |
 | search_context | core | Refs lost; search by topic |
 | flush_context | extended | Done or quota exceeded |
+| handoff | core | Delegating: create a snapshot for a subagent; collect or list results (list recovers lost hof_ refs) |
+| open_handoff | core | Your prompt has [handoff hof_…]: open it before any search |
+| scratchpad | core | Share findings and advisory claims with sibling subagents |
+
+Handoff snapshots and results live in the handoff tree, not in your session quota: flush_context on the parent does not delete them.
 
 ## Workflow
 
@@ -768,6 +800,11 @@ This is **not** cache_summary (symbol summaries) or retrieve (code RAG). It is f
 ## Metrics
 
 Separate from code **Tokens saved**. Dashboard **Virtual context** card tracks inventory vs access.`,
+		},
+		{
+			Name:        "subagent-handoff",
+			Description: "Delegating to subagents with handoff, open_handoff, and scratchpad",
+			Prompt:      subagentHandoffPrompt,
 		},
 		{
 			Name:        "context-mode-decisions",
@@ -811,3 +848,71 @@ Separate from code **Tokens saved**. Dashboard **Virtual context** card tracks i
 		},
 	}
 }
+
+// subagentHandoffPrompt covers workflows W1, W3, W4, and W6 of the handoff PRD.
+const subagentHandoffPrompt = `# Subagent Handoff Guide
+
+## Problem
+
+A subagent starts with an empty window. It re-runs the parent's searches, re-reads the same code, and returns a long report that bloats the parent's window.
+
+## Solution
+
+The parent snapshots what it explored into a handoff (hof_ ref). The child opens it with only the ref, expands what it needs, and finishes with a short return stub. Everything stays local.
+
+## Tool reference
+
+| Tool | Actions | Who |
+|------|---------|-----|
+| handoff | create, complete, collect, list, status, flush | create/collect/list: parent; complete: child |
+| open_handoff | open, expand, resume | child |
+| scratchpad | post, read, retract, claim, release | any session in the tree |
+
+All three are core tier. Each is behind a feature flag (feature_handoff, feature_handoff_scratchpad, feature_handoff_claims); a disabled action returns error feature_disabled.
+
+## Manual flow (any MCP host)
+
+Parent:
+1. Explore with one session_id as usual.
+2. handoff(action=create, session_id, project_path, brief, label?, pointers?, ctx_refs?, mem_refs?, mode?) → handoff, stub, breakdown
+   - pointers: [{key, note}] where key is a symbol key or project-relative file path
+   - prune: exclude_trail=[ids] or ["all"], exclude_trail_query="substring", include_manifest=false
+3. Paste the stub into the subagent prompt: [handoff hof_…] <label> — call open_handoff first
+4. The child's final message is a return stub: [result ctx_… for hof_…] <status> — <summary>
+5. Fetch the full result with fetch_context(refs=["ctx_…"]) only if the summary is not enough.
+
+Child:
+1. open_handoff(handoff="hof_…", project_path) before any search → session_id (yours), brief, pointers, notes, memory, trail and scratchpad digests
+2. Pass that session_id on every later call to every tool.
+3. open_handoff(action=expand, handoff, session_id, section=pointer|note|memory|trail|manifest, items=[ids] or ["all"], mode=skeleton|auto|full) for what you need. A stale pointer returns current code with stale: true.
+4. Search normally. parent_trail_match means the parent already ran that search; parent_explored marks symbols the parent saw.
+5. handoff(action=complete, session_id, content=<full result>, status=done|partial|failed, summary?) → stub; output the stub as your final message.
+   FACT: and RULE: lines in content become memory the parent can recall_memory.
+
+Do not put credentials or secrets in a brief, a note, or a scratchpad post: anyone holding the ref can read the tree.
+
+## Fork vs fresh
+
+- mode=fresh (default): the subagent starts with an empty window. Its dedup starts empty and parent_explored only annotates results.
+- mode=fork: only when the host spawned a fork that inherited the parent's window (and prompt cache). The child's dedup is seeded with the parent's explored symbols, so searches skip what is already in its window.
+Using fork for a fresh subagent hides symbols it has never seen.
+
+## Fan-out (N parallel children)
+
+1. The parent creates one handoff and gives the same stub to up to 16 agents; each open mints its own child session_id.
+2. scratchpad(action=post, session_id, type=finding|dead_end, text, refs?) shares what you learned; scratchpad(action=read, session_id, since=<next_cursor>) returns others' new entries, dead ends, and claims.
+3. Searches by one child are shared as trail entries; an identical search by a sibling returns sibling_trail_match.
+4. scratchpad(action=claim, session_id, key="path/to/file.go", reason?) before editing a shared file: granted, or queued with holder and position. A later grant arrives as [claims_granted] on your next call. release when done; complete releases all your claims.
+5. Claims are advisory: nothing blocks an edit. They only coordinate agents that check them.
+6. The parent calls handoff(action=collect, session_id, handoff?) once for every child's status, summary, and result ref (recursive=true for nested handoffs, wait_seconds<=60 to long-poll).
+
+## Recovery
+
+- Parent compacted and lost the hof_ ref: handoff(action=list, session_id) lists every handoff it created with status counts; then collect.
+- Child restarted with its history: open_handoff(action=resume, handoff, session_id=<child id>).
+- A child idle for 30 minutes is marked abandoned; its stored notes stay readable through collect and fetch_context.
+- handoff(action=flush, handoff) deletes that handoff's whole tree; the root session can pass only session_id to flush every tree it rooted. Otherwise a tree expires 7 days after its last access.
+
+## Errors
+
+Errors carry a stable error code, a message, details, and suggestions: handoff_not_found, handoff_expired, handoff_depth_exceeded (max depth 3), handoff_children_exceeded (16 per handoff), handoff_tree_limit_exceeded (64k tokens / 300 entries per tree), claim_deadlock_risk, feature_disabled.`

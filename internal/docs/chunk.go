@@ -10,11 +10,11 @@ import (
 const maxChunkChars = 2000
 
 var (
-	htmlScriptRe = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	htmlStyleRe  = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	htmlScriptRe  = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	htmlStyleRe   = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
 	htmlHeadingRe = regexp.MustCompile(`(?is)<h([1-4])[^>]*>(.*?)</h([1-4])>`)
-	htmlTagRe    = regexp.MustCompile(`<[^>]+>`)
-	htmlWSRe     = regexp.MustCompile(`\s+`)
+	htmlTagRe     = regexp.MustCompile(`<[^>]+>`)
+	htmlWSRe      = regexp.MustCompile(`\s+`)
 )
 
 func chunkMarkdown(content, path string) []DocEntry {

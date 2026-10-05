@@ -38,10 +38,10 @@ func postSpace(t *testing.T, body string) (*httptest.ResponseRecorder, startSpac
 
 func mkSpaceWorktree(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

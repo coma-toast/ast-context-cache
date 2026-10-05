@@ -2,13 +2,18 @@ package watcher
 
 import (
 	"database/sql"
-	"log"
 	"os"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
+)
+
+const (
+	deleteFileSymbolsQuery = "DELETE FROM symbols WHERE file = ? AND project_path = ?"
+	deleteFileEdgesQuery   = "DELETE FROM edges WHERE source_file = ? AND project_path = ?"
 )
 
 // PurgeExcluded removes index rows for files of projectPath that the current
@@ -28,10 +33,10 @@ func PurgeExcluded(projectPath string) int {
 			continue
 		}
 		_ = db.IndexWrite(func(tx *sql.Tx) error {
-			if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", file, projectPath); err != nil {
+			if _, err := tx.Exec(deleteFileSymbolsQuery, file, projectPath); err != nil {
 				return err
 			}
-			_, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", file, projectPath)
+			_, err := tx.Exec(deleteFileEdgesQuery, file, projectPath)
 			return err
 		})
 		db.DeleteIndexedFile(file, projectPath)
@@ -41,7 +46,8 @@ func PurgeExcluded(projectPath string) int {
 		}
 	}
 	if removed > 0 {
-		log.Printf("Purged %d newly excluded files from %s", removed, projectPath)
+		logger.Info("Purged newly excluded files", "files", removed, "project", projectPath)
+		cache.Candidates.ClearProject(projectPath)
 		realtime.Notify(realtime.IndexCommitted)
 	}
 	return removed

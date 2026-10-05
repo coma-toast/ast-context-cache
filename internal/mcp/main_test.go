@@ -5,7 +5,16 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
+	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
+
+// handleToolCall starts a watcher on project_path, and a watcher's goroutines
+// (debounced re-indexes, catch-ups) read the db pools. Stop them all before
+// dbtest reassigns or closes the pools, or they race with the teardown.
+func init() {
+	dbtest.WaitFor(watcher.StopAll)
+}
 
 // TestMain points HOME at a throwaway directory for the whole binary (so no test can
 // reach the real ~/.astcache or ~/.astcache.location) and opens the databases once.
@@ -21,8 +30,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	code := m.Run()
-	// No db.Close: watchers started by handleToolCall may still be writing, and closing
-	// the pools under them is a (harmless, teardown-only) race. The process exits next.
+	watcher.StopAll()
+	db.Close()
 	os.RemoveAll(home)
 	os.Exit(code)
 }

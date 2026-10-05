@@ -1,9 +1,9 @@
 package embedder
 
 import (
-	"fmt"
-	"log"
 	"sync"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 // RuntimeHooks runs after a successful embedder swap (tracked embedder is wired into consumers).
@@ -11,15 +11,17 @@ type RuntimeHooks struct {
 	OnSwap func(tracked Interface)
 }
 
+var errRuntimeNotInitialized = errs.New("embedder runtime not initialized")
+
 var (
-	runtimeMu           sync.Mutex
-	runtimeModelDir     string
-	runtimeInitialized  bool
-	runtimeRaw          Interface
-	runtimeTracked      Interface
-	runtimeLoaded       func() bool
-	runtimeHooks        RuntimeHooks
-	onBeforeSwap        func()
+	runtimeMu          sync.Mutex
+	runtimeModelDir    string
+	runtimeInitialized bool
+	runtimeRaw         Interface
+	runtimeTracked     Interface
+	runtimeLoaded      func() bool
+	runtimeHooks       RuntimeHooks
+	onBeforeSwap       func()
 )
 
 // SetOnBeforeSwap registers a callback before tearing down the previous embedder (e.g. drain embed queue).
@@ -42,7 +44,7 @@ func InitRuntime(modelDir string) error {
 // Reload rebuilds the embedder from current effective settings and swaps it in without restarting ast-mcp.
 func Reload() error {
 	if !runtimeInitialized {
-		return fmt.Errorf("embedder runtime not initialized")
+		return errRuntimeNotInitialized
 	}
 	return reloadRuntime()
 }
@@ -100,7 +102,7 @@ func reloadRuntime() error {
 		runtimeHooks.OnSwap(tracked)
 	}
 	wb, wm, _, _, wd := WiredSnapshot()
-	log.Printf("Embedder active: backend=%s model=%s dims=%d", wb, wm, wd)
+	logger.Info("Embedder active", "backend", wb, "model", wm, "dims", wd)
 	return nil
 }
 

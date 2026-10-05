@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -12,8 +11,11 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
-const recentSelect = `SELECT timestamp, tool_name, result_chars, duration_ms, COALESCE(cpu_ms,0), project_path,
+const (
+	selectRecentQueriesBaseQuery = `SELECT timestamp, tool_name, result_chars, duration_ms, COALESCE(cpu_ms,0), project_path,
 	COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(dedup_tokens_saved,0) FROM queries`
+	recentOrderLimitClause = " ORDER BY timestamp DESC LIMIT ?"
+)
 
 func buildRecentQueries(projectID string, limit int) (mcp, indexing []components.RecentQuery) {
 	mcpLim, idxLim := 40, 25
@@ -28,7 +30,7 @@ func buildRecentQueries(projectID string, limit int) (mcp, indexing []components
 		}
 	}
 	return queryRecent(projectID, mcpLim, excludeWatcherFromToolStats),
-		queryRecent(projectID, idxLim, "tool_name = 'file_watcher'")
+		queryRecent(projectID, idxLim, onlyWatcherFilter)
 }
 
 func queryRecent(projectID string, limit int, toolFilter string) []components.RecentQuery {
@@ -53,16 +55,16 @@ func queryRecentOnce(projectID string, limit int, toolFilter string) ([]componen
 	where := toolFilter
 	args := []any{}
 	if projectID != "" {
-		where += " AND project_path = ?"
+		where += projectPathClause
 		args = append(args, projectID)
 	}
 	args = append(args, limit)
-	q := recentSelect + " WHERE " + where + " ORDER BY timestamp DESC LIMIT ?"
+	q := selectRecentQueriesBaseQuery + " WHERE " + where + recentOrderLimitClause
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	rows, err := db.DB.QueryContext(ctx, q, args...)
 	if err != nil {
-		log.Printf("dashboard recent: query timeout or error: %v", err)
+		logger.Warn("Failed to query recent calls", "error", err)
 		return nil, false
 	}
 	defer rows.Close()
@@ -81,12 +83,12 @@ func queryRecentOnce(projectID string, limit int, toolFilter string) ([]componen
 
 func parseRecentRow(ts, toolName, pp, errMsg, argsJSON string, saved, dedupSaved int, dm, cpuMs float64) components.RecentQuery {
 	q := components.RecentQuery{
-		ToolName:       toolName,
-		Project:        pp,
-		DurationMs:     dm,
-		CpuMs:          cpuMs,
-		Error:          errMsg,
-		Saved:          saved,
+		ToolName:         toolName,
+		Project:          pp,
+		DurationMs:       dm,
+		CpuMs:            cpuMs,
+		Error:            errMsg,
+		Saved:            saved,
 		DedupTokensSaved: dedupSaved,
 	}
 	if t := parseQueryTime(ts); !t.IsZero() {

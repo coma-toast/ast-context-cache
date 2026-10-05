@@ -1,4 +1,7 @@
-
+---
+name: ast-context-cache-operator
+description: Use when operating the ast-mcp server — embedding backends, dashboard settings, feature flags, handoff limits, log indexing and retention, watcher ignores, virtual context limits.
+---
 
 ## When to Use
 
@@ -10,28 +13,21 @@ When configuring or operating the ast-mcp server (not day-to-day MCP search). Us
 - Watcher ignore globs, pause/start/delete watchers
 - Health checks or server restart after config changes
 
-For MCP search workflows, point agents to [usage/SKILL.md](../usage/SKILL.md).
+For MCP search workflows, point agents to [usage/SKILL.md](../ast-usage/SKILL.md).
 
 ## Embedding backends
 
 Vectors must stay **768-dimensional** L2-normalized to match the index. Changing model or dimension requires re-index or clearing vectors.
 
-| `EMBED_BACKEND` | Use case | Main env vars |
-|-----------------|----------|---------------|
-| `onnx` (default) | Local; `make setup` downloads model + tokenizer | `MODEL_DIR` |
-| `ollama` | Ollama with 768-d model (e.g. `nomic-embed-text`) | `OLLAMA_HOST`, `OLLAMA_EMBED_MODEL` |
-| `http` | Custom `POST` JSON embed service | `EMBED_HTTP_URL`, `EMBED_HTTP_BEARER` |
-| `openai` / `litellm` | OpenAI-compatible `POST /v1/embeddings` | `EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_MODEL`, `EMBED_OPENAI_API_KEY`, `EMBED_OPENAI_DIMENSIONS` |
-| `docker` | [Docker Model Runner](https://docs.docker.com/ai/model-runner/) on port **12434** | `EMBED_DOCKER_URL`, `EMBED_DOCKER_MODEL`, `EMBED_DOCKER_DIMENSIONS` |
+- `onnx` (default) — local; `make setup` downloads model + tokenizer (`MODEL_DIR`)
+- `ollama` — Ollama with 768-d model, e.g. `nomic-embed-text` (`OLLAMA_HOST`, `OLLAMA_EMBED_MODEL`)
+- `http` — custom `POST` JSON embed service (`EMBED_HTTP_URL`, `EMBED_HTTP_BEARER`)
+- `openai` / `litellm` — OpenAI-compatible `POST /v1/embeddings` (`EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_MODEL`, `EMBED_OPENAI_API_KEY`, `EMBED_OPENAI_DIMENSIONS`)
+- `docker` — [Docker Model Runner](https://docs.docker.com/ai/model-runner/) on port **12434** (`EMBED_DOCKER_URL`, `EMBED_DOCKER_MODEL`, `EMBED_DOCKER_DIMENSIONS`)
 
-See [`docker/README.md`](../../docker/README.md): enable Model Runner + TCP 12434, `docker model pull ai/qwen3-embedding`, `EMBED_BACKEND=docker`, then re-index.
+**Process env** must export these vars for whatever starts `ast-mcp`. **Dashboard → Settings** saves the same keys to `~/.astcache/usage.db`; **non-empty env always overrides** SQLite. **Restart ast-mcp** after changing embedding settings. Confirm via `GET http://localhost:7821/health` and `GET /embed/health`.
 
-- **Process env** must export these vars for whatever starts `ast-mcp`.
-- **Dashboard → Settings:** same keys saved to `~/.astcache/usage.db`; **non-empty env always overrides** SQLite.
-- **Restart ast-mcp** after changing embedding settings.
-- Confirm: `GET http://localhost:7821/health` and `GET /embed/health`.
-
-Canonical reference: [`docs/embedding-backends.md`](../../docs/embedding-backends.md).
+Canonical reference: [`docs/embedding-backends.md`](../../../docs/embedding-backends.md).
 
 ## Dashboard (http://localhost:7830/dashboard/)
 
@@ -55,7 +51,7 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
 | **Analytics** | Tool performance table, symbol/language/import charts |
 | **Recent** | MCP tool calls vs indexing activity (accessible error expand) |
-| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **storage (move data directory, prune, drive/SSD health)**, **projects (link/unlink subprojects)**, agent install, MCP tier (read-only) |
+| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **storage (move data directory, prune, drive/SSD health)**, **projects (link/unlink subprojects)**, feature flags (**Features**: live toggles, env-locked flags read-only), agent integration (installer preview / apply / backups), MCP tier (read-only) |
 
 ### Settings (operators)
 
@@ -64,7 +60,10 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 - **Virtual context** — limits + **Flush all**; per-session flush via API `POST /api/flush-context` with `session_id`
 - **Watcher ignore globs** — JSON array
 - **Embedding backend** — persisted to SQLite; env overrides on restart
-- **MCP tier** — read-only card (`AST_MCP_TIER`, `~/.astcache/tools.json`)
+- **MCP tier** — read-only card (`AST_MCP_TIER`, and the `tools.json` path the server loads: `AST_MCP_TOOLS_CONFIG` or `~/.astcache/tools.json`)
+- **Features** — feature flags (`feature_handoff`, `feature_handoff_scratchpad`, `feature_handoff_claims`, `feature_handoff_live_trail`, `feature_handoff_hooks`, `feature_shared_query_cache`); toggles apply live and send `tools/list_changed`. A non-empty `AST_FEATURE_*` env value locks a flag. API: `GET`/`POST /api/dashboard/flags`
+- **Handoff limits** — settings `handoff_ttl_days`, `handoff_summary_max_tokens`, `handoff_child_inactive_minutes`, `handoff_tree_max_tokens`, `handoff_tree_max_entries`, `handoff_max_depth`, `handoff_max_children`, `handoff_open_budget_tokens` (env `AST_HANDOFF_*`); see [docs/handoff.md](../../../docs/handoff.md#settings-and-limits)
+- **Agent integration** — installer for 7 hosts with preview diff, apply, backups and restore (same engine as `ast-mcp install`; see [install/SKILL.md](../ast-install/SKILL.md))
 
 ### Storage (operators)
 
@@ -122,7 +121,7 @@ Docker equivalent (`restart: unless-stopped`), separate from DMR embeddings:
 docker compose -f docker/ast-mcp/compose.yml up -d --build
 ```
 
-See [`docker/ast-mcp/README.md`](../../docker/ast-mcp/README.md). Parent [`docker/README.md`](../../docker/README.md) is only for Docker Model Runner embeddings.
+See [`docker/ast-mcp/README.md`](../../../docker/ast-mcp/README.md). Parent [`docker/README.md`](../../../docker/README.md) is only for Docker Model Runner embeddings.
 
 ## Failure modes (embed & process)
 
@@ -165,7 +164,7 @@ If `ast-mcp stop` hangs, kill the listener: `kill -9 $(lsof -t -iTCP:7821 -sTCP:
 
 **Prevention (built-in):** Per-DB WAL metrics on dashboard/API (`index_wal_bytes`, `usage_wal_bytes`, `context_wal_bytes`). PASSIVE on **index** every 30s when index WAL &gt; 32 MB; TRUNCATE when index WAL &gt; 64 MB (quiesces index pool — closes readers, fresh conn); defer TRUNCATE until embed queue idle (up to 2 min); force RESTART+TRUNCATE at 128 MB or after 3 busy streaks; **5m/15m backoff** when TRUNCATE stays busy (no 90s retry storm). Worker throttle uses **index** WAL: 64 MB → 8 workers, 128 MB → 4, 256 MB → 2.
 
-**Adaptive backpressure:** every 30s the throttle re-samples index WAL. If it has not shrunk by **≥ 4 MB** since the last sample, the worker ceiling **halves** (2 → 1 → 0) for **both primary and aux** pools until writers stop entirely; the WAL can then be truncated. Once the WAL shrinks the ceiling doubles back toward the size-based cap, and below 64 MB it is removed. **Stuck-worker auto-recover is suppressed** while backpressure holds workers at 0.
+**Adaptive backpressure:** every 30s the throttle re-samples index WAL. If it has not shrunk by **≥ 4 MB** since the last sample, the worker ceiling **halves** (2 → 1 → 0) for **both primary and aux** pools until writers stop entirely; the WAL can then be truncated. Once the WAL shrinks the ceiling doubles back toward the size-based cap, and drops below 64 MB it is removed. Logs: `embed queue: throttled workers 2 -> 1`, `embed queue: aux workers … (WAL ceiling …)`, `WAL: quiet period (wal_backpressure) — attempting TRUNCATE`. **Stuck-worker auto-recover is suppressed** while backpressure holds workers at 0 (that zero is intentional, not stuck).
 
 **Dashboard progress:** Amber **Compacting database WAL** banner with phase, elapsed time, index WAL shrink, progress bar. After 2 min with `busy=1`, shows **TRUNCATE blocked — deferring until readers idle**. **Checkpoint WAL now** or `POST /api/wal-checkpoint`; status via `GET /api/wal-status` (includes per-DB WAL bytes).
 
@@ -185,4 +184,4 @@ Each worktree path is a separate `project_path` for MCP — pass the absolute ch
 
 - **Container linking:** indexing a parent folder (e.g. `~/git`) auto-links already-indexed sub-repos; parent skips duplicate indexing and search includes linked children. Manage links in Settings → Projects (Unlink per child).
 
-Full detail: [README](../../README.md).
+Full detail: [README](../../../README.md).

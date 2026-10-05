@@ -2,8 +2,8 @@ package db
 
 import "database/sql"
 
-func initContextSchema(conn *sql.DB) {
-	conn.Exec(`
+const (
+	createDocSourcesTable = `
 		CREATE TABLE IF NOT EXISTS doc_sources (
 			id INTEGER PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -14,9 +14,8 @@ func initContextSchema(conn *sql.DB) {
 			created_at TEXT DEFAULT (datetime('now')),
 			UNIQUE(name, type, url)
 		);
-	`)
-
-	conn.Exec(`
+	`
+	createDocContentTable = `
 		CREATE TABLE IF NOT EXISTS doc_content (
 			id INTEGER PRIMARY KEY,
 			source_id INTEGER NOT NULL,
@@ -29,17 +28,15 @@ func initContextSchema(conn *sql.DB) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_doc_content_source ON doc_content(source_id);
 		CREATE INDEX IF NOT EXISTS idx_doc_content_title ON doc_content(title);
-	`)
-
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, content, content='doc_content', content_rowid='id')`)
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS docs_fts_ins AFTER INSERT ON doc_content BEGIN
+	`
+	createDocsFTSTable         = `CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, content, content='doc_content', content_rowid='id')`
+	createDocsFTSInsertTrigger = `CREATE TRIGGER IF NOT EXISTS docs_fts_ins AFTER INSERT ON doc_content BEGIN
 		INSERT INTO docs_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-	END`)
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS docs_fts_del AFTER DELETE ON doc_content BEGIN
+	END`
+	createDocsFTSDeleteTrigger = `CREATE TRIGGER IF NOT EXISTS docs_fts_del AFTER DELETE ON doc_content BEGIN
 		INSERT INTO docs_fts(docs_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
-	END`)
-
-	conn.Exec(`
+	END`
+	createContextNotesTable = `
 		CREATE TABLE IF NOT EXISTS context_notes (
 			ref TEXT PRIMARY KEY,
 			session_id TEXT NOT NULL,
@@ -56,13 +53,11 @@ func initContextSchema(conn *sql.DB) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_context_notes_session ON context_notes(session_id);
 		CREATE INDEX IF NOT EXISTS idx_context_notes_project ON context_notes(project_path);
-	`)
-	conn.Exec(`ALTER TABLE context_notes ADD COLUMN kind TEXT DEFAULT ''`)
-	conn.Exec(`ALTER TABLE context_notes ADD COLUMN metadata_json TEXT DEFAULT ''`)
-
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`)
-
-	conn.Exec(`
+	`
+	addContextNotesKindColumn         = `ALTER TABLE context_notes ADD COLUMN kind TEXT DEFAULT ''`
+	addContextNotesMetadataJSONColumn = `ALTER TABLE context_notes ADD COLUMN metadata_json TEXT DEFAULT ''`
+	createContextNotesFTSTable        = `CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`
+	createKVRepairEventsTable         = `
 		CREATE TABLE IF NOT EXISTS kv_repair_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			session_id TEXT,
@@ -79,9 +74,8 @@ func initContextSchema(conn *sql.DB) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_kv_repair_events_at ON kv_repair_events(created_at);
 		CREATE INDEX IF NOT EXISTS idx_kv_repair_events_reason ON kv_repair_events(repair_reason);
-	`)
-
-	conn.Exec(`
+	`
+	createStructuredMemoryTable = `
 		CREATE TABLE IF NOT EXISTS structured_memory (
 			ref TEXT PRIMARY KEY,
 			kind TEXT NOT NULL,
@@ -104,6 +98,164 @@ func initContextSchema(conn *sql.DB) {
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_session ON structured_memory(session_id);
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_project ON structured_memory(project_path);
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_fact ON structured_memory(kind, subject, predicate, valid_until);
-	`)
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_fts USING fts5(ref, subject, predicate, object, rule)`)
+	`
+	createStructuredMemoryFTSTable = `CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_fts USING fts5(ref, subject, predicate, object, rule)`
+	// Handoff trees. Timestamps are written by the handoff package as UTC "YYYY-MM-DD HH:MM:SS"
+	// (datetime('now') format) so they compare correctly against each other and SQLite's clock.
+	createHandoffTreesTable = `
+		CREATE TABLE IF NOT EXISTS handoff_trees (
+			tree_id TEXT PRIMARY KEY,
+			root_session_id TEXT NOT NULL,
+			project_path TEXT,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			last_access_at TEXT NOT NULL DEFAULT (datetime('now')),
+			tokens_used INTEGER NOT NULL DEFAULT 0,
+			entries_used INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS idx_handoff_trees_root ON handoff_trees(root_session_id);
+	`
+	createHandoffsTable = `
+		CREATE TABLE IF NOT EXISTS handoffs (
+			ref TEXT PRIMARY KEY,
+			tree_id TEXT NOT NULL,
+			parent_session_id TEXT NOT NULL,
+			parent_child_session_id TEXT,
+			depth INTEGER NOT NULL DEFAULT 1,
+			mode TEXT NOT NULL DEFAULT 'fresh',
+			label TEXT,
+			brief TEXT NOT NULL,
+			project_path TEXT,
+			child_count INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			last_access_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_handoffs_parent ON handoffs(parent_session_id);
+		CREATE INDEX IF NOT EXISTS idx_handoffs_tree ON handoffs(tree_id);
+	`
+	createHandoffSnapshotItemsTable = `
+		CREATE TABLE IF NOT EXISTS handoff_snapshot_items (
+			id INTEGER PRIMARY KEY,
+			handoff_ref TEXT NOT NULL,
+			section TEXT NOT NULL,
+			ord INTEGER NOT NULL DEFAULT 0,
+			item_key TEXT,
+			label TEXT,
+			content TEXT,
+			file_rel TEXT,
+			fqn TEXT,
+			kind TEXT,
+			start_line INTEGER,
+			end_line INTEGER,
+			fingerprint TEXT,
+			token_est INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS idx_handoff_snapshot_items_section ON handoff_snapshot_items(handoff_ref, section, ord);
+	`
+	createHandoffChildrenTable = `
+		CREATE TABLE IF NOT EXISTS handoff_children (
+			child_session_id TEXT PRIMARY KEY,
+			handoff_ref TEXT NOT NULL,
+			tree_id TEXT NOT NULL,
+			label TEXT,
+			status TEXT NOT NULL DEFAULT 'open',
+			project_path TEXT,
+			opened_at TEXT NOT NULL DEFAULT (datetime('now')),
+			last_activity_at TEXT NOT NULL DEFAULT (datetime('now')),
+			result_ref TEXT,
+			summary TEXT,
+			summary_source TEXT,
+			summary_truncated INTEGER NOT NULL DEFAULT 0,
+			result_status TEXT,
+			search_calls INTEGER NOT NULL DEFAULT 0,
+			repeat_calls INTEGER NOT NULL DEFAULT 0,
+			tokens_available INTEGER NOT NULL DEFAULT 0,
+			tokens_delivered INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS idx_handoff_children_tree_status ON handoff_children(tree_id, status);
+	`
+	createHandoffResultsTable = `
+		CREATE TABLE IF NOT EXISTS handoff_results (
+			id INTEGER PRIMARY KEY,
+			child_session_id TEXT NOT NULL,
+			result_ref TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			superseded_at TEXT
+		);
+	`
+	createScratchpadEntriesTable = `
+		CREATE TABLE IF NOT EXISTS scratchpad_entries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tree_id TEXT NOT NULL,
+			author_session_id TEXT NOT NULL,
+			type TEXT NOT NULL,
+			text TEXT NOT NULL,
+			refs_json TEXT,
+			token_est INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			retracted_at TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_scratchpad_entries_tree ON scratchpad_entries(tree_id, id);
+	`
+	createHandoffClaimsTable = `
+		CREATE TABLE IF NOT EXISTS handoff_claims (
+			tree_id TEXT NOT NULL,
+			key TEXT NOT NULL,
+			holder_session_id TEXT NOT NULL,
+			reason TEXT,
+			granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (tree_id, key)
+		);
+	`
+	createHandoffClaimQueueTable = `
+		CREATE TABLE IF NOT EXISTS handoff_claim_queue (
+			id INTEGER PRIMARY KEY,
+			tree_id TEXT NOT NULL,
+			key TEXT NOT NULL,
+			session_id TEXT NOT NULL,
+			reason TEXT,
+			enqueued_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_handoff_claim_queue_key ON handoff_claim_queue(tree_id, key, id);
+	`
+	createHandoffClaimGrantsTable = `
+		CREATE TABLE IF NOT EXISTS handoff_claim_grants (
+			id INTEGER PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			tree_id TEXT NOT NULL,
+			key TEXT NOT NULL,
+			granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+			notified_at TEXT
+		);
+	`
+)
+
+func initContextSchema(conn *sql.DB) {
+	conn.Exec(createDocSourcesTable)
+
+	conn.Exec(createDocContentTable)
+
+	conn.Exec(createDocsFTSTable)
+	conn.Exec(createDocsFTSInsertTrigger)
+	conn.Exec(createDocsFTSDeleteTrigger)
+
+	conn.Exec(createContextNotesTable)
+	conn.Exec(addContextNotesKindColumn)
+	conn.Exec(addContextNotesMetadataJSONColumn)
+
+	conn.Exec(createContextNotesFTSTable)
+
+	conn.Exec(createKVRepairEventsTable)
+
+	conn.Exec(createStructuredMemoryTable)
+	conn.Exec(createStructuredMemoryFTSTable)
+
+	conn.Exec(createHandoffTreesTable)
+	conn.Exec(createHandoffsTable)
+	conn.Exec(createHandoffSnapshotItemsTable)
+	conn.Exec(createHandoffChildrenTable)
+	conn.Exec(createHandoffResultsTable)
+	conn.Exec(createScratchpadEntriesTable)
+	conn.Exec(createHandoffClaimsTable)
+	conn.Exec(createHandoffClaimQueueTable)
+	conn.Exec(createHandoffClaimGrantsTable)
 }

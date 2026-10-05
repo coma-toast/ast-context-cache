@@ -1,0 +1,179 @@
+package handoff
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/trail"
+)
+
+const (
+	// The first sweep waits for startup to settle; after that RQ-2 asks for at least hourly.
+	sweepInitialDelay = 2 * time.Minute
+	sweepInterval     = time.Hour
+	abandonInterval   = time.Minute
+
+	selectExpiredTreesQuery     = `SELECT tree_id FROM handoff_trees WHERE last_access_at < ?`
+	selectInactiveChildrenQuery = `SELECT c.child_session_id, c.tree_id, c.handoff_ref, COALESCE(h.parent_session_id, ''),
+		COALESCE(c.project_path, h.project_path, '')
+		FROM handoff_children c LEFT JOIN handoffs h ON h.ref = c.handoff_ref
+		WHERE c.status = '` + string(StatusOpen) + `' AND c.last_activity_at < ?`
+	markChildAbandonedQuery = `UPDATE handoff_children SET status = '` + string(StatusAbandoned) + `'
+		WHERE child_session_id = ? AND status = '` + string(StatusOpen) + `'`
+)
+
+// abandonedChild is an open child whose inactivity window ran out.
+type abandonedChild struct {
+	sid      SessionID
+	tree     TreeID
+	ref      HandoffRef
+	parent   SessionID
+	project  string
+	released int
+}
+
+// sweepLoop expires trees past their TTL, first shortly after start and then hourly (RQ-1, RQ-2).
+func (s *realService) sweepLoop(ctx context.Context) {
+	s.logger.Debug("Starting handoff sweep loop")
+	defer s.logger.Debug("Stopped handoff sweep loop")
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(sweepInitialDelay):
+	}
+	for {
+		if _, err := s.sweep(); err != nil {
+			s.logger.Warn("Failed to sweep expired handoff trees", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(sweepInterval):
+		}
+	}
+}
+
+// abandonLoop marks inactive children abandoned every minute (FI-3).
+func (s *realService) abandonLoop(ctx context.Context) {
+	s.logger.Debug("Starting handoff abandonment loop")
+	defer s.logger.Debug("Stopped handoff abandonment loop")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(abandonInterval):
+		}
+		if _, err := s.markAbandoned(); err != nil {
+			s.logger.Warn("Failed to mark inactive handoff children abandoned", "error", err)
+		}
+	}
+}
+
+// sweep flushes every tree not accessed within the TTL and returns how many it flushed. One
+// tree failing doesn't stop the rest; the first error is returned after all were tried.
+func (s *realService) sweep() (int, error) {
+	if db.ContextDB == nil {
+		return 0, errNoContextDB
+	}
+	ttl := LoadLimits().TTL()
+	rows, err := db.ContextDB.Query(selectExpiredTreesQuery, sqlTime(nowFunc().Add(-ttl)))
+	if err != nil {
+		return 0, errs.WrapMessage("failed to list expired handoff trees", err)
+	}
+	var trees []TreeID
+	for rows.Next() {
+		var tree TreeID
+		if rows.Scan(&tree) == nil {
+			trees = append(trees, tree)
+		}
+	}
+	rows.Close()
+	var firstErr error
+	flushed := 0
+	for _, tree := range trees {
+		if _, err := s.flushTree(tree, true); err != nil {
+			s.logger.Warn("Failed to expire handoff tree", tree.Attr(), "error", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		flushed++
+	}
+	s.pruneTrail(ttl)
+	if flushed > 0 {
+		s.logger.Info("Expired handoff trees", "trees", flushed, "ttl", ttl)
+	}
+	return flushed, firstErr
+}
+
+// markAbandoned marks open children inactive past the window as abandoned, releasing their
+// claims in the same transaction, and returns how many it marked. Activity (Touch) revives them.
+func (s *realService) markAbandoned() (int, error) {
+	cutoff := sqlTime(nowFunc().Add(-LoadLimits().ChildInactive()))
+	var marked []abandonedChild
+	err := db.HandoffTx(func(tx *sql.Tx) error {
+		marked = nil
+		children, err := inactiveChildrenTx(tx, cutoff)
+		if err != nil {
+			return err
+		}
+		for _, c := range children {
+			res, err := tx.Exec(markChildAbandonedQuery, string(c.sid))
+			if err != nil {
+				return errs.WrapMessage("failed to mark child abandoned", err, "session", string(c.sid))
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				continue
+			}
+			released, err := s.releaseAllTx(tx, c.tree, c.sid)
+			if err != nil {
+				return err
+			}
+			c.released = len(released)
+			marked = append(marked, c)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	for _, c := range marked {
+		s.waiters.notify(c.tree)
+		childrenAbandoned.Inc()
+		s.logger.Info("Marked handoff child abandoned", lifecycleArgs(c.tree, c.ref, c.parent, c.sid, c.project,
+			"released_claims", c.released)...)
+	}
+	if len(marked) > 0 {
+		notifyDashboard()
+	}
+	return len(marked), nil
+}
+
+// pruneTrail drops search-trail rows older than the tree TTL: by then no live tree can snapshot
+// or match them. A failure is logged; the next sweep retries.
+func (s *realService) pruneTrail(ttl time.Duration) {
+	if _, err := trail.PruneOlderThan(ttl); err != nil {
+		s.logger.Warn("Failed to prune search trail", "ttl", ttl, "error", err)
+	}
+}
+
+func inactiveChildrenTx(tx *sql.Tx, cutoff string) ([]abandonedChild, error) {
+	rows, err := tx.Query(selectInactiveChildrenQuery, cutoff)
+	if err != nil {
+		return nil, errs.WrapMessage("failed to list inactive handoff children", err)
+	}
+	defer rows.Close()
+	var out []abandonedChild
+	for rows.Next() {
+		var c abandonedChild
+		if err := rows.Scan(&c.sid, &c.tree, &c.ref, &c.parent, &c.project); err != nil {
+			return nil, errs.WrapMessage("failed to read inactive handoff child", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}

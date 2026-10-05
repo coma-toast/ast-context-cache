@@ -35,13 +35,16 @@ else
   ORT_DYLIB := $(ORT_DYLIB_LINUX)
 endif
 
-.PHONY: help setup deps generate build run clean install uninstall test storybook build-storybook dashboard-screenshot verify-stories ui-build ui-dev
+.PHONY: help setup deps generate build run clean install uninstall test race bench fmt lint ui-test storybook build-storybook dashboard-screenshot verify-stories ui-build ui-dev
 
 ui-build:
 	cd ui && npm ci && npm run build
 
 ui-dev:
 	cd ui && npm run dev
+
+ui-test:
+	cd ui && npm test
 
 help:
 	@echo "ast-context-cache"
@@ -50,6 +53,11 @@ help:
 	@echo "  make build    — download deps + build binary"
 	@echo "  make run      — build + run the server"
 	@echo "  make test     — run unit tests"
+	@echo "  make race     — run unit tests with -race"
+	@echo "  make bench    — run benchmarks (BENCH_PKGS, default ./internal/...)"
+	@echo "  make fmt      — format Go code with gofumpt"
+	@echo "  make lint     — go vet + gofumpt check"
+	@echo "  make ui-test  — run ui/ Vitest suite"
 	@echo "  make install  — copy shell functions to your shell config"
 	@echo "  make clean    — remove binary"
 	@echo ""
@@ -178,8 +186,34 @@ run: build
 run-safe: build
 	AST_EMBED_WORKERS=0 ONNXRUNTIME_LIB=$(ORT_DYLIB) ./$(BINARY)
 
+# TEST_PKGS narrows the run, e.g. make test TEST_PKGS=./internal/errs/...
+TEST_PKGS ?= ./...
+
 test: download-tokenizer-lib internal/version/VERSION
-	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 ./...
+	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 $(TEST_PKGS)
+
+race: download-tokenizer-lib internal/version/VERSION
+	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 -race $(TEST_PKGS)
+
+# BENCH_PKGS narrows the run, e.g. make bench BENCH_PKGS=./internal/errs/...
+BENCH_PKGS ?= ./internal/...
+
+bench: download-tokenizer-lib internal/version/VERSION
+	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -run '^$$' -bench . -benchmem $(BENCH_PKGS)
+
+GOFUMPT := GOWORK=off go run mvdan.cc/gofumpt@v0.7.0
+
+fmt:
+	$(GOFUMPT) -w ./cmd ./internal
+
+lint: download-tokenizer-lib internal/version/VERSION
+	$(CGO_FLAGS) CGO_ENABLED=1 go vet -tags sqlite_fts5 ./...
+	@out=$$($(GOFUMPT) -l ./cmd ./internal) || exit 1; \
+	if [ -n "$$out" ]; then \
+		echo "gofumpt: these files need formatting (run make fmt):"; \
+		echo "$$out"; \
+		exit 1; \
+	fi
 
 storybook:
 	cd ui && npm ci && npm run storybook

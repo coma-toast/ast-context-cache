@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 const (
@@ -67,14 +69,14 @@ func ResolveDataDir() (string, error) {
 	}
 	info, err := os.Stat(d)
 	if err != nil {
-		return "", fmt.Errorf("data directory %s: %w", d, err)
+		return "", errs.WrapMessage("failed to stat data directory", err, "path", d)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("data directory %s is not a directory", d)
+		return "", errs.NewCode(errs.CodeInvalidInput, fmt.Sprintf("data directory %s is not a directory", d), "path", d)
 	}
 	probe := filepath.Join(d, ".astcache-write-test")
 	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
-		return "", fmt.Errorf("data directory %s is not writable: %w", d, err)
+		return "", errs.WrapMessage("data directory is not writable", err, "path", d)
 	}
 	os.Remove(probe)
 	return d, nil

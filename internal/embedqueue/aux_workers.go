@@ -1,8 +1,6 @@
 package embedqueue
 
 import (
-	"fmt"
-	"log"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -10,6 +8,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
@@ -20,6 +19,8 @@ const (
 	embedAuxWorkersSetting   = "EMBED_AUX_WORKERS"
 	embedAuxWorkerMaxSetting = "embed_aux_worker_max"
 )
+
+var errAuxQueueNotStarted = errs.New("aux embed queue not started")
 
 var (
 	auxEmb              embedder.Interface
@@ -89,7 +90,7 @@ func loadAuxWorkerCount() int {
 
 func persistAuxWorkerCount(n int) {
 	if err := db.SetSetting(embedAuxWorkersSetting, strconv.Itoa(n)); err != nil {
-		log.Printf("embedqueue: persist aux workers: %v", err)
+		logger.Warn("Failed to persist aux workers", "error", err)
 	}
 }
 
@@ -114,7 +115,7 @@ func AuxWorkerLive() int {
 
 func applyAuxWorkerCountLocked(n int, persist bool) error {
 	if auxWorkerStop == nil {
-		return fmt.Errorf("aux embed queue not started")
+		return errAuxQueueNotStarted
 	}
 	for auxWorkerCount < n {
 		go auxWorker()
@@ -127,7 +128,7 @@ func applyAuxWorkerCountLocked(n int, persist bool) error {
 	if persist {
 		auxWorkerTarget = auxWorkerCount
 		persistAuxWorkerCount(auxWorkerCount)
-		log.Printf("embed queue: aux workers set to %d", auxWorkerCount)
+		logger.Info("Aux workers set", "workers", auxWorkerCount)
 		auxManualOverrideAt = time.Now()
 	}
 	realtime.Notify(realtime.EmbedFinished | realtime.IndexHealth)
@@ -138,7 +139,7 @@ func applyAuxWorkerCountLocked(n int, persist bool) error {
 func SetAuxWorkerCount(n int) (int, error) {
 	max := AuxMaxWorkers()
 	if n < MinWorkers || n > max {
-		return AuxWorkerTarget(), fmt.Errorf("aux workers must be %d–%d", MinWorkers, max)
+		return AuxWorkerTarget(), workerRangeErr("aux workers", n, max)
 	}
 	auxWorkerMu.Lock()
 	defer auxWorkerMu.Unlock()
@@ -155,7 +156,7 @@ func AdjustAuxWorkers(delta int) (int, error) {
 	n := auxWorkerTarget + delta
 	max := AuxMaxWorkers()
 	if n < MinWorkers || n > max {
-		return auxWorkerTarget, fmt.Errorf("aux workers must be %d–%d", MinWorkers, max)
+		return auxWorkerTarget, workerRangeErr("aux workers", n, max)
 	}
 	if err := applyAuxWorkerCountLocked(n, true); err != nil {
 		return auxWorkerTarget, err
@@ -190,7 +191,7 @@ func StartAux(e embedder.Interface) {
 		for i := 0; i < n; i++ {
 			go auxWorker()
 		}
-		log.Printf("embed queue: %d aux workers (backend catch-up pool)", n)
+		logger.Info("Aux workers started (backend catch-up pool)", "workers", n)
 	})
 }
 

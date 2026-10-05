@@ -40,8 +40,8 @@ type Entry struct {
 
 // CompactLine is a token-efficient representation for agents.
 type CompactLine struct {
-	Ref   string `json:"ref"`
-	Kind  Kind   `json:"kind"`
-	Line  string `json:"line"`
+	Ref   string  `json:"ref"`
+	Kind  Kind    `json:"kind"`
+	Line  string  `json:"line"`
 	Score float64 `json:"score,omitempty"`
 }

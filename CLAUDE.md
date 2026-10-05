@@ -10,6 +10,7 @@
 | Accurate edits | `get_impact_graph`, `retrieve`, optional filters (`path_prefix`, `language`, `kinds`) |
 | Long threads | **`store_context`** → `[ctx_…]` stubs → **`fetch_context`** / **`search_context`** (same `session_id`) |
 | Prefs / rules | **`store_memory`** → `mem_*` → **`recall_memory`** (not bulky `ctx_*` notes) |
+| Delegation | **`handoff`** create → `[handoff hof_…]` stub → child **`open_handoff`** → **`handoff`** complete → short return stub |
 
 # MCP Server for This Project
 
@@ -21,7 +22,7 @@ When researching this codebase, **always prefer using the MCP tools** over direc
 
 **Optional launcher:** For a unified local MCP supervisor (start `ast-mcp`, merge MCP config, etc.), see the standalone [mcp-local](https://github.com/coma-toast/mcp-local) repository and its README. This repo does not include that binary.
 
-**Tool tiers:** The host sets `AST_MCP_TIER` (`core` / `extended` / `complete`) and optional `~/.astcache/tools.json` per-tool overrides. Agents only see tools from `tools/list`; they cannot request a tier. See [README — Tool tiers](README.md#tool-tiers-and-per-tool-overrides).
+**Tool tiers:** The host sets `AST_MCP_TIER` (`core` / `extended` / `complete`) and optional `~/.astcache/tools.json` per-tool overrides. Agents only see tools from `tools/list`; they cannot request a tier. Feature flags (`AST_FEATURE_*`, dashboard Settings → Features) switch features such as handoff on and off live. See [README — Tool tiers](README.md#tool-tiers-and-per-tool-overrides).
 
 ## Skills (Ready-Made Instruction Blocks)
 
@@ -52,6 +53,16 @@ Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compac
 
 **KV repair:** **`report_kv_repair_event`** (extended) before/after `fetch_context` on `kind=kv_repair` archives.
 
+### Subagent handoff (agents)
+
+1. **If your prompt contains `[handoff hof_…]`**, call **`open_handoff`** before any search, then pass the child `session_id` it returns on every call.
+2. **To delegate:** **`handoff`** `action=create` (brief, pointers, optional `ctx_refs` / `mem_refs`) with your `session_id` → paste the returned stub into the subagent prompt. Use `mode=fork` only for a host fork that inherited your window; otherwise the default `fresh`.
+3. **Child finishes:** **`handoff`** `action=complete` (full `content`, `status`, short `summary`) → output the return stub `[result ctx_… for hof_…] <status> — <summary>` as the final message.
+4. **Fan-out:** one stub for up to 16 agents; siblings coordinate with **`scratchpad`** (findings, dead ends, advisory `claim` / `release`). The parent fans in with `handoff` `action=collect`.
+5. **After compaction:** `handoff` `action=list` with your `session_id` recovers lost `hof_` refs.
+
+Never put credentials in a brief or scratchpad post. Full guide: [docs/handoff.md](docs/handoff.md).
+
 # Available Tools
 
 ## Core
@@ -60,6 +71,9 @@ Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compac
 - **get_file_context** - All symbols in a file; **default mode `skeleton`** (use instead of reading files)
 - **get_project_map** - Project structure overview (~200 tokens at depth=2)
 - **get_impact_graph** - Blast radius of a symbol before making changes
+- **diff_impact** - Blast radius of a branch (`base_ref`...`head_ref`) or a GitHub PR by number (`pr`)
+- **check_symbol_exists** - Whether a name is declared anywhere, with every declaring file and line
+- **check_deletion_safety** - Symbols a change removes, split into still-referenced and safe
 - **index_status** - Check if a project is indexed
 - **search_docs** - Search cached library/framework documentation
 - **list_doc_sources** - List tracked documentation sources (core, read-only)
@@ -68,6 +82,9 @@ Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compac
 - **list_context** - List stored virtual context refs for a session (metadata only)
 - **search_context** - Find stored virtual context by keyword/meaning when refs are lost
 - **recall_memory** - Compact structured facts/procedures (`mem_*`); prefer over `fetch_context` for prefs/rules
+- **handoff** - Delegate to a subagent: `create` (snapshot → stub), `complete` (child result → return stub), `collect` / `list` / `status` / `flush`
+- **open_handoff** - Child entry point; call first when your prompt has `[handoff hof_…]` (`open`, `expand`, `resume`)
+- **scratchpad** - Shared findings, dead ends, and advisory claims across a handoff tree (`post`, `read`, `retract`, `claim`, `release`)
 
 ## Extended
 - **index_files** - Index a file or directory (starts file watcher)
@@ -181,6 +198,7 @@ Use the **same `session_id`** as code search tools. Example chat stub: `[ctx_a1b
 7. get_impact_graph before changing exports
 8. search_docs for library/framework questions; fetch_doc when not cached
 9. store_memory for prefs/rules; store_context before host compaction — keep ctx_* stubs; fetch_context / recall_memory after compaction
+10. Delegating: handoff create → stub in the subagent prompt; child open_handoff first, handoff complete last; collect to fan in
 
 **Dashboard (operators):** http://localhost:7830 — React Overview (value heuristics, weekly digest), embed queue gauge, Prometheus `/metrics`, project filter, tool performance. See [skills/operator/SKILL.md](skills/operator/SKILL.md).
 

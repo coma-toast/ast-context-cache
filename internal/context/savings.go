@@ -10,6 +10,12 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
+const (
+	selectSymbolCodeQuery  = "SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
+	selectSymbolKindQuery  = "SELECT COALESCE(kind,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
+	selectSymbolLinesQuery = "SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1"
+)
+
 func coerceInt(v interface{}) int {
 	switch n := v.(type) {
 	case int:
@@ -66,20 +72,6 @@ func ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens int) S
 	}
 }
 
-// CacheHasSavingsMeta reports whether a cached get_context_capsule payload includes savings fields.
-func CacheHasSavingsMeta(parsed map[string]interface{}) bool {
-	if parsed == nil {
-		return false
-	}
-	if _, ok := parsed["symbol_baseline_tokens"]; ok {
-		return true
-	}
-	if _, ok := parsed["tokens_saved"]; ok {
-		return true
-	}
-	return false
-}
-
 func (m SavingsMeta) ApplyTo(resp map[string]interface{}) {
 	resp["tokens_used"] = m.TokensUsed
 	resp["symbol_baseline_tokens"] = m.SymbolBaseline
@@ -105,9 +97,7 @@ func FullSourceTokens(file, name, projectPath string, startLine, endLine int, fi
 	}
 	var code string
 	if conn, err := db.IndexReader(); err == nil {
-		conn.QueryRow(
-			"SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-			file, name, projectPath, startLine).Scan(&code)
+		conn.QueryRow(selectSymbolCodeQuery, file, name, projectPath, startLine).Scan(&code)
 	}
 	return db.EstimateTokens(code)
 }
@@ -132,9 +122,7 @@ func WouldSendTokens(file, name, projectPath, mode string, startLine, endLine in
 func symbolKind(file, name, projectPath string, startLine int) string {
 	var kind string
 	if conn, err := db.IndexReader(); err == nil {
-		conn.QueryRow(
-			"SELECT COALESCE(kind,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-			file, name, projectPath, startLine).Scan(&kind)
+		conn.QueryRow(selectSymbolKindQuery, file, name, projectPath, startLine).Scan(&kind)
 	}
 	return kind
 }
@@ -189,8 +177,7 @@ func hitFromScored(r search.ScoredResult, projectPath string) PackHit {
 	if startLine == 0 {
 		owner := projectlinks.OwningProject(file, projectPath)
 		if conn, err := db.IndexReader(); err == nil {
-			conn.QueryRow("SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1",
-				file, name, owner).Scan(&startLine, &endLine)
+			conn.QueryRow(selectSymbolLinesQuery, file, name, owner).Scan(&startLine, &endLine)
 		}
 		data["start_line"] = startLine
 		data["end_line"] = endLine

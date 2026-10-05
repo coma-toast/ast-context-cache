@@ -7,3 +7,9 @@
 - `dashboard-embeddings--healthy`
 - `dashboard-embeddings--degraded`
 - `dashboard-settings--embedding-and-virtual`
+- `dashboard-settings--features`
+- `dashboard-settings--handoff`
+- `dashboard-installer--default`
+- `dashboard-installer--preview-open`
+- `dashboard-handoffs--overview`
+- `dashboard-handoffs--empty`

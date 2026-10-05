@@ -1,14 +1,20 @@
 package dashboard
 
 import (
-	"log"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
+)
+
+const (
+	selectTokensSavedTodayQuery = "SELECT " + tokensSavedSum + " FROM queries WHERE timestamp >= ? AND timestamp < ?"
 )
 
 var (
@@ -74,10 +80,15 @@ func registerPrometheusMetrics() {
 				Name: "astcache_tokens_saved_today",
 				Help: "Sum of tokens_saved for today (local calendar day) from the query log.",
 			}, tokensSavedToday),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Name: "astcache_query_cache_hit_ratio",
+				Help: "Shared query-cache (search candidate cache) hits over lookups since start; 0 before any lookup.",
+			}, cache.Candidates.HitRatio),
 			mcpToolCalls,
 			mcpToolDuration,
 		)
-		log.Printf("dashboard: prometheus metrics registered at /metrics")
+		mustRegister(handoff.Collectors()...)
+		logger.Info("Registered prometheus metrics", "path", "/metrics")
 	})
 }
 
@@ -87,7 +98,7 @@ func mustRegister(cs ...prometheus.Collector) {
 			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				continue
 			}
-			log.Printf("dashboard: prometheus register: %v", err)
+			logger.Warn("Failed to register prometheus collector", "error", err)
 		}
 	}
 }
@@ -117,10 +128,7 @@ func tokensSavedToday() float64 {
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	var n int
-	err := db.DB.QueryRow(
-		"SELECT "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?",
-		todayStart, tomorrowStart,
-	).Scan(&n)
+	err := db.DB.QueryRow(selectTokensSavedTodayQuery, todayStart, tomorrowStart).Scan(&n)
 	if err != nil {
 		return 0
 	}

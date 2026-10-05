@@ -7,16 +7,46 @@ package purge
 
 import (
 	"database/sql"
-	"fmt"
-	"log"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
+)
+
+const (
+	deleteProjectQueriesQuery        = "DELETE FROM queries WHERE project_path = ?"
+	deleteProjectMemoryAccessQuery   = "DELETE FROM memory_access WHERE project_path = ?"
+	deleteSessionsUnderPathQuery     = "DELETE FROM sessions WHERE file_path LIKE ?"
+	selectSymbolCountsQuery          = `SELECT (SELECT count(*) FROM symbols WHERE project_path = ?), (SELECT count(*) FROM symbols)`
+	deleteProjectSymbolsQuery        = "DELETE FROM symbols WHERE project_path = ?"
+	selectNoteRefsQuery              = `SELECT ref FROM context_notes WHERE project_path = ? AND ref != ''`
+	selectMemoryRefsQuery            = `SELECT ref FROM structured_memory WHERE project_path = ? AND ref != ''`
+	deleteRefVectorQuery             = `DELETE FROM vectors WHERE doc_type = ? AND source_file = ?`
+	deleteNoteFTSQuery               = `DELETE FROM context_notes_fts WHERE ref = ?`
+	deleteProjectNotesQuery          = `DELETE FROM context_notes WHERE project_path = ?`
+	deleteMemoryFTSQuery             = `DELETE FROM structured_memory_fts WHERE ref = ?`
+	deleteProjectMemoryQuery         = `DELETE FROM structured_memory WHERE project_path = ?`
+	deleteProjectKVRepairEventsQuery = `DELETE FROM kv_repair_events WHERE project_path = ?`
+	deleteFromQueryPrefix            = "DELETE FROM "
+	whereProjectPathQuerySuffix      = " WHERE project_path = ?"
+	// Handoff rows go whole-tree for trees rooted in the project, plus any handoff or child row
+	// that names the project itself. Dependents are deleted before the rows the subqueries read.
+	projectTreeIDsSubquery           = `(SELECT tree_id FROM handoff_trees WHERE project_path = ?)`
+	whereProjectTreeQuerySuffix      = ` WHERE tree_id IN ` + projectTreeIDsSubquery
+	whereProjectOrTreeQuerySuffix    = ` WHERE project_path = ? OR tree_id IN ` + projectTreeIDsSubquery
+	deleteProjectSnapshotItemsQuery  = `DELETE FROM handoff_snapshot_items WHERE handoff_ref IN (SELECT ref FROM handoffs` + whereProjectOrTreeQuerySuffix + `)`
+	deleteProjectHandoffResultsQuery = `DELETE FROM handoff_results WHERE child_session_id IN (SELECT child_session_id FROM handoff_children` + whereProjectOrTreeQuerySuffix + `)`
+	deleteProjectHandoffTreesQuery   = `DELETE FROM handoff_trees WHERE project_path = ?`
+)
+
+var (
+	handoffTreeKeyedTables = []string{"scratchpad_entries", "handoff_claims", "handoff_claim_queue", "handoff_claim_grants"}
+	handoffProjectTables   = []string{"handoff_children", "handoffs"}
 )
 
 // ProjectData deletes all indexed and remembered data for projectPath: symbols,
@@ -30,7 +60,7 @@ import (
 func ProjectData(projectPath string) error {
 	projectPath = watcher.NormalizeProjectPath(projectPath)
 	if projectPath == "" {
-		return fmt.Errorf("project_path required")
+		return errs.NewCode(errs.CodeInvalidInput, "project_path required")
 	}
 
 	embedqueue.RemoveProject(projectPath)
@@ -53,25 +83,25 @@ func ProjectData(projectPath string) error {
 
 	refs, err := collectContextRefs(projectPath)
 	if err != nil {
-		return fmt.Errorf("list notes and memory: %w", err)
+		return errs.WrapMessage("failed to list notes and memory", err, "project_path", projectPath)
 	}
 	if err := deleteIndexData(projectPath, refs); err != nil {
-		return fmt.Errorf("purge index data: %w", err)
+		return errs.WrapMessage("failed to purge index data", err, "project_path", projectPath)
 	}
 	refs.dropCachedVectors()
 
 	if db.DB != nil {
-		db.DB.Exec("DELETE FROM queries WHERE project_path = ?", projectPath)
-		db.DB.Exec("DELETE FROM memory_access WHERE project_path = ?", projectPath)
+		db.DB.Exec(deleteProjectQueriesQuery, projectPath)
+		db.DB.Exec(deleteProjectMemoryAccessQuery, projectPath)
 		// sessions has no project_path column (it tracks get_context_capsule dedup by
 		// session_id, not by project), so scope by the file_path prefix instead.
-		db.DB.Exec("DELETE FROM sessions WHERE file_path LIKE ?", projectPath+"/%")
+		db.DB.Exec(deleteSessionsUnderPathQuery, projectPath+"/%")
 	}
 	purgeContextData(projectPath, refs)
 
-	cache.GlobalCache.ClearProject(projectPath)
+	cache.Candidates.ClearProject(projectPath)
 	search.Cache.DeleteByProject(projectPath)
-	log.Printf("purge: deleted all indexed data and memory for project %s", projectPath)
+	logger.Info("Deleted all indexed data and memory for project", "project_path", projectPath)
 	return nil
 }
 
@@ -95,21 +125,20 @@ func deleteIndexData(projectPath string, refs contextRefs) error {
 		// Clear the trigger-free tables first. That takes the write lock before the
 		// symbol counts below are read, so nothing can change them before the delete.
 		for _, table := range []string{"edges", "vectors", "indexed_files", "summaries", "embed_pending"} {
-			if _, err := tx.Exec("DELETE FROM "+table+" WHERE project_path = ?", projectPath); err != nil {
-				return fmt.Errorf("delete %s: %w", table, err)
+			if _, err := tx.Exec(deleteFromQueryPrefix+table+whereProjectPathQuerySuffix, projectPath); err != nil {
+				return errs.WrapMessage("failed to delete table rows", err, "table", table)
 			}
 		}
 		if err := refs.deleteVectors(tx); err != nil {
 			return err
 		}
 		var projectSymbols, totalSymbols int
-		if err := tx.QueryRow(`SELECT (SELECT count(*) FROM symbols WHERE project_path = ?), (SELECT count(*) FROM symbols)`,
-			projectPath).Scan(&projectSymbols, &totalSymbols); err != nil {
-			return fmt.Errorf("count symbols: %w", err)
+		if err := tx.QueryRow(selectSymbolCountsQuery, projectPath).Scan(&projectSymbols, &totalSymbols); err != nil {
+			return errs.WrapMessage("failed to count symbols", err)
 		}
 		deleteSymbols := func() error {
-			if _, err := tx.Exec("DELETE FROM symbols WHERE project_path = ?", projectPath); err != nil {
-				return fmt.Errorf("delete symbols: %w", err)
+			if _, err := tx.Exec(deleteProjectSymbolsQuery, projectPath); err != nil {
+				return errs.WrapMessage("failed to delete symbols", err)
 			}
 			if afterSymbolDelete != nil {
 				return afterSymbolDelete()
@@ -140,11 +169,11 @@ func collectContextRefs(projectPath string) (contextRefs, error) {
 		return refs, nil
 	}
 	var err error
-	if refs.notes, err = queryRefs(`SELECT ref FROM context_notes WHERE project_path = ? AND ref != ''`, projectPath); err != nil {
-		return refs, fmt.Errorf("context notes: %w", err)
+	if refs.notes, err = queryRefs(selectNoteRefsQuery, projectPath); err != nil {
+		return refs, errs.WrapMessage("failed to query context notes", err)
 	}
-	if refs.memories, err = queryRefs(`SELECT ref FROM structured_memory WHERE project_path = ? AND ref != ''`, projectPath); err != nil {
-		return refs, fmt.Errorf("structured memory: %w", err)
+	if refs.memories, err = queryRefs(selectMemoryRefsQuery, projectPath); err != nil {
+		return refs, errs.WrapMessage("failed to query structured memory", err)
 	}
 	return refs, nil
 }
@@ -155,8 +184,8 @@ func (r contextRefs) memoryKeys() []string { return prefixed("mem:", r.memories)
 func (r contextRefs) deleteVectors(tx *sql.Tx) error {
 	del := func(docType string, keys []string) error {
 		for _, key := range keys {
-			if _, err := tx.Exec(`DELETE FROM vectors WHERE doc_type = ? AND source_file = ?`, docType, key); err != nil {
-				return fmt.Errorf("delete %s vector %s: %w", docType, key, err)
+			if _, err := tx.Exec(deleteRefVectorQuery, docType, key); err != nil {
+				return errs.WrapMessage("failed to delete vector", err, "doc_type", docType, "source_file", key)
 			}
 		}
 		return nil
@@ -172,7 +201,7 @@ func (r contextRefs) dropCachedVectors() {
 	search.Cache.DeleteBySourceFiles("memory", r.memoryKeys())
 }
 
-// purgeContextData removes stored notes and structured memory for the project.
+// purgeContextData removes stored notes, structured memory, and handoff trees for the project.
 // Both carry standalone FTS mirrors keyed by ref rather than by project_path, so
 // they are cleaned up by the refs collected at the start of the purge. Their
 // vectors were already deleted with the rest of the index data.
@@ -181,16 +210,45 @@ func purgeContextData(projectPath string, refs contextRefs) {
 		return
 	}
 	for _, ref := range refs.notes {
-		db.ContextDB.Exec(`DELETE FROM context_notes_fts WHERE ref = ?`, ref)
+		db.ContextDB.Exec(deleteNoteFTSQuery, ref)
 	}
-	db.ContextDB.Exec(`DELETE FROM context_notes WHERE project_path = ?`, projectPath)
+	db.ContextDB.Exec(deleteProjectNotesQuery, projectPath)
 
 	for _, ref := range refs.memories {
-		db.ContextDB.Exec(`DELETE FROM structured_memory_fts WHERE ref = ?`, ref)
+		db.ContextDB.Exec(deleteMemoryFTSQuery, ref)
 	}
-	db.ContextDB.Exec(`DELETE FROM structured_memory WHERE project_path = ?`, projectPath)
+	db.ContextDB.Exec(deleteProjectMemoryQuery, projectPath)
 
-	db.ContextDB.Exec(`DELETE FROM kv_repair_events WHERE project_path = ?`, projectPath)
+	db.ContextDB.Exec(deleteProjectKVRepairEventsQuery, projectPath)
+
+	if err := db.HandoffTx(func(tx *sql.Tx) error { return deleteHandoffData(tx, projectPath) }); err != nil {
+		logger.Warn("Failed to purge handoff trees for project", "project_path", projectPath, "error", err)
+	}
+}
+
+// deleteHandoffData removes the project's handoff trees in one handoff write transaction, so a
+// tree is either gone or intact. The child sessions' notes and memory carry project_path and
+// were deleted above with the rest of the project's notes.
+func deleteHandoffData(tx *sql.Tx, projectPath string) error {
+	for _, q := range []string{deleteProjectSnapshotItemsQuery, deleteProjectHandoffResultsQuery} {
+		if _, err := tx.Exec(q, projectPath, projectPath); err != nil {
+			return errs.WrapMessage("failed to delete handoff rows", err)
+		}
+	}
+	for _, table := range handoffTreeKeyedTables {
+		if _, err := tx.Exec(deleteFromQueryPrefix+table+whereProjectTreeQuerySuffix, projectPath); err != nil {
+			return errs.WrapMessage("failed to delete handoff rows", err, "table", table)
+		}
+	}
+	for _, table := range handoffProjectTables {
+		if _, err := tx.Exec(deleteFromQueryPrefix+table+whereProjectOrTreeQuerySuffix, projectPath, projectPath); err != nil {
+			return errs.WrapMessage("failed to delete handoff rows", err, "table", table)
+		}
+	}
+	if _, err := tx.Exec(deleteProjectHandoffTreesQuery, projectPath); err != nil {
+		return errs.WrapMessage("failed to delete handoff trees", err)
+	}
+	return nil
 }
 
 func queryRefs(query, projectPath string) ([]string, error) {

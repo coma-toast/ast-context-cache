@@ -1,9 +1,6 @@
 package db
 
-import (
-	"log"
-	"sync/atomic"
-)
+import "sync/atomic"
 
 var checkpointAbort atomic.Bool
 
@@ -11,7 +8,7 @@ var checkpointAbort atomic.Bool
 func RequestShutdown() {
 	checkpointAbort.Store(true)
 	if WALMaintenanceActive() {
-		log.Println("shutdown: aborting WAL checkpoint")
+		logger.Info("Aborting WAL checkpoint for shutdown")
 	}
 	if AfterForceCheckpoint != nil {
 		AfterForceCheckpoint()

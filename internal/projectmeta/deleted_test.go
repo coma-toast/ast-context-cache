@@ -40,10 +40,10 @@ func TestDiscoverPathsSkipsDeleted(t *testing.T) {
 	home := dbtest.Init(t)
 	gitRoot := filepath.Join(home, "git", "keep")
 	deleted := filepath.Join(home, "git", "gone")
-	if err := os.MkdirAll(filepath.Join(gitRoot, ".git"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(gitRoot, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(deleted, ".git"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(deleted, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

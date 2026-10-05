@@ -1,0 +1,16 @@
+[
+  {
+    "target": "cursor",
+    "component": "mcp",
+    "path": ".cursor/mcp.json",
+    "content": "{\"url\":\"http://localhost:7821/mcp\"}",
+    "created": 1
+  },
+  {
+    "target": "cursor",
+    "component": "rules",
+    "path": ".cursor/rules/ast-context-cache.mdc",
+    "entry_hash": "731d73744661",
+    "created": 1
+  }
+]

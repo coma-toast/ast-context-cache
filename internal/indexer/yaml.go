@@ -10,6 +10,8 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
+const insertImportEdgeQuery = "INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)"
+
 type yamlSymbol struct {
 	Name      string
 	Kind      string
@@ -42,8 +44,7 @@ func indexYAMLTree(exec db.Execer, root *sitter.Node, content []byte, lines []st
 
 	imports := extractYAMLImports(blockNode, content)
 	for _, imp := range imports {
-		exec.Exec("INSERT INTO edges (source_file, target, kind, project_path) VALUES (?, ?, 'import', ?)",
-			filePath, imp, projectPath)
+		exec.Exec(insertImportEdgeQuery, filePath, imp, projectPath)
 	}
 
 	count := 0
@@ -65,7 +66,7 @@ func indexYAMLTree(exec db.Execer, root *sitter.Node, content []byte, lines []st
 			skeletonTokens += db.EstimateTokens(skeleton)
 		}
 		embedHash := ExpectedEmbedHash(sym.Kind, sym.Name, filePath, sym.StartLine, sym.EndLine)
-		_, err := exec.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		_, err := exec.Exec(insertSymbolQuery,
 			sym.Name, sym.Kind, filePath, sym.StartLine, sym.EndLine, code, fqn, projectPath, skeleton, embedHash)
 		if err == nil {
 			count++

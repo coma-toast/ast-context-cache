@@ -11,6 +11,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
+const (
+	selectSettingValueQuery = "SELECT value FROM settings WHERE key = ?"
+)
+
 const recentQueryTimeout = 5 * time.Second
 
 var (
@@ -56,13 +60,13 @@ func loadLogViewOptsFromDB() components.LogViewOpts {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var tail, chars string
-	err := db.DB.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", "dashboard_log_tail_lines").Scan(&tail)
+	err := db.DB.QueryRowContext(ctx, selectSettingValueQuery, "dashboard_log_tail_lines").Scan(&tail)
 	if err == nil {
 		if n, e := strconv.Atoi(strings.TrimSpace(tail)); e == nil && n > 0 {
 			opts.TailLines = clampInt(n, 50, 500)
 		}
 	}
-	err = db.DB.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", "dashboard_log_line_chars").Scan(&chars)
+	err = db.DB.QueryRowContext(ctx, selectSettingValueQuery, "dashboard_log_line_chars").Scan(&chars)
 	if err == nil {
 		if n, e := strconv.Atoi(strings.TrimSpace(chars)); e == nil && n > 0 {
 			opts.MaxLineChars = clampInt(n, 80, 8000)

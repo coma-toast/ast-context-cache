@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -15,6 +14,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
+)
+
+const (
+	selectDashboardStatsBaseQuery = "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + ", " + dedupTokensSum + ", " + savingsVsFilesSum + " FROM queries WHERE "
 )
 
 func registerReactAPI(mux *http.ServeMux) {
@@ -28,6 +31,9 @@ func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/recent-split", handleDashboardRecentSplitJSON)
 	mux.HandleFunc("/api/dashboard/recent-logs", handleDashboardRecentLogsJSON)
 	mux.HandleFunc("/api/dashboard/mcp-tier", handleDashboardMCPTierJSON)
+	mux.HandleFunc("/api/dashboard/flags", handleDashboardFlagsJSON)
+	registerHandoffAPI(mux)
+	registerInstallerAPI(mux)
 }
 
 func handleDashboardRecentLogsJSON(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +73,7 @@ func buildHealthData() components.Health {
 		QueueInFlight:         eq.InFlight,
 		QueueHighCap:          eq.HighCap,
 		QueueLowCap:           eq.LowCap,
-		CacheHitRatio:         cache.GlobalCache.HitRatio(),
+		CacheHitRatio:         cache.Candidates.HitRatio(),
 		HeapMB:                heapMB,
 		CPUPercent:            sys.ProcessCPUPercent(),
 		Uptime:                time.Since(serverStartTime),
@@ -86,9 +92,8 @@ func handleDashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 	if usageDBReady() {
 		todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 		tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-		statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + ", " + dedupTokensSum + ", " + savingsVsFilesSum + " FROM queries WHERE "
 		where, args := statsQueriesWhere(pid)
-		db.DB.QueryRow(statsSel+where, args...).
+		db.DB.QueryRow(selectDashboardStatsBaseQuery+where, args...).
 			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 		fillTodayStats(pid, todayStart, tomorrowStart, &s)
 		fillVirtualContextStats(&s, pid)
@@ -150,12 +155,11 @@ func handleDashboardRecentSplitJSON(w http.ResponseWriter, r *http.Request) {
 // TierComplete, not "extended", so this endpoint reported the wrong tier
 // whenever AST_MCP_TIER was unset. Reads mcp.GetConfig() instead, which also
 // lets it surface code_mode and per-tool overrides it previously omitted.
+// tools_json_path is the file the server actually loads, so AST_MCP_TOOLS_CONFIG
+// is honored rather than assuming ~/.astcache/tools.json (BF-3).
 func handleDashboardMCPTierJSON(w http.ResponseWriter, r *http.Request) {
 	cfg := mcp.GetConfig()
-	toolsPath := filepath.Join(os.Getenv("HOME"), ".astcache", "tools.json")
-	if home, err := os.UserHomeDir(); err == nil {
-		toolsPath = filepath.Join(home, ".astcache", "tools.json")
-	}
+	toolsPath := mcp.ToolsConfigPath()
 	var toolsExists bool
 	if _, err := os.Stat(toolsPath); err == nil {
 		toolsExists = true

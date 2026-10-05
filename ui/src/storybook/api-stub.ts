@@ -7,6 +7,16 @@
  * `../api/client` because that import specifier is itself aliased to this file —
  * re-exporting it would create a self-import loop.
  */
+import type { InstallerPlanRequest } from '../api/types'
+import {
+  fixtureFlags,
+  fixtureHandoffTrees,
+  fixtureInstaller,
+  fixtureInstallerBackups,
+  fixtureInstallerErrorPlan,
+  fixtureInstallerPlan,
+} from './fixtures'
+
 export function formatUptime(ns: number): string {
   const sec = Math.floor(ns / 1e9)
   const h = Math.floor(sec / 3600)
@@ -51,6 +61,11 @@ export const api = {
   topImports: noop,
   timeseries: noop,
   mcpTier: noop,
+  // Read-only fixture so the Features section renders; toggling still hits `noop`.
+  flags: async () => ({ flags: fixtureFlags }),
+  setFlag: noop,
+  handoffTrees: async () => fixtureHandoffTrees,
+  flushHandoffTree: noop,
   saveSetting: noop,
   saveEmbedSettings: noop,
   pinProject: noop,
@@ -71,8 +86,13 @@ export const api = {
   docSourceAction: noop,
   addDocSource: noop,
   installDocPack: noop,
-  agentInstall: noop,
-  agentUninstall: noop,
+  // Read-only fixtures so the installer cards, preview, and backups render; Apply and Restore hit `noop`.
+  installer: async () => fixtureInstaller,
+  installerPreview: async (req: InstallerPlanRequest) =>
+    req.targets[0] === 'vscode' ? fixtureInstallerErrorPlan : { ...fixtureInstallerPlan, action: req.action },
+  installerApply: noop,
+  installerBackups: async () => ({ backups: fixtureInstallerBackups }),
+  installerRestore: noop,
   embedderTest: noop,
   embedderRetry: noop,
   embedderDismissAlert: noop,

@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 type openAIErrorEnvelope struct {
@@ -16,10 +18,12 @@ type openAIErrorEnvelope struct {
 	} `json:"error"`
 }
 
-var jsonErrInMsg = regexp.MustCompile(`(?s)\{.*"error"\s*:\s*\{.*\}`)
-var apiMessageFieldRe = regexp.MustCompile(`['"]message['"]\s*:\s*['"]([^'"]+)['"]`)
-var errorCodePrefixRe = regexp.MustCompile(`(?i)error code:\s*\d+\s*-\s*`)
-var httpCodeInMsgRe = regexp.MustCompile(`(?:^|:|\s)(\d{3})(?::|\s|$)`)
+var (
+	jsonErrInMsg      = regexp.MustCompile(`(?s)\{.*"error"\s*:\s*\{.*\}`)
+	apiMessageFieldRe = regexp.MustCompile(`['"]message['"]\s*:\s*['"]([^'"]+)['"]`)
+	errorCodePrefixRe = regexp.MustCompile(`(?i)error code:\s*\d+\s*-\s*`)
+	httpCodeInMsgRe   = regexp.MustCompile(`(?:^|:|\s)(\d{3})(?::|\s|$)`)
+)
 
 // FormatHTTPError builds a concise embedding API failure from an HTTP response body.
 func FormatHTTPError(label string, statusCode int, status string, body []byte) error {
@@ -29,16 +33,16 @@ func FormatHTTPError(label string, statusCode int, status string, body []byte) e
 		label = "embed"
 	}
 	if detail == "" {
-		return fmt.Errorf("%s: %s", label, strings.TrimSpace(status))
+		return errs.New(label+": "+strings.TrimSpace(status), "status_code", statusCode)
 	}
 	code := statusCode
 	if code <= 0 {
 		code = parseStatusCode(status)
 	}
 	if code > 0 {
-		return fmt.Errorf("%s: %d: %s", label, code, detail)
+		return errs.New(fmt.Sprintf("%s: %d: %s", label, code, detail), "status_code", code)
 	}
-	return fmt.Errorf("%s: %s: %s", label, strings.TrimSpace(status), detail)
+	return errs.New(label+": "+strings.TrimSpace(status)+": "+detail, "status", status)
 }
 
 func parseStatusCode(status string) int {

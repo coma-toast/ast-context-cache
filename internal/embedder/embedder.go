@@ -3,7 +3,6 @@ package embedder
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/daulet/tokenizers"
 	ort "github.com/yalue/onnxruntime_go"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 type Interface interface {
@@ -53,31 +54,31 @@ type healthResponse struct {
 
 func New(modelDir string) (*Embedder, error) {
 	if err := ensureONNXRuntime(); err != nil {
-		return nil, fmt.Errorf("init ONNX Runtime: %w", err)
+		return nil, errs.WrapMessage("failed to init ONNX Runtime", err)
 	}
 
 	tokPath := filepath.Join(modelDir, "tokenizer.json")
 	tk, err := tokenizers.FromFile(tokPath)
 	if err != nil {
-		return nil, fmt.Errorf("load tokenizer from %s: %w", tokPath, err)
+		return nil, errs.WrapMessage("failed to load tokenizer", err, "path", tokPath)
 	}
 
 	modelPath := filepath.Join(modelDir, "model.onnx")
 
 	inputIDs, err := ort.NewEmptyTensor[int64](ort.NewShape(1, maxSeqLen))
 	if err != nil {
-		return nil, fmt.Errorf("create input_ids tensor: %w", err)
+		return nil, errs.WrapMessage("failed to create input_ids tensor", err)
 	}
 	attnMask, err := ort.NewEmptyTensor[int64](ort.NewShape(1, maxSeqLen))
 	if err != nil {
 		inputIDs.Destroy()
-		return nil, fmt.Errorf("create attention_mask tensor: %w", err)
+		return nil, errs.WrapMessage("failed to create attention_mask tensor", err)
 	}
 	output, err := ort.NewEmptyTensor[float32](ort.NewShape(1, Dimensions))
 	if err != nil {
 		inputIDs.Destroy()
 		attnMask.Destroy()
-		return nil, fmt.Errorf("create output tensor: %w", err)
+		return nil, errs.WrapMessage("failed to create output tensor", err)
 	}
 
 	session, err := ort.NewAdvancedSession(modelPath,
@@ -91,7 +92,7 @@ func New(modelDir string) (*Embedder, error) {
 		inputIDs.Destroy()
 		attnMask.Destroy()
 		output.Destroy()
-		return nil, fmt.Errorf("create ONNX session: %w", err)
+		return nil, errs.WrapMessage("failed to create ONNX session", err, "path", modelPath)
 	}
 
 	return &Embedder{
@@ -131,7 +132,7 @@ func (e *Embedder) Embed(texts []string) ([][]float32, error) {
 	for i, text := range texts {
 		emb, err := e.EmbedSingle(text)
 		if err != nil {
-			return nil, fmt.Errorf("embed text %d: %w", i, err)
+			return nil, errs.WrapMessage("failed to embed text", err, "index", i)
 		}
 		results[i] = emb
 	}
@@ -170,7 +171,7 @@ func (e *Embedder) embedSingle(text string) ([]float32, error) {
 	}
 
 	if err := e.session.Run(); err != nil {
-		return nil, fmt.Errorf("ONNX inference: %w", err)
+		return nil, errs.WrapMessage("ONNX inference failed", err)
 	}
 
 	raw := e.output.GetData()
@@ -215,7 +216,7 @@ func (e *Embedder) HandleEmbed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	elapsed := time.Since(start)
-	log.Printf("Embedded %d texts in %v (%.1fms/text)", len(req.Texts), elapsed, float64(elapsed.Milliseconds())/float64(len(req.Texts)))
+	logger.Debug("Embedded texts", "texts", len(req.Texts), "elapsed", elapsed, "ms_per_text", float64(elapsed.Milliseconds())/float64(len(req.Texts)))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(embedResponse{Embeddings: embeddings})

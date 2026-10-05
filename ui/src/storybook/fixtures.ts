@@ -4,8 +4,14 @@
  */
 import type {
   ContextSessionsResponse,
+  FlagState,
+  HandoffLimits,
+  HandoffTreesResponse,
   Health,
   IndexHealth,
+  InstallerBackup,
+  InstallerOverview,
+  InstallerPlan,
   MCPTier,
   MemoryData,
   SettingsData,
@@ -276,6 +282,17 @@ export const fixtureMemoryEmptyDocs: MemoryData = {
   DocSourcesTotal: 0,
 }
 
+const handoffLimits: HandoffLimits = {
+  ttl_days: 7,
+  summary_max_tokens: 300,
+  child_inactive_minutes: 30,
+  tree_max_tokens: 64_000,
+  tree_max_entries: 300,
+  max_depth: 3,
+  max_children: 16,
+  open_budget_tokens: 1_500,
+}
+
 export const fixtureSettings: SettingsData = {
   IdleUnloadMinutes: 30,
   EmbedWorkerMax: 15,
@@ -340,26 +357,8 @@ export const fixtureSettings: SettingsData = {
     },
   ],
   ProjectsLoading: false,
-  Agents: [
-    {
-      Type: 'cursor',
-      Name: 'Cursor',
-      Description: 'MCP config + project skills for Cursor IDE',
-      GlobalPath: '~/.cursor/mcp.json',
-      ProjectPath: '.cursor/mcp.json',
-      GlobalInstalled: true,
-      ProjectInstalled: true,
-    },
-    {
-      Type: 'claude',
-      Name: 'Claude Code',
-      Description: 'MCP config for Claude Code CLI',
-      GlobalPath: '~/.claude/mcp.json',
-      ProjectPath: '.claude/mcp.json',
-      GlobalInstalled: false,
-      ProjectInstalled: false,
-    },
-  ],
+  HandoffLimits: handoffLimits,
+  HandoffEnvLocked: ['handoff_max_depth'],
 }
 
 export const fixtureMcpTier: MCPTier = {
@@ -368,4 +367,475 @@ export const fixtureMcpTier: MCPTier = {
   tool_overrides: {},
   tools_json_path: '~/.astcache/tools.json',
   tools_json_exists: true,
+}
+
+/** Feature flags covering every source: defaults, a dashboard setting, and an env-locked flag. */
+export const fixtureFlags: FlagState[] = [
+  {
+    key: 'feature_handoff',
+    description: 'Master switch for subagent handoff: the handoff, open_handoff, and scratchpad tools.',
+    source: 'default',
+    env: 'AST_FEATURE_HANDOFF',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_scratchpad',
+    description: 'Shared scratchpad tool and its digest sections for handoff trees.',
+    source: 'default',
+    env: 'AST_FEATURE_HANDOFF_SCRATCHPAD',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_claims',
+    description: 'Scratchpad claim and release actions for coordinating work across agents.',
+    source: 'setting',
+    env: 'AST_FEATURE_HANDOFF_CLAIMS',
+    enabled: false,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_live_trail',
+    description: "Automatic sharing of each agent's search trail into the handoff tree.",
+    source: 'default',
+    env: 'AST_FEATURE_HANDOFF_LIVE_TRAIL',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_hooks',
+    description: 'Installer offers Claude Code hooks that create and open handoffs.',
+    source: 'env',
+    env: 'AST_FEATURE_HANDOFF_HOOKS',
+    enabled: true,
+    default: false,
+    locked: true,
+  },
+  {
+    key: 'feature_shared_query_cache',
+    description: 'Cross-session cache of search results shared between agents.',
+    source: 'default',
+    env: 'AST_FEATURE_SHARED_QUERY_CACHE',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+]
+
+/**
+ * Installer overview covering every status style: Cursor installed, Claude Code edited by the
+ * user with hooks shown, VS Code with an unparseable config, JetBrains unsupported, and a
+ * pre-4.0 legacy warning.
+ */
+export const fixtureInstaller: InstallerOverview = {
+  hooks_enabled: true,
+  legacy_warnings: [
+    'A pre-4.0 install wrote markdown instructions over ~/.claude.json (recorded 2026-03-02 10:14:00), which can erase Claude Code\'s settings and MCP servers. If Claude Code lost its configuration, restore ~/.claude.json from Claude Code\'s own backups in ~/.claude/backups/, then run `ast-mcp install --target claude_code`.',
+  ],
+  targets: [
+    {
+      id: 'claude_code',
+      name: 'Claude Code',
+      components: [
+        {
+          component: 'mcp',
+          supported: true,
+          path: '/Users/demo/.claude.json',
+          status: 'modified_by_user',
+          status_reason: 'an ast-context-cache entry exists that the installer did not write',
+        },
+        {
+          component: 'skills',
+          supported: true,
+          path: '/Users/demo/.claude/skills',
+          status: 'externally_managed',
+          status_reason: '/Users/demo/.claude/skills/ast-context-cache is a symlink to /Users/demo/git/ast-context-cache/skills/usage',
+        },
+        { component: 'rules', supported: true, path: '/Users/demo/.claude/CLAUDE.md', status: 'outdated' },
+        { component: 'hooks', supported: true, path: '/Users/demo/.claude/settings.json', status: 'not_installed' },
+      ],
+    },
+    {
+      id: 'cursor',
+      name: 'Cursor',
+      components: [
+        { component: 'mcp', supported: true, path: '/Users/demo/.cursor/mcp.json', status: 'installed' },
+        {
+          component: 'skills',
+          supported: true,
+          path: '/Users/demo/.agents/skills',
+          status: 'covered',
+          status_reason: 'Cursor already loads ast-context-cache skills from /Users/demo/.claude/skills',
+        },
+        { component: 'rules', supported: true, path: '/Users/demo/.cursor/rules/ast-context-cache.mdc', status: 'installed' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'opencode',
+      name: 'OpenCode',
+      components: [
+        { component: 'mcp', supported: true, path: '/Users/demo/.config/opencode/opencode.json', status: 'not_installed' },
+        { component: 'skills', supported: true, path: '/Users/demo/.config/opencode/skills', status: 'not_installed' },
+        { component: 'rules', supported: true, path: '/Users/demo/.config/opencode/AGENTS.md', status: 'missing' },
+        {
+          component: 'hooks',
+          supported: false,
+          reason: 'OpenCode hooks require a plugin; handoff hooks are Claude Code only',
+          status: 'unsupported',
+        },
+      ],
+    },
+    {
+      id: 'codex',
+      name: 'Codex',
+      components: [
+        { component: 'mcp', supported: true, path: '/Users/demo/.codex/config.toml', status: 'outdated' },
+        { component: 'skills', supported: true, path: '/Users/demo/.agents/skills', status: 'installed' },
+        { component: 'rules', supported: true, path: '/Users/demo/.codex/AGENTS.md', status: 'installed' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'claude_desktop',
+      name: 'Claude Desktop',
+      components: [
+        {
+          component: 'mcp',
+          supported: true,
+          path: '/Users/demo/Library/Application Support/Claude/claude_desktop_config.json',
+          status: 'missing',
+        },
+        { component: 'skills', supported: false, reason: 'Claude Desktop has no documented local location for this component', status: 'unsupported' },
+        { component: 'rules', supported: false, reason: 'Claude Desktop has no documented local location for this component', status: 'unsupported' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'vscode',
+      name: 'VS Code',
+      components: [
+        {
+          component: 'mcp',
+          supported: true,
+          path: '/Users/demo/Library/Application Support/Code/User/mcp.json',
+          status: 'not_installed',
+          status_reason: "~/Library/Application Support/Code/User/mcp.json could not be parsed, so it was left unchanged: unexpected '}' at line 4",
+        },
+        { component: 'skills', supported: false, reason: "VS Code's user-scope location for this component is unverified", status: 'unsupported' },
+        { component: 'rules', supported: false, reason: "VS Code's user-scope location for this component is unverified", status: 'unsupported' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'jetbrains',
+      name: 'JetBrains',
+      components: [
+        {
+          component: 'mcp',
+          supported: false,
+          reason:
+            'JetBrains AI Assistant has no documented config file. In the IDE open Settings → Tools → AI Assistant → Model Context Protocol (MCP) → Add, paste {"mcpServers":{"ast-context-cache":{"url":"http://127.0.0.1:7821/mcp"}}}, set the server level to Global, then OK and Apply',
+          status: 'unsupported',
+        },
+        { component: 'skills', supported: false, reason: 'JetBrains AI Assistant has no documented local location for this component', status: 'unsupported' },
+        { component: 'rules', supported: false, reason: 'JetBrains AI Assistant has no documented local location for this component', status: 'unsupported' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+  ],
+}
+
+/** Cursor install preview: a merged MCP entry, a new rule file, a skipped skill, and a warning. */
+export const fixtureInstallerPlan: InstallerPlan = {
+  plan_id: 'plan_0123456789abcdef01234567',
+  action: 'install',
+  expires_at: '2026-07-28T12:10:00Z',
+  warnings: [
+    'Cursor: loading rules from the global ~/.cursor/rules directory is unverified; Settings → Rules (User Rules) is the documented path',
+  ],
+  status: [],
+  changes: [
+    {
+      target: 'cursor',
+      component: 'mcp',
+      path: '/Users/demo/.cursor/mcp.json',
+      kind: 'modify',
+      skipped: false,
+      diff: [
+        '--- a/Users/demo/.cursor/mcp.json',
+        '+++ b/Users/demo/.cursor/mcp.json',
+        '@@ -1,5 +1,8 @@',
+        ' {',
+        '   "mcpServers": {',
+        '-    "other": {"url": "http://example.test/mcp"}',
+        '+    "other": {"url": "http://example.test/mcp"},',
+        '+    "ast-context-cache": {',
+        '+      "url": "http://127.0.0.1:7821/mcp"',
+        '+    }',
+        '   }',
+        ' }',
+        '',
+      ].join('\n'),
+    },
+    {
+      target: 'cursor',
+      component: 'skills',
+      path: '/Users/demo/.agents/skills/ast-context-cache-usage/SKILL.md',
+      kind: 'none',
+      skipped: true,
+      diff: '',
+      reason: 'Cursor already loads ast-context-cache skills from /Users/demo/.claude/skills',
+    },
+    {
+      target: 'cursor',
+      component: 'rules',
+      path: '/Users/demo/.cursor/rules/ast-context-cache.mdc',
+      kind: 'create',
+      skipped: false,
+      diff: [
+        '--- /dev/null',
+        '+++ b/Users/demo/.cursor/rules/ast-context-cache.mdc',
+        '@@ -0,0 +1,6 @@',
+        '+---',
+        '+alwaysApply: true',
+        '+---',
+        '+<!-- BEGIN ast-context-cache v4.0.0 -->',
+        '+Use ast-context-cache tools before broad grep or whole-file reads.',
+        '+<!-- END ast-context-cache -->',
+        '',
+      ].join('\n'),
+    },
+  ],
+}
+
+/** VS Code preview aborted by a parse error: nothing is written for the target (IN-3). */
+export const fixtureInstallerErrorPlan: InstallerPlan = {
+  plan_id: 'plan_fedcba9876543210fedcba98',
+  action: 'install',
+  expires_at: '2026-07-28T12:10:00Z',
+  warnings: [],
+  status: [],
+  errors: [
+    {
+      target: 'vscode',
+      component: 'mcp',
+      code: 'invalid_input',
+      message: "~/Library/Application Support/Code/User/mcp.json could not be parsed, so it was left unchanged: unexpected '}' at line 4",
+    },
+  ],
+  changes: [
+    {
+      target: 'vscode',
+      component: 'mcp',
+      path: '',
+      kind: 'none',
+      skipped: true,
+      diff: '',
+      reason: "~/Library/Application Support/Code/User/mcp.json could not be parsed, so it was left unchanged: unexpected '}' at line 4",
+    },
+  ],
+}
+
+export const fixtureInstallerBackups: InstallerBackup[] = [
+  { id: '20260728-120412/%Users%demo%.cursor%mcp.json', path: '/Users/demo/.cursor/mcp.json', created_at: '2026-07-28T12:04:12Z', size: 412 },
+  { id: '20260727-093000/%Users%demo%.claude%CLAUDE.md', path: '/Users/demo/.claude/CLAUDE.md', created_at: '2026-07-27T09:30:00Z', size: 8_240 },
+  {
+    id: '20260727-092955/%Users%demo%.claude%skills%ast-context-cache.symlink',
+    path: '/Users/demo/.claude/skills/ast-context-cache',
+    created_at: '2026-07-27T09:29:55Z',
+    size: 52,
+    symlink: true,
+  },
+]
+
+/**
+ * Two handoff trees: a live one whose first child opened a nested handoff, with every child
+ * status, claims, and queues; and an expired one awaiting the sweeper.
+ */
+export const fixtureHandoffTrees: HandoffTreesResponse = {
+  limits: handoffLimits,
+  repeat_search_ratio_24h: 0.18,
+  trees: [
+    {
+      tree_id: 'hft_3f9a1c2b4d5e6f70',
+      root_session_id: 'sess-demo-main',
+      project_path: '/Users/demo/project',
+      created_at: '2026-07-28 09:12:00',
+      last_access_at: '2026-07-28 11:58:30',
+      expires_at: '2026-08-04 11:58:30',
+      expired: false,
+      tokens_used: 18_420,
+      tokens_max: handoffLimits.tree_max_tokens,
+      entries_used: 42,
+      entries_max: handoffLimits.tree_max_entries,
+      active_claims: 2,
+      queued_claims: 1,
+      search_calls: 37,
+      repeat_calls: 6,
+      repeat_rate: 6 / 37,
+      tokens_delivered: 5_210,
+      tokens_saved: 21_640,
+      handoffs: [
+        {
+          handoff: 'hof_a1b2c3d4e5f60718',
+          label: 'Trace the auth middleware',
+          mode: 'fresh',
+          depth: 1,
+          parent_session_id: 'sess-demo-main',
+          created_at: '2026-07-28 09:12:00',
+          children: [
+            {
+              session_id: 'hof_a1b2c3d4e5f60718.c1',
+              label: 'Trace the auth middleware',
+              status: 'done',
+              depth: 1,
+              opened_at: '2026-07-28 09:12:40',
+              last_activity_at: '2026-07-28 10:31:05',
+              result_ref: 'ctx_5c1e0f2a9b3d',
+              summary: 'Auth runs in middleware/session.go; tokens refresh in RefreshIfStale before every handler.',
+              search_calls: 14,
+              repeat_calls: 1,
+              repeat_rate: 1 / 14,
+              tokens_available: 9_800,
+              tokens_delivered: 1_420,
+              tokens_saved: 8_380,
+              active_claims: 0,
+              queued_claims: 0,
+            },
+            {
+              session_id: 'hof_a1b2c3d4e5f60718.c2',
+              label: 'Trace the auth middleware',
+              status: 'open',
+              depth: 1,
+              opened_at: '2026-07-28 11:02:10',
+              last_activity_at: '2026-07-28 11:58:30',
+              search_calls: 9,
+              repeat_calls: 3,
+              repeat_rate: 3 / 9,
+              tokens_available: 9_800,
+              tokens_delivered: 2_100,
+              tokens_saved: 7_700,
+              active_claims: 1,
+              queued_claims: 1,
+            },
+          ],
+        },
+        {
+          handoff: 'hof_0f1e2d3c4b5a6978',
+          label: 'Map session storage',
+          mode: 'fork',
+          depth: 2,
+          parent_session_id: 'hof_a1b2c3d4e5f60718.c1',
+          parent_child_session_id: 'hof_a1b2c3d4e5f60718.c1',
+          created_at: '2026-07-28 09:40:00',
+          children: [
+            {
+              session_id: 'hof_0f1e2d3c4b5a6978.c1',
+              label: 'Map session storage',
+              status: 'failed',
+              depth: 2,
+              opened_at: '2026-07-28 09:40:30',
+              last_activity_at: '2026-07-28 10:05:00',
+              result_ref: 'ctx_77aa01bc3e4f',
+              summary: 'Could not find where sessions are persisted; the store interface has three implementations.',
+              search_calls: 11,
+              repeat_calls: 2,
+              repeat_rate: 2 / 11,
+              tokens_available: 4_200,
+              tokens_delivered: 1_000,
+              tokens_saved: 3_200,
+              active_claims: 0,
+              queued_claims: 0,
+            },
+            {
+              session_id: 'hof_0f1e2d3c4b5a6978.c2',
+              label: 'Map session storage',
+              status: 'abandoned',
+              depth: 2,
+              opened_at: '2026-07-28 09:41:00',
+              last_activity_at: '2026-07-28 09:44:00',
+              search_calls: 3,
+              repeat_calls: 0,
+              repeat_rate: 0,
+              tokens_available: 4_200,
+              tokens_delivered: 690,
+              tokens_saved: 3_510,
+              active_claims: 0,
+              queued_claims: 0,
+            },
+          ],
+        },
+        {
+          handoff: 'hof_99887766554433aa',
+          label: 'Audit token refresh tests',
+          mode: 'fresh',
+          depth: 1,
+          parent_session_id: 'sess-demo-main',
+          created_at: '2026-07-28 11:50:00',
+          children: [],
+        },
+      ],
+    },
+    {
+      tree_id: 'hft_0a0b0c0d0e0f1011',
+      root_session_id: 'sess-demo-old',
+      project_path: '/Users/demo/another-app',
+      created_at: '2026-07-18 14:00:00',
+      last_access_at: '2026-07-20 16:30:00',
+      expires_at: '2026-07-27 16:30:00',
+      expired: true,
+      tokens_used: 3_050,
+      tokens_max: handoffLimits.tree_max_tokens,
+      entries_used: 9,
+      entries_max: handoffLimits.tree_max_entries,
+      active_claims: 0,
+      queued_claims: 0,
+      search_calls: 0,
+      repeat_calls: 0,
+      repeat_rate: 0,
+      tokens_delivered: 610,
+      tokens_saved: 1_940,
+      handoffs: [
+        {
+          handoff: 'hof_1122334455667788',
+          label: 'Summarize the build scripts',
+          mode: 'fresh',
+          depth: 1,
+          parent_session_id: 'sess-demo-old',
+          created_at: '2026-07-18 14:00:00',
+          children: [
+            {
+              session_id: 'hof_1122334455667788.c1',
+              status: 'partial',
+              depth: 1,
+              opened_at: '2026-07-18 14:01:00',
+              last_activity_at: '2026-07-20 16:30:00',
+              result_ref: 'ctx_0d0e0f101112',
+              summary: 'Covered make targets; the release workflow is still unread.',
+              search_calls: 0,
+              repeat_calls: 0,
+              repeat_rate: 0,
+              tokens_available: 2_550,
+              tokens_delivered: 610,
+              tokens_saved: 1_940,
+              active_claims: 0,
+              queued_claims: 0,
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
+
+export const fixtureHandoffTreesEmpty: HandoffTreesResponse = {
+  limits: handoffLimits,
+  repeat_search_ratio_24h: 0,
+  trees: [],
 }

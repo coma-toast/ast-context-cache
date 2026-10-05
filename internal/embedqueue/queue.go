@@ -1,7 +1,6 @@
 package embedqueue
 
 import (
-	"log"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -20,6 +19,8 @@ const (
 	lowCap           = 2048
 	throughputSlots  = 10
 	throughputWindow = 500 * time.Millisecond
+
+	selectMissingVectorsForProjectQuery = selectMissingVectorsQuery + " WHERE project_path = ?"
 )
 
 type job struct {
@@ -35,20 +36,20 @@ type ActivityEntry struct {
 }
 
 var (
-	emb           embedder.Interface
-	embMu         sync.RWMutex
-	pendingCh     chan job
-	highCh        chan job
-	lowCh         chan job
-	started       sync.Once
-	inFlight         int64
-	inFlightPrimary  int64
-	inFlightAux      int64
-	completed    int64
-	failed       int64
-	throughput   [throughputSlots]int64
-	lastSlot     int64
-	startedAt    time.Time
+	emb             embedder.Interface
+	embMu           sync.RWMutex
+	pendingCh       chan job
+	highCh          chan job
+	lowCh           chan job
+	started         sync.Once
+	inFlight        int64
+	inFlightPrimary int64
+	inFlightAux     int64
+	completed       int64
+	failed          int64
+	throughput      [throughputSlots]int64
+	lastSlot        int64
+	startedAt       time.Time
 
 	// Recent activity log (last 20 embeddings)
 	recentActivity      [20]ActivityEntry
@@ -61,11 +62,11 @@ var (
 	activeProjects map[string]string
 	activePools    map[string]string // file → "primary" | "aux"
 
-	pendingMu        sync.Mutex
-	pending          map[string]job
-	pendingChQueued  map[string]struct{}
-	drainMu          sync.Mutex
-	pendingPeak      atomic.Int64
+	pendingMu       sync.Mutex
+	pending         map[string]job
+	pendingChQueued map[string]struct{}
+	drainMu         sync.Mutex
+	pendingPeak     atomic.Int64
 )
 
 // Ready reports whether the embed queue workers are running.
@@ -95,11 +96,11 @@ func Start(e embedder.Interface) {
 		lowCh = make(chan job, lowCap)
 		workerStop = make(chan struct{}, AbsoluteMaxWorkers)
 		beginProcessingWindow()
-	workerMu.Lock()
-	workerCount = loadWorkerCount()
-	workerTarget = workerCount
-	n := workerCount
-	workerMu.Unlock()
+		workerMu.Lock()
+		workerCount = loadWorkerCount()
+		workerTarget = workerCount
+		n := workerCount
+		workerMu.Unlock()
 		for i := 0; i < n; i++ {
 			go worker()
 		}
@@ -108,7 +109,7 @@ func Start(e embedder.Interface) {
 			return Snapshot().InFlight > 0
 		})
 		embedder.SetOnRecovery(func() { RecoverAfterEmbedder() })
-		log.Printf("embed queue: %d workers (pending=%d high=%d low=%d)", n, pendingCap, highCap, lowCap)
+		logger.Info("Embed queue started", "workers", n, "pending_cap", pendingCap, "high_cap", highCap, "low_cap", lowCap)
 		startPendingDBFlusher()
 		LoadPendingFromDB()
 		go flushPendingIfReady()
@@ -291,12 +292,12 @@ func SubmitPriority(file, projectPath string, high bool) {
 func EnqueueAllSymbolsFiles(projectPath string) {
 	conn, err := db.IndexReader()
 	if err != nil {
-		log.Printf("embedqueue: list files: %v", err)
+		logger.Warn("Failed to list files missing vectors", "project", projectPath, "error", err)
 		return
 	}
-	rows, err := conn.Query(missingVectorsSQL+" WHERE project_path = ?", projectPath)
+	rows, err := conn.Query(selectMissingVectorsForProjectQuery, projectPath)
 	if err != nil {
-		log.Printf("embedqueue: list files: %v", err)
+		logger.Warn("Failed to list files missing vectors", "project", projectPath, "error", err)
 		return
 	}
 	defer rows.Close()
@@ -326,25 +327,25 @@ func ThroughputLast5s() int64 {
 
 // QueueSnapshot is queue depth and worker state for dashboards.
 type QueueSnapshot struct {
-	Queued      int
-	Pending     int
-	PendingPeak int
-	HighUsed    int
-	LowUsed     int
-	HighCap     int
-	LowCap      int
-	Workers         int
-	WorkersEffective int
-	WorkersLive     int
+	Queued              int
+	Pending             int
+	PendingPeak         int
+	HighUsed            int
+	LowUsed             int
+	HighCap             int
+	LowCap              int
+	Workers             int
+	WorkersEffective    int
+	WorkersLive         int
 	AuxWorkers          int
 	AuxWorkersEffective int
 	AuxWorkersLive      int
-	InFlight        int64
-	InFlightPrimary int64
-	InFlightAux     int64
-	Completed       int64
-	Failed          int64
-	Throughput      int64
+	InFlight            int64
+	InFlightPrimary     int64
+	InFlightAux         int64
+	Completed           int64
+	Failed              int64
+	Throughput          int64
 	// LastAutoRecoverUnix is unix seconds of the last stuck-worker auto-recover, or 0.
 	LastAutoRecoverUnix int64
 }
@@ -520,7 +521,7 @@ func DrainQueueToPending() int {
 // When aux workers are available, pending is re-queued so onnx can keep embedding.
 func OnEmbedderError() {
 	if n := DrainQueueToPending(); n > 0 {
-		log.Printf("embedqueue: drained %d queued jobs to pending", n)
+		logger.Info("Drained queued jobs to pending", "jobs", n)
 		realtime.Notify(realtime.EmbedFinished)
 	}
 	runQuietPeriod("embedder_error")
@@ -543,7 +544,7 @@ func FlushPending() {
 	pendingMu.Unlock()
 	s := Snapshot()
 	if shouldLogFlush(len(jobs), s.InFlight) {
-		log.Printf("embedqueue: flushing %d pending queued=%d inFlight=%d", len(jobs), s.Queued, s.InFlight)
+		logger.Info("Flushing pending", "pending", len(jobs), "queued", s.Queued, "in_flight", s.InFlight)
 	}
 	for _, j := range jobs {
 		enqueuePendingRetry(j)

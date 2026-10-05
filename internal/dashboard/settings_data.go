@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"os"
 	"strconv"
 	"strings"
 
@@ -8,9 +9,21 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 )
+
+// handoffEnvLocked lists the handoff limit keys overridden by a non-empty environment variable.
+func handoffEnvLocked() []string {
+	locked := []string{}
+	for _, ls := range handoff.LimitSettings() {
+		if strings.TrimSpace(os.Getenv(handoff.EnvKey(ls.Key))) != "" {
+			locked = append(locked, ls.Key)
+		}
+	}
+	return locked
+}
 
 // dataDirSize formats the on-disk size of the three databases for display in Settings.
 func dataDirSize() string {
@@ -55,27 +68,6 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 	queryRetentionLast := settings["query_retention_last_run"]
 
 	projects, projectsLoading := loadProjectsForPage()
-	configs, _ := db.GetAgentConfigs()
-	var agents []components.AgentInfo
-	for _, sa := range supportedAgents {
-		a := components.AgentInfo{
-			Type:        sa.Type,
-			Name:        sa.Name,
-			GlobalPath:  sa.GlobalPath,
-			ProjectPath: sa.ProjectPath,
-			Description: sa.Description,
-		}
-		for _, c := range configs {
-			if c.AgentType == sa.Type {
-				if c.IsGlobal {
-					a.GlobalInstalled = true
-				} else {
-					a.ProjectInstalled = true
-				}
-			}
-		}
-		agents = append(agents, a)
-	}
 	data := components.SettingsData{
 		IdleUnloadMinutes:        idleMinutes,
 		WatcherIgnoreGlobs:       watcherIgn,
@@ -93,7 +85,6 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		QueryRetentionLastRun:    queryRetentionLast,
 		Projects:                 projects,
 		ProjectsLoading:          projectsLoading,
-		Agents:                   agents,
 		EmbedWorkerMax:           embedqueue.MaxWorkers(),
 		EmbedAuxWorkerMax:        embedqueue.AuxMaxWorkers(),
 		EmbedAuxWorkers:          embedqueue.AuxWorkerTarget(),
@@ -105,6 +96,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		data.EmbedAuxBackend = "onnx"
 	}
 	data.EmbedProbeIntervalSec = int(embedder.ProbeInterval().Seconds())
+	data.HandoffLimits, data.HandoffEnvLocked = handoff.LoadLimits(), handoffEnvLocked()
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)

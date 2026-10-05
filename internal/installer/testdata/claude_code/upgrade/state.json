@@ -1,0 +1,21 @@
+[
+  {
+    "target": "claude_code",
+    "component": "mcp",
+    "path": ".claude.json",
+    "content": "{\"type\":\"http\",\"url\":\"http://127.0.0.1:7900/mcp\"}"
+  },
+  {
+    "target": "claude_code",
+    "component": "rules",
+    "path": ".claude/CLAUDE.md",
+    "entry_hash": "fc406e346d47"
+  },
+  {
+    "target": "claude_code",
+    "component": "skills",
+    "path": ".claude/skills/ast-context-cache-usage/SKILL.md",
+    "content": "---\nname: ast-context-cache-usage\ndescription: old\n---\n\nOld usage skill.\n",
+    "created": 1
+  }
+]

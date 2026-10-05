@@ -1,12 +1,11 @@
 ---
 name: ast-context-cache-usage
-description: Use when searching, exploring, or analyzing code with ast-context-cache MCP — virtual context (store_context/fetch_context), structured memory (store_memory/recall_memory), KV repair, modes, filters, code-mode scripts.
+description: Use when searching, exploring, or analyzing code with ast-context-cache MCP — virtual context (store_context/fetch_context), structured memory (store_memory/recall_memory), subagent handoff (handoff/open_handoff/scratchpad, or a prompt containing [handoff hof_...]), KV repair, modes, filters, code-mode scripts.
 ---
-
 
 ## Goals
 
-Serve **token-efficient, precise code context** over MCP, **preserve conversation state across host compaction** with virtual context (`store_context` / `fetch_context`, `ctx_*`), and **remember compact prefs/rules** with structured memory (`store_memory` / `recall_memory`, `mem_*`). All data stays local (`~/.astcache`).
+Serve **token-efficient, precise code context** over MCP, **preserve conversation state across host compaction** with virtual context (`store_context` / `fetch_context`, `ctx_*`), **remember compact prefs/rules** with structured memory (`store_memory` / `recall_memory`, `mem_*`), and **hand subagents what you already explored** with subagent handoff (`handoff` / `open_handoff` / `scratchpad`, `hof_*`). All data stays local (`~/.astcache`).
 
 ## When to Use
 
@@ -22,8 +21,9 @@ Use this skill when the user asks to:
 - Run code analysis against search results
 - Offload bulky conversation context before host compaction (virtual context)
 - Store or recall user prefs / coding conventions (structured memory)
+- Delegate to a subagent, or work as one: your prompt contains `[handoff hof_…]` (subagent handoff)
 
-**Not for server config** (embeddings, dashboard settings, log retention, virtual context limits) — use [operator/SKILL.md](../operator/SKILL.md).
+**Not for server config** (embeddings, dashboard settings, log retention, virtual context limits) — use [operator/SKILL.md](../ast-operator/SKILL.md).
 
 ## Agent workflow (follow in order)
 
@@ -38,7 +38,7 @@ Use this skill when the user asks to:
 8. retrieve(query="...", project_path="...", session_id="...", include_memory=true)  # RAG ± memory
 ```
 
-Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, **`get_file_context`**, **virtual context tools** (`store_context`, `fetch_context`, `list_context`, `search_context`, `flush_context`), and **memory tools** (`store_memory`, `recall_memory`, `forget_memory`) so symbols and notes stay scoped to the thread.
+Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on **`get_context_capsule`**, **`search_semantic`**, **`retrieve`**, **`get_file_context`**, **virtual context tools** (`store_context`, `fetch_context`, `list_context`, `search_context`, `flush_context`), **memory tools** (`store_memory`, `recall_memory`, `forget_memory`), and **handoff tools** (`handoff`, `scratchpad`) so symbols and notes stay scoped to the thread. As a handoff child, use the `session_id` that `open_handoff` returns instead.
 
 ## Quick Reference
 
@@ -56,7 +56,7 @@ Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on *
 
 ## Tool availability (tiers)
 
-If `index_files`, `execute_code`, or other tools are missing from `tools/list`, the server tier is too low or the tool is disabled in `~/.astcache/tools.json`. Agents cannot change tier—ask the user to set `AST_MCP_TIER` / edit overrides and restart ast-mcp. See [README](../../README.md#tool-tiers-and-per-tool-overrides).
+If `index_files`, `execute_code`, or other tools are missing from `tools/list`, the server tier is too low or the tool is disabled in `~/.astcache/tools.json`. Agents cannot change tier—ask the user to set `AST_MCP_TIER` / edit overrides and restart ast-mcp. If `handoff`, `open_handoff`, or `scratchpad` is missing, or an action returns `feature_disabled`, a feature flag is off (dashboard Settings → Features or `AST_FEATURE_*`); flags apply live. See [README](../../../README.md#tool-tiers-and-per-tool-overrides).
 
 ## Tool selection
 
@@ -68,6 +68,9 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | Search by meaning | `search_semantic` | Natural language; optional `doc_type` |
 | Project tree | `get_project_map` | `depth=2` (~200 tokens) |
 | Before changing exports | `get_impact_graph` | Shows dependents |
+| Blast radius of a branch or PR | `diff_impact` | `base_ref`/`head_ref`, or `pr` for a GitHub PR that is not checked out |
+| Is this name real? | `check_symbol_exists` | Verify a testid constant or renamed method before trusting a reference |
+| Before deleting code | `check_deletion_safety` | Removed symbols that other files still reference |
 | Dead code | `analyze_dead_code` | Extended tier |
 | Complexity hotspots | `analyze_complexity` | Extended tier |
 | Cache findings | `cache_summary` | Enables `mode=summary` later |
@@ -79,6 +82,9 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id`; bulky `ctx_*` notes |
 | Prefs / rules (compact) | `store_memory` / `recall_memory` / `forget_memory` | Extended write; core read; `mem_*` — not bulky notes |
 | KV repair signal | `report_kv_repair_event` | Extended; before/after `fetch_context` on `kind=kv_repair` |
+| Delegate to a subagent | `handoff` (`create`, then `collect`) | Core; paste the stub into the subagent prompt |
+| Prompt contains `[handoff hof_…]` | `open_handoff` | Core; call **before any search**; use the returned `session_id` |
+| Coordinate parallel subagents | `scratchpad` | Core; findings, dead ends, advisory claims |
 
 ## Virtual context compaction
 
@@ -153,7 +159,7 @@ When finished:
 | Max tokens global | 200,000 |
 | Limit policy | `reject` (`lru_session` evicts oldest in session; global cap always rejects) |
 
-Operators configure via dashboard **Settings → Virtual context** or env (`AST_CONTEXT_MAX_*`, `AST_CONTEXT_LIMIT_POLICY`). See [operator/SKILL.md](../operator/SKILL.md).
+Operators configure via dashboard **Settings → Virtual context** or env (`AST_CONTEXT_MAX_*`, `AST_CONTEXT_LIMIT_POLICY`). See [operator/SKILL.md](../ast-operator/SKILL.md).
 
 ### Metrics (separate from code Tokens saved)
 
@@ -169,6 +175,7 @@ Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule
 
 - **`store_context`** and **`flush_context`** require **extended** tier (or `tools.json` override).
 - **`fetch_context`**, **`list_context`**, **`search_context`** are **core** — agents can recover after compaction even in read-only profiles if an operator stored notes earlier.
+- **`handoff`**, **`open_handoff`**, **`scratchpad`** are **core** (they write, but delegation should work at every tier); feature flags turn them off.
 
 If `store_context` is missing from `tools/list`, ask the user to set `AST_MCP_TIER=extended` and restart ast-mcp.
 
@@ -192,6 +199,87 @@ forget_memory(refs=["mem_a", "mem_b"])  # or "mem_a,mem_b"; or subject+predicate
 `forget_memory(refs=…)` needs no `scope`/`session_id` and touches only the named refs; the response lists `invalidated`, `not_found`, `already_invalid`, and `scope_mismatch` (if you pass `scope`, it only guards), and is an error when nothing was invalidated.
 
 Facts auto-invalidate prior same subject+predicate in scope (`invalidate_previous` default true). Optional: `store_context(..., extract_memory=true)` saves only lines that start with `FACT:` (`subject | predicate | object`, or `subject predicate object…`) or `RULE:` as session-scoped `mem_*`; headings, prose, and fenced code are ignored and text is kept as written. Unparseable marked lines come back in `memory_skipped`. RAG: `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
+
+**Environment gotchas — store them as you find them.** Any non-obvious quirk of a project belongs in project-scoped memory the moment you hit it, so the next session recalls it instead of rediscovering it:
+
+```
+store_memory(kind="fact", scope="project", project_path="/abs/repo",
+             subject="login.form", predicate="matches_by", object="internal user id, not display name")
+recall_memory(project_path="/abs/repo", scope="project")  # do this before reading code
+```
+
+Project memories key on the repo, not the checkout: one stored in a WTG worktree is recalled from a sibling worktree on a different branch. Pass `repo_siblings=false` to limit recall to the single checkout.
+
+## Subagent handoff
+
+A subagent normally starts with an empty window: it re-runs your searches, re-reads the same code, and returns a long report. A handoff gives it a snapshot of what you explored (a stub of at most 60 tokens in its prompt) and gives you back a ref plus a summary capped at 300 tokens. Full guide: [docs/handoff.md](../../../docs/handoff.md).
+
+| Tool | Actions | Who |
+|------|---------|-----|
+| `handoff` | `create`, `complete`, `collect`, `list`, `status`, `flush` | `create` / `collect` / `list`: parent; `complete`: child |
+| `open_handoff` | `open`, `expand`, `resume` | child |
+| `scratchpad` | `post`, `read`, `retract`, `claim`, `release` | any session in the tree |
+
+### W1: one fresh subagent (any MCP host)
+
+```
+# Parent: explore with your session_id first, then
+handoff(action="create", session_id="conv-uuid", project_path="/abs/repo",
+        brief="Find why retries ignore max delay; propose a fix, don't edit.",
+        label="retry backoff",
+        pointers=[{"key": "internal/retry/backoff.go", "note": "suspect"}],
+        ctx_refs=["ctx_…"])            # optional; mem_refs too
+→ stub: [handoff hof_…] retry backoff — call open_handoff first
+# Put the stub in the subagent prompt.
+
+# Child: first call, before any search
+open_handoff(handoff="hof_…", project_path="/abs/repo")
+→ session_id (yours: pass it on EVERY later call), brief, pointers, notes, memory, trail, scratchpad digest
+open_handoff(action="expand", handoff="hof_…", session_id="<child>", section="pointer", items=[1], mode="auto")
+# search as usual with session_id="<child>"
+handoff(action="complete", session_id="<child>", status="done",
+        content="<full result>\nFACT: retry.backoff | ignores | max_delay when jitter is on",
+        summary="Jitter is added after the clamp.")
+→ stub: [result ctx_… for hof_…] done — Jitter is added after the clamp.
+# Output that stub as your final message.
+
+# Parent: read the summary; fetch_context(refs=["ctx_…"]) only if you need the full result.
+```
+
+- **Prune** the snapshot at create: `exclude_trail=[ids]` or `["all"]`, `exclude_trail_query="substring"`, `include_manifest=false`. Over the tree cap → `handoff_tree_limit_exceeded` with a per-section breakdown.
+- **Stale pointers** return the current code with `stale: true` and `change` (`modified`, `moved`, `deleted`, `file_missing`), never an error.
+- **Annotations** in the child's searches: `parent_trail_match` (the parent already ran this search), `parent_explored: true` (fresh mode: the parent already saw this symbol).
+- `FACT:` / `RULE:` lines in the result are promoted to the parent's session memory (`recall_memory`).
+- **Never put credentials or secrets in a brief, note, result, or scratchpad post**: anyone holding the ref can read the tree.
+
+### W2: Claude Code with hooks (opt-in)
+
+When the Claude Code handoff hooks are installed (`feature_handoff_hooks` on, then `ast-mcp install --target claude_code --component hooks`), they do W1's plumbing: your `session_id` is injected at session start, each `Agent` call gets a handoff stub appended to its prompt, and the subagent starts with its child `session_id` and digest already opened (don't call `open_handoff` `open` again; `expand` still works). The child still finishes with `handoff` `complete`; if it stops without completing, its final message is saved as a `partial` result. Hooks fail open, so without a server everything runs as plain W1. Details: [docs/handoff.md](../../../docs/handoff.md#claude-code-hooks).
+
+### W3: fork vs fresh
+
+| `mode` | Use when | Effect |
+|--------|----------|--------|
+| `fresh` (default) | The subagent starts with an empty window (Claude Code general-purpose agents, Cursor subagents, workflow agents, any manual delegation) | Child dedup starts empty; parent-explored symbols are returned and marked |
+| `fork` | **Only** for a host fork that inherited your window (Claude Code `fork` subagents) | Child dedup is seeded with your explored symbols, so it skips what is already in its window |
+
+Forks inherit the parent's window **and** its warm prompt cache (confirmed in the Claude Code hook spike), so re-sending explored code to a fork is pure waste. A fresh subagent shares neither, so seeding its dedup would hide symbols it has never seen: when unsure, use `fresh`.
+
+### W4: workflow fan-out (N parallel children)
+
+1. Create **one** handoff; give the **same** stub to up to 16 agents. Each `open` mints its own child `session_id` (a 17th open returns `handoff_children_exceeded`).
+2. Share as you go: `scratchpad(action="post", session_id, type="finding"|"dead_end", text, refs?)`; read others' new entries with `scratchpad(action="read", session_id, since=<next_cursor>)` (your own entries are excluded by default).
+3. Searches are shared automatically as `trail` entries; a sibling's identical search returns `sibling_trail_match` and is served from the shared cache.
+4. Before editing a shared file: `scratchpad(action="claim", session_id, key="internal/x/file.go", reason?)` → `granted`, or `queued` with `holder` and `position`. A later grant arrives as `[claims_granted] …` on your next call. `release` when done; `complete` releases all your claims. A claim that would deadlock returns `claim_deadlock_risk`.
+5. **Claims are advisory** — the server never blocks an edit; they only coordinate agents that check them.
+6. Parent fans in once: `handoff(action="collect", session_id)` (add `recursive=true` for nested handoffs, `wait_seconds` ≤ 60 to long-poll).
+
+### Recovery and cleanup
+
+- **Parent compacted, `hof_` ref lost:** `handoff(action="list", session_id)` → then `collect`.
+- **Child resumed with its history:** `open_handoff(action="resume", handoff, session_id=<child>)`.
+- **Child idle 30 min:** marked `abandoned`; its notes stay readable via `collect` and `fetch_context`.
+- **Done:** `handoff(action="flush", handoff="hof_…")` deletes the whole tree; otherwise it expires 7 days after last access. `flush_context` on the parent does **not** delete handoff snapshots.
 
 ## KV repair archives (quantized KV recovery)
 
@@ -291,7 +379,7 @@ KV repair notes share **virtual context quotas** (same as compaction notes). Sep
 
 Search tools may attach **`code_script_hints`** when a built-in or repo script fits (many results, query regex, etc.). Hints are visible on **core** tier; running scripts needs **complete** + **`AST_MCP_CODE_MODE`**.
 
-**When hints appear:** Large result sets, structure/overview queries, export/impact queries — see [scripts/code-mode/README.md](../../scripts/code-mode/README.md).
+**When hints appear:** Large result sets, structure/overview queries, export/impact queries — see [scripts/code-mode/README.md](../../../scripts/code-mode/README.md).
 
 **Do not:** Paste huge `results` JSON into chat when a hint offers `script_id` — run `execute_code` and use `result` only.
 
@@ -374,6 +462,6 @@ Use grep only for exact symbols in known files. For exploration or cross-module 
 |---------|-----|
 | MCP | `http://localhost:7821/mcp` |
 | Health | `http://localhost:7821/health` |
-| Dashboard | `http://localhost:7830` (operators — see [operator/SKILL.md](../operator/SKILL.md)) |
+| Dashboard | `http://localhost:7830` (operators — see [operator/SKILL.md](../ast-operator/SKILL.md)) |
 
 `project_path` must be the **absolute** repository root.

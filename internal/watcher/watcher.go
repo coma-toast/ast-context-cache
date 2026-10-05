@@ -9,7 +9,6 @@ package watcher
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +26,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+const selectIndexedProjectPathsQuery = "SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'"
+
 var (
 	mu             sync.Mutex
 	activeWatchers = map[string]backend{}
@@ -40,6 +41,10 @@ var (
 	// debounce callbacks from when they're scheduled — so tests can wait for
 	// all of them before the next test changes what they read.
 	bg sync.WaitGroup
+
+	// indexFile is what a debounce callback re-indexes a file with. Tests
+	// swap it to hold a callback in flight for as long as they need.
+	indexFile = indexer.IndexFile
 )
 
 func init() {
@@ -121,7 +126,7 @@ func indexedProjectPaths() []string {
 	if err != nil {
 		return nil
 	}
-	rows, err := conn.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'")
+	rows, err := conn.Query(selectIndexedProjectPathsQuery)
 	if err != nil {
 		return nil
 	}
@@ -156,7 +161,7 @@ func StartWatcher(projectPath string) {
 	w, err := newBackend(projectPath)
 	if err != nil {
 		mu.Unlock()
-		log.Printf("Watcher error for %s: %v", projectPath, err)
+		logger.Error("Failed to start watcher", "project", projectPath, "error", err)
 		return
 	}
 	activeWatchers[projectPath] = w
@@ -207,7 +212,7 @@ func StartWatcher(projectPath string) {
 					scheduleCatchUp(projectPath)
 					continue
 				}
-				log.Printf("Watcher error: %v", err)
+				logger.Warn("Watcher error", "project", projectPath, "error", err)
 			}
 		}
 	}()
@@ -216,7 +221,7 @@ func StartWatcher(projectPath string) {
 		defer bg.Done()
 		catchUp(projectPath)
 	}()
-	log.Printf("File watcher started for %s (%s)", projectPath, w.Name())
+	logger.Info("File watcher started", "project", projectPath, "backend", w.Name())
 	realtime.Notify(realtime.WatchersChanged)
 }
 
@@ -273,7 +278,7 @@ func catchUp(projectPath string) {
 		n, fullT, skelT, err := indexer.IndexFile(path, projectPath)
 		if err == nil {
 			stale++
-			log.Printf("Catch-up re-indexed %s: %d symbols", path, n)
+			logger.Debug("Catch-up re-indexed file", "file", path, "symbols", n)
 			// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
 			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{TokensUsed: skelT, SymbolBaseline: fullT, FileBaseline: fullT}, projectPath, "")
 			if PostIndexHook != nil {
@@ -288,7 +293,7 @@ func catchUp(projectPath string) {
 	removed := 0
 	for _, file := range catchUpRemovals(projectPath, indexed, seen, walkErr == nil) {
 		if err := removeFileFromIndex(file, projectPath); err != nil {
-			log.Printf("Catch-up: purge %s: %v", file, err)
+			logger.Warn("Failed to purge file during catch-up", "file", file, "error", err)
 			continue
 		}
 		removed++
@@ -297,7 +302,7 @@ func catchUp(projectPath string) {
 		}
 	}
 	if stale > 0 || removed > 0 {
-		log.Printf("Catch-up complete for %s: %d re-indexed, %d removed", projectPath, stale, removed)
+		logger.Info("Catch-up complete", "project", projectPath, "reindexed", stale, "removed", removed)
 	}
 	if removed > 0 {
 		realtime.Notify(realtime.IndexCommitted)
@@ -406,9 +411,9 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 			if err := removeFileFromIndex(path, projectPath); err != nil {
 				// The file is still recorded as indexed, so the next catch-up scan
 				// retries the removal.
-				log.Printf("Remove deleted file %s from the index: %v", path, err)
+				logger.Warn("Failed to remove deleted file from the index", "file", path, "error", err)
 			} else {
-				log.Printf("Removed symbols for deleted file: %s", path)
+				logger.Debug("Removed symbols for deleted file", "file", path)
 				db.LogQuery("file_watcher", map[string]interface{}{"event": "delete", "file": path}, db.QueryLogMetrics{}, projectPath, "")
 				if PostIndexHook != nil {
 					go PostIndexHook(path, projectPath, true)
@@ -416,9 +421,9 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 				realtime.Notify(realtime.IndexCommitted)
 			}
 		} else {
-			n, fullT, skelT, err := indexer.IndexFile(path, projectPath)
+			n, fullT, skelT, err := indexFile(path, projectPath)
 			if err == nil {
-				log.Printf("Re-indexed %s: %d symbols", path, n)
+				logger.Debug("Re-indexed file", "file", path, "symbols", n)
 				resultJSON, _ := json.Marshal(map[string]interface{}{"file": path, "symbols": n})
 				// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
 				db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{
@@ -502,7 +507,7 @@ func StopWatcher(projectPath string) error {
 	w.Close()
 	delete(activeWatchers, projectPath)
 	knownProjects[projectPath] = false
-	log.Printf("Stopped watcher for %s", projectPath)
+	logger.Info("Stopped watcher", "project", projectPath)
 	realtime.Notify(realtime.WatchersChanged)
 	return nil
 }
@@ -521,8 +526,30 @@ func DeleteWatcher(projectPath string) {
 	delete(lastActivity, projectPath)
 	mu.Unlock()
 	cancelDebounceTimersForProject(projectPath)
-	log.Printf("Deleted watcher for %s", projectPath)
+	logger.Info("Deleted watcher", "project", projectPath)
 	realtime.Notify(realtime.WatchersChanged)
+}
+
+// StopAll deletes every watcher, cancels every pending debounce, and waits for
+// the goroutines they started (event loops, catch-ups, debounced re-indexes) to
+// return, so nothing of ours is still using the db pools when they are closed.
+func StopAll() {
+	mu.Lock()
+	projects := make([]string, 0, len(activeWatchers))
+	for p := range activeWatchers {
+		projects = append(projects, p)
+	}
+	mu.Unlock()
+	for _, p := range projects {
+		DeleteWatcher(p)
+	}
+	debounceMu.Lock()
+	for key, t := range debounceTimers {
+		stopDebounce(t)
+		delete(debounceTimers, key)
+	}
+	debounceMu.Unlock()
+	bg.Wait()
 }
 
 // cancelDebounceTimersForProject stops and forgets any pending debounce timer
@@ -609,10 +636,10 @@ func EnsureWatcher(projectPath string) {
 	}
 	mu.Unlock()
 	if info, err := os.Stat(projectPath); err != nil {
-		log.Printf("EnsureWatcher: %s: %v", projectPath, err)
+		logger.Warn("Failed to stat project for watcher", "project", projectPath, "error", err)
 		return
 	} else if !info.IsDir() {
-		log.Printf("EnsureWatcher: %s is not a directory", projectPath)
+		logger.Warn("Project for watcher is not a directory", "project", projectPath)
 		return
 	}
 	StartWatcher(projectPath)
@@ -697,7 +724,7 @@ func idleTick() {
 	mu.Unlock()
 	for _, p := range toStop {
 		if shouldStopForIdle(p, now, timeout) {
-			log.Printf("Watcher idle timeout for %s", p)
+			logger.Info("Watcher idle timeout", "project", p)
 			StopWatcher(p)
 		}
 	}

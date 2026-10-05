@@ -1,11 +1,9 @@
 package dashboard
 
 import (
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +18,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
+	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
@@ -34,7 +35,36 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func NewHandler(_ string) http.Handler {
+const (
+	selectStatsBaseQuery          = "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + " FROM queries WHERE "
+	selectProjectRecentCallsQuery = "SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?"
+	selectRecentCallsQuery        = "SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries ORDER BY timestamp DESC LIMIT ?"
+	selectTopQueriedProjectsQuery = "SELECT DISTINCT project_path, COUNT(*) as query_count FROM queries WHERE project_path IS NOT NULL GROUP BY project_path ORDER BY query_count DESC LIMIT 500"
+	deleteAllRowsFromQuery        = "DELETE FROM "
+	selectProjectTimelineQuery    = `SELECT strftime(?, timestamp) as period, COUNT(*), ` + tokensSavedSum + `, COALESCE(AVG(duration_ms),0)
+			FROM queries WHERE project_path = ? AND timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`
+	selectTimelineQuery = `SELECT strftime(?, timestamp) as period, COUNT(*), ` + tokensSavedSum + `, COALESCE(AVG(duration_ms),0)
+			FROM queries WHERE timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`
+	selectProjectSymbolKindsQuery = "SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC"
+	selectSymbolKindsQuery        = "SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC"
+	selectLanguageStatsBaseQuery  = `SELECT CASE
+		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
+		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
+		WHEN file LIKE '%.ts' THEN 'TypeScript' WHEN file LIKE '%.tsx' THEN 'TSX'
+		WHEN file LIKE '%.sh' THEN 'Bash' WHEN file LIKE '%.fish' THEN 'Fish'
+		ELSE 'Other' END as language, COUNT(DISTINCT file) as files, COUNT(*) as symbols FROM symbols`
+	languageStatsProjectClause   = " WHERE project_path = ? GROUP BY language ORDER BY symbols DESC"
+	languageStatsGroupClause     = " GROUP BY language ORDER BY symbols DESC"
+	selectProjectTopImportsQuery = "SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? AND kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20"
+	selectTopImportsQuery        = "SELECT target, COUNT(*) as count FROM edges WHERE kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20"
+	countProjectVectorsQuery     = "SELECT COUNT(*) FROM vectors WHERE project_path = ?"
+	countVectorsQuery            = "SELECT COUNT(*) FROM vectors"
+)
+
+// NewHandler builds the dashboard HTTP handler. listen is the address the server
+// binds to; httpguard uses it to reject cross-origin writes and DNS-rebinding
+// requests whose Host doesn't match.
+func NewHandler(listen string) http.Handler {
 	mux := http.NewServeMux()
 	initUIAssets()
 	registerReactAPI(mux)
@@ -75,9 +105,6 @@ func NewHandler(_ string) http.Handler {
 	mux.HandleFunc("/api/project-links", handleProjectLinks)
 	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
 	mux.HandleFunc("/api/embed-aux-workers", handleEmbedAuxWorkers)
-	mux.HandleFunc("/api/agent-configs", handleAgentConfigs)
-	mux.HandleFunc("/api/agent-install", handleAgentInstall)
-	mux.HandleFunc("/api/agent-uninstall", handleAgentUninstall)
 	mux.HandleFunc("/api/system-resources", handleSystemResources)
 	mux.HandleFunc("/api/doc-sources", handleDocSources)
 	mux.HandleFunc("/api/doc-packs/install", handleDocPacksInstall)
@@ -108,7 +135,7 @@ func NewHandler(_ string) http.Handler {
 	// Root redirects to React dashboard
 	mux.HandleFunc("/", handleRootRedirect)
 
-	return mux
+	return httpguard.Middleware(listen, mux)
 }
 
 type stats struct {
@@ -135,10 +162,8 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
-	statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + " FROM queries WHERE "
 	where, args := statsQueriesWhere(pid)
-	db.DB.QueryRow(statsSel+where, args...).
+	db.DB.QueryRow(selectStatsBaseQuery+where, args...).
 		Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
 	var today components.Stats
 	fillTodayStats(pid, todayStart, tomorrowStart, &today)
@@ -179,9 +204,9 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?", pid, lim)
+		rows, err = db.DB.Query(selectProjectRecentCallsQuery, pid, lim)
 	} else {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries ORDER BY timestamp DESC LIMIT ?", lim)
+		rows, err = db.DB.Query(selectRecentCallsQuery, lim)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
@@ -228,7 +253,7 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	symCounts := map[string]symCount{}
 	if idb, ierr := db.IndexReader(); ierr == nil {
-		symRows, err := idb.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+		symRows, err := idb.Query(selectSymbolCountsByProjectQuery)
 		if err == nil {
 			defer symRows.Close()
 			for symRows.Next() {
@@ -246,7 +271,7 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 	// Capped at 500, same defensive bound /api/recent already applies — this is
 	// otherwise a fully unbounded list, same risk the Memory tab's doc-sources
 	// pagination fixed for a different endpoint.
-	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) as query_count FROM queries WHERE project_path IS NOT NULL GROUP BY project_path ORDER BY query_count DESC LIMIT 500")
+	rows, err := db.DB.Query(selectTopQueriedProjectsQuery)
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
@@ -286,8 +311,8 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		err := db.IndexWrite(func(tx *sql.Tx) error {
 			return db.WithoutFTSTriggers(tx, func() error {
 				for _, table := range []string{"symbols", "edges", "indexed_files"} {
-					if _, err := tx.Exec("DELETE FROM " + table); err != nil {
-						return fmt.Errorf("delete %s: %w", table, err)
+					if _, err := tx.Exec(deleteAllRowsFromQuery + table); err != nil {
+						return errs.WrapMessage("failed to delete table rows", err, "table", table)
 					}
 				}
 				return nil
@@ -297,9 +322,9 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		cache.GlobalCache.ClearAll()
+		cache.Candidates.ClearAll()
 		go db.Compact()
-		log.Printf("dashboard: reset cleared ALL indexed data across every project (project_path=\"all\")")
+		logger.Info("Reset cleared all indexed data across every project", "project_path", "all")
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
 		return
 	}
@@ -365,13 +390,10 @@ func handleTimeseries(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	var err error
-	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
 	if pid != "" {
-		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
-			FROM queries WHERE project_path = ? AND timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, pid, days)
+		rows, err = db.DB.Query(selectProjectTimelineQuery, format, pid, days)
 	} else {
-		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
-			FROM queries WHERE timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, days)
+		rows, err = db.DB.Query(selectTimelineQuery, format, days)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -402,11 +424,11 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 	var totalSymbols, totalFiles, totalEdges int
 	if conn, err := db.IndexReader(); err == nil {
 		if pid != "" {
-			conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
-			conn.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
+			conn.QueryRow(countProjectSymbolsAndFilesQuery, pid).Scan(&totalSymbols, &totalFiles)
+			conn.QueryRow(countProjectEdgesQuery, pid).Scan(&totalEdges)
 		} else {
-			conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
-			conn.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
+			conn.QueryRow(countSymbolsAndFilesQuery).Scan(&totalSymbols, &totalFiles)
+			conn.QueryRow(countEdgesQuery).Scan(&totalEdges)
 		}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -428,9 +450,9 @@ func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
+		rows, err = conn.Query(selectProjectSymbolKindsQuery, pid)
 	} else {
-		rows, err = conn.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
+		rows, err = conn.Query(selectSymbolKindsQuery)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -455,17 +477,11 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
-	q := `SELECT CASE
-		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
-		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
-		WHEN file LIKE '%.ts' THEN 'TypeScript' WHEN file LIKE '%.tsx' THEN 'TSX'
-		WHEN file LIKE '%.sh' THEN 'Bash' WHEN file LIKE '%.fish' THEN 'Fish'
-		ELSE 'Other' END as language, COUNT(DISTINCT file) as files, COUNT(*) as symbols FROM symbols`
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
+		rows, err = conn.Query(selectLanguageStatsBaseQuery+languageStatsProjectClause, pid)
 	} else {
-		rows, err = conn.Query(q + " GROUP BY language ORDER BY symbols DESC")
+		rows, err = conn.Query(selectLanguageStatsBaseQuery + languageStatsGroupClause)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -492,9 +508,9 @@ func handleTopImports(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? AND kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20", pid)
+		rows, err = conn.Query(selectProjectTopImportsQuery, pid)
 	} else {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20")
+		rows, err = conn.Query(selectTopImportsQuery)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -526,9 +542,9 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	var dbVectors int
 	if conn, err := db.IndexReader(); err == nil {
 		if pid != "" {
-			conn.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
+			conn.QueryRow(countProjectVectorsQuery, pid).Scan(&dbVectors)
 		} else {
-			conn.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
+			conn.QueryRow(countVectorsQuery).Scan(&dbVectors)
 		}
 	}
 
@@ -680,7 +696,7 @@ func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error
 	if c := r.FormValue("count"); c != "" {
 		n, err := strconv.Atoi(c)
 		if err != nil {
-			return 0, nil, fmt.Errorf("count: %w", err)
+			return 0, nil, errs.WrapCodeMessage(errs.CodeInvalidInput, "invalid count", err, "count", c)
 		}
 		return 0, &n, nil
 	}
@@ -817,6 +833,18 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
 			return
 		}
+		if isFlagKey(key) {
+			writeFlagsError(w, http.StatusBadRequest, flagSettingKeyMsg)
+			return
+		}
+		if handoff.IsLimitSetting(key) {
+			n, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || n < 1 {
+				writeFlagsError(w, http.StatusBadRequest, key+" must be a positive integer")
+				return
+			}
+			value = strconv.Itoa(n)
+		}
 		if key == "embed_worker_max" {
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 1 || n > embedqueue.AbsoluteMaxWorkers {
@@ -886,7 +914,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "EMBED_AUX_WORKERS" {
 			n, _ := strconv.Atoi(value)
 			if _, err := embedqueue.SetAuxWorkerCount(n); err != nil {
-				log.Printf("dashboard: set aux workers: %v", err)
+				logger.Warn("Failed to set aux embed workers", "workers", n, "error", err)
 			}
 		}
 		if key == "EMBED_AUX_BACKEND" {
@@ -916,6 +944,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		} else if key == embedder.ProbeIntervalSettingKey {
 			mask |= realtime.IndexHealth | realtime.HealthBar
+		} else if handoff.IsLimitSetting(key) {
+			mask |= realtime.Handoffs
 		}
 		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
 		return
@@ -958,6 +988,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"dashboard_log_tail_lines":       "200",
 		"dashboard_log_line_chars":       "500",
 	}
+	for _, ls := range handoff.LimitSettings() {
+		defaults[ls.Key] = strconv.Itoa(ls.Default)
+	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
 		if _, ok := settings[k]; !ok {
@@ -965,207 +998,6 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	json.NewEncoder(w).Encode(settings)
-}
-
-type AgentInfo struct {
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	GlobalPath  string `json:"global_path"`
-	ProjectPath string `json:"project_path"`
-	Description string `json:"description"`
-}
-
-var supportedAgents = []AgentInfo{
-	{"cursor", "Cursor", "~/.cursor/mcp.json", ".cursor/mcp.json", "MCP server config for Cursor IDE"},
-	{"opencode", "OpenCode", "~/.config/opencode/opencode.jsonc", "opencode.jsonc", "MCP settings for OpenCode"},
-	{"claude_code", "Claude Code", "~/.claude.json", "CLAUDE.md", "Claude Code instructions file"},
-	{"claude_desktop", "Claude Desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", ".claude_desktop_config.json", "Claude Desktop MCP config"},
-}
-
-func handleAgentConfigs(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	configs, err := db.GetAgentConfigs()
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	type response struct {
-		Agents    []AgentInfo      `json:"agents"`
-		Installed []db.AgentConfig `json:"installed"`
-	}
-	json.NewEncoder(w).Encode(response{Agents: supportedAgents, Installed: configs})
-}
-
-func handleAgentInstall(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	var req struct {
-		AgentType string `json:"agent_type"`
-		IsGlobal  bool   `json:"is_global"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	if req.AgentType == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "agent_type required"})
-		return
-	}
-
-	var agent AgentInfo
-	for _, a := range supportedAgents {
-		if a.Type == req.AgentType {
-			agent = a
-			break
-		}
-	}
-	if agent.Type == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "unknown agent type"})
-		return
-	}
-
-	home := os.Getenv("HOME")
-	var installPath string
-	if req.IsGlobal {
-		installPath = agent.GlobalPath
-	} else {
-		installPath = agent.ProjectPath
-	}
-
-	fullPath := installPath
-	if strings.HasPrefix(fullPath, "~/") {
-		fullPath = filepath.Join(home, strings.TrimPrefix(fullPath, "~"))
-	}
-
-	instructions := generateAgentInstructions(req.AgentType)
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(instructions)))
-
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create dir: " + err.Error()})
-		return
-	}
-
-	if err := os.WriteFile(fullPath, []byte(instructions), 0644); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file: " + err.Error()})
-		return
-	}
-
-	if err := db.AddAgentConfig(req.AgentType, installPath, req.IsGlobal, hash); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save config: " + err.Error()})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":       "installed",
-		"agent_type":   req.AgentType,
-		"path":         fullPath,
-		"is_global":    req.IsGlobal,
-		"instructions": instructions,
-	})
-}
-
-func handleAgentUninstall(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	var req struct {
-		AgentType string `json:"agent_type"`
-		IsGlobal  bool   `json:"is_global"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	home := os.Getenv("HOME")
-	var installPath string
-	if req.IsGlobal {
-		for _, a := range supportedAgents {
-			if a.Type == req.AgentType {
-				installPath = a.GlobalPath
-				break
-			}
-		}
-	} else {
-		for _, a := range supportedAgents {
-			if a.Type == req.AgentType {
-				installPath = a.ProjectPath
-				break
-			}
-		}
-	}
-
-	fullPath := installPath
-	if strings.HasPrefix(fullPath, "~/") {
-		fullPath = filepath.Join(home, strings.TrimPrefix(fullPath, "~"))
-	}
-
-	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to remove file: " + err.Error()})
-		return
-	}
-
-	if err := db.RemoveAgentConfig(req.AgentType, installPath); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to remove config: " + err.Error()})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]string{"status": "uninstalled", "path": fullPath})
-}
-
-func generateAgentInstructions(agentType string) string {
-	prompts := mcp.GetPrompts()
-	var promptText string
-	for _, p := range prompts {
-		if p.Name == "efficient-context-usage" {
-			promptText = p.Prompt
-			break
-		}
-	}
-
-	switch agentType {
-	case "claude_code":
-		return "# Code Context Instructions\n\n" + promptText + "\n\nUse these tools for efficient code search:\n- get_context_capsule: Search code with token-efficient modes\n- cache_summary: Cache your own summaries\n- analyze_dead_code: Find unused code\n"
-	case "cursor":
-		return `{
-  "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
-    }
-  }
-}`
-	case "opencode":
-		return `{
-  "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
-    }
-  }
-}`
-	case "claude_desktop":
-		return `{
-  "mcpServers": {
-    "ast-context-cache": {
-      "command": "http",
-      "url": "http://localhost:7821/mcp"
-    }
-  }
-}`
-	default:
-		return promptText
-	}
 }
 
 func handleResetProject(w http.ResponseWriter, r *http.Request) {
@@ -1388,7 +1220,7 @@ func deleteProjectData(projectPath string) {
 		return
 	}
 	if err := purge.ProjectData(projectPath); err != nil {
-		log.Printf("dashboard: delete project %s: %v", projectPath, err)
+		logger.Warn("Failed to delete project data", "project_path", projectPath, "error", err)
 		return
 	}
 	_ = db.SetProjectDisplayName(projectPath, "")
@@ -1429,8 +1261,8 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vectorMemMB := search.Cache.MemoryMB()
-	queryCacheSize, queryCacheEntries := cache.GlobalCache.Stats()
-	cacheHitRatio := cache.GlobalCache.HitRatio()
+	queryCacheSize, queryCacheEntries := cache.Candidates.Size()
+	cacheHitRatio := cache.Candidates.HitRatio()
 	diskIO := sys.DiskIORates()
 	ssd := sys.SSDHealthInfo(db.GetDataDir())
 	load := sys.HostLoadAverage()

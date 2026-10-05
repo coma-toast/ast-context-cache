@@ -1,7 +1,6 @@
 package db
 
 import (
-	"log"
 	"sync"
 	"syscall"
 	"time"
@@ -77,11 +76,11 @@ func SampleDiskSpace() DiskSpaceSnapshot {
 	if diskLast.Level != prev {
 		switch diskLast.Level {
 		case DiskCritical:
-			log.Printf("disk space: CRITICAL — %s free on %s (< %s); pausing embed workers until space is freed", FormatFileSize(int64(free)), dir, FormatFileSize(diskCriticalFreeBytes))
+			logger.Error("Disk space critical, pausing embed workers until space is freed", "free", FormatFileSize(int64(free)), "path", dir, "threshold", FormatFileSize(diskCriticalFreeBytes))
 		case DiskLow:
-			log.Printf("disk space: low — %s free on %s (< %s); capping embed workers at %d", FormatFileSize(int64(free)), dir, FormatFileSize(diskLowFreeBytes), diskLowWorkerCap)
+			logger.Warn("Disk space low, capping embed workers", "free", FormatFileSize(int64(free)), "path", dir, "threshold", FormatFileSize(diskLowFreeBytes), "worker_cap", diskLowWorkerCap)
 		default:
-			log.Printf("disk space: recovered — %s free on %s; lifting disk throttle", FormatFileSize(int64(free)), dir)
+			logger.Info("Disk space recovered, lifting disk throttle", "free", FormatFileSize(int64(free)), "path", dir)
 		}
 	}
 	return diskLast

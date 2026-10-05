@@ -8,6 +8,34 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 )
 
+// Search queries are assembled at runtime from these fragments: the project scope
+// and optional filters are spliced in between the select and the order/limit tail.
+const (
+	selectFTSSymbolsQuery = `
+			SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,''), f.rank
+			FROM symbols_fts f
+			JOIN symbols s ON f.rowid = s.id
+			WHERE `
+	ftsMatchClause   = ` AND symbols_fts MATCH ?`
+	ftsOrderByClause = `
+			ORDER BY f.rank
+			LIMIT 100`
+	selectTrigramSymbolsQuery = `
+		SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,''), t.rank
+		FROM symbols_trigram t
+		JOIN symbols s ON t.rowid = s.id
+		WHERE `
+	trigramMatchClause   = ` AND symbols_trigram MATCH ?`
+	trigramOrderByClause = `
+		ORDER BY t.rank
+		LIMIT 100`
+	selectFallbackSymbolsQuery = "SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,'') FROM symbols s WHERE "
+	fallbackTermClause         = "(LOWER(s.name) LIKE ? OR LOWER(s.fqn) LIKE ? OR LOWER(s.code) LIKE ?)"
+	fallbackLimitClause        = " LIMIT 100"
+	sqlAnd                     = " AND "
+	sqlOr                      = " OR "
+)
+
 type ScoredResult struct {
 	Data  map[string]interface{}
 	Score float64
@@ -23,21 +51,15 @@ func BM25Search(query, projectPath string, filters *SearchFilters) []ScoredResul
 
 	ftsQuery := BuildFTSQuery(terms)
 	if ftsQuery != "" {
-		q := `
-			SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,''), f.rank
-			FROM symbols_fts f
-			JOIN symbols s ON f.rowid = s.id
-			WHERE `
+		q := selectFTSSymbolsQuery
 		scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
-		q += scopeFrag + ` AND symbols_fts MATCH ?`
+		q += scopeFrag + ftsMatchClause
 		args := append(scopeArgs, ftsQuery)
 		if frag, extra := symbolFilterSQL(filters, projectPath); frag != "" {
-			q += " AND " + frag
+			q += sqlAnd + frag
 			args = append(args, extra...)
 		}
-		q += `
-			ORDER BY f.rank
-			LIMIT 100`
+		q += ftsOrderByClause
 		rows, err := conn.Query(q, args...)
 		if err == nil {
 			defer rows.Close()
@@ -96,21 +118,15 @@ func TrigramSearch(terms []string, projectPath string, filters *SearchFilters) [
 	if tqQuery == "" {
 		return nil
 	}
-	q := `
-		SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,''), t.rank
-		FROM symbols_trigram t
-		JOIN symbols s ON t.rowid = s.id
-		WHERE `
+	q := selectTrigramSymbolsQuery
 	scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
-	q += scopeFrag + ` AND symbols_trigram MATCH ?`
+	q += scopeFrag + trigramMatchClause
 	args := append(scopeArgs, tqQuery)
 	if frag, extra := symbolFilterSQL(filters, projectPath); frag != "" {
-		q += " AND " + frag
+		q += sqlAnd + frag
 		args = append(args, extra...)
 	}
-	q += `
-		ORDER BY t.rank
-		LIMIT 100`
+	q += trigramOrderByClause
 	rows, err := conn.Query(q, args...)
 	if err != nil {
 		return nil
@@ -155,22 +171,22 @@ func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) 
 	sqlArgs = append(sqlArgs, scopeArgs...)
 	for _, term := range terms {
 		pattern := "%" + term + "%"
-		conditions = append(conditions, "(LOWER(s.name) LIKE ? OR LOWER(s.fqn) LIKE ? OR LOWER(s.code) LIKE ?)")
+		conditions = append(conditions, fallbackTermClause)
 		sqlArgs = append(sqlArgs, pattern, pattern, pattern)
 	}
 	where := scopeFrag
 	if len(conditions) > 0 {
-		where += " AND (" + strings.Join(conditions, " OR ") + ")"
+		where += sqlAnd + "(" + strings.Join(conditions, sqlOr) + ")"
 	}
 	if frag, extra := symbolFilterSQL(filters, projectPath); frag != "" {
-		where += " AND " + frag
+		where += sqlAnd + frag
 		sqlArgs = append(sqlArgs, extra...)
 	}
 	conn, err := db.IndexReader()
 	if err != nil {
 		return nil
 	}
-	rows, err := conn.Query("SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,'') FROM symbols s WHERE "+where+" LIMIT 100", sqlArgs...)
+	rows, err := conn.Query(selectFallbackSymbolsQuery+where+fallbackLimitClause, sqlArgs...)
 	if err != nil {
 		return nil
 	}

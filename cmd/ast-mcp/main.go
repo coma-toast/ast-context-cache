@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,7 +22,11 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
+	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/installer"
+	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
@@ -30,15 +35,40 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
-	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/coma-toast/ast-context-cache/internal/version"
+	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
-// Overridable (-mcp-port / -dashboard-port) so a second instance can run
-// beside the shared one, e.g. with HOME pointed at a scratch data dir.
+// Overridable (-mcp-port / -dashboard-port, or AST_MCP_PORT / AST_DASHBOARD_PORT) so a second
+// instance can run beside the shared one, e.g. with HOME pointed at a scratch data dir.
 var (
 	mcpPort       = 7821
 	dashboardPort = 7830
+)
+
+// Port env vars. AST_MCP_PORT is also what the installer CLI and the hooks read, so one export
+// moves the server, its registrations, and the hooks together.
+const (
+	envMCPPort       = "AST_MCP_PORT"
+	envDashboardPort = "AST_DASHBOARD_PORT"
+)
+
+// listenAddr is the host both servers bind to (-listen / AST_LISTEN). Loopback by
+// default: neither server has authentication, and the MCP spec says local servers
+// SHOULD bind to 127.0.0.1. Docker sets 0.0.0.0 so published ports work.
+var listenAddr = defaultListenAddr
+
+const defaultListenAddr = "127.0.0.1"
+
+// shutdownFlushTimeout bounds the final analytics flush so a wedged SQLite write
+// can't stop the process from exiting on SIGTERM.
+const shutdownFlushTimeout = 2 * time.Second
+
+const (
+	deleteFromQueryPrefix        = "DELETE FROM "
+	whereDotProjectQuerySuffix   = " WHERE project_path = '.'"
+	deleteDotProjectQueriesQuery = "DELETE FROM queries WHERE project_path = '.'"
+	selectSymbolProjectsQuery    = "SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''"
 )
 
 var startTime = time.Now()
@@ -48,12 +78,25 @@ func GetStartTime() time.Time {
 }
 
 func main() {
+	if code, handled := runCLI(os.Args[1:]); handled {
+		os.Exit(code)
+	}
+	logging.Setup(os.Stderr)
 	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")
 	codeModeFlag := flag.Bool("code-mode", true, "Enable execute_code sandbox tool (default: true)")
 	embedWorkersFlag := flag.Int("embed-workers", -1, "Embed worker count at startup (-1 = auto/DB)")
-	flag.IntVar(&mcpPort, "mcp-port", mcpPort, "MCP HTTP port")
-	flag.IntVar(&dashboardPort, "dashboard-port", dashboardPort, "Dashboard HTTP port")
+	flag.IntVar(&mcpPort, "mcp-port", envPort(envMCPPort, mcpPort), "MCP HTTP port (default: from AST_MCP_PORT env or 7821)")
+	flag.IntVar(&dashboardPort, "dashboard-port", envPort(envDashboardPort, dashboardPort), "Dashboard HTTP port (default: from AST_DASHBOARD_PORT env or 7830)")
+	if v := strings.TrimSpace(os.Getenv("AST_LISTEN")); v != "" {
+		listenAddr = v
+	}
+	flag.StringVar(&listenAddr, "listen", listenAddr, "Host/IP for the MCP and dashboard servers to bind (default: from AST_LISTEN env or 127.0.0.1)")
 	flag.Parse()
+	// JoinHostPort adds IPv6 brackets itself; "[::1]" would otherwise become "[[::1]]:7821".
+	listenAddr = strings.Trim(strings.TrimSpace(listenAddr), "[]")
+	// Cancelled on SIGINT/SIGTERM so background loops stop before the final flush.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	cfg := mcp.DefaultConfig()
 	if *tierFlag != "" {
@@ -63,19 +106,22 @@ func main() {
 		cfg.CodeMode = false
 	}
 	mcp.SetConfig(cfg)
-	log.Printf("Config: tier=%s code_mode=%v", cfg.ActiveTier, cfg.CodeMode)
+	logger.Info("Config", "tier", cfg.ActiveTier, "code_mode", cfg.CodeMode, "listen", listenAddr)
+	if !httpguard.IsLoopbackHost(listenAddr) {
+		logger.Warn("Listening on non-loopback address", "listen", listenAddr)
+	}
 
-	log.Println("Initializing...")
+	logger.Info("Initializing")
 	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
 		logPath := db.DefaultLogPath()
-		_ = os.MkdirAll(filepath.Dir(logPath), 0755)
-		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
-			log.SetOutput(f)
-			log.Printf("Logging to %s", logPath)
+		_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+			logging.Setup(f)
+			logger.Info("Logging to file", "path", logPath)
 		}
 	}
 	if u := sys.FileDescriptorUsage(); u.SoftLimit > 0 {
-		log.Printf("File descriptors: %d open, limit %d (hard %d); watcher backend %s", u.Open, u.SoftLimit, u.HardLimit, watcher.DefaultBackendName())
+		logger.Info("File descriptors", "open", u.Open, "soft_limit", u.SoftLimit, "hard_limit", u.HardLimit, "watcher_backend", watcher.DefaultBackendName())
 	}
 	watcher.ContainerRootsFunc = projectmeta.ContainerRoots
 	startup.SetMessage("Opening databases…")
@@ -83,21 +129,27 @@ func main() {
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 
-	dashHandler := dashboard.NewHandler("")
+	dashHandler := dashboard.NewHandler(listenAddr)
 	// Constructed here (before the db.Init() goroutine below reads it via restartHook)
 	// rather than at its ListenAndServe call further down, so that read has a clear
 	// happens-before edge and isn't a data race with this assignment.
-	dashSrv := &http.Server{Addr: fmt.Sprintf(":%d", dashboardPort), Handler: dashHandler}
+	dashSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(dashboardPort)), Handler: dashHandler}
 	dbReady := make(chan error, 1)
 
 	go func() {
 		if err := db.Init(); err != nil {
 			startup.MarkFailed(err.Error())
-			log.Printf("DB error: %v", err)
+			logger.Error("Failed to initialize databases", "error", err)
 			dbReady <- err
 			return
 		}
 		projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
+		mcp.Init()
+		if svc, err := installer.New(installer.Config{MCPURL: installer.MCPURL(mcpPort)}); err != nil {
+			logger.Warn("Failed to start installer", "error", err)
+		} else {
+			dashboard.SetInstaller(svc)
+		}
 		dbReady <- nil
 
 		db.BeforeForceCheckpoint = func() {
@@ -108,14 +160,14 @@ func main() {
 		db.WALInFlightHook = embedqueue.InFlight
 		db.EmbedQueueIdleHook = embedqueue.QueueIdleForWAL
 		if embedqueue.BeginRunLock() {
-			log.Printf("embedqueue: previous run exited abnormally; using persisted worker count from DB")
+			logger.Warn("Embed queue previous run exited abnormally; using persisted worker count from DB")
 		}
 		watcher.EnsureDefaultIgnoreGlobs()
 		go db.StartWALCheckpoint()
 		go db.StartDriveMonitor()
 
 		mcpMux := http.NewServeMux()
-		mcpMux.HandleFunc("/mcp", mcp.NewHandler())
+		mcpMux.Handle("/mcp", httpguard.MCPMiddleware(listenAddr, mcp.NewHandler()))
 		mcpMux.HandleFunc("/health", handleMCPHealth)
 		mcpMux.HandleFunc("/embed", handleEmbedHTTP)
 		mcpMux.HandleFunc("/embed/health", handleEmbedHealthHTTP)
@@ -123,36 +175,42 @@ func main() {
 			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": fmt.Sprintf("http://localhost:%d", dashboardPort)})
+			json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": serverURL(dashboardPort)})
 		})
 
-		mcpSrv := &http.Server{Addr: fmt.Sprintf(":%d", mcpPort), Handler: mcpMux}
+		mcpSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(mcpPort)), Handler: mcpMux}
+		// Shutdown waits for idle connections, which open SSE streams never become.
+		mcpSrv.RegisterOnShutdown(mcp.CloseStreams)
 		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
 
 		go func() {
-			log.Printf("MCP: http://localhost%s/mcp (starting)", mcpSrv.Addr)
-			if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Fatal(err)
+			logger.Info("Starting MCP server", "url", serverURL(mcpPort)+"/mcp")
+			if err := listenAndServe(mcpSrv, mcpPort); err != nil {
+				logger.Error("MCP server failed", "error", err)
+				os.Exit(1)
 			}
 		}()
 
 		embedder.MarkLoading()
-		finishStartup(exeDir, *embedWorkersFlag)
+		finishStartup(ctx, exeDir, *embedWorkersFlag)
 	}()
 
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
-		log.Println("ast-mcp: shutting down")
+		logger.Info("Shutting down")
+		cancel()
 		db.RequestShutdown()
+		flushWriteBuffers(shutdownFlushTimeout)
 		embedqueue.EndRunLock()
 		os.Exit(0)
 	}()
 
-	log.Printf("Dashboard: http://localhost%s (starting)", dashSrv.Addr)
-	if err := dashSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	logger.Info("Starting dashboard server", "url", serverURL(dashboardPort))
+	if err := listenAndServe(dashSrv, dashboardPort); err != nil {
+		logger.Error("Dashboard server failed", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -164,7 +222,7 @@ func main() {
 // rebuild).
 func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 	return func() {
-		log.Println("ast-mcp: draining connections to restart")
+		logger.Info("Draining connections to restart")
 		// db.RequestShutdown aborts any in-progress WAL checkpoint quickly, but it also
 		// unconditionally calls AfterForceCheckpoint (wired below to
 		// embedqueue.RestoreAfterMaintenance) as a side effect — harmless for its
@@ -174,47 +232,131 @@ func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 		// the drain and into the exec.
 		db.RequestShutdown()
 		embedqueue.PauseAllForMaintenance(2 * time.Minute)
-		log.Println("ast-mcp: embed queue paused, shutting down servers")
+		logger.Info("Embed queue paused, shutting down servers")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := mcpSrv.Shutdown(ctx); err != nil {
-			log.Printf("ast-mcp: mcp server shutdown: %v", err)
+			logger.Warn("Failed to shut down MCP server", "error", err)
 		}
 		if err := dashSrv.Shutdown(ctx); err != nil {
-			log.Printf("ast-mcp: dashboard server shutdown: %v", err)
+			logger.Warn("Failed to shut down dashboard server", "error", err)
 		}
-		log.Println("ast-mcp: servers shut down")
+		logger.Info("Servers shut down")
 
 		exe, err := os.Executable()
 		if err != nil {
-			log.Fatalf("ast-mcp: cannot resolve executable to restart: %v", err)
+			logger.Error("Failed to resolve executable to restart", "error", err)
+			os.Exit(1)
 		}
-		log.Printf("ast-mcp: restarting %s", exe)
+		logger.Info("Restarting", "exe", exe)
 		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-			log.Fatalf("ast-mcp: restart failed: %v", err)
+			logger.Error("Failed to restart", "exe", exe, "error", err)
+			os.Exit(1)
 		}
 	}
 }
 
-func finishStartup(exeDir string, embedWorkersFlag int) {
+// listenAndServe serves srv on listenAddr:port and, for the default IPv4 loopback, on
+// [::1]:port too: clients configured with http://localhost:7821/mcp otherwise fail
+// wherever localhost resolves to ::1 first. Both listeners share srv, so Shutdown closes
+// both. It returns nil once srv is shut down, or the first listen or serve error.
+func listenAndServe(srv *http.Server, port int) error {
+	lns, err := listeners(port)
+	if err != nil {
+		return err
+	}
+	errc := make(chan error, len(lns))
+	for _, ln := range lns {
+		go func() { errc <- srv.Serve(ln) }()
+	}
+	for range lns {
+		if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	}
+	return nil
+}
+
+// listeners opens listenAddr:port, adding [::1]:port when listenAddr is the default. A
+// host without IPv6 loopback just keeps the IPv4 listener.
+func listeners(port int) ([]net.Listener, error) {
+	p := strconv.Itoa(port)
+	primary, err := net.Listen("tcp", net.JoinHostPort(listenAddr, p))
+	if err != nil {
+		return nil, err
+	}
+	if listenAddr != defaultListenAddr {
+		return []net.Listener{primary}, nil
+	}
+	v6, err := net.Listen("tcp", net.JoinHostPort("::1", p))
+	if err != nil {
+		logger.Debug("Not listening on IPv6 loopback", "port", port, "error", err)
+		return []net.Listener{primary}, nil
+	}
+	return []net.Listener{primary, v6}, nil
+}
+
+// envPort is the port in env var name, or def when it is unset. An invalid value is ignored with
+// a warning rather than failing startup, matching how the installer and hooks read AST_MCP_PORT.
+func envPort(name string, def int) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
+	}
+	port, err := strconv.Atoi(v)
+	if err != nil || port <= 0 || port > 65535 {
+		logger.Warn("Ignoring invalid port env", "env", name, "value", v, "default", def)
+		return def
+	}
+	return port
+}
+
+// serverURL is the address to show for a server on port: listenAddr, or
+// localhost when it binds every interface.
+func serverURL(port int) string {
+	host := listenAddr
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+// flushWriteBuffers commits buffered query and session analytics before exit, giving
+// up after timeout. The flush keeps running in its goroutine on timeout, but os.Exit
+// follows immediately, so at worst that batch is lost, as it was before this flush.
+func flushWriteBuffers(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		db.FlushWriteBuffers()
+	}()
+	select {
+	case <-done:
+		logger.Info("Flushed write buffers")
+	case <-time.After(timeout):
+		logger.Warn("Timed out flushing write buffers", "timeout", timeout)
+	}
+}
+
+func finishStartup(ctx context.Context, exeDir string, embedWorkersFlag int) {
 	defer func() {
 		if startup.Ready() {
 			return
 		}
 		if r := recover(); r != nil {
 			startup.MarkFailed(fmt.Sprint(r))
-			log.Printf("startup panic: %v", r)
+			logger.Error("Startup panic", "panic", r)
 		}
 	}()
 
 	if conn, err := db.IndexReader(); err == nil {
 		for _, tbl := range []string{"symbols", "edges", "vectors", "summaries"} {
-			conn.Exec("DELETE FROM "+tbl+" WHERE project_path = '.'")
+			conn.Exec(deleteFromQueryPrefix + tbl + whereDotProjectQuerySuffix)
 		}
 	}
 	if db.DB != nil {
-		db.DB.Exec("DELETE FROM queries WHERE project_path = '.'")
+		db.DB.Exec(deleteDotProjectQueriesQuery)
 	}
 
 	modelDir := strings.TrimSpace(embedder.EffectiveEnv("MODEL_DIR"))
@@ -240,22 +382,22 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 	startup.SetMessage("Loading embedder…")
 	if err := embedder.InitRuntime(modelDir); err != nil {
 		startup.MarkFailed(err.Error())
-		log.Printf("embedder: %v (dashboard and MCP up; embeddings unavailable)", err)
+		logger.Warn("Failed to initialize embedder; dashboard and MCP up, embeddings unavailable", "error", err)
 		return
 	}
 	emb := embedder.Tracked()
 	wb, wm, _, _, wd := embedder.WiredSnapshot()
-	log.Printf("Embedder configured: backend=%s model=%s dims=%d", wb, wm, wd)
+	logger.Info("Embedder configured", "backend", wb, "model", wm, "dims", wd)
 	if n := resolveStartupWorkers(embedWorkersFlag); n >= 0 {
 		embedqueue.SetStartupWorkers(n)
-		log.Printf("embedqueue: startup workers override: %d", n)
+		logger.Info("Embed queue startup workers override", "workers", n)
 	}
 	startup.SetMessage("Starting embed queue…")
 	// Purged files (deleted from disk, symlink aliases) must leave the pending retry set too.
 	indexer.OnFilePurged = embedqueue.ForgetFile
 	embedqueue.Start(emb)
 	if err := embedder.InitAuxRuntime(modelDir); err != nil {
-		log.Printf("aux embedder: %v (aux catch-up workers disabled)", err)
+		logger.Warn("Failed to initialize aux embedder; aux catch-up workers disabled", "error", err)
 	} else {
 		auxEmb := embedder.RawAux()
 		if embedder.AuxSharesPrimary() {
@@ -286,9 +428,9 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 	}
 
 	startup.SetMessage("Starting background services…")
-	startBackgroundServices()
+	startBackgroundServices(ctx)
 	startup.MarkReady()
-	log.Printf("Startup complete (MCP :%d  Dashboard :%d)", mcpPort, dashboardPort)
+	logger.Info("Startup complete", "mcp_port", mcpPort, "dashboard_port", dashboardPort)
 }
 
 func handleMCPHealth(w http.ResponseWriter, r *http.Request) {
@@ -404,27 +546,19 @@ func resolveStartupWorkers(flagVal int) int {
 	return -1
 }
 
-func startBackgroundServices() {
+// startBackgroundServices starts the periodic jobs; the tickers owned here stop when
+// ctx is cancelled at shutdown.
+func startBackgroundServices(ctx context.Context) {
 	go docs.EmbedAllSources()
 	purge.StartDeletedProjectSweep()
 	db.StartFTSSelfCheck()
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			logretention.RunOnce()
-		}
-	}()
-	go func() {
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			docs.UpdateAllSources()
-		}
-	}()
+	go runEvery(ctx, time.Hour, logretention.RunOnce)
+	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
+	ctxpkg.StartSessionStoreEviction(ctx)
+	handoff.Start(ctx, embedder.Tracked())
 	seen := map[string]bool{}
 	if conn, err := db.IndexReader(); err == nil {
-		restoreRows, err := conn.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
+		restoreRows, err := conn.Query(selectSymbolProjectsQuery)
 		if err == nil {
 			for restoreRows.Next() {
 				var pp string
@@ -453,6 +587,20 @@ func startBackgroundServices() {
 	}
 	for pp := range seen {
 		maybeStartPinnedWatcher(pp)
+	}
+}
+
+// runEvery calls fn every interval until ctx is cancelled.
+func runEvery(ctx context.Context, interval time.Duration, fn func()) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fn()
+		}
 	}
 }
 

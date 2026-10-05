@@ -1,13 +1,14 @@
 package embedqueue
 
 import (
-	"log"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
+
+const deleteProjectEmbedPendingQuery = `DELETE FROM embed_pending WHERE project_path = ?`
 
 // RemoveProject drops queued and pending embed work for projectPath immediately.
 // In-flight jobs for the project are ignored when they finish (no re-queue).
@@ -34,8 +35,8 @@ func RemoveProject(projectPath string) (queuedRemoved, pendingRemoved int) {
 	pendingMu.Unlock()
 	purgePendingDirtyForProject(projectPath)
 	if conn, err := db.IndexReader(); err == nil {
-		if res, err := conn.Exec(`DELETE FROM embed_pending WHERE project_path = ?`, projectPath); err != nil {
-			log.Printf("embedqueue: delete embed_pending for %s: %v", projectPath, err)
+		if res, err := conn.Exec(deleteProjectEmbedPendingQuery, projectPath); err != nil {
+			logger.Warn("Failed to delete embed_pending for project", "project", projectPath, "error", err)
 		} else if n, err := res.RowsAffected(); err == nil && int(n) > pendingRemoved {
 			pendingRemoved = int(n)
 		}
@@ -43,7 +44,7 @@ func RemoveProject(projectPath string) (queuedRemoved, pendingRemoved int) {
 	purgeActivityForProject(projectPath)
 	trackPendingPeak(PendingCount())
 	if queuedRemoved > 0 || pendingRemoved > 0 {
-		log.Printf("embedqueue: removed %d queued + %d pending for %s", queuedRemoved, pendingRemoved, projectPath)
+		logger.Info("Removed project embed work", "project", projectPath, "queued", queuedRemoved, "pending", pendingRemoved)
 		realtime.Notify(realtime.EmbedFinished)
 	}
 	return queuedRemoved, pendingRemoved

@@ -6,6 +6,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
+const deleteFileCodeVectorsQuery = "DELETE FROM vectors WHERE source_file = ? AND project_path = ? AND COALESCE(doc_type, 'code') = 'code'"
+
 // ExpectedEmbedHash returns the content hash used for code vector embeddings.
 func ExpectedEmbedHash(kind, name, filePath string, startLine, endLine int) string {
 	fileCache := map[string][]string{}
@@ -14,7 +16,6 @@ func ExpectedEmbedHash(kind, name, filePath string, startLine, endLine int) stri
 }
 
 func deleteCodeVectorsTx(tx *sql.Tx, filePath, projectPath string) error {
-	_, err := tx.Exec(`DELETE FROM vectors WHERE source_file = ? AND project_path = ? AND COALESCE(doc_type, 'code') = 'code'`,
-		filePath, projectPath)
+	_, err := tx.Exec(deleteFileCodeVectorsQuery, filePath, projectPath)
 	return err
 }
