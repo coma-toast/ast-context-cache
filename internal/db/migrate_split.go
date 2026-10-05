@@ -35,6 +35,8 @@ var indexTables = []string{
 
 var contextTables = []string{
 	"doc_sources", "doc_content", "context_notes", "structured_memory", "kv_repair_events",
+	"handoff_trees", "handoffs", "handoff_snapshot_items", "handoff_children", "handoff_results",
+	"scratchpad_entries", "handoff_claims", "handoff_claim_queue", "handoff_claim_grants",
 }
 
 var (

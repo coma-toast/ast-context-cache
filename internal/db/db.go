@@ -72,6 +72,10 @@ func Init() error {
 	if err != nil {
 		return fmtOpenErr("context", ctxPath, err)
 	}
+	HandoffWriteDB, err = openHandoffWritePool(ctxPath)
+	if err != nil {
+		return fmtOpenErr("handoff write", ctxPath, err)
+	}
 	DB, err = openPool(usePath)
 	if err != nil {
 		return fmtOpenErr("usage", usePath, err)
