@@ -88,7 +88,7 @@ ast-mcp version
 | Flag | Applies to | Meaning |
 |---|---|---|
 | `--target` | install, uninstall, verify | `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`, or `all`. Repeatable or comma-separated. Required for install/uninstall; verify defaults to all. |
-| `--component` | install, uninstall | `mcp`, `skills`, `rules`, `hooks` (comma list). Default: every supported component. `hooks` (Claude Code only) is offered only when the `feature_handoff_hooks` flag is on. |
+| `--component` | install, uninstall | `mcp`, `skills`, `rules`, `hooks` (comma list). Default: every supported component. `hooks` (Claude Code only, opt-in) is offered only when the `feature_handoff_hooks` flag is on; see [handoff.md](handoff.md#claude-code-hooks). |
 | `--dry-run` | install, uninstall | Print the diff and statuses without writing. |
 | `--yes` | install, uninstall, restore | Apply. Without `--yes` or `--dry-run`, install/uninstall print the preview and exit 2. |
 | `--mcp-url` | install, uninstall, verify | Register this URL verbatim. |
@@ -103,6 +103,8 @@ ast-mcp version
 | 2 | Confirmation required: changes are pending; re-run with `--yes` |
 | 3 | Conflict: a file changed since the preview, or a config file could not be parsed (nothing was written) |
 | 4 | Unsupported: every requested component is unsupported for a named target |
+
+`ast-mcp hook <event>` is the command the installed Claude Code hooks run; you don't call it yourself except to debug ([handoff.md](handoff.md#claude-code-hooks)).
 
 **Backups** live in `~/.astcache/backups/<YYYYMMDD-HHMMSS>/`, one file per modified path with `/` replaced by `%`. The newest 5 per file are kept (setting `installer_backup_keep`). `restore` backs up the current file before writing the old one back.
 

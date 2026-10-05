@@ -249,6 +249,10 @@ handoff(action="complete", session_id="<child>", status="done",
 - `FACT:` / `RULE:` lines in the result are promoted to the parent's session memory (`recall_memory`).
 - **Never put credentials or secrets in a brief, note, result, or scratchpad post**: anyone holding the ref can read the tree.
 
+### W2: Claude Code with hooks (opt-in)
+
+When the Claude Code handoff hooks are installed (`feature_handoff_hooks` on, then `ast-mcp install --target claude_code --component hooks`), they do W1's plumbing: your `session_id` is injected at session start, each `Agent` call gets a handoff stub appended to its prompt, and the subagent starts with its child `session_id` and digest already opened (don't call `open_handoff` `open` again; `expand` still works). The child still finishes with `handoff` `complete`; if it stops without completing, its final message is saved as a `partial` result. Hooks fail open, so without a server everything runs as plain W1. Details: [docs/handoff.md](../../docs/handoff.md#claude-code-hooks).
+
 ### W3: fork vs fresh
 
 | `mode` | Use when | Effect |

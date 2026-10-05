@@ -41,7 +41,7 @@ ast-mcp uninstall --target cursor --yes          # remove only what was added
 ast-mcp backups && ast-mcp restore --yes <id>    # undo a change
 ```
 
-- Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code hooks only appear when the `feature_handoff_hooks` flag is on).
+- Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code subagent-handoff hooks: available, opt-in; turn on the `feature_handoff_hooks` flag first, then `--target claude_code --component hooks`, and restart Claude Code. See [docs/handoff.md](../../../docs/handoff.md#claude-code-hooks)).
 - `--mcp-port` / `--mcp-url` when the server is not on 7821 (default `$AST_MCP_PORT`, then 7821). `--json` for scripts.
 - Exit codes: 0 ok, 1 error, 2 needs `--yes`, 3 conflict or unparseable config (nothing written), 4 unsupported.
 - `ast-mcp` here is the shell function from `make install`, which passes these subcommands to the built binary; `./ast-mcp` in the repo works the same.

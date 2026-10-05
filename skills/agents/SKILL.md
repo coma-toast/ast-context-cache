@@ -27,7 +27,7 @@ ast-mcp verify                              # status per host and component
 
 `ast-mcp` is the shell function from `make install` (it passes these subcommands to the binary); `./ast-mcp` in the repo works the same.
 
-Hosts: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`, or `all`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code only, behind the `feature_handoff_hooks` flag). The dashboard offers the same under Settings → **Agent integration**. Reference: [docs/INSTALL.md](../../docs/INSTALL.md#connect-your-agents); exact files and keys per host: [docs/host-integration.md](../../docs/host-integration.md).
+Hosts: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`, or `all`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code subagent-handoff hooks: available, opt-in behind the `feature_handoff_hooks` flag; see [docs/handoff.md](../../docs/handoff.md#claude-code-hooks)). The dashboard offers the same under Settings → **Agent integration**. Reference: [docs/INSTALL.md](../../docs/INSTALL.md#connect-your-agents); exact files and keys per host: [docs/host-integration.md](../../docs/host-integration.md).
 
 ---
 

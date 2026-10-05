@@ -96,9 +96,15 @@ The Claude Code hook spike ([docs/spikes/claude-code-hooks.md](spikes/claude-cod
 6. The child calls `handoff` `complete` with its full result, a status, and an optional summary, and outputs the returned stub as its final message.
 7. The parent sees `[result ctx_… for hof_…] done — <summary>` and fetches the full result only if needed.
 
-### W2: Claude Code with hooks (planned)
+### W2: Claude Code with hooks (opt-in)
 
-The hooks automate steps 3–6 of W1 and recover from a child that stops without completing. See [Claude Code hooks](#claude-code-hooks). Until they are installed, Claude Code uses W1.
+With the [Claude Code hooks](#claude-code-hooks) installed, the parent just spawns subagents with the `Agent` tool:
+
+1. `SessionStart` gives the parent its Claude Code session id as `session_id`.
+2. `PreToolUse` creates a handoff from the parent session and appends the stub to the subagent prompt (W1 steps 2–3).
+3. `SubagentStart` opens the handoff for the child and injects its child `session_id` and digest (W1 step 4).
+4. The child works and completes as in W1 steps 5–6. If it stops without completing, `SubagentStop` stores its final message as a `partial` result.
+5. After the parent compacts, `SessionStart` re-surfaces its handoffs (W6).
 
 ### W3: Claude Code fork
 
@@ -247,7 +253,7 @@ Handoff errors are structured, with a stable code:
 
 ## Settings and limits
 
-Every limit resolves as **environment > dashboard setting > default** and is read per call, so a settings change applies to the next operation without a restart. The environment variable is `AST_` plus the setting key in upper case.
+Every limit resolves as **environment > dashboard setting (Settings → Handoff) > default** and is read per call, so a settings change applies to the next operation without a restart. The environment variable is `AST_` plus the setting key in upper case.
 
 | Setting | Env | Default | Effect |
 |---|---|---|---|
@@ -272,7 +278,7 @@ Flags live in the settings table and resolve as env > setting > default. A non-e
 | `feature_handoff_scratchpad` | `AST_FEATURE_HANDOFF_SCRATCHPAD` | on | The `scratchpad` tool and the digest's scratchpad sections. |
 | `feature_handoff_claims` | `AST_FEATURE_HANDOFF_CLAIMS` | on | The `claim` and `release` actions. |
 | `feature_handoff_live_trail` | `AST_FEATURE_HANDOFF_LIVE_TRAIL` | on | Automatic `trail` entries and `sibling_trail_match`. |
-| `feature_handoff_hooks` | `AST_FEATURE_HANDOFF_HOOKS` | off | Whether the installer offers the Claude Code hooks component. |
+| `feature_handoff_hooks` | `AST_FEATURE_HANDOFF_HOOKS` | off | Whether the installer offers the [Claude Code hooks](#claude-code-hooks) component. Hooks already installed keep running when it is turned off; uninstall them to stop them. |
 | `feature_shared_query_cache` | `AST_FEATURE_SHARED_QUERY_CACHE` | on | The search candidate cache shared across sessions (including `session_id` calls). |
 
 Manage them in the dashboard (Settings → Features) or over HTTP:
@@ -288,10 +294,11 @@ A POST to an env-locked flag returns 409. Flags are separate from `tools.json`: 
 ## Observability
 
 - **Tokens saved.** Handoff savings are attributed to the `handoff` and `open_handoff` tools in the dashboard's Tokens saved: snapshot content available to a child minus what was actually delivered through `open` and `expand` (OB-2), and a completed result's size minus the summary returned to the parent (OB-3).
-- **Dashboard tree view.** The Overview groups sessions into handoff trees: label, status, mode, and depth per node, children, tokens delivered and saved, repeat-search rate, claims and queues, last activity, and a tree flush action. Sessions outside trees appear as before.
+- **Dashboard tree view.** The Overview's **Handoff trees** card lists the 20 newest trees with the 24h child repeat-search rate. Each tree row shows the root session, project, token and entry usage against the caps, tokens delivered and saved, repeat-search rate, last activity, chips for child status counts, active and queued claims, and `expired`, plus a flush button (with confirmation). Expanding a tree shows its handoffs (label, ref, mode, depth) and their children (status, session, label, tokens delivered of available, tokens saved, repeat searches, last activity, result summary, claims), with nested handoffs under the child that created them. The same data is at `GET /api/dashboard/handoff-trees?limit=N` (default 20, max 100; `{"trees", "limits", "repeat_search_ratio_24h"}`), and `POST /api/dashboard/handoff-trees/flush` with `{"tree_id": "hft_…"}` flushes a tree as the `flush` action does.
+- **Dashboard settings.** Settings → **Handoff** edits the [limits](#settings-and-limits); a value set by its `AST_HANDOFF_*` env var is shown read-only. Settings → **Features** toggles the [flags](#feature-flags).
 - **Prometheus** (`http://127.0.0.1:7830/metrics`, `astcache_` prefix):
   - counters `astcache_handoffs_created_total`, `astcache_handoff_children_opened_total`, `astcache_handoff_children_resumed_total`, `astcache_handoff_children_completed_total{status}`, `astcache_handoff_children_abandoned_total`, `astcache_handoff_trees_expired_total`, `astcache_handoff_child_searches_total{repeat}`;
-  - gauges `astcache_handoff_open_trees`, `astcache_handoff_open_children`, `astcache_handoff_repeat_search_ratio`, `astcache_query_cache_hit_ratio`;
+  - gauges `astcache_handoff_open_trees` (trees accessed within the TTL), `astcache_handoff_open_children`, `astcache_handoff_repeat_search_ratio` (children active in the last 24h), `astcache_query_cache_hit_ratio`;
   - histograms `astcache_handoff_tree_tokens`, `astcache_handoff_claim_wait_seconds`.
 - **Repeat-search rate** (OB-1): a child search is a repeat when it matches a parent-trail entry, or when at least half of its pre-dedup results are in the parent's explored manifest.
 - **Logs.** Every lifecycle transition (create, open, resume, complete, abandon, expire, flush, claim grant, claim release) is a structured `slog` event carrying the tree id, handoff ref, parent and child session ids, and project path. Set `AST_LOG_FORMAT=json` for machine-readable logs.
@@ -308,7 +315,7 @@ The installer ships the same guidance to each host it supports (`ast-mcp install
 
 | Host | Handoff path | What the installer adds |
 |---|---|---|
-| Claude Code | W1 / W3 / W4 manually; hooks planned (W2) | `~/.claude/CLAUDE.md` block, skills in `~/.claude/skills/` |
+| Claude Code | W2 with the opt-in hooks; W1 / W3 / W4 by hand | `~/.claude/CLAUDE.md` block, skills in `~/.claude/skills/`, and the hooks in `~/.claude/settings.json` when `feature_handoff_hooks` is on |
 | Cursor | W1 (no equivalent hooks) | `~/.cursor/rules/ast-context-cache.mdc` (always-apply rule), skills in `~/.agents/skills/` unless already loaded from `~/.claude/skills/` |
 | Codex | W1 | `~/.codex/AGENTS.md` block, skills in `~/.agents/skills/` |
 | OpenCode | W1 | `~/.config/opencode/AGENTS.md` block, skills in `~/.agents/skills/` |
@@ -340,15 +347,45 @@ Use W1. If the installer did not place the instruction block for your host, past
 
 ## Claude Code hooks
 
-**Status: planned (Phase 9.7).** The design below follows the capabilities the hook spike confirmed against Claude Code 2.1.278 ([docs/spikes/claude-code-hooks.md](spikes/claude-code-hooks.md)). Until the hooks are installed, use W1 / W3 / W4 manually.
+**Status: available, opt-in.** Claude Code can run the W1 steps for you: four hooks hand the session id to the agent, create a handoff for each `Agent` call, open it for the subagent, and save a partial result when a subagent stops without completing. They are built on the behavior the hook spike measured against Claude Code 2.1.278 ([docs/spikes/claude-code-hooks.md](spikes/claude-code-hooks.md)). Without them, Claude Code uses W1 / W3 / W4 by hand.
 
-The installer can register Claude Code hook entries when the `feature_handoff_hooks` flag is on (it is off by default): `ast-mcp install --target claude_code --component hooks`. The entries go into `~/.claude/settings.json` under `hooks`, are appended next to your own hooks (never replacing them), run the absolute path of `ast-mcp` as `ast-mcp hook <event>` with a 3-second timeout, and are removed surgically on uninstall.
+### Install
 
-| Event (matcher) | Subcommand | Planned behavior |
+1. Turn on the `feature_handoff_hooks` flag (Settings → Features, or `AST_FEATURE_HANDOFF_HOOKS=true`). It is off by default; while it is off the installer reports the `hooks` component as `unsupported` and never writes it.
+2. Install the component (or tick **Hooks** for Claude Code in Settings → Agent integration):
+
+   ```bash
+   ast-mcp install --target claude_code --component hooks --dry-run   # preview the settings.json diff
+   ast-mcp install --target claude_code --component hooks --yes
+   ast-mcp verify --target claude_code                                # hooks: installed
+   ```
+
+   With the flag on, a plain `ast-mcp install --target claude_code` includes hooks too, since it installs every supported component.
+3. Restart Claude Code so it loads the new hooks.
+
+The installer appends one matcher group per event to `~/.claude/settings.json` → `hooks`, next to your own hooks (it never replaces them). Each runs `<absolute path to ast-mcp> hook <event>` with a 3-second timeout; the path is the binary that ran the installer, so re-run the install after moving or renaming the repo (`verify` reports `outdated`). `ast-mcp uninstall --target claude_code --component hooks --yes` removes only those groups, whatever the flag says. Turning the flag off does not remove installed hooks; uninstall them to stop them running.
+
+The hooks reach the server at `http://127.0.0.1:$AST_MCP_PORT/mcp` (default 7821), or `$AST_MCP_URL` verbatim, read from Claude Code's environment. If the server runs on another port, export the same `AST_MCP_PORT` for Claude Code.
+
+### Events
+
+| Event (matcher) | Command | What it does |
 |---|---|---|
-| `SessionStart` (`startup\|resume\|compact`) | `session-start` | Tells the agent to use the Claude Code session id as its ast-context-cache `session_id`. After compaction (`source=compact`) it also lists the parent's open handoffs (W6). |
-| `SubagentStart` | `subagent-start` | Injects the open digest, or an instruction to open the handoff, into the subagent's context. Forks are skipped because they inherit the parent's window. |
-| `SubagentStop` | `subagent-stop` | If the child never completed, stores its final message as a `partial` result. |
-| `PreToolUse` (`Agent`) | `pre-tool-use-agent` | Creates a handoff from the parent session and appends the stub to the subagent prompt. |
+| `SessionStart` (`startup\|resume\|compact`) | `hook session-start` | Injects `use session_id=<Claude Code session id>` so every ast-context-cache call in the conversation shares one session. After compaction (`source=compact`) it also lists up to 10 handoffs this session created, newest first, with per-status child counts and a pointer to `handoff` `collect` (W6). If that listing fails, the session id is still injected. |
+| `SubagentStart` (all) | `hook subagent-start` | Skips forks (`agent_type=fork`), which inherit the parent's window. For any other subagent it looks for the handoff stub in the subagent's transcript (`<parent transcript dir>/<session_id>/subagents/agent-<agent_id>.jsonl`), falling back to the oldest handoff the `PreToolUse` hook queued for this session (FIFO, so parallel spawns pair up in spawn order). It calls `open_handoff` for the child and injects the child `session_id` and the digest (capped at about 1,200 tokens), with a note not to open it again. With no handoff, or if the open fails, it injects the parent's session id and the instruction to call `open_handoff` if the prompt carries a stub. |
+| `SubagentStop` (all) | `hook subagent-stop` | For a subagent `subagent-start` opened a handoff for, checks the child's status with `collect`. If the child is still `open` (it never called `complete`), stores its final message (from the payload, else the transcript tail, else a placeholder) as a `partial` result, so the parent's `collect` shows it. The compaction summarizer's stop event (no `agent_type`) is ignored. |
+| `PreToolUse` (`Agent`) | `hook pre-tool-use-agent` | Creates a handoff from the calling session, with the Agent `description` as its label and the description plus the first 1,500 characters of the prompt as its brief (the parent's trail and explored manifest are included as usual), then returns `updatedInput` with every original field and the stub appended to the prompt. It queues the ref for `SubagentStart`. Inside a subagent the handoff is created from that subagent's child session, so it nests in the same tree; a subagent the hooks did not open is left alone. It skips forks and prompts that already carry a `[handoff hof_…]` stub. It never sets `permissionDecision`, so your normal permission prompt for the Agent call still applies. |
 
-Hooks always **fail open**: if the server is unreachable, slow (2-second client timeout), returns an error, or a handler is unavailable, the hook exits 0 with no output and the subagent runs normally.
+### Local state
+
+Pending handoffs and the child session opened for each subagent are kept in `~/.astcache/hooks/`, one JSON file per parent session (named by a hash of the session id) with a per-file lock, since several subagents can start at once. Entries no hook consumed (for example a denied Agent call) are dropped after an hour. The hooks never open the databases; they only call the running server's MCP tools.
+
+### Failure behavior
+
+Hooks always **fail open** and always exit 0. A run is capped at 2 seconds (stdin included), under Claude Code's 3-second timeout. If the server is unreachable, slow, or returns an error, or the handoff tools are turned off, a hook falls back to what it can do without the server (`session-start` and `subagent-start` still inject the session id; `pre-tool-use-agent` leaves the prompt unchanged) or writes nothing, and the agent or subagent carries on as if no hook ran. A malformed payload or a panic also writes nothing. Stdout carries only the hook's JSON response.
+
+Set `AST_HOOK_DEBUG=1` in Claude Code's environment to log each hook's decisions and errors to stderr (honoring `AST_LOG_FORMAT`). To try a hook by hand, pipe a payload into it:
+
+```bash
+echo '{"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}' | ast-mcp hook session-start
+```

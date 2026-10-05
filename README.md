@@ -58,7 +58,7 @@ ast-mcp verify                                # status for every host
 
 `ast-mcp` is the [shell function](#shell-function-optional) from `make install`; `./ast-mcp` in the repo takes the same subcommands.
 
-Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains` (or `all`). Components: `mcp`, `skills`, `rules`, `hooks`. The dashboard offers the same under Settings → **Agent integration**. Full CLI reference, exit codes, backups, and manual config snippets: [`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents). Exact files and keys per host: [`docs/host-integration.md`](docs/host-integration.md).
+Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains` (or `all`). Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code subagent-handoff hooks: available, opt-in behind the `feature_handoff_hooks` flag; see [`docs/handoff.md`](docs/handoff.md#claude-code-hooks)). The dashboard offers the same under Settings → **Agent integration**. Full CLI reference, exit codes, backups, and manual config snippets: [`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents). Exact files and keys per host: [`docs/host-integration.md`](docs/host-integration.md).
 
 Manual config is a URL entry, for example Cursor's `~/.cursor/mcp.json`:
 
@@ -83,7 +83,7 @@ Do not add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` a
 | **Token-efficient search** | Hybrid BM25 + vectors; modes `auto` / `skeleton` / `summary` / `full`; session `session_id` dedup; dashboard **Tokens saved** |
 | **Virtual context** | `store_context` / `fetch_context` / `search_context` / `flush_context` — local notes with stable `ctx_*` refs |
 | **Subagent handoff** | `handoff` / `open_handoff` / `scratchpad` — snapshot-backed briefs for subagents, capped return summaries, shared scratchpad and advisory claims for parallel children, dashboard tree view — [`docs/handoff.md`](docs/handoff.md) |
-| **Agent installer** | `ast-mcp install` / dashboard: MCP, skills, rules, and Claude Code hooks for 7 hosts; preview diff, backups, merge-only — [`docs/host-integration.md`](docs/host-integration.md) |
+| **Agent installer** | `ast-mcp install` / dashboard: MCP, skills, rules, and opt-in Claude Code handoff hooks for 7 hosts; preview diff, backups, merge-only — [`docs/host-integration.md`](docs/host-integration.md) |
 | **Local-first** | No cloud account; index and docs stay on disk under `~/.astcache/` |
 | **Dashboard** | React UI on **7830**: health, Index & runtime, embeddings, memory, handoff trees, settings, WebSocket live updates |
 | **KV repair** | `report_kv_repair_event`, golden-text archives, dashboard success-rate stats |
@@ -182,6 +182,7 @@ Rebuild after upgrade (`make build` / `ast-mcp build`). Version: [`VERSION`](VER
 | **Error strings.** Errors use the `errs` package: lowercase messages with structured fields, and handoff tools return `{"error": <code>, "message", "details", "suggestions"}`. | Match on stable codes (`error` field) rather than message text. |
 | **MCP protocol.** The server is dual-era: stateless `2026-07-28` (per-request `_meta`, `subscriptions/listen`) plus legacy `initialize` for `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05`. It declares `listChanged` and sends `notifications/tools/list_changed`. | Nothing; clients negotiate. Clients that honor `list_changed` refresh their tool list when a flag changes. |
 | **Three new core tools**: `handoff`, `open_handoff`, `scratchpad`, gated by flags `feature_handoff`, `feature_handoff_scratchpad`, `feature_handoff_claims`, `feature_handoff_live_trail` (all on), `feature_handoff_hooks` (off). | They appear in `tools/list` at every tier. To hide them, turn the flag off in Settings → Features or set `AST_FEATURE_HANDOFF=false` (an env value locks the flag), or disable them in `tools.json`. See [`docs/handoff.md`](docs/handoff.md). |
+| **Claude Code handoff hooks (opt-in).** `SessionStart`, `SubagentStart`, `SubagentStop`, and `PreToolUse` (`Agent`) hooks automate handoffs for Claude Code subagents. | Optional. Turn on `feature_handoff_hooks`, then `ast-mcp install --target claude_code --component hooks --yes` and restart Claude Code. They fail open. See [`docs/handoff.md`](docs/handoff.md#claude-code-hooks). |
 | **Query cache with `session_id`.** The search cache is now shared across sessions and used for `session_id` calls too (`feature_shared_query_cache`); entries are invalidated when covered files are reindexed. Dedup is immediate: a symbol returned to a session is deduped on its very next call (previously up to ~3s later). | Nothing. Results per session are unchanged; cache-hit statistics and latency improve. Set `AST_FEATURE_SHARED_QUERY_CACHE=false` to opt out. |
 | **Scope fixes.** `search_context`'s keyword fallback now honors `session_id` / `project_path`, and memory vector recall no longer returns superseded, forgotten, or out-of-scope entries. | Nothing; results that leaked across scopes disappear. |
 | **`retrieve` stats.** `stats.deduped_count` is now `stats.deduped`. | Rename the field in scripts that read it. |
