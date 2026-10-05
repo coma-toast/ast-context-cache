@@ -20,6 +20,8 @@ const (
 	LanguageChart
 	ImportChart
 	Settings
+	// Handoffs is a handoff tree lifecycle change: create, open, complete, abandon, claim, flush.
+	Handoffs
 )
 
 // Composite masks for common events.

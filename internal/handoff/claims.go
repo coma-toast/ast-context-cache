@@ -51,9 +51,9 @@ const (
 		WHERE tree_id = ? ORDER BY key, id`
 )
 
-// onClaimWait observes how long each queued claim waited before it was granted. Phase 8 points
-// it at the claim_wait_seconds histogram; nil means unobserved.
-var onClaimWait func(time.Duration)
+// onClaimWait observes how long each queued claim waited before it was granted: the
+// claim_wait_seconds histogram, which tests swap out; nil means unobserved.
+var onClaimWait = observeClaimWaitSeconds
 
 // waitEdge is one wait-for edge: the waiter waits for key, held by to.
 type waitEdge struct {
@@ -89,7 +89,17 @@ func (s *realService) Claim(ctx context.Context, req ClaimRequest) (*ClaimRespon
 	if err != nil {
 		return nil, err
 	}
-	s.logger.Debug("Handled claim", req.SessionID.Attr(), te.tree.Attr(), "key", key, "outcome", string(res.Outcome))
+	if res.Outcome == ClaimHeld {
+		s.logger.Debug("Handled claim", sessionEventArgs(contextReader(), req.SessionID, te, "key", key, "outcome", string(res.Outcome))...)
+		return res, nil
+	}
+	notifyDashboard()
+	if res.Outcome == ClaimQueued {
+		s.logger.Debug("Queued claim", sessionEventArgs(contextReader(), req.SessionID, te, "key", key, "holder", string(res.Holder),
+			"position", res.Position)...)
+		return res, nil
+	}
+	s.logger.Info("Granted claim", sessionEventArgs(contextReader(), req.SessionID, te, "key", key)...)
 	return res, nil
 }
 
@@ -129,7 +139,8 @@ func (s *realService) Release(ctx context.Context, req ReleaseRequest) (*Release
 	if err != nil {
 		return nil, err
 	}
-	s.logger.Debug("Released claim", req.SessionID.Attr(), te.tree.Attr(), "key", key, "granted_to", string(res.GrantedTo))
+	notifyDashboard()
+	s.logger.Info("Released claim", sessionEventArgs(contextReader(), req.SessionID, te, "key", key, "granted_to", string(res.GrantedTo))...)
 	return res, nil
 }
 
@@ -302,6 +313,13 @@ func (s *realService) grantNextTx(tx *sql.Tx, tree TreeID, key string, prev Sess
 		return "", errs.WrapMessage("failed to record claim grant", err, "key", key, "session", string(next))
 	}
 	observeClaimWait(now, enqueuedAt)
+	// Logged before the enclosing transaction commits: it is rolled back only when the rest of a
+	// release, completion, or abandonment fails, which that caller logs.
+	te, ok := s.trees.lookup(next)
+	if !ok {
+		te = treeEntry{tree: tree, isChild: true}
+	}
+	s.logger.Info("Granted queued claim", sessionEventArgs(tx, next, te, "key", key, "after", string(prev))...)
 	return next, s.claimEntryTx(tx, tree, next, key, "granted "+key+" after "+string(prev)+" released it")
 }
 

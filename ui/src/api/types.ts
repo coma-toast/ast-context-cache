@@ -302,6 +302,10 @@ export interface SettingsData {
   EmbedderError: string
   Projects: Project[]
   ProjectsLoading: boolean
+  /** Effective handoff limits (env > setting > default). */
+  HandoffLimits?: HandoffLimits
+  /** Handoff limit settings keys locked by their AST_HANDOFF_* env var. */
+  HandoffEnvLocked?: string[] | null
 }
 
 export interface MemoryData {
@@ -471,6 +475,97 @@ export interface FlagsResponse {
 
 export interface SetFlagResponse extends FlagsResponse {
   status: string
+}
+
+/** Handoff retention windows and caps (`internal/handoff.Limits`). */
+export interface HandoffLimits {
+  ttl_days: number
+  summary_max_tokens: number
+  child_inactive_minutes: number
+  tree_max_tokens: number
+  tree_max_entries: number
+  max_depth: number
+  max_children: number
+  open_budget_tokens: number
+}
+
+export type HandoffStatus = 'open' | 'done' | 'partial' | 'failed' | 'abandoned'
+
+export type HandoffMode = 'fresh' | 'fork'
+
+/** One child session of a handoff (`internal/handoff.ChildView`). */
+export interface HandoffChildView {
+  session_id: string
+  label?: string
+  status: HandoffStatus
+  depth: number
+  opened_at: string
+  last_activity_at: string
+  result_ref?: string
+  summary?: string
+  search_calls: number
+  repeat_calls: number
+  /** repeat_calls / search_calls (OB-1); 0 with no searches. */
+  repeat_rate: number
+  tokens_available: number
+  tokens_delivered: number
+  /** tokens_available − tokens_delivered, floored at 0 (OB-2). */
+  tokens_saved: number
+  active_claims: number
+  queued_claims: number
+}
+
+/** One handoff in a tree (`internal/handoff.HandoffView`). */
+export interface HandoffView {
+  handoff: string
+  label?: string
+  mode: HandoffMode
+  depth: number
+  parent_session_id: string
+  /** Set on a nested handoff: the child session that created it. */
+  parent_child_session_id?: string
+  created_at: string
+  children: HandoffChildView[]
+}
+
+/** One handoff tree (`internal/handoff.TreeView`). Times are UTC "YYYY-MM-DD HH:MM:SS". */
+export interface HandoffTreeView {
+  tree_id: string
+  root_session_id: string
+  project_path?: string
+  created_at: string
+  last_access_at: string
+  expires_at: string
+  expired: boolean
+  tokens_used: number
+  tokens_max: number
+  entries_used: number
+  entries_max: number
+  active_claims: number
+  queued_claims: number
+  search_calls: number
+  repeat_calls: number
+  repeat_rate: number
+  tokens_delivered: number
+  tokens_saved: number
+  handoffs: HandoffView[]
+}
+
+export interface HandoffTreesResponse {
+  trees: HandoffTreeView[]
+  limits: HandoffLimits
+  repeat_search_ratio_24h: number
+}
+
+export interface FlushHandoffTreeResponse {
+  status: string
+  flushed: {
+    tree_id: string
+    handoffs: number
+    children: number
+    notes_deleted: number
+    memory_deleted: number
+  }
 }
 
 /** Agent host the installer configures (`internal/installer.Target`). */

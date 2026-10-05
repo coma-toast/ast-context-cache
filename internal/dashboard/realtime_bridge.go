@@ -67,6 +67,8 @@ func panelMatchesMask(name string, mask realtime.Reason) bool {
 		return mask&realtime.ImportChart != 0
 	case "settings":
 		return mask&realtime.Settings != 0
+	case "handoffs":
+		return mask&realtime.Handoffs != 0
 	default:
 		return false
 	}

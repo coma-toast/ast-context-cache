@@ -38,12 +38,15 @@ var treeDeleteQueries = []string{
 // dedup rows, and search trail live outside that transaction (usage.db, index.db vectors) and
 // are deleted afterwards, best effort: a failure there is logged, not returned, because the
 // tree they belonged to no longer exists to retry from. Memory promoted to the parent session
-// is the parent's and stays.
-func (s *realService) flushTree(tree TreeID) (*FlushResponse, error) {
+// is the parent's and stays. expired says the sweeper is flushing it past its TTL, for the log
+// and the expired-trees counter.
+func (s *realService) flushTree(tree TreeID, expired bool) (*FlushResponse, error) {
 	res := &FlushResponse{TreeID: tree}
 	var children []SessionID
+	var root lineage
 	err := db.HandoffTx(func(tx *sql.Tx) error {
 		var err error
+		root = treeLineage(tx, tree)
 		if children, err = treeChildIDsTx(tx, tree); err != nil {
 			return err
 		}
@@ -83,8 +86,14 @@ func (s *realService) flushTree(tree TreeID) (*FlushResponse, error) {
 	s.deleteTrailSessions(children)
 	s.trees.forgetTree(tree)
 	s.waiters.notify(tree)
-	s.logger.Info("Flushed handoff tree", tree.Attr(), "handoffs", res.Handoffs, "children", res.Children,
-		"notes", res.NotesDeleted, "memory", res.MemoryDeleted)
+	notifyDashboard()
+	msg := "Flushed handoff tree"
+	if expired {
+		msg = "Expired handoff tree"
+		treesExpired.Inc()
+	}
+	s.logger.Info(msg, lifecycleArgs(tree, "", root.parent, "", root.project, "handoffs", res.Handoffs,
+		"children", res.Children, "notes", res.NotesDeleted, "memory", res.MemoryDeleted)...)
 	return res, nil
 }
 

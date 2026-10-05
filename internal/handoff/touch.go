@@ -62,7 +62,8 @@ func (s *realService) Touch(sid SessionID) {
 	}
 	if revived {
 		s.waiters.notify(e.tree)
-		s.logger.Info("Revived abandoned handoff child", sid.Attr(), e.handoff.Attr(), e.tree.Attr())
+		notifyDashboard()
+		s.logger.Info("Revived abandoned handoff child", sessionEventArgs(contextReader(), sid, e)...)
 	}
 }
 

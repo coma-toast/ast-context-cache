@@ -4,10 +4,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
 )
 
 const (
@@ -77,9 +80,14 @@ func registerPrometheusMetrics() {
 				Name: "astcache_tokens_saved_today",
 				Help: "Sum of tokens_saved for today (local calendar day) from the query log.",
 			}, tokensSavedToday),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Name: "astcache_query_cache_hit_ratio",
+				Help: "Shared query-cache (search candidate cache) hits over lookups since start; 0 before any lookup.",
+			}, cache.Candidates.HitRatio),
 			mcpToolCalls,
 			mcpToolDuration,
 		)
+		mustRegister(handoff.Collectors()...)
 		logger.Info("Registered prometheus metrics", "path", "/metrics")
 	})
 }

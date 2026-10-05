@@ -143,6 +143,7 @@ var dashboardPanels = []dashboardPanel{
 	{name: "tool-chart"},
 	{name: "import-chart"},
 	{name: "settings"},
+	{name: "handoffs"},
 }
 
 func wsTrySend(c *wsClient, data []byte) (ok bool) {

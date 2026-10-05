@@ -44,6 +44,8 @@ type completingChild struct {
 	handoffLabel  string
 	resultTokens  int
 	supersededRef string
+	// treeTokens is the tree's token usage after the result was charged (OB-5).
+	treeTokens int
 }
 
 // Complete stores a child's result as a handoff_result note and records it as the child's
@@ -97,10 +99,13 @@ func (s *realService) Complete(ctx context.Context, req CompleteRequest) (*Compl
 	}
 	promoted := s.promoteResultMemory(c.parent, project, stored.Ref, content)
 	s.waiters.notify(c.tree)
+	childrenCompleted.WithLabelValues(string(status)).Inc()
+	treeTokens.Observe(float64(c.treeTokens))
+	notifyDashboard()
 	saved := max(0, db.EstimateTokens(content)-db.EstimateTokens(summary))
-	s.logger.Info("Completed handoff child", req.SessionID.Attr(), c.ref.Attr(), c.tree.Attr(), "status", status,
+	s.logger.Info("Completed handoff child", lifecycleArgs(c.tree, c.ref, c.parent, req.SessionID, project, "status", status,
 		"result", stored.Ref, "summary_source", source, "summary_truncated", truncated, "tokens_saved", saved,
-		"promoted_memory", len(promoted), "released_claims", len(released), "superseded", c.supersededRef)
+		"promoted_memory", len(promoted), "released_claims", len(released), "superseded", c.supersededRef)...)
 	return &CompleteResponse{
 		ResultRef:        stored.Ref,
 		Handoff:          c.ref,
@@ -145,7 +150,7 @@ func (s *realService) completeTx(tx *sql.Tx, sid SessionID, c *completingChild, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.chargeTreeTx(tx, c.tree, c.resultTokens, 1); err != nil {
+	if c.treeTokens, err = s.chargeTreeTokensTx(tx, c.tree, c.resultTokens, 1); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(touchHandoffQuery, now, string(c.ref)); err != nil {

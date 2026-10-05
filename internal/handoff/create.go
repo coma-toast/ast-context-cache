@@ -69,12 +69,13 @@ func (s *realService) Create(ctx context.Context, req CreateRequest) (*CreateRes
 		label = deriveLabel(req.Brief)
 	}
 	var place placement
+	var usedTokens int
 	err = db.HandoffTx(func(tx *sql.Tx) error {
 		var err error
 		if place, err = placeHandoffTx(tx, req.SessionID, project, l); err != nil {
 			return err
 		}
-		if err := s.chargeTreeTx(tx, place.tree, snap.breakdown.Total, snap.entries); err != nil {
+		if usedTokens, err = s.chargeTreeTokensTx(tx, place.tree, snap.breakdown.Total, snap.entries); err != nil {
 			return errs.Wrap(err, "breakdown", snap.breakdown)
 		}
 		return insertHandoffTx(tx, ref, place, req, label, project, snap)
@@ -85,8 +86,11 @@ func (s *realService) Create(ctx context.Context, req CreateRequest) (*CreateRes
 	if place.parentChild == "" {
 		s.trees.put(req.SessionID, treeEntry{tree: place.tree})
 	}
-	s.logger.Info("Created handoff", ref.Attr(), place.tree.Attr(), "parent_session", string(req.SessionID),
-		"depth", place.depth, "mode", string(req.Mode), "tokens", snap.breakdown.Total, "entries", snap.entries)
+	handoffsCreated.Inc()
+	treeTokens.Observe(float64(usedTokens))
+	notifyDashboard()
+	s.logger.Info("Created handoff", lifecycleArgs(place.tree, ref, req.SessionID, "", project,
+		"depth", place.depth, "mode", string(req.Mode), "tokens", snap.breakdown.Total, "entries", snap.entries)...)
 	return &CreateResponse{Ref: ref, TreeID: place.tree, Depth: place.depth, Stub: handoffStub(ref, label), Breakdown: snap.breakdown}, nil
 }
 

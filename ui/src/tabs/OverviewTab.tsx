@@ -17,9 +17,10 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
+import { HandoffTreesCard } from '../components/HandoffTreesCard'
 import { RingGauge } from '../components/charts/RingGauge'
 import { useToast } from '../context/ToastContext'
-import type { ContextSessionStory, ContextSessionsResponse, Stats, WeeklyDigest } from '../api/types'
+import type { ContextSessionStory, ContextSessionsResponse, HandoffTreesResponse, Stats, WeeklyDigest } from '../api/types'
 import { formatStat } from '../components/HealthBar'
 import { MetricStatCard } from '../components/charts/MetricStatCard'
 import { chartColors } from '../lib/chartColors'
@@ -33,15 +34,21 @@ export function OverviewTab({
   stats,
   weeklyDigest,
   contextSessions,
+  handoffTrees,
   projectPath,
   onChanged,
+  onHandoffsChanged,
 }: {
   stats: Stats | null
   weeklyDigest?: WeeklyDigest | null
   contextSessions?: ContextSessionsResponse | null
+  /** Handoff trees (OB-4); undefined hides the card, null shows it loading. */
+  handoffTrees?: HandoffTreesResponse | null
   /** Dashboard project filter; scopes actions to the same set the stats describe. */
   projectPath?: string
   onChanged?: () => void
+  /** Reloads the handoff trees after a flush. */
+  onHandoffsChanged?: () => void
 }) {
   if (!stats) return <Typography color="text.secondary">Loading stats…</Typography>
 
@@ -107,6 +114,11 @@ export function OverviewTab({
             onChanged={onChanged}
           />
         </Grid>
+        {handoffTrees !== undefined && (
+          <Grid size={{ xs: 12 }}>
+            <HandoffTreesCard data={handoffTrees} onChanged={onHandoffsChanged} />
+          </Grid>
+        )}
       </Grid>
     </Box>
   )

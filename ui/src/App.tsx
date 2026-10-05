@@ -15,7 +15,7 @@ import {
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import { api } from './api/client'
-import type { ContextSessionsResponse, Health, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
+import type { ContextSessionsResponse, HandoffTreesResponse, Health, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
 import { HealthBar } from './components/HealthBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
@@ -61,6 +61,7 @@ function DashboardInner() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [weeklyDigest, setWeeklyDigest] = useState<WeeklyDigest | null>(null)
   const [contextSessions, setContextSessions] = useState<ContextSessionsResponse | null>(null)
+  const [handoffTrees, setHandoffTrees] = useState<HandoffTreesResponse | null>(null)
   const [indexHealth, setIndexHealth] = useState<IndexHealth | null>(null)
   const [memory, setMemory] = useState<MemoryData | null>(null)
   const [settings, setSettings] = useState<SettingsData | null>(null)
@@ -96,6 +97,7 @@ function DashboardInner() {
       if (keys.includes('contextSessions')) {
         tasks.push(run('contextSessions', api.contextSessions(pid), setContextSessions))
       }
+      if (keys.includes('handoffTrees')) tasks.push(run('handoffTrees', api.handoffTrees(), setHandoffTrees))
       if (keys.includes('indexHealth')) tasks.push(run('indexHealth', api.indexHealth(pid), setIndexHealth))
       if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid, docSourcesPage), setMemory))
       if (keys.includes('settings')) tasks.push(run('settings', api.settings(), setSettings))
@@ -136,7 +138,7 @@ function DashboardInner() {
   )
 
   const loadAll = useCallback(() => {
-    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
+    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'handoffTrees', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
   }, [load])
 
   useEffect(() => {
@@ -307,7 +309,7 @@ function DashboardInner() {
           {tab === 'overview' && (
             <ErrorBoundary
               label="Overview"
-              onRetry={() => load(['indexHealth', 'health', 'projects', 'settings', 'stats', 'weeklyDigest', 'contextSessions'])}
+              onRetry={() => load(['indexHealth', 'health', 'projects', 'settings', 'stats', 'weeklyDigest', 'contextSessions', 'handoffTrees'])}
             >
               {!!health?.AbnormalPreviousRun && !abnormalDismissed && (
                 <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setAbnormalDismissed(true)}>
@@ -319,8 +321,10 @@ function DashboardInner() {
                 stats={stats}
                 weeklyDigest={weeklyDigest}
                 contextSessions={contextSessions}
+                handoffTrees={handoffTrees}
                 projectPath={pid}
                 onChanged={() => load(['stats', 'weeklyDigest', 'contextSessions', 'indexHealth'])}
+                onHandoffsChanged={() => load(['handoffTrees', 'stats'])}
               />
               {indexHealth && (
                 <WatchersPanel

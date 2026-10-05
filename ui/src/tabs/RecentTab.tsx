@@ -21,11 +21,13 @@ import {
 } from '@mui/material'
 import type { RecentQuery, RecentLogLine } from '../api/types'
 import { api } from '../api/client'
+import { shortLogTime } from '../lib/logTime'
 
 const LOG_LEVEL_COLOR: Record<string, string> = {
   error: '#f85149',
   warn: '#d29922',
   info: '#8b949e',
+  debug: '#6e7681',
 }
 
 export function RecentTab({
@@ -171,7 +173,7 @@ function QueryTable({
   )
 }
 
-type LogLevelFilter = 'all' | 'error' | 'warn' | 'info'
+type LogLevelFilter = 'all' | 'error' | 'warn' | 'info' | 'debug'
 
 function LogsPane() {
   const [data, setData] = useState<{ lines: RecentLogLine[]; path: string; file_truncated: boolean } | null>(null)
@@ -230,6 +232,9 @@ function LogsPane() {
           <ToggleButton value="info" sx={{ color: LOG_LEVEL_COLOR.info }}>
             Info
           </ToggleButton>
+          <ToggleButton value="debug" sx={{ color: LOG_LEVEL_COLOR.debug }}>
+            Debug
+          </ToggleButton>
         </ToggleButtonGroup>
         <Button size="small" variant={autoscroll ? 'contained' : 'outlined'} onClick={() => setAutoscroll((v) => !v)}>
           Autoscroll {autoscroll ? 'on' : 'off'}
@@ -253,8 +258,8 @@ function LogsPane() {
         {filteredLines?.map((line, i) => (
           <Box key={i} sx={{ color: LOG_LEVEL_COLOR[line.Level] || LOG_LEVEL_COLOR.info, mb: 0.25 }}>
             {line.Timestamp && (
-              <Box component="span" sx={{ color: 'text.secondary', mr: 1 }}>
-                {line.Timestamp}
+              <Box component="span" sx={{ color: 'text.secondary', mr: 1 }} title={line.Timestamp}>
+                {shortLogTime(line.Timestamp)}
               </Box>
             )}
             {line.Message}

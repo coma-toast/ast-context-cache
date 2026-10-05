@@ -149,7 +149,7 @@ func TestFlushTree(t *testing.T) {
 	require.True(t, s.IsTreeSession(tt.root))
 	wake := s.waiters.wait(tt.tree)
 
-	res, err := s.flushTree(tt.tree)
+	res, err := s.flushTree(tt.tree, false)
 	require.NoError(t, err)
 	assert.Equal(t, &FlushResponse{TreeID: tt.tree, Handoffs: 1, Children: 2, NotesDeleted: 2, MemoryDeleted: 1}, res)
 	assert.Zero(t, treeRowCount(t, tt), "every handoff table row of the tree")
@@ -181,7 +181,7 @@ func TestFlushTree(t *testing.T) {
 		t.Fatal("collect waiters on the tree are woken")
 	}
 
-	res, err = s.flushTree(tt.tree)
+	res, err = s.flushTree(tt.tree, false)
 	require.NoError(t, err, "flushing a gone tree is a no-op")
 	assert.Equal(t, &FlushResponse{TreeID: tt.tree}, res)
 }

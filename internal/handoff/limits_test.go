@@ -41,3 +41,20 @@ func TestLoadLimitsResolution(t *testing.T) {
 	}
 	assert.Equal(t, "AST_HANDOFF_TTL_DAYS", EnvKey(SettingTTLDays))
 }
+
+func TestLimitSettings(t *testing.T) {
+	dbtest.Init(t)
+	l := LoadLimits()
+	want := map[string]int{
+		SettingTTLDays: l.TTLDays, SettingSummaryMaxTokens: l.SummaryMaxTokens, SettingChildInactiveMinutes: l.ChildInactiveMinutes,
+		SettingTreeMaxTokens: l.TreeMaxTokens, SettingTreeMaxEntries: l.TreeMaxEntries, SettingMaxDepth: l.MaxDepth,
+		SettingMaxChildren: l.MaxChildren, SettingOpenBudgetTokens: l.OpenBudgetTokens,
+	}
+	got := map[string]int{}
+	for _, ls := range LimitSettings() {
+		got[ls.Key] = ls.Default
+		assert.True(t, IsLimitSetting(ls.Key), ls.Key)
+	}
+	assert.Equal(t, want, got, "every limit is listed with the default LoadLimits resolves to")
+	assert.False(t, IsLimitSetting("handoff_unknown"))
+}
