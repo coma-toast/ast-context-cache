@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/codescripts"
@@ -19,13 +20,13 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
-	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
 var (
-	emb    embedder.Interface
-	srvCfg = DefaultConfig()
+	emb embedder.Interface
+	// srvCfg is read through GetConfig; nil until SetConfig or the first GetConfig.
+	srvCfg atomic.Pointer[ServerConfig]
 )
 
 // defaultDocSourcesPerPage matches the dashboard's DefaultDocSourcesPerPage
@@ -57,80 +58,156 @@ func RecordEmbed() {
 	embedder.MarkSuccess()
 }
 
+// SetConfig replaces the server config. It is stored atomically because MCP request
+// goroutines and the dashboard read it concurrently with whoever sets it.
 func SetConfig(cfg ServerConfig) {
-	srvCfg = cfg
+	srvCfg.Store(&cfg)
 }
 
+// GetConfig returns the current server config, initializing it from the environment on
+// first use.
 func GetConfig() ServerConfig {
-	return srvCfg
+	if cfg := srvCfg.Load(); cfg != nil {
+		return *cfg
+	}
+	cfg := DefaultConfig()
+	srvCfg.CompareAndSwap(nil, &cfg)
+	return *srvCfg.Load()
 }
 
+// NewHandler serves the Streamable HTTP /mcp endpoint for both protocol eras; see
+// protocol.go for how a request's era is chosen.
 func NewHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		if r.Method == "GET" {
-			json.NewEncoder(w).Encode(JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
-				ID:      1,
-				Result:  map[string]interface{}{"tools": FilterTools(srvCfg)},
-			})
-			return
-		}
-
-		var rpcReq JSONRPCRequest
-		if err := json.NewDecoder(r.Body).Decode(&rpcReq); err != nil {
-			json.NewEncoder(w).Encode(JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
-				ID:      nil,
-				Error:   &JSONRPCError{Code: ParseError, Message: err.Error()},
-			})
-			return
-		}
-
-		switch rpcReq.Method {
-		case "initialize":
-			result := map[string]interface{}{
-				"protocolVersion": "2024-11-05",
-				"capabilities": map[string]interface{}{
-					"tools": map[string]interface{}{},
-				},
-				"serverInfo": map[string]interface{}{
-					"name":    "ast-context-cache",
-					"version": version.Version,
-				},
-			}
-			json.NewEncoder(w).Encode(JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
-				ID:      rpcReq.ID,
-				Result:  result,
-			})
-		case "initialized":
-			return
-		case "tools/list":
-			json.NewEncoder(w).Encode(JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
-				ID:      rpcReq.ID,
-				Result:  map[string]interface{}{"tools": FilterTools(srvCfg)},
-			})
-		case "prompts/list":
-			json.NewEncoder(w).Encode(JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
-				ID:      rpcReq.ID,
-				Result:  map[string]interface{}{"prompts": GetPrompts()},
-			})
-		case "prompts/get":
-			handlePromptGet(w, rpcReq)
-		case "tools/call":
-			handleToolCall(w, rpcReq)
+		switch r.Method {
+		case http.MethodPost:
+			handlePost(w, r)
+		case http.MethodGet:
+			handleGet(w, r)
+		case http.MethodDelete:
+			handleDelete(w, r)
 		default:
-			json.NewEncoder(w).Encode(JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
-				ID:      rpcReq.ID,
-				Error:   &JSONRPCError{Code: MethodNotFound, Message: "Unknown method: " + rpcReq.Method},
-			})
+			methodNotAllowed(w)
 		}
 	}
+}
+
+func handlePost(w http.ResponseWriter, r *http.Request) {
+	var rpcReq JSONRPCRequest
+	if err := json.NewDecoder(r.Body).Decode(&rpcReq); err != nil {
+		writeRPC(w, http.StatusBadRequest, rpcError(nil, &JSONRPCError{Code: ParseError, Message: err.Error()}))
+		return
+	}
+	// The spec never lets a notification or a client's response get a body back.
+	if isNotification(rpcReq) {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if eraOf(r, rpcReq) == eraModern {
+		handleModern(w, r, rpcReq)
+		return
+	}
+	handleLegacy(w, r, rpcReq)
+}
+
+// handleLegacy serves the handshake era. Requests are answered statelessly even when their
+// Mcp-Session-Id is unknown (say, after a restart): nothing a POST does depends on the
+// session, so forcing a re-initialize would only interrupt the client.
+func handleLegacy(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest) {
+	if id := r.Header.Get(headerSessionID); id != "" {
+		hub.touch(id)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	switch rpcReq.Method {
+	case "initialize":
+		clientVersion, _ := rpcReq.Params["protocolVersion"].(string)
+		negotiated := negotiate(clientVersion)
+		if negotiated >= sessionVersionMin {
+			w.Header().Set(headerSessionID, hub.newSession(negotiated))
+		}
+		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, initializeResult(negotiated)))
+	case "ping":
+		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{}))
+	default:
+		if !dispatch(w, rpcReq) {
+			writeRPC(w, http.StatusOK, rpcError(rpcReq.ID, &JSONRPCError{Code: MethodNotFound, Message: "Unknown method: " + rpcReq.Method}))
+		}
+	}
+}
+
+// handleModern serves the stateless 2026-07-28 era: validate the request headers against
+// the body, then answer through the shared dispatch and add the fields this revision
+// requires. Any Mcp-Session-Id header is ignored.
+func handleModern(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest) {
+	if rerr, status := validateModern(r, rpcReq); rerr != nil {
+		writeRPC(w, status, rpcError(rpcReq.ID, rerr))
+		return
+	}
+	switch rpcReq.Method {
+	case "server/discover":
+		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, discoverResult()))
+		return
+	case "subscriptions/listen":
+		serveListen(w, r, rpcReq)
+		return
+	}
+	buf := newResponseBuffer()
+	if !dispatch(buf, rpcReq) {
+		writeRPC(w, http.StatusNotFound, rpcError(rpcReq.ID, &JSONRPCError{Code: MethodNotFound, Message: "Unknown method: " + rpcReq.Method}))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(buf.status)
+	if _, err := w.Write(modernize(buf.body.Bytes(), rpcReq.Method)); err != nil {
+		logger.Debug("Failed to write MCP response", "error", err)
+	}
+}
+
+// dispatch answers the methods both eras share, reporting false for an unknown method.
+func dispatch(w http.ResponseWriter, rpcReq JSONRPCRequest) bool {
+	switch rpcReq.Method {
+	case "tools/list":
+		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"tools": FilterTools(GetConfig())}))
+	case "prompts/list":
+		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"prompts": GetPrompts()}))
+	case "prompts/get":
+		handlePromptGet(w, rpcReq)
+	case "tools/call":
+		handleToolCall(w, rpcReq)
+	default:
+		return false
+	}
+	return true
+}
+
+// handleGet opens a legacy SSE stream. The 2026-07-28 revision removed the GET endpoint,
+// so modern clients get 405.
+func handleGet(w http.ResponseWriter, r *http.Request) {
+	if isModernHeader(r) {
+		methodNotAllowed(w)
+		return
+	}
+	if acceptsSSE(r) {
+		serveLegacyStream(w, r)
+		return
+	}
+	// Deprecated: a plain GET returning the tool list predates Streamable HTTP. It is kept
+	// for scripts and older integrations that still read it; MCP clients use tools/list.
+	writeRPC(w, http.StatusOK, rpcResult(1, map[string]any{"tools": FilterTools(GetConfig())}))
+}
+
+// handleDelete ends a legacy session. Modern clients have no sessions and get 405.
+func handleDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.Header.Get(headerSessionID)
+	if isModernHeader(r) || id == "" {
+		methodNotAllowed(w)
+		return
+	}
+	if !hub.dropSession(id) {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // resultIsError reports whether a tool's already-marshaled JSON result carries a
@@ -169,10 +246,11 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		toolArgs = args
 	}
 
-	if ok, reason := toolAccessByName(toolName, srvCfg); !ok {
+	cfg := GetConfig()
+	if ok, reason := toolAccessByName(toolName, cfg); !ok {
 		mcpErr := map[string]interface{}{
 			"content": []map[string]interface{}{
-				{"type": "text", "text": ToolDenyMessage(toolName, srvCfg, reason)},
+				{"type": "text", "text": ToolDenyMessage(toolName, cfg, reason)},
 			},
 			"isError": true,
 		}

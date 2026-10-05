@@ -16,8 +16,8 @@ import (
 // every job it started has finished. HOME and the DB are isolated by TestMain.
 func isolateIndexJobs(t *testing.T) {
 	t.Helper()
-	origCfg, origRun, origAfter, origWait := srvCfg, runIndexDirectory, afterIndexDirectory, indexJobSyncWait
-	srvCfg = DefaultConfig()
+	origCfg, origRun, origAfter, origWait := GetConfig(), runIndexDirectory, afterIndexDirectory, indexJobSyncWait
+	SetConfig(DefaultConfig())
 	indexJobsMu.Lock()
 	indexJobs = nil
 	projectLocks = map[string]*sync.Mutex{}
@@ -34,7 +34,8 @@ func isolateIndexJobs(t *testing.T) {
 				t.Errorf("job %s still running at cleanup", j.ID)
 			}
 		}
-		srvCfg, runIndexDirectory, afterIndexDirectory, indexJobSyncWait = origCfg, origRun, origAfter, origWait
+		SetConfig(origCfg)
+		runIndexDirectory, afterIndexDirectory, indexJobSyncWait = origRun, origAfter, origWait
 		indexJobsMu.Lock()
 		indexJobs = nil
 		indexJobsMu.Unlock()

@@ -10,9 +10,9 @@ import (
 // Field report #11: search_docs returned unrelated sections (RRF scores ~0.016–0.03) with
 // no way to tell them from real hits. Below the floor it must say no_match instead.
 func TestSearchDocsReportsNoMatchInsteadOfJunk(t *testing.T) {
-	origCfg := srvCfg
-	srvCfg = DefaultConfig()
-	t.Cleanup(func() { srvCfg = origCfg })
+	origCfg := GetConfig()
+	SetConfig(DefaultConfig())
+	t.Cleanup(func() { SetConfig(origCfg) })
 	// DB and HOME come from TestMain; clear doc rows so -count=N runs stay independent.
 	clearDocs := func() {
 		db.ContextDB.Exec(`DELETE FROM doc_content`)

@@ -15,9 +15,9 @@ func setupMemoryToolTest(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("AST_MCP_TIER", "complete")
-	origCfg := srvCfg
-	srvCfg = DefaultConfig()
-	t.Cleanup(func() { srvCfg = origCfg })
+	origCfg := GetConfig()
+	SetConfig(DefaultConfig())
+	t.Cleanup(func() { SetConfig(origCfg) })
 	if err := db.Init(); err != nil {
 		t.Fatal(err)
 	}
