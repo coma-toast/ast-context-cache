@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -46,7 +47,9 @@ var (
 // listenAddr is the host both servers bind to (-listen / AST_LISTEN). Loopback by
 // default: neither server has authentication, and the MCP spec says local servers
 // SHOULD bind to 127.0.0.1. Docker sets 0.0.0.0 so published ports work.
-var listenAddr = "127.0.0.1"
+var listenAddr = defaultListenAddr
+
+const defaultListenAddr = "127.0.0.1"
 
 // shutdownFlushTimeout bounds the final analytics flush so a wedged SQLite write
 // can't stop the process from exiting on SIGTERM.
@@ -129,6 +132,7 @@ func main() {
 			return
 		}
 		projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
+		mcp.Init()
 		dbReady <- nil
 
 		db.BeforeForceCheckpoint = func() {
@@ -158,11 +162,13 @@ func main() {
 		})
 
 		mcpSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(mcpPort)), Handler: mcpMux}
+		// Shutdown waits for idle connections, which open SSE streams never become.
+		mcpSrv.RegisterOnShutdown(mcp.CloseStreams)
 		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
 
 		go func() {
 			logger.Info("Starting MCP server", "url", serverURL(mcpPort)+"/mcp")
-			if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := listenAndServe(mcpSrv, mcpPort); err != nil {
 				logger.Error("MCP server failed", "error", err)
 				os.Exit(1)
 			}
@@ -185,7 +191,7 @@ func main() {
 	}()
 
 	logger.Info("Starting dashboard server", "url", serverURL(dashboardPort))
-	if err := dashSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := listenAndServe(dashSrv, dashboardPort); err != nil {
 		logger.Error("Dashboard server failed", "error", err)
 		os.Exit(1)
 	}
@@ -232,6 +238,46 @@ func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 			os.Exit(1)
 		}
 	}
+}
+
+// listenAndServe serves srv on listenAddr:port and, for the default IPv4 loopback, on
+// [::1]:port too: clients configured with http://localhost:7821/mcp otherwise fail
+// wherever localhost resolves to ::1 first. Both listeners share srv, so Shutdown closes
+// both. It returns nil once srv is shut down, or the first listen or serve error.
+func listenAndServe(srv *http.Server, port int) error {
+	lns, err := listeners(port)
+	if err != nil {
+		return err
+	}
+	errc := make(chan error, len(lns))
+	for _, ln := range lns {
+		go func() { errc <- srv.Serve(ln) }()
+	}
+	for range lns {
+		if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	}
+	return nil
+}
+
+// listeners opens listenAddr:port, adding [::1]:port when listenAddr is the default. A
+// host without IPv6 loopback just keeps the IPv4 listener.
+func listeners(port int) ([]net.Listener, error) {
+	p := strconv.Itoa(port)
+	primary, err := net.Listen("tcp", net.JoinHostPort(listenAddr, p))
+	if err != nil {
+		return nil, err
+	}
+	if listenAddr != defaultListenAddr {
+		return []net.Listener{primary}, nil
+	}
+	v6, err := net.Listen("tcp", net.JoinHostPort("::1", p))
+	if err != nil {
+		logger.Debug("Not listening on IPv6 loopback", "port", port, "error", err)
+		return []net.Listener{primary}, nil
+	}
+	return []net.Listener{primary, v6}, nil
 }
 
 // serverURL is the address to show for a server on port: listenAddr, or
