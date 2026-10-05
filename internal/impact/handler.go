@@ -3,15 +3,30 @@ package impact
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+)
+
+const (
+	selectDefinitionFilesQuery = "SELECT DISTINCT file FROM symbols WHERE "
+	selectImportSourcesQuery   = "SELECT DISTINCT source_file FROM edges WHERE "
+	selectImportEdgesQuery     = "SELECT source_file, COALESCE(source_symbol, ''), target, kind FROM edges WHERE "
+	andFragment                = " AND "
+	orFragment                 = " OR "
+	importKindsClause          = " AND kind IN ('import', 'import_names')"
+	targetLikeClause           = "target LIKE ?"
+	targetWithoutNameClause    = "target NOT GLOB '*[A-Za-z0-9_$]*'"
+	sourceFileInClause         = " AND source_file IN (?"
+	orderByFileClause          = " ORDER BY file"
+	orderBySourceFileClause    = " ORDER BY source_file"
+	closeOrderByIDClause       = ") ORDER BY id"
 )
 
 // Entry is one file that depends on the analyzed symbol.
@@ -49,10 +64,10 @@ type Result struct {
 // path segments (see resolveModule); nothing matches by substring.
 func Graph(symbol, projectPath string, includeSiblings bool) (*Result, error) {
 	if projectPath == "" {
-		return nil, errors.New("project_path required")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "project_path required")
 	}
 	if symbol == "" {
-		return nil, errors.New("symbol required")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "symbol required")
 	}
 
 	scopeFrag, scopeArgs, scope := projectlinks.ScopeSQLWithRepoSiblings("", projectPath, includeSiblings)
@@ -111,7 +126,7 @@ func Graph(symbol, projectPath string, includeSiblings bool) (*Result, error) {
 // nothing in code defines the name (e.g. asking about an Ansible role or key).
 func definitionFiles(conn *sql.DB, scopeFrag string, scopeArgs []interface{}, symbol string) (defs []string, codeDefs bool, err error) {
 	nameFrag, nameArgs := exactNameMatchSQL("", symbol)
-	rows, err := conn.Query("SELECT DISTINCT file FROM symbols WHERE "+scopeFrag+" AND "+nameFrag+" ORDER BY file",
+	rows, err := conn.Query(selectDefinitionFilesQuery+scopeFrag+andFragment+nameFrag+orderByFileClause,
 		append(append([]interface{}{}, scopeArgs...), nameArgs...)...)
 	if err != nil {
 		return nil, false, err
@@ -165,7 +180,7 @@ func candidateSources(conn *sql.DB, scopeFrag string, scopeArgs []interface{}, s
 			needles[filepath.Base(filepath.Dir(dir))] = true
 		}
 	}
-	q := "SELECT DISTINCT source_file FROM edges WHERE " + scopeFrag + " AND kind IN ('import', 'import_names')"
+	q := selectImportSourcesQuery + scopeFrag + importKindsClause
 	args := append([]interface{}{}, scopeArgs...)
 	if len(needles) <= maxPrefilterNeedles {
 		var ors []string
@@ -173,13 +188,13 @@ func candidateSources(conn *sql.DB, scopeFrag string, scopeArgs []interface{}, s
 			if n == "" || n == "." || n == string(filepath.Separator) {
 				continue
 			}
-			ors = append(ors, "target LIKE ?")
+			ors = append(ors, targetLikeClause)
 			args = append(args, "%"+n+"%")
 		}
-		ors = append(ors, "target NOT GLOB '*[A-Za-z0-9_$]*'")
-		q += " AND (" + strings.Join(ors, " OR ") + ")"
+		ors = append(ors, targetWithoutNameClause)
+		q += andFragment + "(" + strings.Join(ors, orFragment) + ")"
 	}
-	rows, err := conn.Query(q+" ORDER BY source_file", args...)
+	rows, err := conn.Query(q+orderBySourceFileClause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -209,8 +224,7 @@ func importEdges(conn *sql.DB, scopeFrag string, scopeArgs []interface{}, files 
 		for _, f := range chunk {
 			args = append(args, f)
 		}
-		rows, err := conn.Query("SELECT source_file, COALESCE(source_symbol, ''), target, kind FROM edges WHERE "+scopeFrag+
-			" AND kind IN ('import', 'import_names') AND source_file IN (?"+strings.Repeat(",?", len(chunk)-1)+") ORDER BY id", args...)
+		rows, err := conn.Query(selectImportEdgesQuery+scopeFrag+importKindsClause+sourceFileInClause+strings.Repeat(",?", len(chunk)-1)+closeOrderByIDClause, args...)
 		if err != nil {
 			return nil, err
 		}

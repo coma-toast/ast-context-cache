@@ -10,6 +10,25 @@ import (
 
 const docRRFK = 60
 
+const (
+	searchDocsFTSQuery = `
+		SELECT dc.id, dc.source_id, dc.title, dc.content, COALESCE(dc.path,''), COALESCE(dc.content_hash,''), dc.updated_at, f.rank
+		FROM docs_fts f
+		JOIN doc_content dc ON f.rowid = dc.id
+		WHERE docs_fts MATCH ?
+		ORDER BY f.rank
+		LIMIT ?`
+	searchDocsLikeQuery = `
+		SELECT dc.id, dc.source_id, dc.title, dc.content, COALESCE(dc.path,''), COALESCE(dc.content_hash,''), dc.updated_at
+		FROM doc_content dc
+		WHERE dc.title LIKE ? OR dc.content LIKE ?
+		ORDER BY dc.updated_at DESC
+		LIMIT ?`
+	selectDocEntryQuery = `
+		SELECT id, source_id, title, content, COALESCE(path,''), COALESCE(content_hash,''), updated_at
+		FROM doc_content WHERE id = ?`
+)
+
 // ScoredDoc pairs a cached section with a relevance score.
 type ScoredDoc struct {
 	Entry DocEntry
@@ -114,13 +133,7 @@ func searchDocsFTS(query string, limit int) ([]ScoredDoc, error) {
 	if ftsQuery == "" {
 		return nil, nil
 	}
-	rows, err := db.ContextDB.Query(`
-		SELECT dc.id, dc.source_id, dc.title, dc.content, COALESCE(dc.path,''), COALESCE(dc.content_hash,''), dc.updated_at, f.rank
-		FROM docs_fts f
-		JOIN doc_content dc ON f.rowid = dc.id
-		WHERE docs_fts MATCH ?
-		ORDER BY f.rank
-		LIMIT ?`, ftsQuery, limit)
+	rows, err := db.ContextDB.Query(searchDocsFTSQuery, ftsQuery, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -129,12 +142,7 @@ func searchDocsFTS(query string, limit int) ([]ScoredDoc, error) {
 }
 
 func searchDocsLike(query string, limit int) ([]ScoredDoc, error) {
-	rows, err := db.ContextDB.Query(`
-		SELECT dc.id, dc.source_id, dc.title, dc.content, COALESCE(dc.path,''), COALESCE(dc.content_hash,''), dc.updated_at
-		FROM doc_content dc
-		WHERE dc.title LIKE ? OR dc.content LIKE ?
-		ORDER BY dc.updated_at DESC
-		LIMIT ?`, "%"+query+"%", "%"+query+"%", limit)
+	rows, err := db.ContextDB.Query(searchDocsLikeQuery, "%"+query+"%", "%"+query+"%", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -177,9 +185,7 @@ func entryFromVectorHit(s search.ScoredResult) (DocEntry, bool) {
 		return DocEntry{}, false
 	}
 	var e DocEntry
-	err := db.ContextDB.QueryRow(`
-		SELECT id, source_id, title, content, COALESCE(path,''), COALESCE(content_hash,''), updated_at
-		FROM doc_content WHERE id = ?`, id).Scan(&e.ID, &e.SourceID, &e.Title, &e.Content, &e.Path, &e.ContentHash, &e.UpdatedAt)
+	err := db.ContextDB.QueryRow(selectDocEntryQuery, id).Scan(&e.ID, &e.SourceID, &e.Title, &e.Content, &e.Path, &e.ContentHash, &e.UpdatedAt)
 	return e, err == nil
 }
 

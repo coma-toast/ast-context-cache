@@ -2,10 +2,21 @@ package impact
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+)
+
+const (
+	selectSymbolLocationsQuery = "SELECT file, COALESCE(start_line,0), kind, name, COALESCE(fqn,'') FROM symbols WHERE "
+	orderByFileLineClause      = " ORDER BY file, start_line"
+	lowerColumnFragment        = "LOWER(%s)"
+	// memberNameMatchFragment matches name=%[1]s directly, or a member by its bare name plus an
+	// fqn (%[2]s) equal to or ending with the dotted symbol.
+	memberNameMatchFragment = "(%[1]s = ? OR (%[1]s = ? AND (%[2]s = ? OR SUBSTR(%[2]s, -LENGTH(?)) = ?)))"
+	eqParamFragment         = " = ?"
 )
 
 // Location is where a symbol is declared. QualifiedName is set for a member
@@ -38,7 +49,7 @@ func nameMatchSQL(alias, symbol string, fold bool) (string, []interface{}) {
 			c = alias + "." + c
 		}
 		if fold {
-			return "LOWER(" + c + ")"
+			return fmt.Sprintf(lowerColumnFragment, c)
 		}
 		return c
 	}
@@ -47,10 +58,10 @@ func nameMatchSQL(alias, symbol string, fold bool) (string, []interface{}) {
 	}
 	i := strings.LastIndex(symbol, ".")
 	if i <= 0 || i == len(symbol)-1 {
-		return col("name") + " = ?", []interface{}{symbol}
+		return col("name") + eqParamFragment, []interface{}{symbol}
 	}
 	suffix := "." + symbol
-	return "(" + col("name") + " = ? OR (" + col("name") + " = ? AND (" + col("fqn") + " = ? OR SUBSTR(" + col("fqn") + ", -LENGTH(?)) = ?)))",
+	return fmt.Sprintf(memberNameMatchFragment, col("name"), col("fqn")),
 		[]interface{}{symbol, symbol[i+1:], symbol, suffix, suffix}
 }
 
@@ -73,9 +84,7 @@ func HandleCheckSymbolExists(args map[string]interface{}, projectPath string) st
 		return errJSON(err)
 	}
 	nameFrag, nameArgs := NameMatchSQL("", symbol)
-	rows, err := conn.Query(
-		"SELECT file, COALESCE(start_line,0), kind, name, COALESCE(fqn,'') FROM symbols WHERE "+scopeFrag+" AND "+nameFrag+" ORDER BY file, start_line",
-		append(scopeArgs, nameArgs...)...)
+	rows, err := conn.Query(selectSymbolLocationsQuery+scopeFrag+andFragment+nameFrag+orderByFileLineClause, append(scopeArgs, nameArgs...)...)
 	if err != nil {
 		return errJSON(err)
 	}

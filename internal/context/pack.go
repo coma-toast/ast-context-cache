@@ -8,6 +8,15 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
+const (
+	selectSymbolSummaryQuery      = "SELECT summary_text, content_hash FROM summaries WHERE file_path = ? AND symbol_name = ? AND project_path = ?"
+	selectFileSummaryQuery        = "SELECT summary_text, content_hash FROM summaries WHERE file_path = ? AND (symbol_name IS NULL OR symbol_name = '') AND project_path = ?"
+	selectSymbolCodeByFQNQuery    = "SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? AND (fqn = ? OR name = ?) ORDER BY fqn = ? DESC, start_line LIMIT 1"
+	selectSymbolSkeletonQuery     = "SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
+	selectSymbolFQNSkeletonQuery  = "SELECT COALESCE(fqn,''), COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
+	selectSymbolCodeSkeletonQuery = "SELECT COALESCE(code,''), COALESCE(skeleton,'') FROM symbols WHERE name = ? AND file = ? AND project_path = ? AND start_line = ? LIMIT 1"
+)
+
 // EffectiveMode resolves auto mode from score rank.
 func EffectiveMode(mode string, score, maxScore float64, fullCount int) string {
 	if mode != "auto" {
@@ -39,14 +48,10 @@ func LoadSummary(file, name, projectPath string) string {
 	if err != nil {
 		return ""
 	}
-	err = conn.QueryRow(
-		"SELECT summary_text, content_hash FROM summaries WHERE file_path = ? AND symbol_name = ? AND project_path = ?",
-		file, name, projectPath).Scan(&summary, &storedHash)
+	err = conn.QueryRow(selectSymbolSummaryQuery, file, name, projectPath).Scan(&summary, &storedHash)
 	if err != nil || summary == "" {
 		if name != "" {
-			conn.QueryRow(
-				"SELECT summary_text, content_hash FROM summaries WHERE file_path = ? AND (symbol_name IS NULL OR symbol_name = '') AND project_path = ?",
-				file, projectPath).Scan(&summary, &storedHash)
+			conn.QueryRow(selectFileSummaryQuery, file, projectPath).Scan(&summary, &storedHash)
 		}
 	}
 	if summary == "" {
@@ -66,9 +71,7 @@ func symbolContentHash(file, name, projectPath string) string {
 	var code string
 	if conn, err := db.IndexReader(); err == nil {
 		fqn := filepath.Base(file) + "." + name
-		conn.QueryRow(
-			"SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND project_path = ? AND (fqn = ? OR name = ?) ORDER BY fqn = ? DESC, start_line LIMIT 1",
-			file, projectPath, fqn, name, fqn).Scan(&code)
+		conn.QueryRow(selectSymbolCodeByFQNQuery, file, projectPath, fqn, name, fqn).Scan(&code)
 	}
 	if code != "" {
 		return search.ContentHash(code)
@@ -88,8 +91,7 @@ func ApplyMode(data map[string]interface{}, effectiveMode, file, name, projectPa
 	case "skeleton":
 		var skeleton string
 		if connErr == nil {
-			conn.QueryRow("SELECT COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-				file, name, projectPath, startLine).Scan(&skeleton)
+			conn.QueryRow(selectSymbolSkeletonQuery, file, name, projectPath, startLine).Scan(&skeleton)
 		}
 		if skeleton != "" {
 			data["skeleton"] = skeleton
@@ -99,8 +101,7 @@ func ApplyMode(data map[string]interface{}, effectiveMode, file, name, projectPa
 	case "summary":
 		var fqn, skeleton string
 		if connErr == nil {
-			conn.QueryRow("SELECT COALESCE(fqn,''), COALESCE(skeleton,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-				file, name, projectPath, startLine).Scan(&fqn, &skeleton)
+			conn.QueryRow(selectSymbolFQNSkeletonQuery, file, name, projectPath, startLine).Scan(&fqn, &skeleton)
 		}
 		if summary := LoadSummary(file, db.QualifiedName(fqn, file, name), projectPath); summary != "" {
 			data["summary"] = summary
@@ -119,9 +120,7 @@ func ApplyMode(data map[string]interface{}, effectiveMode, file, name, projectPa
 func SymbolContentForRetrieve(file, name, projectPath string, startLine, endLine int, includeSource bool, mode string, score, maxScore float64, fullCount int, fileCache map[string][]string) string {
 	var code, skeleton string
 	if conn, err := db.IndexReader(); err == nil {
-		conn.QueryRow(
-			"SELECT COALESCE(code,''), COALESCE(skeleton,'') FROM symbols WHERE name = ? AND file = ? AND project_path = ? AND start_line = ? LIMIT 1",
-			name, file, projectPath, startLine).Scan(&code, &skeleton)
+		conn.QueryRow(selectSymbolCodeSkeletonQuery, name, file, projectPath, startLine).Scan(&code, &skeleton)
 	}
 	effective := mode
 	if effective == "" {

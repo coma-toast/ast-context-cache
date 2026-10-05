@@ -2,12 +2,14 @@ package docs
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
+
+const selectDocSourceNameQuery = "SELECT name FROM doc_sources WHERE id = ?"
 
 var docEmbedder embedder.Interface
 
@@ -41,7 +43,7 @@ func EmbedSource(sourceID int) {
 		return
 	}
 	if err := deleteDocVectors(sourceID); err != nil {
-		log.Printf("docs: embed source %d: %v", sourceID, err)
+		logger.Warn("Failed to embed doc source", "source_id", sourceID, "error", err)
 		return
 	}
 	entries, err := ListEntriesBySource(sourceID)
@@ -49,7 +51,7 @@ func EmbedSource(sourceID int) {
 		return
 	}
 	var sourceName string
-	db.ContextDB.QueryRow("SELECT name FROM doc_sources WHERE id = ?", sourceID).Scan(&sourceName)
+	db.ContextDB.QueryRow(selectDocSourceNameQuery, sourceID).Scan(&sourceName)
 	const batchSize = 32
 	for i := 0; i < len(entries); i += batchSize {
 		end := i + batchSize
@@ -57,11 +59,11 @@ func EmbedSource(sourceID int) {
 			end = len(entries)
 		}
 		if err := embedBatch(sourceID, entries[i:end]); err != nil {
-			log.Printf("docs: embed source %d: %v", sourceID, err)
+			logger.Warn("Failed to embed doc source", "source_id", sourceID, "error", err)
 			return
 		}
 	}
-	log.Printf("docs: embedded %d sections for source %d (%s)", len(entries), sourceID, sourceName)
+	logger.Info("Embedded doc source sections", "sections", len(entries), "source_id", sourceID, "source", sourceName)
 }
 
 func embedBatch(sourceID int, entries []DocEntry) error {
@@ -101,7 +103,7 @@ func docVectorKey(sourceID, entryID int) string {
 // doc_content rows they belong to and stop on an error.
 func deleteDocVectors(sourceID int) error {
 	if err := search.Cache.DeleteDocByPrefix(fmt.Sprintf("doc:%d:%%", sourceID)); err != nil {
-		return fmt.Errorf("delete vectors for doc source %d: %w", sourceID, err)
+		return errs.WrapMessage("failed to delete doc vectors", err, "source_id", sourceID)
 	}
 	return nil
 }

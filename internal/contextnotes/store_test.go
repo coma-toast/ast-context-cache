@@ -7,6 +7,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 func testNotesDB(t *testing.T) {
@@ -69,6 +70,15 @@ func TestStoreLimitReject(t *testing.T) {
 	var le *LimitError
 	if !errors.As(err, &le) {
 		t.Fatalf("expected LimitError, got %v", err)
+	}
+	if !errs.HasCode(err, errs.CodeLimitExceeded) {
+		t.Fatalf("expected %s code, got %v", errs.CodeLimitExceeded, errs.CodesOf(err))
+	}
+	if out := LimitErrorMap(err); out["error"] != "context_limit_exceeded" || out["limit"] != "session_notes" {
+		t.Fatalf("unexpected LimitErrorMap shape: %v", out)
+	}
+	if !strings.HasPrefix(err.Error(), "context_limit_exceeded: session_notes") {
+		t.Fatalf("unexpected error text: %q", err.Error())
 	}
 }
 

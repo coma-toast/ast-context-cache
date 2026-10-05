@@ -6,6 +6,14 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
+const (
+	selectReturnedSymbolsQuery = `
+		SELECT COALESCE(file_path,''), COALESCE(symbol_name,''), COALESCE(start_line,0)
+		FROM sessions
+		WHERE session_id = ? AND (symbol_name != '' OR file_path != '')`
+	selectSymbolIDQuery = "SELECT id FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
+)
+
 // SymbolDedupKey identifies a symbol within a session.
 func SymbolDedupKey(file, name string, startLine int) string {
 	return file + "|" + name + "|" + strconv.Itoa(startLine)
@@ -15,10 +23,7 @@ func GetReturnedSymbolKeys(sessionID string) map[string]bool {
 	if sessionID == "" {
 		return nil
 	}
-	rows, err := db.DB.Query(`
-		SELECT COALESCE(file_path,''), COALESCE(symbol_name,''), COALESCE(start_line,0)
-		FROM sessions
-		WHERE session_id = ? AND (symbol_name != '' OR file_path != '')`, sessionID)
+	rows, err := db.DB.Query(selectReturnedSymbolsQuery, sessionID)
 	if err != nil {
 		return nil
 	}
@@ -41,9 +46,7 @@ func LookupSymbolID(file, name, projectPath string, startLine int) int {
 	if err != nil {
 		return 0
 	}
-	err = conn.QueryRow(
-		"SELECT id FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1",
-		file, name, projectPath, startLine).Scan(&id)
+	err = conn.QueryRow(selectSymbolIDQuery, file, name, projectPath, startLine).Scan(&id)
 	if err != nil {
 		return 0
 	}

@@ -11,8 +11,11 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 )
+
+const selectSymbolNamesInFilesQuery = "SELECT DISTINCT name FROM symbols WHERE file IN ("
 
 // HandleDiffImpact reports the blast radius of a whole branch: every file the
 // diff touches, the indexed symbols those files define, and which files still
@@ -149,11 +152,11 @@ func fetchPullRequest(projectPath, repo string, pr int) (*pullRequest, error) {
 		if errors.As(err, &exitErr) {
 			detail = ": " + strings.TrimSpace(string(exitErr.Stderr))
 		}
-		return nil, fmt.Errorf("gh pr view %d failed: %v%s", pr, err, detail)
+		return nil, errs.New(fmt.Sprintf("gh pr view %d failed: %v%s", pr, err, detail), "pr", pr)
 	}
 	var info pullRequest
 	if err := json.Unmarshal(out, &info); err != nil {
-		return nil, fmt.Errorf("parse gh output: %v", err)
+		return nil, errs.WrapMessage("failed to parse gh output", err)
 	}
 	return &info, nil
 }
@@ -259,7 +262,7 @@ func symbolsInFiles(relFiles, scope []string) []string {
 			abs = append(abs, filepath.Join(root, rel))
 		}
 		ph := strings.TrimSuffix(strings.Repeat("?,", len(abs)), ",")
-		rows, err := conn.Query("SELECT DISTINCT name FROM symbols WHERE file IN ("+ph+")", abs...)
+		rows, err := conn.Query(selectSymbolNamesInFilesQuery+ph+")", abs...)
 		if err != nil {
 			continue
 		}
@@ -281,7 +284,7 @@ func runGit(projectPath string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", projectPath}, args...)...)
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s failed: %v", strings.Join(args, " "), err)
+		return "", errs.WrapMessage(fmt.Sprintf("git %s failed", strings.Join(args, " ")), err)
 	}
 	return string(out), nil
 }

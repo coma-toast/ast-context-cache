@@ -1,7 +1,6 @@
 package docs
 
 import (
-	"log"
 	"sync"
 	"time"
 
@@ -46,7 +45,7 @@ func ForceRefreshSource(id int) {
 	go func() {
 		defer refreshes.Done()
 		if _, err := UpdateSource(id); err != nil {
-			log.Printf("doc source %d force refresh: %v", id, err)
+			logger.Warn("Failed to force refresh doc source", "source_id", id, "error", err)
 		}
 		refreshMu.Lock()
 		delete(refreshing, id)
@@ -82,7 +81,7 @@ func TryQuietRefresh(reason string) {
 			quietRefreshBusy = false
 			quietRefreshMu.Unlock()
 		}()
-		log.Printf("docs: quiet period (%s) — refreshing %d stale source(s)", reason, stale)
+		logger.Info("Refreshing stale doc sources during quiet period", "reason", reason, "stale", stale)
 		UpdateAllSources()
 		notifyDocPanels()
 	}()
