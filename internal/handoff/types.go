@@ -303,6 +303,9 @@ type CompleteResponse struct {
 	PromotedMemory   []string      `json:"promoted_memory,omitempty"`
 	ReleasedClaims   []string      `json:"released_claims,omitempty"`
 	SupersededRef    string        `json:"superseded_ref,omitempty"`
+	// TokensSaved is the result's token estimate minus the summary's: what the parent doesn't
+	// read by taking the stub instead of the full result (OB-3).
+	TokensSaved int `json:"tokens_saved"`
 }
 
 // CollectRequest fans in results for one handoff, or every handoff of the parent session

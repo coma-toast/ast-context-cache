@@ -238,20 +238,15 @@ func TestUnimplementedMethods(t *testing.T) {
 	s := newService(nil)
 	ctx := context.Background()
 	calls := map[string]func() error{
-		"create":   func() error { _, err := s.Create(ctx, CreateRequest{}); return err },
-		"open":     func() error { _, err := s.Open(ctx, OpenRequest{}); return err },
-		"expand":   func() error { _, err := s.Expand(ctx, ExpandRequest{}); return err },
-		"complete": func() error { _, err := s.Complete(ctx, CompleteRequest{}); return err },
-		"collect":  func() error { _, err := s.Collect(ctx, CollectRequest{}); return err },
-		"list":     func() error { _, err := s.List(ctx, ListRequest{}); return err },
-		"status":   func() error { _, err := s.Status(ctx, StatusRequest{}); return err },
-		"flush":    func() error { _, err := s.Flush(ctx, FlushRequest{}); return err },
-		"post":     func() error { _, err := s.Post(ctx, PostRequest{}); return err },
-		"read":     func() error { _, err := s.Read(ctx, ReadRequest{}); return err },
-		"retract":  func() error { _, err := s.Retract(ctx, RetractRequest{}); return err },
-		"claim":    func() error { _, err := s.Claim(ctx, ClaimRequest{}); return err },
-		"release":  func() error { _, err := s.Release(ctx, ReleaseRequest{}); return err },
-		"grants":   func() error { _, err := s.PendingGrants("x"); return err },
+		"create":  func() error { _, err := s.Create(ctx, CreateRequest{}); return err },
+		"open":    func() error { _, err := s.Open(ctx, OpenRequest{}); return err },
+		"expand":  func() error { _, err := s.Expand(ctx, ExpandRequest{}); return err },
+		"post":    func() error { _, err := s.Post(ctx, PostRequest{}); return err },
+		"read":    func() error { _, err := s.Read(ctx, ReadRequest{}); return err },
+		"retract": func() error { _, err := s.Retract(ctx, RetractRequest{}); return err },
+		"claim":   func() error { _, err := s.Claim(ctx, ClaimRequest{}); return err },
+		"release": func() error { _, err := s.Release(ctx, ReleaseRequest{}); return err },
+		"grants":  func() error { _, err := s.PendingGrants("x"); return err },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
