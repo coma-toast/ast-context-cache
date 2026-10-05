@@ -19,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
@@ -836,6 +837,14 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeFlagsError(w, http.StatusBadRequest, flagSettingKeyMsg)
 			return
 		}
+		if handoff.IsLimitSetting(key) {
+			n, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || n < 1 {
+				writeFlagsError(w, http.StatusBadRequest, key+" must be a positive integer")
+				return
+			}
+			value = strconv.Itoa(n)
+		}
 		if key == "embed_worker_max" {
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 1 || n > embedqueue.AbsoluteMaxWorkers {
@@ -935,6 +944,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			mask |= realtime.IndexHealth | realtime.HealthBar
 		} else if key == embedder.ProbeIntervalSettingKey {
 			mask |= realtime.IndexHealth | realtime.HealthBar
+		} else if handoff.IsLimitSetting(key) {
+			mask |= realtime.Handoffs
 		}
 		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
 		return
@@ -976,6 +987,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		embedder.ProbeIntervalSettingKey: "10",
 		"dashboard_log_tail_lines":       "200",
 		"dashboard_log_line_chars":       "500",
+	}
+	for _, ls := range handoff.LimitSettings() {
+		defaults[ls.Key] = strconv.Itoa(ls.Default)
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {

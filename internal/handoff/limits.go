@@ -43,6 +43,40 @@ type Limits struct {
 	OpenBudgetTokens     int `json:"open_budget_tokens"`
 }
 
+// LimitSetting is one handoff limit's settings key and its default.
+type LimitSetting struct {
+	Key     string
+	Default int
+}
+
+// limitSettings lists every limit setting, in Limits field order.
+var limitSettings = []LimitSetting{
+	{SettingTTLDays, defaultTTLDays},
+	{SettingSummaryMaxTokens, defaultSummaryMaxTokens},
+	{SettingChildInactiveMinutes, defaultChildInactiveMinutes},
+	{SettingTreeMaxTokens, defaultTreeMaxTokens},
+	{SettingTreeMaxEntries, defaultTreeMaxEntries},
+	{SettingMaxDepth, defaultMaxDepth},
+	{SettingMaxChildren, defaultMaxChildren},
+	{SettingOpenBudgetTokens, defaultOpenBudgetTokens},
+}
+
+// LimitSettings returns every handoff limit's settings key and default, for the dashboard's
+// settings defaults and validation.
+func LimitSettings() []LimitSetting {
+	return append([]LimitSetting(nil), limitSettings...)
+}
+
+// IsLimitSetting reports whether key is a handoff limit's settings key.
+func IsLimitSetting(key string) bool {
+	for _, ls := range limitSettings {
+		if ls.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
 // LoadLimits resolves every limit as env > setting > default. Limits are read per call, so a
 // settings change applies to the next operation without a restart.
 func LoadLimits() Limits {
