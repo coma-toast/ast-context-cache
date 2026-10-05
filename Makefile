@@ -178,8 +178,11 @@ run: build
 run-safe: build
 	AST_EMBED_WORKERS=0 ONNXRUNTIME_LIB=$(ORT_DYLIB) ./$(BINARY)
 
+# TEST_PKGS narrows the run, e.g. make test TEST_PKGS=./internal/errs/...
+TEST_PKGS ?= ./...
+
 test: download-tokenizer-lib internal/version/VERSION
-	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 ./...
+	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 $(TEST_PKGS)
 
 storybook:
 	cd ui && npm ci && npm run storybook
