@@ -33,6 +33,7 @@ import { formatBytes, formatNum } from '../api/client'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
 import { FeaturesSection } from '../components/FeaturesSection'
+import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
 import { InstallerSection } from '../components/InstallerSection'
 
 const PROJECTS_PAGE_SIZE = 8
@@ -42,6 +43,7 @@ const SECTIONS = [
   { id: 'performance', label: 'Performance' },
   { id: 'storage', label: 'Storage' },
   { id: 'virtual', label: 'Virtual context' },
+  { id: 'handoff', label: 'Handoff' },
   { id: 'embedding', label: 'Embedding' },
   { id: 'watcher', label: 'Watcher' },
   { id: 'retention', label: 'Retention' },
@@ -254,6 +256,8 @@ export function SettingsTab({
           </Box>
         </CardContent>
       </Card>
+
+      <HandoffSettingsSection data={data} save={save} />
 
       <Card variant="outlined" id="settings-embedding" sx={{ mb: 2 }}>
         <CardContent>

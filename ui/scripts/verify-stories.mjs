@@ -26,6 +26,16 @@ const storiesToCheck = [
     textSignals: ["feature_handoff_hooks", "feature_shared_query_cache"],
   },
   {
+    id: "dashboard-settings--handoff",
+    label: "Settings / Handoff",
+    textSignals: ["Tree TTL (days)", "Set by AST_HANDOFF_MAX_DEPTH"],
+  },
+  {
+    id: "dashboard-handoffs--overview",
+    label: "Handoffs / Overview",
+    textSignals: ["Handoff trees", "Trace the auth middleware"],
+  },
+  {
     id: "dashboard-installer--default",
     label: "Installer / Default",
     textSignals: ["Agent integration", "Modified by user"],

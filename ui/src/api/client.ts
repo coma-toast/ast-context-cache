@@ -4,6 +4,8 @@ import type {
   ContextSessionsResponse,
   DataDirMoveStatus,
   FlagsResponse,
+  FlushHandoffTreeResponse,
+  HandoffTreesResponse,
   Health,
   IndexHealth,
   InstallerApplyResult,
@@ -153,6 +155,9 @@ export const api = {
   mcpTier: () => get<MCPTier>('/api/dashboard/mcp-tier'),
   flags: () => get<FlagsResponse>('/api/dashboard/flags'),
   setFlag: (key: string, enabled: boolean) => post<SetFlagResponse>('/api/dashboard/flags', { key, enabled }),
+  handoffTrees: (limit = 20) => get<HandoffTreesResponse>(`/api/dashboard/handoff-trees?limit=${limit}`),
+  flushHandoffTree: (treeId: string) =>
+    post<FlushHandoffTreeResponse>('/api/dashboard/handoff-trees/flush', { tree_id: treeId }),
   saveSetting: (key: string, value: string) => post<{ status?: string; error?: string }>('/api/settings', { key, value }),
   saveEmbedSettings: (settings: Record<string, string>) =>
     post<{ status?: string; error?: string }>('/api/settings/embed', { settings }),

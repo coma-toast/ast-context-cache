@@ -10,6 +10,7 @@
 import type { InstallerPlanRequest } from '../api/types'
 import {
   fixtureFlags,
+  fixtureHandoffTrees,
   fixtureInstaller,
   fixtureInstallerBackups,
   fixtureInstallerErrorPlan,
@@ -63,6 +64,8 @@ export const api = {
   // Read-only fixture so the Features section renders; toggling still hits `noop`.
   flags: async () => ({ flags: fixtureFlags }),
   setFlag: noop,
+  handoffTrees: async () => fixtureHandoffTrees,
+  flushHandoffTree: noop,
   saveSetting: noop,
   saveEmbedSettings: noop,
   pinProject: noop,
