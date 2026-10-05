@@ -58,6 +58,10 @@ type VectorCache struct {
 
 var Cache = &VectorCache{stopIdle: make(chan struct{})}
 
+// OnVectorsUpserted, when set (the candidate cache sets it), runs once per project
+// after Upsert commits vectors for it, so cached rankings that predate them are dropped.
+var OnVectorsUpserted func(projectPath string)
+
 func init() {
 	go Cache.idleLoop()
 }
@@ -308,7 +312,20 @@ func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 	if err != nil {
 		return err
 	}
-	// Update in-memory cache
+	vc.upsertMemory(entries)
+	if OnVectorsUpserted != nil {
+		notified := map[string]bool{}
+		for _, e := range entries {
+			if e.ProjectPath != "" && !notified[e.ProjectPath] {
+				notified[e.ProjectPath] = true
+				OnVectorsUpserted(e.ProjectPath)
+			}
+		}
+	}
+	return nil
+}
+
+func (vc *VectorCache) upsertMemory(entries []VectorEntry) {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	hashMap := make(map[string]int, len(vc.entries))
@@ -323,7 +340,6 @@ func (vc *VectorCache) Upsert(entries []VectorEntry) error {
 			vc.entries = append(vc.entries, e)
 		}
 	}
-	return nil
 }
 
 // SearchDoc returns top doc-section vector matches (doc_type=doc only).

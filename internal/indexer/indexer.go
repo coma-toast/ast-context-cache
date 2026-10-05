@@ -521,7 +521,7 @@ func indexMarkdownFile(filePath, projectPath string) (count, fullTokens, skeleto
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
 	db.InvalidateSummariesForFile(filePath, projectPath)
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return count, fullTokens, skeletonTokens, nil
 }
 
@@ -653,7 +653,7 @@ func IndexFile(filePath, projectPath string) (count, fullTokens, skeletonTokens 
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
 	db.InvalidateSummariesForFile(filePath, projectPath)
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return count, fullTokens, skeletonTokens, nil
 }
 

@@ -325,7 +325,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		cache.GlobalCache.ClearAll()
+		cache.Candidates.ClearAll()
 		go db.Compact()
 		logger.Info("Reset cleared all indexed data across every project", "project_path", "all")
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
@@ -1452,8 +1452,8 @@ func handleSystemResources(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vectorMemMB := search.Cache.MemoryMB()
-	queryCacheSize, queryCacheEntries := cache.GlobalCache.Stats()
-	cacheHitRatio := cache.GlobalCache.HitRatio()
+	queryCacheSize, queryCacheEntries := cache.Candidates.Size()
+	cacheHitRatio := cache.Candidates.HitRatio()
 	diskIO := sys.DiskIORates()
 	ssd := sys.SSDHealthInfo(db.GetDataDir())
 	load := sys.HostLoadAverage()

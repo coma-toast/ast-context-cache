@@ -526,6 +526,28 @@ func DeleteWatcher(projectPath string) {
 	realtime.Notify(realtime.WatchersChanged)
 }
 
+// StopAll deletes every watcher, cancels every pending debounce, and waits for
+// the goroutines they started (event loops, catch-ups, debounced re-indexes) to
+// return, so nothing of ours is still using the db pools when they are closed.
+func StopAll() {
+	mu.Lock()
+	projects := make([]string, 0, len(activeWatchers))
+	for p := range activeWatchers {
+		projects = append(projects, p)
+	}
+	mu.Unlock()
+	for _, p := range projects {
+		DeleteWatcher(p)
+	}
+	debounceMu.Lock()
+	for key, t := range debounceTimers {
+		stopDebounce(t)
+		delete(debounceTimers, key)
+	}
+	debounceMu.Unlock()
+	bg.Wait()
+}
+
 // cancelDebounceTimersForProject stops and forgets any pending debounce timer
 // for a file under projectPath. Without this, a timer queued by handleFSEvent
 // just before a project is deleted can still fire ~500ms later and re-index

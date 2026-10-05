@@ -3,7 +3,6 @@ package context
 import (
 	"encoding/json"
 
-	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
@@ -53,27 +52,14 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		return getContextResult{JSON: string(data)}
 	}
 	filters := search.ParseSearchFilters(args)
-	filtersKey := ""
-	if filters != nil {
-		filtersKey = filters.CacheKey()
-	}
-	useQueryCache := sessionID == ""
-	cacheKey := cache.HashQuery(query, projectPath, mode, limit, filtersKey)
-	if useQueryCache {
-		if cached, found := cache.GlobalCache.Get(cacheKey); found {
-			var parsed map[string]interface{}
-			if json.Unmarshal([]byte(cached), &parsed) == nil && CacheHasSavingsMeta(parsed) {
-				savings := ParseSavingsMeta(parsed, mode, true)
-				savings.CacheHit = true
-				return getContextResult{JSON: cached, Savings: savings, CacheHit: true}
-			}
-		}
-	}
+	stage := "capsule:bm25"
 	if Emb != nil {
 		embedqueue.EnsureProjectEmbeddings(projectPath)
+		stage = "capsule:hybrid"
 	}
-	scored, pipeMetrics := search.HybridSearch(query, projectPath, Emb, 30, filters)
-	returnedSymbols := GetReturnedSymbolKeys(sessionID)
+	scored, pipeMetrics, cacheHit := RankedHybrid(CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: 30, Filters: filters}, Emb)
+	returned := ReturnedKeys(sessionID)
+	var delivered []ReturnedSymbol
 	if len(scored) < limit {
 		limit = len(scored)
 	}
@@ -96,7 +82,8 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		name, _ := data["name"].(string)
 		startLine, endLine := hit.StartLine, hit.EndLine
 		owner := projectlinks.OwningProject(file, projectPath)
-		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
+		key := SymbolDedupKey(file, name, startLine)
+		if _, dup := returned[key]; dup {
 			skipped++
 			dedupTokens += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
@@ -116,12 +103,15 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		tokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
-		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
+		returned[key] = struct{}{}
+		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
 	}
+	MarkReturned(sessionID, delivered...)
 	fileBaseline := FileBaselineTokens(matchedFiles, fileCache)
 	savings := ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens)
 	savings.DedupedCount = skipped
 	savings.Mode = mode
+	savings.CacheHit = cacheHit
 	resp := map[string]interface{}{
 		"query":   query,
 		"mode":    mode,
@@ -139,11 +129,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 	}
 	codescripts.AttachHints(resp, "get_context_capsule", query, projectPath, results)
 	finalData, _ := json.Marshal(resp)
-	resultStr := string(finalData)
-	if useQueryCache {
-		cache.GlobalCache.Set(cacheKey, resultStr)
-	}
-	return getContextResult{JSON: resultStr, Savings: savings}
+	return getContextResult{JSON: string(finalData), Savings: savings, CacheHit: cacheHit}
 }
 
 // PackScoredResults formats hybrid/vector search hits (used by search_semantic).
@@ -152,7 +138,8 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		mode = "skeleton"
 	}
 	savings.Mode = mode
-	returnedSymbols := GetReturnedSymbolKeys(sessionID)
+	returned := ReturnedKeys(sessionID)
+	var delivered []ReturnedSymbol
 	if len(scored) < limit {
 		limit = len(scored)
 	}
@@ -170,7 +157,8 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		name, _ := data["name"].(string)
 		startLine, endLine := hit.StartLine, hit.EndLine
 		owner := projectlinks.OwningProject(file, projectPath)
-		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
+		key := SymbolDedupKey(file, name, startLine)
+		if _, dup := returned[key]; dup {
 			savings.DedupedCount++
 			savings.DedupTokensSaved += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
@@ -190,8 +178,10 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		savings.TokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
-		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
+		returned[key] = struct{}{}
+		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
 	}
+	MarkReturned(sessionID, delivered...)
 	savings.FileBaseline = FileBaselineTokens(matchedFiles, fileCache)
 	computed := ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, savings.FileBaseline, savings.DedupTokensSaved)
 	savings.TokensSaved = computed.TokensSaved

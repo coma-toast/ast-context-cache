@@ -72,7 +72,7 @@ func buildHealthData() components.Health {
 		QueueInFlight:         eq.InFlight,
 		QueueHighCap:          eq.HighCap,
 		QueueLowCap:           eq.LowCap,
-		CacheHitRatio:         cache.GlobalCache.HitRatio(),
+		CacheHitRatio:         cache.Candidates.HitRatio(),
 		HeapMB:                heapMB,
 		CPUPercent:            sys.ProcessCPUPercent(),
 		Uptime:                time.Since(serverStartTime),

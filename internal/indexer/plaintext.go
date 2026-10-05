@@ -69,6 +69,6 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 		return 0, fullTokens, skeletonTokens, err
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return 1, fullTokens, skeletonTokens, nil
 }

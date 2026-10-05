@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -66,11 +65,10 @@ func PurgeFile(filePath, projectPath string) error {
 		return err
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
-	cache.GlobalCache.ClearProject(projectPath)
 	if OnFilePurged != nil {
 		OnFilePurged(filePath, projectPath)
 	}
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return nil
 }
 
