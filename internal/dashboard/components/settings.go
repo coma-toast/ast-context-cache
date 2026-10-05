@@ -1,15 +1,5 @@
 package components
 
-type AgentInfo struct {
-	Type             string
-	Name             string
-	GlobalPath       string
-	ProjectPath      string
-	Description      string
-	GlobalInstalled  bool
-	ProjectInstalled bool
-}
-
 type SettingsData struct {
 	IdleUnloadMinutes        int
 	WatcherIgnoreGlobs       string
@@ -55,7 +45,6 @@ type SettingsData struct {
 	EmbedEnvOverrides        []string
 	Projects                 []Project
 	ProjectsLoading          bool
-	Agents                   []AgentInfo
 	ContextMaxNotesSession   int
 	ContextMaxTokensSession  int
 	ContextMaxNotesGlobal    int

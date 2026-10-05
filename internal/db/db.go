@@ -14,13 +14,9 @@ import (
 )
 
 const (
-	selectSettingQuery      = "SELECT value FROM settings WHERE key = ?"
-	upsertSettingQuery      = "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-	selectAllSettingsQuery  = "SELECT key, value FROM settings"
-	selectAgentConfigsQuery = "SELECT id, agent_type, install_path, is_global, instructions_hash, installed_at FROM agent_configs ORDER BY agent_type"
-	upsertAgentConfigQuery  = `INSERT INTO agent_configs (agent_type, install_path, is_global, instructions_hash) VALUES (?, ?, ?, ?)
-		ON CONFLICT(agent_type, install_path) DO UPDATE SET instructions_hash = excluded.instructions_hash, installed_at = datetime('now')`
-	deleteAgentConfigQuery = "DELETE FROM agent_configs WHERE agent_type = ? AND install_path = ?"
+	selectSettingQuery     = "SELECT value FROM settings WHERE key = ?"
+	upsertSettingQuery     = "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+	selectAllSettingsQuery = "SELECT key, value FROM settings"
 	upsertIndexedFileQuery = `INSERT INTO indexed_files (file, project_path, indexed_at, parser_version) VALUES (?, ?, ?, ?)
 		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at, parser_version = excluded.parser_version`
 	selectIndexedFilesQuery = "SELECT file, indexed_at, COALESCE(parser_version, 0) FROM indexed_files WHERE project_path = ?"
@@ -123,45 +119,6 @@ func GetAllSettings() map[string]string {
 		result[k] = v
 	}
 	return result
-}
-
-type AgentConfig struct {
-	ID               int    `json:"id"`
-	AgentType        string `json:"agent_type"`
-	InstallPath      string `json:"install_path"`
-	IsGlobal         bool   `json:"is_global"`
-	InstructionsHash string `json:"instructions_hash"`
-	InstalledAt      string `json:"installed_at"`
-}
-
-func GetAgentConfigs() ([]AgentConfig, error) {
-	if DB == nil {
-		return nil, nil
-	}
-	rows, err := DB.Query(selectAgentConfigsQuery)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var configs []AgentConfig
-	for rows.Next() {
-		var c AgentConfig
-		var isGlobal int
-		rows.Scan(&c.ID, &c.AgentType, &c.InstallPath, &isGlobal, &c.InstructionsHash, &c.InstalledAt)
-		c.IsGlobal = isGlobal == 1
-		configs = append(configs, c)
-	}
-	return configs, nil
-}
-
-func AddAgentConfig(agentType, installPath string, isGlobal bool, hash string) error {
-	_, err := DB.Exec(upsertAgentConfigQuery, agentType, installPath, map[bool]int{true: 1, false: 0}[isGlobal], hash)
-	return err
-}
-
-func RemoveAgentConfig(agentType, installPath string) error {
-	_, err := DB.Exec(deleteAgentConfigQuery, agentType, installPath)
-	return err
 }
 
 func LogQuery(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {
