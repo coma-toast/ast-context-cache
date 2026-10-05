@@ -1,12 +1,16 @@
 package memory
 
 import (
-	"fmt"
-	"log"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+)
+
+const (
+	selectExpiredEntryRefsQuery = `SELECT ref FROM structured_memory WHERE valid_until IS NOT NULL AND valid_until != '' AND valid_until < ?`
+	deleteExpiredEntriesQuery   = `DELETE FROM structured_memory WHERE valid_until IS NOT NULL AND valid_until != '' AND valid_until < ?`
 )
 
 // PruneSuperseded permanently deletes structured_memory rows that were
@@ -21,7 +25,7 @@ func PruneSuperseded(maxAgeDays int) (int64, error) {
 		maxAgeDays = 90
 	}
 	cutoff := time.Now().AddDate(0, 0, -maxAgeDays).Format("2006-01-02") + "T00:00:00"
-	rows, err := db.ContextDB.Query(`SELECT ref FROM structured_memory WHERE valid_until IS NOT NULL AND valid_until != '' AND valid_until < ?`, cutoff)
+	rows, err := db.ContextDB.Query(selectExpiredEntryRefsQuery, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -44,18 +48,18 @@ func PruneSuperseded(maxAgeDays int) (int64, error) {
 		keys[i] = memoryVectorKey(ref)
 	}
 	if err := search.Cache.DeleteRefs("memory", keys); err != nil {
-		return 0, fmt.Errorf("delete memory vectors: %w", err)
+		return 0, errs.WrapMessage("failed to delete memory vectors", err)
 	}
 	for _, ref := range refs {
 		deleteFTS(ref)
 	}
-	res, err := db.ContextDB.Exec(`DELETE FROM structured_memory WHERE valid_until IS NOT NULL AND valid_until != '' AND valid_until < ?`, cutoff)
+	res, err := db.ContextDB.Exec(deleteExpiredEntriesQuery, cutoff)
 	if err != nil {
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
 	if n > 0 {
-		log.Printf("memory: pruned %d superseded fact(s)/procedure(s) older than %d days", n, maxAgeDays)
+		logger.Info("Pruned superseded structured memory", "pruned", n, "max_age_days", maxAgeDays)
 	}
 	return n, nil
 }

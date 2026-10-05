@@ -2,13 +2,14 @@ package docs
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 const renderScriptName = "fetch-rendered-page.py"
@@ -83,7 +84,7 @@ func findRenderScript() (string, error) {
 				return
 			}
 		}
-		renderScriptErr = fmt.Errorf("playwright render script not found (run: playwright install firefox; or set DOC_RENDER_SCRIPT)")
+		renderScriptErr = errs.NewCode(errs.CodeUnsupported, "playwright render script not found (run: playwright install firefox; or set DOC_RENDER_SCRIPT)")
 	})
 	return renderScriptPath, renderScriptErr
 }
@@ -115,15 +116,15 @@ func fetchRenderedURL(raw string) ([]byte, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("render timeout after %s", renderTimeout())
+			return nil, errs.New("render timed out", "timeout", renderTimeout().String(), "url", raw)
 		}
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
-			return nil, fmt.Errorf("render failed: %s", strings.TrimSpace(string(ee.Stderr)))
+			return nil, errs.New("render failed", "stderr", strings.TrimSpace(string(ee.Stderr)), "url", raw)
 		}
-		return nil, fmt.Errorf("render failed: %w", err)
+		return nil, errs.WrapMessage("failed to render page", err, "url", raw)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("render returned empty body for %s", raw)
+		return nil, errs.New("render returned empty body", "url", raw)
 	}
 	return out, nil
 }

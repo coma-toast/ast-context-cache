@@ -6,29 +6,63 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+)
+
+const (
+	insertNoteQuery = `INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?
+		ORDER BY created_at ASC, access_count ASC LIMIT 1`
+	selectNoteByRefQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		FROM context_notes WHERE ref = ?`
+	selectNoteOwnerQuery       = `SELECT session_id, token_est FROM context_notes WHERE ref = ?`
+	deleteNoteQuery            = `DELETE FROM context_notes WHERE ref = ?`
+	selectSessionNoteRefsQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?`
+	selectAllNoteRefsQuery     = `SELECT ref FROM context_notes`
+	deleteAllSessionStatsQuery = `DELETE FROM context_session_stats`
+	selectOrphanNoteRefsQuery  = `SELECT ref, created_at >= datetime('now', ?) FROM context_notes WHERE access_count = 0`
+	countSessionNotesQuery     = `SELECT COUNT(*) FROM context_notes WHERE session_id = ?`
+	listSessionNotesQuery      = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		FROM context_notes WHERE session_id = ?`
+	searchNotesFTSQuery = `SELECT cn.ref, cn.session_id, COALESCE(cn.project_path,''), COALESCE(cn.label,''), cn.content,
+		COALESCE(cn.tags,''), COALESCE(cn.kind,''), COALESCE(cn.metadata_json,''), cn.token_est, cn.access_count, cn.created_at, COALESCE(cn.last_accessed_at,'')
+		FROM context_notes_fts f
+		JOIN context_notes cn ON cn.ref = f.ref
+		WHERE context_notes_fts MATCH ?`
+	searchNotesLikeQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		FROM context_notes WHERE label LIKE ? OR content LIKE ?`
+	andSessionIDClause                = ` AND session_id = ?`
+	andProjectPathClause              = ` AND project_path = ?`
+	andNoteSessionIDClause            = ` AND cn.session_id = ?`
+	andNoteProjectPathClause          = ` AND cn.project_path = ?`
+	orderByCreatedDescLimitClause     = ` ORDER BY created_at DESC LIMIT ?`
+	orderByNoteCreatedDescLimitClause = ` ORDER BY cn.created_at DESC LIMIT ?`
 )
 
 // Note is a stored virtual context entry.
 type Note struct {
-	Ref           string `json:"ref"`
-	SessionID     string `json:"session_id"`
-	ProjectPath   string `json:"project_path,omitempty"`
-	Label         string `json:"label,omitempty"`
-	Content       string `json:"content,omitempty"`
-	Tags          string `json:"tags,omitempty"`
-	Kind          string `json:"kind,omitempty"`
-	MetadataJSON  string `json:"metadata_json,omitempty"`
-	TokenEst      int    `json:"virtual_tokens,omitempty"`
-	AccessCount   int    `json:"access_count,omitempty"`
-	CreatedAt     string `json:"created_at,omitempty"`
-	LastAccessed  string `json:"last_accessed_at,omitempty"`
+	Ref          string `json:"ref"`
+	SessionID    string `json:"session_id"`
+	ProjectPath  string `json:"project_path,omitempty"`
+	Label        string `json:"label,omitempty"`
+	Content      string `json:"content,omitempty"`
+	Tags         string `json:"tags,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	MetadataJSON string `json:"metadata_json,omitempty"`
+	TokenEst     int    `json:"virtual_tokens,omitempty"`
+	AccessCount  int    `json:"access_count,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	LastAccessed string `json:"last_accessed_at,omitempty"`
 }
 
 // LimitError is returned when storage caps are exceeded.
@@ -87,12 +121,12 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 	sessionID = strings.TrimSpace(sessionID)
 	content = strings.TrimSpace(content)
 	if sessionID == "" || content == "" {
-		return nil, errors.New("session_id and content required")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "session_id and content required")
 	}
 	tokenEst := db.EstimateTokens(content)
 	lim := LoadLimits()
 	if tokenEst > lim.MaxTokensSession {
-		return nil, &LimitError{Limit: "single_note_tokens", Current: tokenEst, Max: lim.MaxTokensSession, WouldAdd: tokenEst}
+		return nil, newLimitError("single_note_tokens", tokenEst, lim.MaxTokensSession, tokenEst)
 	}
 	tagStr := normalizeTags(tags)
 	kind, metaJSON := resolveStoreKind(kind, tagStr, metadata)
@@ -118,8 +152,7 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 		return nil, err
 	}
 	hash := search.ContentHash(content)
-	_, err = db.ContextDB.Exec(`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = db.ContextDB.Exec(insertNoteQuery,
 		ref, sessionID, projectPath, label, content, hash, tagStr, kind, metaJSON, tokenEst)
 	if err != nil {
 		return nil, err
@@ -141,22 +174,28 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 	}, nil
 }
 
+// newLimitError returns a *LimitError carrying errs.CodeLimitExceeded; LimitErrorMap still finds
+// the *LimitError with errors.As.
+func newLimitError(limit string, current, maxVal, wouldAdd int) error {
+	return errs.WrapCode(errs.CodeLimitExceeded, &LimitError{Limit: limit, Current: current, Max: maxVal, WouldAdd: wouldAdd})
+}
+
 func checkLimits(sessionID string, addTokens int, lim Limits) error {
 	var sessionNotes, sessionTokens int
-	db.ContextDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`, sessionID).
+	db.ContextDB.QueryRow(selectSessionNoteTotalsQuery, sessionID).
 		Scan(&sessionNotes, &sessionTokens)
 	globalNotes, globalTokens := GlobalRollup()
 	if sessionNotes+1 > lim.MaxNotesSession {
-		return &LimitError{Limit: "session_notes", Current: sessionNotes, Max: lim.MaxNotesSession, WouldAdd: 1}
+		return newLimitError("session_notes", sessionNotes, lim.MaxNotesSession, 1)
 	}
 	if sessionTokens+addTokens > lim.MaxTokensSession {
-		return &LimitError{Limit: "session_tokens", Current: sessionTokens, Max: lim.MaxTokensSession, WouldAdd: addTokens}
+		return newLimitError("session_tokens", sessionTokens, lim.MaxTokensSession, addTokens)
 	}
 	if globalNotes+1 > lim.MaxNotesGlobal {
-		return &LimitError{Limit: "global_notes", Current: globalNotes, Max: lim.MaxNotesGlobal, WouldAdd: 1}
+		return newLimitError("global_notes", globalNotes, lim.MaxNotesGlobal, 1)
 	}
 	if globalTokens+addTokens > lim.MaxTokensGlobal {
-		return &LimitError{Limit: "global_tokens", Current: globalTokens, Max: lim.MaxTokensGlobal, WouldAdd: addTokens}
+		return newLimitError("global_tokens", globalTokens, lim.MaxTokensGlobal, addTokens)
 	}
 	return nil
 }
@@ -165,12 +204,13 @@ func evictSessionLRU(sessionID string, needTokens int, lim Limits) ([]string, er
 	var evicted []string
 	for {
 		limitErr := checkLimits(sessionID, needTokens, lim)
+		var le *LimitError
 		if limitErr == nil {
 			return evicted, nil
-		} else if _, ok := limitErr.(*LimitError); !ok {
+		} else if !errors.As(limitErr, &le) {
 			return evicted, limitErr
-		} else if le, ok := limitErr.(*LimitError); ok && (le.Limit == "global_notes" || le.Limit == "global_tokens") {
-			return evicted, le
+		} else if le.Limit == "global_notes" || le.Limit == "global_tokens" {
+			return evicted, limitErr
 		}
 		ref, _, ok := oldestSessionNote(sessionID)
 		if !ok {
@@ -178,15 +218,14 @@ func evictSessionLRU(sessionID string, needTokens int, lim Limits) ([]string, er
 		}
 		// Stop on a failed delete: the same note would come back as the oldest.
 		if _, _, _, err := deleteRefs([]string{ref}, ""); err != nil {
-			return evicted, fmt.Errorf("evict %s: %w", ref, err)
+			return evicted, errs.WrapMessage("failed to evict note", err, "ref", ref)
 		}
 		evicted = append(evicted, ref)
 	}
 }
 
 func oldestSessionNote(sessionID string) (ref string, tokens int, ok bool) {
-	err := db.ContextDB.QueryRow(`SELECT ref, token_est FROM context_notes WHERE session_id = ?
-		ORDER BY created_at ASC, access_count ASC LIMIT 1`, sessionID).Scan(&ref, &tokens)
+	err := db.ContextDB.QueryRow(selectOldestSessionNoteQuery, sessionID).Scan(&ref, &tokens)
 	return ref, tokens, err == nil
 }
 
@@ -203,9 +242,7 @@ func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 }
 
 func noteByRef(ref string) (Note, error) {
-	row := db.ContextDB.QueryRow(`SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
-		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
-		FROM context_notes WHERE ref = ?`, ref)
+	row := db.ContextDB.QueryRow(selectNoteByRefQuery, ref)
 	return scanNote(row)
 }
 
@@ -227,7 +264,7 @@ func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, se
 		}
 		var sid string
 		var tok int
-		if err := db.ContextDB.QueryRow(`SELECT session_id, token_est FROM context_notes WHERE ref = ?`, ref).Scan(&sid, &tok); err != nil {
+		if err := db.ContextDB.QueryRow(selectNoteOwnerQuery, ref).Scan(&sid, &tok); err != nil {
 			continue
 		}
 		if sessionID != "" && sid != sessionID {
@@ -238,11 +275,11 @@ func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, se
 	}
 	sessions = map[string]int{}
 	if err := search.Cache.DeleteRefs("note", keys); err != nil {
-		return 0, 0, sessions, fmt.Errorf("delete note vectors: %w", err)
+		return 0, 0, sessions, errs.WrapMessage("failed to delete note vectors", err)
 	}
 	for _, t := range targets {
-		if _, err := db.ContextDB.Exec(`DELETE FROM context_notes WHERE ref = ?`, t.ref); err != nil {
-			return tokensFreed, count, sessions, fmt.Errorf("delete note %s: %w", t.ref, err)
+		if _, err := db.ContextDB.Exec(deleteNoteQuery, t.ref); err != nil {
+			return tokensFreed, count, sessions, errs.WrapMessage("failed to delete note", err, "ref", t.ref)
 		}
 		deleteNoteFTS(t.ref)
 		tokensFreed += t.tok
@@ -254,10 +291,10 @@ func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, se
 }
 
 func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int, err error) {
-	q := `SELECT ref, token_est FROM context_notes WHERE session_id = ?`
+	q := selectSessionNoteRefsQuery
 	args := []any{sessionID}
 	if projectPath != "" {
-		q += ` AND project_path = ?`
+		q += andProjectPathClause
 		args = append(args, projectPath)
 	}
 	rows, err := db.ContextDB.Query(q, args...)
@@ -277,7 +314,7 @@ func deleteBySession(sessionID, projectPath string) (tokensFreed int, count int,
 }
 
 func deleteAll() (tokensFreed int, count int, err error) {
-	rows, err := db.ContextDB.Query(`SELECT ref FROM context_notes`)
+	rows, err := db.ContextDB.Query(selectAllNoteRefsQuery)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -292,8 +329,8 @@ func deleteAll() (tokensFreed int, count int, err error) {
 	if err != nil {
 		return tokensFreed, count, err
 	}
-	db.DB.Exec(`DELETE FROM context_session_stats`)
-	log.Printf("contextnotes: flush_context all=true deleted %d notes (%d tokens) across every session/project", count, tokensFreed)
+	db.DB.Exec(deleteAllSessionStatsQuery)
+	logger.Info("Flushed all context notes across every session and project", "deleted", count, "tokens", tokensFreed)
 	return tokensFreed, count, nil
 }
 
@@ -306,10 +343,10 @@ const OrphanPurgeGrace = time.Hour
 // and are older than grace, scoped to projectPath when set. keptRecent counts orphans
 // skipped because they are still inside the grace window.
 func FlushOrphans(projectPath string, grace time.Duration) (res *FlushResult, keptRecent int, err error) {
-	q := `SELECT ref, created_at >= datetime('now', ?) FROM context_notes WHERE access_count = 0`
+	q := selectOrphanNoteRefsQuery
 	args := []any{fmt.Sprintf("-%d seconds", int(grace.Seconds()))}
 	if projectPath != "" {
-		q += ` AND project_path = ?`
+		q += andProjectPathClause
 		args = append(args, projectPath)
 	}
 	rows, err := db.ContextDB.Query(q, args...)
@@ -336,7 +373,7 @@ func FlushOrphans(projectPath string, grace time.Duration) (res *FlushResult, ke
 		return nil, keptRecent, err
 	}
 	if count > 0 {
-		log.Printf("contextnotes: purged %d orphan notes (%d tokens) project=%q, kept %d recent", count, tokensFreed, projectPath, keptRecent)
+		logger.Info("Purged orphan context notes", "purged", count, "tokens", tokensFreed, "project", projectPath, "kept_recent", keptRecent)
 	}
 	inv := LiveInventory("")
 	return &FlushResult{
@@ -389,7 +426,7 @@ type FetchResult struct {
 func Fetch(refsRaw interface{}, sessionID, repairReason string) (*FetchResult, error) {
 	refs := parseRefList(refsRaw)
 	if len(refs) == 0 {
-		return nil, errors.New("refs required")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "refs required")
 	}
 	reason := normalizeRepairReason(repairReason)
 	notes := make([]Note, 0, len(refs))
@@ -442,26 +479,24 @@ type ListResult struct {
 func List(sessionID, projectPath string, limit int) (*ListResult, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return nil, errors.New("session_id required")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "session_id required")
 	}
 	if limit <= 0 {
 		limit = 20
 	}
 	var total int
-	countQ := `SELECT COUNT(*) FROM context_notes WHERE session_id = ?`
+	countQ := countSessionNotesQuery
 	countArgs := []any{sessionID}
-	q := `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
-		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
-		FROM context_notes WHERE session_id = ?`
+	q := listSessionNotesQuery
 	args := []any{sessionID}
 	if projectPath != "" {
-		q += ` AND project_path = ?`
-		countQ += ` AND project_path = ?`
+		q += andProjectPathClause
+		countQ += andProjectPathClause
 		args = append(args, projectPath)
 		countArgs = append(countArgs, projectPath)
 	}
 	db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
-	q += ` ORDER BY created_at DESC LIMIT ?`
+	q += orderByCreatedDescLimitClause
 	args = append(args, limit)
 	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
@@ -504,10 +539,10 @@ func Flush(sessionID string, refsRaw interface{}, projectPath string, all bool) 
 		tokensFreed, count, err = deleteBySession(sessionID, projectPath)
 		scope = "session"
 	default:
-		return nil, errors.New("scope required: session_id, refs, or all=true")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "scope required: session_id, refs, or all=true")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("flush %s: %w", scope, err)
+		return nil, errs.WrapMessage("failed to flush context", err, "scope", scope)
 	}
 	inv := LiveInventory("")
 	stats := map[string]interface{}{
@@ -538,7 +573,7 @@ type SearchResult struct {
 func Search(query, sessionID, projectPath string, limit int, emb embedder.Interface) (*SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, errors.New("query required")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "query required")
 	}
 	if limit <= 0 {
 		limit = 5
@@ -581,21 +616,17 @@ func searchNotesFTS(query, sessionID, projectPath string, limit int) ([]ScoredNo
 	if ftsQuery == "" {
 		return nil, nil
 	}
-	q := `SELECT cn.ref, cn.session_id, COALESCE(cn.project_path,''), COALESCE(cn.label,''), cn.content,
-		COALESCE(cn.tags,''), COALESCE(cn.kind,''), COALESCE(cn.metadata_json,''), cn.token_est, cn.access_count, cn.created_at, COALESCE(cn.last_accessed_at,'')
-		FROM context_notes_fts f
-		JOIN context_notes cn ON cn.ref = f.ref
-		WHERE context_notes_fts MATCH ?`
+	q := searchNotesFTSQuery
 	args := []any{ftsQuery}
 	if sessionID != "" {
-		q += ` AND cn.session_id = ?`
+		q += andNoteSessionIDClause
 		args = append(args, sessionID)
 	}
 	if projectPath != "" {
-		q += ` AND cn.project_path = ?`
+		q += andNoteProjectPathClause
 		args = append(args, projectPath)
 	}
-	q += ` ORDER BY cn.created_at DESC LIMIT ?`
+	q += orderByNoteCreatedDescLimitClause
 	args = append(args, limit)
 	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
@@ -614,19 +645,17 @@ func searchNotesFTS(query, sessionID, projectPath string, limit int) ([]ScoredNo
 }
 
 func searchNotesLike(query, sessionID, projectPath string, limit int) ([]ScoredNote, error) {
-	q := `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
-		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
-		FROM context_notes WHERE label LIKE ? OR content LIKE ?`
+	q := searchNotesLikeQuery
 	args := []any{"%" + query + "%", "%" + query + "%"}
 	if sessionID != "" {
-		q += ` AND session_id = ?`
+		q += andSessionIDClause
 		args = append(args, sessionID)
 	}
 	if projectPath != "" {
-		q += ` AND project_path = ?`
+		q += andProjectPathClause
 		args = append(args, projectPath)
 	}
-	q += ` ORDER BY created_at DESC LIMIT ?`
+	q += orderByCreatedDescLimitClause
 	args = append(args, limit)
 	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {

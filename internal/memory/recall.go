@@ -4,25 +4,62 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
+const (
+	selectActiveEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		FROM structured_memory WHERE 1=1`
+	searchEntriesLikeQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		FROM structured_memory WHERE (subject LIKE ? OR predicate LIKE ? OR object LIKE ? OR rule LIKE ?)`
+	searchEntriesFTSQuery = `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
+		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at
+		FROM structured_memory_fts f
+		JOIN structured_memory sm ON sm.ref = f.ref
+		WHERE structured_memory_fts MATCH ?`
+	selectEntriesByRefsQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		FROM structured_memory WHERE ref IN (`
+	selectActiveEntryTokensQuery    = `SELECT ref, token_est FROM structured_memory WHERE valid_until IS NULL OR valid_until = ''`
+	invalidateEntryQuery            = `UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ?`
+	invalidateActiveEntryQuery      = `UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`
+	updateEntryAccessQuery          = `UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`
+	insertMemoryAccessQuery         = `INSERT INTO memory_access (ref, session_id, project_path, tool_name, tokens_returned) VALUES (?, ?, ?, ?, ?)`
+	validAsOfClause                 = ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`
+	validNowClause                  = ` AND (valid_until IS NULL OR valid_until = '')`
+	smValidAsOfClause               = ` AND sm.valid_from <= ? AND (sm.valid_until IS NULL OR sm.valid_until = '' OR sm.valid_until > ?)`
+	smValidNowClause                = ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
+	orderByAccessCreatedLimitClause = ` ORDER BY access_count DESC, created_at DESC LIMIT ?`
+	orderByAccessLimitClause        = ` ORDER BY access_count DESC LIMIT ?`
+	orderBySMAccessLimitClause      = ` ORDER BY sm.access_count DESC LIMIT ?`
+	// Fragments that scopeClauseFor and projectMatch join around caller-chosen column names.
+	andFragment          = ` AND `
+	orFragment           = ` OR `
+	eqParamFragment      = ` = ?`
+	inParamsFragment     = ` IN (`
+	scopeSessionFragment = ` = 'session' AND `
+	scopeProjectFragment = ` = 'project'`
+	scopeGlobalFragment  = ` = 'global'`
+)
+
 // RecallInput configures structured memory retrieval.
 type RecallInput struct {
-	Query        string
-	SessionID    string
-	ProjectPath  string
-	Kinds        []Kind
-	Scope        Scope // optional filter
-	AsOf         string // RFC3339 or SQLite datetime; empty = now (current facts only)
-	Limit        int
-	TokenBudget  int
+	Query          string
+	SessionID      string
+	ProjectPath    string
+	Kinds          []Kind
+	Scope          Scope  // optional filter
+	AsOf           string // RFC3339 or SQLite datetime; empty = now (current facts only)
+	Limit          int
+	TokenBudget    int
 	IncludeHistory bool // include superseded facts when as_of set
 	// IncludeRepoSiblings widens project-scoped lookups to every indexed checkout of
 	// the same repo, so a note taken in one worktree is recallable from a sibling
@@ -32,12 +69,12 @@ type RecallInput struct {
 
 // RecallResult is token-efficient structured memory for agents.
 type RecallResult struct {
-	Entries         []Entry        `json:"entries"`
-	Lines           []CompactLine  `json:"lines"`
-	Formatted       string         `json:"formatted"`
-	TokensUsed      int            `json:"tokens_used"`
-	TokensSavedEst  int            `json:"tokens_saved_est"`
-	RefsAccessed    int            `json:"refs_accessed"`
+	Entries        []Entry       `json:"entries"`
+	Lines          []CompactLine `json:"lines"`
+	Formatted      string        `json:"formatted"`
+	TokensUsed     int           `json:"tokens_used"`
+	TokensSavedEst int           `json:"tokens_saved_est"`
+	RefsAccessed   int           `json:"refs_accessed"`
 }
 
 // Recall returns compact valid facts and procedures matching query within token budget.
@@ -120,11 +157,11 @@ func applyTokenBudget(entries []Entry, budget int) ([]Entry, int, int) {
 func validityClause(asOf string, includeHistory bool) (string, []any) {
 	if asOf != "" {
 		if includeHistory {
-			return ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`, []any{asOf, asOf}
+			return validAsOfClause, []any{asOf, asOf}
 		}
-		return ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`, []any{asOf, asOf}
+		return validAsOfClause, []any{asOf, asOf}
 	}
-	return ` AND (valid_until IS NULL OR valid_until = '')`, nil
+	return validNowClause, nil
 }
 
 // recallProjectPaths returns the project_path values a recall should match.
@@ -148,14 +185,14 @@ func projectMatch(col string, paths []string) (string, []any) {
 	case 0:
 		return "", nil
 	case 1:
-		return col + " = ?", []any{paths[0]}
+		return col + eqParamFragment, []any{paths[0]}
 	}
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(paths)), ",")
 	args := make([]any, len(paths))
 	for i, p := range paths {
 		args[i] = p
 	}
-	return col + " IN (" + ph + ")", args
+	return col + inParamsFragment + ph + ")", args
 }
 
 func scopeClause(in RecallInput) (string, []any) {
@@ -172,37 +209,35 @@ func scopeClauseFor(in RecallInput, prefix string) (string, []any) {
 	if in.Scope != "" {
 		switch in.Scope {
 		case ScopeSession:
-			return ` AND ` + scopeCol + ` = 'session' AND ` + sessionCol + ` = ?`, []any{in.SessionID}
+			return andFragment + scopeCol + scopeSessionFragment + sessionCol + eqParamFragment, []any{in.SessionID}
 		case ScopeProject:
 			if projectFrag == "" {
-				return ` AND ` + scopeCol + ` = 'project'`, nil
+				return andFragment + scopeCol + scopeProjectFragment, nil
 			}
-			return ` AND ` + scopeCol + ` = 'project' AND ` + projectFrag, projectArgs
+			return andFragment + scopeCol + scopeProjectFragment + andFragment + projectFrag, projectArgs
 		case ScopeGlobal:
-			return ` AND ` + scopeCol + ` = 'global'`, nil
+			return andFragment + scopeCol + scopeGlobalFragment, nil
 		}
 	}
 	var parts []string
 	var args []any
-	parts = append(parts, scopeCol+` = 'global'`)
+	parts = append(parts, scopeCol+scopeGlobalFragment)
 	if in.SessionID != "" {
-		parts = append(parts, `(`+scopeCol+` = 'session' AND `+sessionCol+` = ?)`)
+		parts = append(parts, "("+scopeCol+scopeSessionFragment+sessionCol+eqParamFragment+")")
 		args = append(args, in.SessionID)
 	}
 	if projectFrag != "" {
-		parts = append(parts, `(`+scopeCol+` = 'project' AND `+projectFrag+`)`)
+		parts = append(parts, "("+scopeCol+scopeProjectFragment+andFragment+projectFrag+")")
 		args = append(args, projectArgs...)
 	}
 	if len(parts) == 1 && in.SessionID == "" && in.ProjectPath == "" {
 		return "", nil
 	}
-	return ` AND (` + strings.Join(parts, ` OR `) + `)`, args
+	return andFragment + "(" + strings.Join(parts, orFragment) + ")", args
 }
 
 func listActiveEntries(in RecallInput) ([]Entry, error) {
-	q := `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
-		FROM structured_memory WHERE 1=1`
+	q := selectActiveEntriesQuery
 	var args []any
 	if clause, a := validityClause(in.AsOf, in.IncludeHistory); clause != "" {
 		q += clause
@@ -212,7 +247,7 @@ func listActiveEntries(in RecallInput) ([]Entry, error) {
 		q += clause
 		args = append(args, a...)
 	}
-	q += ` ORDER BY access_count DESC, created_at DESC LIMIT ?`
+	q += orderByAccessCreatedLimitClause
 	args = append(args, in.Limit*2)
 	return queryEntries(q, args...)
 }
@@ -223,9 +258,7 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 		return fts, nil
 	}
 	likeQ := `%` + in.Query + `%`
-	q := `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
-		FROM structured_memory WHERE (subject LIKE ? OR predicate LIKE ? OR object LIKE ? OR rule LIKE ?)`
+	q := searchEntriesLikeQuery
 	args := []any{likeQ, likeQ, likeQ, likeQ}
 	if clause, a := validityClause(in.AsOf, in.IncludeHistory); clause != "" {
 		q += clause
@@ -235,7 +268,7 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 		q += clause
 		args = append(args, a...)
 	}
-	q += ` ORDER BY access_count DESC LIMIT ?`
+	q += orderByAccessLimitClause
 	args = append(args, in.Limit*2)
 	entries, err := queryEntries(q, args...)
 	if err != nil || len(entries) > 0 || emb == nil {
@@ -249,23 +282,19 @@ func searchFTS(in RecallInput) ([]Entry, error) {
 	if ftsQuery == "" {
 		return nil, nil
 	}
-	q := `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
-		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at
-		FROM structured_memory_fts f
-		JOIN structured_memory sm ON sm.ref = f.ref
-		WHERE structured_memory_fts MATCH ?`
+	q := searchEntriesFTSQuery
 	args := []any{ftsQuery}
 	if in.AsOf != "" {
-		q += ` AND sm.valid_from <= ? AND (sm.valid_until IS NULL OR sm.valid_until = '' OR sm.valid_until > ?)`
+		q += smValidAsOfClause
 		args = append(args, in.AsOf, in.AsOf)
 	} else {
-		q += ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
+		q += smValidNowClause
 	}
 	if clause, a := scopeClauseFor(in, "sm."); clause != "" {
 		q += clause
 		args = append(args, a...)
 	}
-	q += ` ORDER BY sm.access_count DESC LIMIT ?`
+	q += orderBySMAccessLimitClause
 	args = append(args, in.Limit*2)
 	return queryEntries(q, args...)
 }
@@ -287,9 +316,7 @@ func vectorSearch(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 	}
 	placeholders := strings.Repeat("?,", len(refs))
 	placeholders = placeholders[:len(placeholders)-1]
-	q := `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
-		FROM structured_memory WHERE ref IN (` + placeholders + `)`
+	q := selectEntriesByRefsQuery + placeholders + ")"
 	args := make([]any, len(refs))
 	for i, r := range refs {
 		args[i] = r
@@ -339,15 +366,15 @@ type ForgetResult struct {
 // Forget soft-invalidates structured memory.
 func Forget(in ForgetInput) (*ForgetResult, error) {
 	if in.All && len(in.Refs) > 0 {
-		return nil, errors.New("pass either refs or all=true, not both")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "pass either refs or all=true, not both")
 	}
 	switch in.Scope {
 	case "", ScopeSession, ScopeProject, ScopeGlobal:
 	default:
-		return nil, fmt.Errorf("invalid scope: %s (want session, project, or global)", in.Scope)
+		return nil, errs.NewCode(errs.CodeInvalidInput, fmt.Sprintf("invalid scope: %s (want session, project, or global)", in.Scope), "scope", in.Scope)
 	}
 	if in.All {
-		rows, err := db.ContextDB.Query(`SELECT ref, token_est FROM structured_memory WHERE valid_until IS NULL OR valid_until = ''`)
+		rows, err := db.ContextDB.Query(selectActiveEntryTokensQuery)
 		if err != nil {
 			return nil, err
 		}
@@ -364,7 +391,7 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		for _, ref := range refs {
 			invalidateRef(ref)
 		}
-		log.Printf("memory: forget_memory all=true invalidated %d facts (%d tokens) across every session/project", len(refs), tokens)
+		logger.Info("Invalidated all structured memory across every session and project", "invalidated", len(refs), "tokens", tokens)
 		return &ForgetResult{InvalidatedRefs: len(refs), VirtualTokensFreed: tokens}, nil
 	}
 	if len(in.Refs) > 0 {
@@ -382,11 +409,11 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		refs, _ := invalidateConflicting(sc, in.SessionID, in.ProjectPath, in.Subject, pred, "")
 		return &ForgetResult{InvalidatedRefs: len(refs)}, nil
 	}
-	return nil, errors.New("refs, subject, or all=true required")
+	return nil, errs.NewCode(errs.CodeInvalidInput, "refs, subject, or all=true required")
 }
 
 func invalidateRef(ref string) {
-	db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ?`, ref)
+	db.ContextDB.Exec(invalidateEntryQuery, ref)
 }
 
 // forgetRefs invalidates exactly the named refs. Each ref's scope comes from its
@@ -408,7 +435,7 @@ func forgetRefs(in ForgetInput) (*ForgetResult, error) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("look up %s: %w", ref, err)
+			return nil, errs.WrapMessage("failed to look up memory", err, "ref", ref)
 		}
 		if e.ValidUntil != "" {
 			res.AlreadyInvalid = append(res.AlreadyInvalid, ref)
@@ -418,8 +445,8 @@ func forgetRefs(in ForgetInput) (*ForgetResult, error) {
 			res.ScopeMismatch = append(res.ScopeMismatch, ref)
 			continue
 		}
-		if _, err := db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`, ref); err != nil {
-			return nil, fmt.Errorf("invalidate %s: %w", ref, err)
+		if _, err := db.ContextDB.Exec(invalidateActiveEntryQuery, ref); err != nil {
+			return nil, errs.WrapMessage("failed to invalidate memory", err, "ref", ref)
 		}
 		res.Invalidated = append(res.Invalidated, ref)
 		res.InvalidatedRefs++
@@ -446,7 +473,7 @@ func refInScope(e Entry, in ForgetInput) bool {
 
 // RecordAccess tracks recall for dashboard stats.
 func RecordAccess(ref, sessionID, projectPath, tool string, tokens int) {
-	db.ContextDB.Exec(`UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`, ref)
-	db.DB.Exec(`INSERT INTO memory_access (ref, session_id, project_path, tool_name, tokens_returned) VALUES (?, ?, ?, ?, ?)`,
+	db.ContextDB.Exec(updateEntryAccessQuery, ref)
+	db.DB.Exec(insertMemoryAccessQuery,
 		ref, nullIfEmpty(sessionID), nullIfEmpty(projectPath), tool, tokens)
 }

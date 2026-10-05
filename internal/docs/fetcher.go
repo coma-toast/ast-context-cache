@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +12,25 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+)
+
+const (
+	upsertDocSourceQuery = `INSERT INTO doc_sources (name, type, url, version) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(name, type, url) DO UPDATE SET version = excluded.version`
+	selectDocSourceIDQuery          = "SELECT id FROM doc_sources WHERE name = ? AND type = ? AND url = ?"
+	deleteDocContentQuery           = "DELETE FROM doc_content WHERE source_id = ?"
+	deleteDocSourceQuery            = "DELETE FROM doc_sources WHERE id = ?"
+	countDocSourcesQuery            = "SELECT COUNT(*) FROM doc_sources"
+	listDocSourcesQuery             = "SELECT id, name, type, url, COALESCE(version,''), COALESCE(last_updated,''), created_at FROM doc_sources ORDER BY name LIMIT ? OFFSET ?"
+	selectDocSourceQuery            = "SELECT name, type, url FROM doc_sources WHERE id = ?"
+	updateDocSourceUpdatedQuery     = "UPDATE doc_sources SET last_updated = ? WHERE id = ?"
+	insertDocContentQuery           = `INSERT INTO doc_content (source_id, title, content, path, content_hash) VALUES (?, ?, ?, ?, ?)`
+	rebuildDocsFTSQuery             = `INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`
+	selectDocSourceLastUpdatedQuery = "SELECT COALESCE(last_updated,'') FROM doc_sources WHERE id = ?"
+	listDocEntriesBySourceQuery     = `
+		SELECT id, source_id, title, content, COALESCE(path,''), COALESCE(content_hash,''), updated_at
+		FROM doc_content WHERE source_id = ? ORDER BY id`
 )
 
 // DocSourceMaxAge is how long cached doc content is kept before background re-fetch.
@@ -39,15 +57,12 @@ type DocEntry struct {
 }
 
 func AddSource(name, docType, docURL, version string) (int, error) {
-	_, err := db.ContextDB.Exec(
-		`INSERT INTO doc_sources (name, type, url, version) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(name, type, url) DO UPDATE SET version = excluded.version`,
-		name, docType, docURL, version)
+	_, err := db.ContextDB.Exec(upsertDocSourceQuery, name, docType, docURL, version)
 	if err != nil {
 		return 0, err
 	}
 	var id int
-	err = db.ContextDB.QueryRow("SELECT id FROM doc_sources WHERE name = ? AND type = ? AND url = ?", name, docType, docURL).Scan(&id)
+	err = db.ContextDB.QueryRow(selectDocSourceIDQuery, name, docType, docURL).Scan(&id)
 	return id, err
 }
 
@@ -55,8 +70,8 @@ func RemoveSource(id int) error {
 	if err := deleteDocVectors(id); err != nil {
 		return err
 	}
-	db.ContextDB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
-	_, err := db.ContextDB.Exec("DELETE FROM doc_sources WHERE id = ?", id)
+	db.ContextDB.Exec(deleteDocContentQuery, id)
+	_, err := db.ContextDB.Exec(deleteDocSourceQuery, id)
 	rebuildDocsFTS()
 	return err
 }
@@ -73,7 +88,7 @@ func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
 		page = 1
 	}
 	var total int
-	if err := db.ContextDB.QueryRow("SELECT COUNT(*) FROM doc_sources").Scan(&total); err != nil {
+	if err := db.ContextDB.QueryRow(countDocSourcesQuery).Scan(&total); err != nil {
 		return nil, 0, page, err
 	}
 	if total == 0 {
@@ -87,9 +102,7 @@ func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
 		page = totalPages
 	}
 	offset := (page - 1) * perPage
-	rows, err := db.ContextDB.Query(
-		"SELECT id, name, type, url, COALESCE(version,''), COALESCE(last_updated,''), created_at FROM doc_sources ORDER BY name LIMIT ? OFFSET ?",
-		perPage, offset)
+	rows, err := db.ContextDB.Query(listDocSourcesQuery, perPage, offset)
 	if err != nil {
 		return nil, total, page, err
 	}
@@ -105,24 +118,24 @@ func ListSourcesPaged(page, perPage int) ([]DocSource, int, int, error) {
 
 func UpdateSource(id int) (usedPlaywright bool, err error) {
 	var name, docType, docURL string
-	err = db.ContextDB.QueryRow("SELECT name, type, url FROM doc_sources WHERE id = ?", id).Scan(&name, &docType, &docURL)
+	err = db.ContextDB.QueryRow(selectDocSourceQuery, id).Scan(&name, &docType, &docURL)
 	if err != nil {
 		return false, err
 	}
 
 	content, usedPlaywright, err := fetchDocs(docURL, docType)
 	if err != nil {
-		return false, fmt.Errorf("fetch failed: %w", err)
+		return false, errs.WrapMessage("failed to fetch doc source", err, "source_id", id)
 	}
 
 	if err := deleteDocVectors(id); err != nil {
 		return false, err
 	}
-	db.ContextDB.Exec("DELETE FROM doc_content WHERE source_id = ?", id)
+	db.ContextDB.Exec(deleteDocContentQuery, id)
 	if err := storeEntries(id, content); err != nil {
 		return false, err
 	}
-	db.ContextDB.Exec("UPDATE doc_sources SET last_updated = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
+	db.ContextDB.Exec(updateDocSourceUpdatedQuery, time.Now().Format(time.RFC3339), id)
 	go EmbedSource(id)
 	return usedPlaywright, nil
 }
@@ -130,9 +143,7 @@ func UpdateSource(id int) (usedPlaywright bool, err error) {
 func storeEntries(sourceID int, entries []DocEntry) error {
 	for _, entry := range entries {
 		hash := contentHash(entry.Content)
-		_, err := db.ContextDB.Exec(
-			`INSERT INTO doc_content (source_id, title, content, path, content_hash) VALUES (?, ?, ?, ?, ?)`,
-			sourceID, entry.Title, entry.Content, entry.Path, hash)
+		_, err := db.ContextDB.Exec(insertDocContentQuery, sourceID, entry.Title, entry.Content, entry.Path, hash)
 		if err != nil {
 			return err
 		}
@@ -142,7 +153,7 @@ func storeEntries(sourceID int, entries []DocEntry) error {
 }
 
 func rebuildDocsFTS() {
-	db.ContextDB.Exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`)
+	db.ContextDB.Exec(rebuildDocsFTSQuery)
 }
 
 func UpdateAllSources() {
@@ -158,7 +169,7 @@ func UpdateAllSources() {
 			continue
 		}
 		if _, err := UpdateSource(s.ID); err != nil {
-			log.Printf("doc source %d refresh: %v", s.ID, err)
+			logger.Warn("Failed to refresh doc source", "source_id", s.ID, "error", err)
 		}
 	}
 }
@@ -184,7 +195,7 @@ func FetchAndCache(name, docType, docURL, version string, force, renderJS bool) 
 		return 0, nil, false, false, err
 	}
 	var lastUpdated string
-	if err = db.ContextDB.QueryRow("SELECT COALESCE(last_updated,'') FROM doc_sources WHERE id = ?", id).Scan(&lastUpdated); err != nil {
+	if err = db.ContextDB.QueryRow(selectDocSourceLastUpdatedQuery, id).Scan(&lastUpdated); err != nil {
 		return id, nil, false, false, err
 	}
 	if force || SourceNeedsRefresh(lastUpdated) {
@@ -201,9 +212,7 @@ func FetchAndCache(name, docType, docURL, version string, force, renderJS bool) 
 }
 
 func ListEntriesBySource(sourceID int) ([]DocEntry, error) {
-	rows, err := db.ContextDB.Query(`
-		SELECT id, source_id, title, content, COALESCE(path,''), COALESCE(content_hash,''), updated_at
-		FROM doc_content WHERE source_id = ? ORDER BY id`, sourceID)
+	rows, err := db.ContextDB.Query(listDocEntriesBySourceQuery, sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -255,9 +264,9 @@ func fetchHTML(u *url.URL, renderJS bool) ([]DocEntry, bool, error) {
 			entries, err := htmlEntriesFromBody(string(body), u)
 			return entries, true, err
 		}
-		log.Printf("docs: playwright render failed for %s: %v — falling back to plain HTTP", u.String(), err)
+		logger.Warn("Playwright render failed, falling back to plain HTTP", "url", u.String(), "error", err)
 	} else if renderJS && !RenderEnabled() {
-		log.Printf("docs: playwright unavailable — fetching %s as plain HTML", u.String())
+		logger.Info("Playwright unavailable, fetching as plain HTML", "url", u.String())
 	}
 	body, err := fetchURL(u.String())
 	if err != nil {
@@ -272,7 +281,7 @@ func fetchHTML(u *url.URL, renderJS bool) ([]DocEntry, bool, error) {
 		}
 	}
 	if len(entries) == 0 {
-		return nil, false, fmt.Errorf("no extractable content from %s", u.String())
+		return nil, false, errs.New("no extractable content", "url", u.String())
 	}
 	return entries, false, nil
 }
@@ -280,7 +289,7 @@ func fetchHTML(u *url.URL, renderJS bool) ([]DocEntry, bool, error) {
 func htmlEntriesFromBody(body string, u *url.URL) ([]DocEntry, error) {
 	entries := chunkHTML(body, u.Path)
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("no extractable content from %s", u.String())
+		return nil, errs.New("no extractable content", "url", u.String())
 	}
 	return entries, nil
 }
@@ -311,7 +320,7 @@ func fetchURL(raw string) ([]byte, error) {
 	// search_docs/fetch_doc calls would return it with no indication anything
 	// had failed.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("fetch %s: unexpected status %s", raw, resp.Status)
+		return nil, errs.New(fmt.Sprintf("unexpected status %s", resp.Status), "url", raw, "status", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
 }
@@ -322,7 +331,7 @@ func fetchURL(raw string) ([]byte, error) {
 func fetchLocalFile(raw string) ([]byte, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parse file URL: %w", err)
+		return nil, errs.WrapMessage("failed to parse file URL", err, "url", raw)
 	}
 	path := u.Path
 	if u.Host != "" && u.Host != "localhost" {
@@ -331,7 +340,7 @@ func fetchLocalFile(raw string) ([]byte, error) {
 		path = "/" + u.Host + path
 	}
 	if path == "" {
-		return nil, fmt.Errorf("file URL %s has no path", raw)
+		return nil, errs.NewCode(errs.CodeInvalidInput, "file URL has no path", "url", raw)
 	}
 	return os.ReadFile(path)
 }
