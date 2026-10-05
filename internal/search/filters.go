@@ -7,6 +7,13 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
+// Filter fragments for symbolFilterSQL, using alias s for the symbols table.
+const (
+	kindInClausePrefix = "s.kind IN ("
+	fileExtLikeClause  = "LOWER(s.file) LIKE ?"
+	pathPrefixClause   = "(s.file = ? OR s.file LIKE ?)"
+)
+
 // SearchFilters narrows hybrid / vector / BM25 recall by path, symbol kind, or language (file extension).
 // Nil or Empty() means no filtering.
 type SearchFilters struct {
@@ -83,7 +90,7 @@ func symbolFilterSQL(f *SearchFilters, projectPath string) (string, []interface{
 	if len(f.Kinds) > 0 {
 		ph := strings.Repeat("?,", len(f.Kinds))
 		ph = strings.TrimSuffix(ph, ",")
-		parts = append(parts, "s.kind IN ("+ph+")")
+		parts = append(parts, kindInClausePrefix+ph+")")
 		for _, k := range f.Kinds {
 			args = append(args, k)
 		}
@@ -94,10 +101,10 @@ func symbolFilterSQL(f *SearchFilters, projectPath string) (string, []interface{
 			var ors []string
 			for _, ext := range exts {
 				e := strings.TrimPrefix(strings.ToLower(ext), ".")
-				ors = append(ors, "LOWER(s.file) LIKE ?")
+				ors = append(ors, fileExtLikeClause)
 				args = append(args, "%."+e)
 			}
-			parts = append(parts, "("+strings.Join(ors, " OR ")+")")
+			parts = append(parts, "("+strings.Join(ors, sqlOr)+")")
 		}
 	}
 	if f.PathPrefix != "" {
@@ -110,7 +117,7 @@ func symbolFilterSQL(f *SearchFilters, projectPath string) (string, []interface{
 	if len(parts) == 0 {
 		return "", nil
 	}
-	return strings.Join(parts, " AND "), args
+	return strings.Join(parts, sqlAnd), args
 }
 
 func pathPrefixSQLClause(projectPath, prefix string) (string, []interface{}) {
@@ -127,7 +134,7 @@ func pathPrefixSQLClause(projectPath, prefix string) (string, []interface{}) {
 		abs = filepath.ToSlash(filepath.Join(projectPath, strings.Trim(p, "/")))
 	}
 	// Match fileHasPathPrefix: exact path or anything under that directory.
-	return "(s.file = ? OR s.file LIKE ?)", []interface{}{abs, abs + "/%"}
+	return pathPrefixClause, []interface{}{abs, abs + "/%"}
 }
 
 // CacheKey returns a stable string for deduplication caches (empty if no filters).

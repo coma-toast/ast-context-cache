@@ -1,12 +1,15 @@
 package indexer
 
 import (
-	"fmt"
-	"log"
-
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+)
+
+const (
+	selectProjectSymbolFilesQuery = "SELECT DISTINCT file FROM symbols WHERE project_path = ?"
+	selectFileEmbedSymbolsQuery   = "SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?"
 )
 
 // maxEmbedSymbolsPerFile caps onnx/remote work per file so one generated
@@ -18,16 +21,18 @@ const maxEmbedSymbolsPerFile = 256
 // between batches for fairness and bounds peak memory).
 const embedBatchSize = 64
 
+// errIndexQuiesced stops an embed batch when the index db is paused for maintenance.
+var errIndexQuiesced = errs.New("index db quiesced for maintenance")
+
 func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) {
 	conn, err := db.IndexReader()
 	if err != nil {
-		log.Printf("embed: query files for %s: %v", projectPath, err)
+		logger.Warn("Failed to query files to embed", "project", projectPath, "error", err)
 		return
 	}
-	rows, err := conn.Query(
-		"SELECT DISTINCT file FROM symbols WHERE project_path = ?", projectPath)
+	rows, err := conn.Query(selectProjectSymbolFilesQuery, projectPath)
 	if err != nil {
-		log.Printf("embed: query files for %s: %v", projectPath, err)
+		logger.Warn("Failed to query files to embed", "project", projectPath, "error", err)
 		return
 	}
 	defer rows.Close()
@@ -42,7 +47,7 @@ func EmbedDirectorySymbols(emb embedder.Interface, dirPath, projectPath string) 
 	for _, f := range files {
 		EmbedFileSymbols(emb, f, projectPath)
 	}
-	log.Printf("Finished embedding all symbols for %s (%d files)", projectPath, len(files))
+	logger.Info("Finished embedding all symbols", "project", projectPath, "files", len(files))
 }
 
 func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) error {
@@ -56,11 +61,9 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 	if dropStaleEmbedJob(filePath, projectPath) {
 		return nil
 	}
-	rows, err := conn.Query(
-		"SELECT id, name, kind, start_line, end_line FROM symbols WHERE file = ? AND project_path = ?",
-		filePath, projectPath)
+	rows, err := conn.Query(selectFileEmbedSymbolsQuery, filePath, projectPath)
 	if err != nil {
-		log.Printf("embed: query symbols for %s: %v", filePath, err)
+		logger.Warn("Failed to query symbols to embed", "file", filePath, "error", err)
 		return err
 	}
 	defer rows.Close()
@@ -81,8 +84,7 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 		return nil
 	}
 	if n := len(symbols); n > maxEmbedSymbolsPerFile {
-		log.Printf("embed: capping %s at %d/%d symbols (skipping remainder to keep queue moving)",
-			filePath, maxEmbedSymbolsPerFile, n)
+		logger.Info("Capping embedded symbols to keep queue moving", "file", filePath, "cap", maxEmbedSymbolsPerFile, "symbols", n)
 		symbols = symbols[:maxEmbedSymbolsPerFile]
 	}
 
@@ -90,7 +92,7 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 	total := 0
 	for start := 0; start < len(symbols); start += embedBatchSize {
 		if db.IndexReadQuiesced() {
-			return fmt.Errorf("index db quiesced for maintenance")
+			return errIndexQuiesced
 		}
 		end := start + embedBatchSize
 		if end > len(symbols) {
@@ -115,22 +117,22 @@ func EmbedFileSymbols(emb embedder.Interface, filePath, projectPath string) erro
 		}
 		embeddings, err := emb.Embed(texts)
 		if err != nil {
-			log.Printf("embed: generate embeddings for %s: %v", filePath, err)
+			logger.Warn("Failed to generate embeddings", "file", filePath, "error", err)
 			return err
 		}
 		if db.IndexReadQuiesced() {
-			return fmt.Errorf("index db quiesced for maintenance")
+			return errIndexQuiesced
 		}
 		for i := range entries {
 			entries[i].Vector = embeddings[i]
 		}
 		if err := search.Cache.Upsert(entries); err != nil {
-			log.Printf("embed: upsert vectors for %s: %v", filePath, err)
+			logger.Warn("Failed to upsert vectors", "file", filePath, "error", err)
 			return err
 		}
 		total += len(entries)
 	}
 
-	log.Printf("Embedded %d symbols from %s", total, filePath)
+	logger.Debug("Embedded symbols", "file", filePath, "symbols", total)
 	return nil
 }

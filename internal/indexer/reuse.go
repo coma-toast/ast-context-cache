@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +13,20 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+)
+
+const (
+	selectProjectIndexedQuery       = `SELECT 1 FROM indexed_files WHERE project_path = ? LIMIT 1`
+	countProjectIndexedFilesQuery   = `SELECT COUNT(*) FROM indexed_files WHERE project_path = ?`
+	selectIndexedFileParserVerQuery = `SELECT COALESCE(parser_version, 0) FROM indexed_files WHERE file = ? AND project_path = ?`
+	insertReuseEdgeQuery            = "INSERT INTO edges (source_file, source_symbol, target, kind, project_path) VALUES (?, ?, ?, ?, ?)"
+	selectReuseSymbolsQuery         = `SELECT id, name, kind, COALESCE(start_line,0), COALESCE(end_line,0),
+		COALESCE(code,''), COALESCE(fqn,''), COALESCE(skeleton,''), COALESCE(embed_hash,'')
+		FROM symbols WHERE file = ? AND project_path = ? ORDER BY id`
+	selectReuseEdgesQuery = `SELECT COALESCE(source_symbol,''), target, kind
+		FROM edges WHERE source_file = ? AND project_path = ? ORDER BY id`
+	selectReuseVectorsQuery = `SELECT COALESCE(symbol_id,0), content_hash, vector, COALESCE(name,''), COALESCE(kind,'')
+		FROM vectors WHERE source_file = ? AND project_path = ? AND COALESCE(doc_type,'code') = 'code'`
 )
 
 // A WTG space keeps one checkout of a repo per space, each on its own branch, so
@@ -59,14 +72,14 @@ func FindReuseSource(projectPath string) *ReuseSource {
 		return nil
 	}
 	var seen int
-	if conn.QueryRow(`SELECT 1 FROM indexed_files WHERE project_path = ? LIMIT 1`, projectPath).Scan(&seen) == nil {
+	if conn.QueryRow(selectProjectIndexedQuery, projectPath).Scan(&seen) == nil {
 		return nil
 	}
 	best := ""
 	bestFiles := 0
 	for _, sib := range projectlinks.RepoSiblings(projectPath) {
 		var n int
-		if conn.QueryRow(`SELECT COUNT(*) FROM indexed_files WHERE project_path = ?`, sib).Scan(&n) != nil {
+		if conn.QueryRow(countProjectIndexedFilesQuery, sib).Scan(&n) != nil {
 			continue
 		}
 		if n > bestFiles {
@@ -76,7 +89,7 @@ func FindReuseSource(projectPath string) *ReuseSource {
 	if best == "" {
 		return nil
 	}
-	log.Printf("index: %s can reuse from sibling checkout %s (%d indexed files)", projectPath, best, bestFiles)
+	logger.Info("Found sibling checkout to reuse", "project", projectPath, "sibling", best, "indexed_files", bestFiles)
 	return &ReuseSource{ProjectPath: best}
 }
 
@@ -105,8 +118,7 @@ func ReuseFile(filePath, projectPath string, src *ReuseSource) (int, bool) {
 	}
 	// The sibling's rows are only worth copying if today's parser produced them.
 	var version int
-	if conn.QueryRow(`SELECT COALESCE(parser_version, 0) FROM indexed_files WHERE file = ? AND project_path = ?`,
-		sibFile, src.ProjectPath).Scan(&version) != nil || version < ParserVersion(filePath) {
+	if conn.QueryRow(selectIndexedFileParserVerQuery, sibFile, src.ProjectPath).Scan(&version) != nil || version < ParserVersion(filePath) {
 		return 0, false
 	}
 
@@ -133,14 +145,14 @@ func ReuseFile(filePath, projectPath string, src *ReuseSource) (int, bool) {
 		if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileSymbolsQuery, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileEdgesQuery, filePath, projectPath); err != nil {
 			return err
 		}
 		for _, s := range symbols {
-			res, err := tx.Exec("INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			res, err := tx.Exec(insertSymbolQuery,
 				s.name, s.kind, filePath, s.startLine, s.endLine, s.code, s.fqn, projectPath, s.skeleton, s.embed)
 			if err != nil {
 				return err
@@ -151,7 +163,7 @@ func ReuseFile(filePath, projectPath string, src *ReuseSource) (int, bool) {
 			copied++
 		}
 		for _, e := range edges {
-			if _, err := tx.Exec("INSERT INTO edges (source_file, source_symbol, target, kind, project_path) VALUES (?, ?, ?, ?, ?)",
+			if _, err := tx.Exec(insertReuseEdgeQuery,
 				filePath, e.sourceSymbol, e.target, e.kind, projectPath); err != nil {
 				return err
 			}
@@ -194,14 +206,12 @@ func copyReuseVectors(vectors []reuseVector, newIDs map[int64]int64, filePath, p
 		return
 	}
 	if err := search.Cache.Upsert(entries); err != nil {
-		log.Printf("index: copy vectors for %s: %v", filePath, err)
+		logger.Warn("Failed to copy reused vectors", "file", filePath, "error", err)
 	}
 }
 
 func readReuseSymbols(conn *sql.DB, file, projectPath string) ([]reuseSymbol, error) {
-	rows, err := conn.Query(`SELECT id, name, kind, COALESCE(start_line,0), COALESCE(end_line,0),
-		COALESCE(code,''), COALESCE(fqn,''), COALESCE(skeleton,''), COALESCE(embed_hash,'')
-		FROM symbols WHERE file = ? AND project_path = ? ORDER BY id`, file, projectPath)
+	rows, err := conn.Query(selectReuseSymbolsQuery, file, projectPath)
 	if err != nil {
 		return nil, err
 	}
@@ -218,8 +228,7 @@ func readReuseSymbols(conn *sql.DB, file, projectPath string) ([]reuseSymbol, er
 }
 
 func readReuseEdges(conn *sql.DB, file, projectPath string) ([]reuseEdge, error) {
-	rows, err := conn.Query(`SELECT COALESCE(source_symbol,''), target, kind
-		FROM edges WHERE source_file = ? AND project_path = ? ORDER BY id`, file, projectPath)
+	rows, err := conn.Query(selectReuseEdgesQuery, file, projectPath)
 	if err != nil {
 		return nil, err
 	}
@@ -236,9 +245,7 @@ func readReuseEdges(conn *sql.DB, file, projectPath string) ([]reuseEdge, error)
 }
 
 func readReuseVectors(conn *sql.DB, file, projectPath string) ([]reuseVector, error) {
-	rows, err := conn.Query(`SELECT COALESCE(symbol_id,0), content_hash, vector, COALESCE(name,''), COALESCE(kind,'')
-		FROM vectors WHERE source_file = ? AND project_path = ? AND COALESCE(doc_type,'code') = 'code'`,
-		file, projectPath)
+	rows, err := conn.Query(selectReuseVectorsQuery, file, projectPath)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,6 @@
 package watcher
 
 import (
-	"log"
 	"math"
 	"os"
 	"time"
@@ -35,7 +34,7 @@ func scheduleCatchUp(projectPath string) {
 		if !IsActive(projectPath) {
 			return
 		}
-		log.Printf("Watcher rescanning %s (events lost, or a directory moved in or out)", projectPath)
+		logger.Info("Watcher rescanning (events lost, or a directory moved in or out)", "project", projectPath)
 		catchUp(projectPath)
 	})
 	debounceTimers[key] = t
@@ -118,15 +117,15 @@ func checkFDPressure() {
 	switch level {
 	case sys.FDLevelWarning, sys.FDLevelCritical:
 		st := ResourceStatus()
-		log.Printf("WARNING: %d of %d file descriptors open (%.0f%%, %s); %v active watchers (%v), %v OS watches",
-			u.Open, u.SoftLimit, u.Pct(), level, st["active_watchers"], st["watch_backend"], st["os_watches"])
+		logger.Warn("File descriptor usage high", "open", u.Open, "soft_limit", u.SoftLimit, "pct", math.Round(u.Pct()), "level", level,
+			"active_watchers", st["active_watchers"], "watch_backend", st["watch_backend"], "os_watches", st["os_watches"])
 	case sys.FDLevelUnknown:
 		// Counting needs a descriptor itself, so failing to count usually
 		// means the process is already at its limit.
 		if sys.FDCountSupported() {
-			log.Printf("WARNING: cannot count open file descriptors (limit %d); the process may be out of them", u.SoftLimit)
+			logger.Warn("Cannot count open file descriptors; the process may be out of them", "soft_limit", u.SoftLimit)
 		}
 	case sys.FDLevelOK:
-		log.Printf("File descriptor usage back to normal (%s before): %d of %d", prev, u.Open, u.SoftLimit)
+		logger.Info("File descriptor usage back to normal", "previous_level", prev, "open", u.Open, "soft_limit", u.SoftLimit)
 	}
 }

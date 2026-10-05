@@ -1,7 +1,6 @@
 package watcher
 
 import (
-	"log"
 	"os"
 	"runtime"
 	"strings"
@@ -43,7 +42,7 @@ func newBackend(root string) (backend, error) {
 	}
 	b, err := newNativeBackend(root)
 	if err != nil {
-		log.Printf("Watcher: native backend unavailable for %s (%v); falling back to %s", root, err, fsnotifyBackendName())
+		logger.Warn("Native watch backend unavailable, falling back", "root", root, "fallback", fsnotifyBackendName(), "error", err)
 	}
 	if b != nil {
 		return b, nil

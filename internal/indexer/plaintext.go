@@ -53,13 +53,13 @@ func indexPlaintextFile(filePath, projectPath string) (count, fullTokens, skelet
 		if err := deleteCodeVectorsTx(tx, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM symbols WHERE file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileSymbolsQuery, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM edges WHERE source_file = ? AND project_path = ?", filePath, projectPath); err != nil {
+		if _, err := tx.Exec(deleteFileEdgesQuery, filePath, projectPath); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, code, fqn, project_path, skeleton, embed_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.Exec(insertSymbolQuery,
 			name, "plaintext", filePath, 1, nLines, text, fqn, projectPath, first, embedHash); err != nil {
 			return err
 		}
