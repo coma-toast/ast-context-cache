@@ -69,6 +69,7 @@ type realService struct {
 	logger  *slog.Logger
 	trees   *treeIndex
 	waiters *waitHub
+	annot   *annotator
 }
 
 // New returns the handoff service and starts its expiry sweeper and abandonment loops, which
@@ -154,11 +155,6 @@ func (s *realService) Release(ctx context.Context, req ReleaseRequest) (*Release
 	return nil, notImplemented("release")
 }
 
-// Annotate is implemented in Phase 6.6; until then no response is annotated.
-func (s *realService) Annotate(sid SessionID, ev SearchEvent, results []map[string]any) map[string]any {
-	return nil
-}
-
 // Touch is implemented in Phase 6.9; until then activity is not recorded.
 func (s *realService) Touch(sid SessionID) {}
 
@@ -179,6 +175,7 @@ func newService(emb embedder.Interface) *realService {
 		logger:  logging.Tagged("handoff"),
 		trees:   newTreeIndex(),
 		waiters: newWaitHub(),
+		annot:   newAnnotator(),
 	}
 }
 
