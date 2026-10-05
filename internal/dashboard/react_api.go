@@ -17,6 +17,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/version"
 )
 
+const (
+	selectDashboardStatsBaseQuery = "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + ", " + dedupTokensSum + ", " + savingsVsFilesSum + " FROM queries WHERE "
+)
+
 func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/health", handleDashboardHealthJSON)
 	mux.HandleFunc("/api/dashboard/stats", handleDashboardStatsJSON)
@@ -86,9 +90,8 @@ func handleDashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 	if usageDBReady() {
 		todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 		tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-		statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + ", " + dedupTokensSum + ", " + savingsVsFilesSum + " FROM queries WHERE "
 		where, args := statsQueriesWhere(pid)
-		db.DB.QueryRow(statsSel+where, args...).
+		db.DB.QueryRow(selectDashboardStatsBaseQuery+where, args...).
 			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 		fillTodayStats(pid, todayStart, tomorrowStart, &s)
 		fillVirtualContextStats(&s, pid)

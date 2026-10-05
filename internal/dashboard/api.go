@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
@@ -32,6 +32,32 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+const (
+	selectStatsBaseQuery          = "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + " FROM queries WHERE "
+	selectProjectRecentCallsQuery = "SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?"
+	selectRecentCallsQuery        = "SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries ORDER BY timestamp DESC LIMIT ?"
+	selectTopQueriedProjectsQuery = "SELECT DISTINCT project_path, COUNT(*) as query_count FROM queries WHERE project_path IS NOT NULL GROUP BY project_path ORDER BY query_count DESC LIMIT 500"
+	deleteAllRowsFromQuery        = "DELETE FROM "
+	selectProjectTimelineQuery    = `SELECT strftime(?, timestamp) as period, COUNT(*), ` + tokensSavedSum + `, COALESCE(AVG(duration_ms),0)
+			FROM queries WHERE project_path = ? AND timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`
+	selectTimelineQuery = `SELECT strftime(?, timestamp) as period, COUNT(*), ` + tokensSavedSum + `, COALESCE(AVG(duration_ms),0)
+			FROM queries WHERE timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`
+	selectProjectSymbolKindsQuery = "SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC"
+	selectSymbolKindsQuery        = "SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC"
+	selectLanguageStatsBaseQuery  = `SELECT CASE
+		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
+		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
+		WHEN file LIKE '%.ts' THEN 'TypeScript' WHEN file LIKE '%.tsx' THEN 'TSX'
+		WHEN file LIKE '%.sh' THEN 'Bash' WHEN file LIKE '%.fish' THEN 'Fish'
+		ELSE 'Other' END as language, COUNT(DISTINCT file) as files, COUNT(*) as symbols FROM symbols`
+	languageStatsProjectClause   = " WHERE project_path = ? GROUP BY language ORDER BY symbols DESC"
+	languageStatsGroupClause     = " GROUP BY language ORDER BY symbols DESC"
+	selectProjectTopImportsQuery = "SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? AND kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20"
+	selectTopImportsQuery        = "SELECT target, COUNT(*) as count FROM edges WHERE kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20"
+	countProjectVectorsQuery     = "SELECT COUNT(*) FROM vectors WHERE project_path = ?"
+	countVectorsQuery            = "SELECT COUNT(*) FROM vectors"
 )
 
 func NewHandler(_ string) http.Handler {
@@ -135,10 +161,8 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
-	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
-	statsSel := "SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(result_chars),0), COALESCE(AVG(duration_ms),0), " + tokensSavedSum + " FROM queries WHERE "
 	where, args := statsQueriesWhere(pid)
-	db.DB.QueryRow(statsSel+where, args...).
+	db.DB.QueryRow(selectStatsBaseQuery+where, args...).
 		Scan(&s.TotalQueries, &s.TotalSessions, &s.TotalChars, &s.AvgDurationMs, &s.TotalTokensSaved)
 	var today components.Stats
 	fillTodayStats(pid, todayStart, tomorrowStart, &today)
@@ -179,9 +203,9 @@ func handleRecent(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if pid != "" {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?", pid, lim)
+		rows, err = db.DB.Query(selectProjectRecentCallsQuery, pid, lim)
 	} else {
-		rows, err = db.DB.Query("SELECT timestamp, tool_name, result_chars, duration_ms, project_path, COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(file_baseline_tokens,0) FROM queries ORDER BY timestamp DESC LIMIT ?", lim)
+		rows, err = db.DB.Query(selectRecentCallsQuery, lim)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
@@ -228,7 +252,7 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	symCounts := map[string]symCount{}
 	if idb, ierr := db.IndexReader(); ierr == nil {
-		symRows, err := idb.Query("SELECT project_path, COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path IS NOT NULL GROUP BY project_path")
+		symRows, err := idb.Query(selectSymbolCountsByProjectQuery)
 		if err == nil {
 			defer symRows.Close()
 			for symRows.Next() {
@@ -246,7 +270,7 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 	// Capped at 500, same defensive bound /api/recent already applies — this is
 	// otherwise a fully unbounded list, same risk the Memory tab's doc-sources
 	// pagination fixed for a different endpoint.
-	rows, err := db.DB.Query("SELECT DISTINCT project_path, COUNT(*) as query_count FROM queries WHERE project_path IS NOT NULL GROUP BY project_path ORDER BY query_count DESC LIMIT 500")
+	rows, err := db.DB.Query(selectTopQueriedProjectsQuery)
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
@@ -286,8 +310,8 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		err := db.IndexWrite(func(tx *sql.Tx) error {
 			return db.WithoutFTSTriggers(tx, func() error {
 				for _, table := range []string{"symbols", "edges", "indexed_files"} {
-					if _, err := tx.Exec("DELETE FROM " + table); err != nil {
-						return fmt.Errorf("delete %s: %w", table, err)
+					if _, err := tx.Exec(deleteAllRowsFromQuery + table); err != nil {
+						return errs.WrapMessage("failed to delete table rows", err, "table", table)
 					}
 				}
 				return nil
@@ -299,7 +323,7 @@ func handleReset(w http.ResponseWriter, r *http.Request) {
 		}
 		cache.GlobalCache.ClearAll()
 		go db.Compact()
-		log.Printf("dashboard: reset cleared ALL indexed data across every project (project_path=\"all\")")
+		logger.Info("Reset cleared all indexed data across every project", "project_path", "all")
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "message": "All indexed data cleared"})
 		return
 	}
@@ -365,13 +389,10 @@ func handleTimeseries(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	var err error
-	tokensSavedSum := "COALESCE(SUM(CASE WHEN tool_name != 'file_watcher' THEN tokens_saved ELSE 0 END),0)"
 	if pid != "" {
-		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
-			FROM queries WHERE project_path = ? AND timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, pid, days)
+		rows, err = db.DB.Query(selectProjectTimelineQuery, format, pid, days)
 	} else {
-		rows, err = db.DB.Query(`SELECT strftime(?, timestamp) as period, COUNT(*), `+tokensSavedSum+`, COALESCE(AVG(duration_ms),0)
-			FROM queries WHERE timestamp >= datetime('now', '-' || ? || ' days') GROUP BY period ORDER BY period ASC`, format, days)
+		rows, err = db.DB.Query(selectTimelineQuery, format, days)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -402,11 +423,11 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 	var totalSymbols, totalFiles, totalEdges int
 	if conn, err := db.IndexReader(); err == nil {
 		if pid != "" {
-			conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?", pid).Scan(&totalSymbols, &totalFiles)
-			conn.QueryRow("SELECT COUNT(*) FROM edges WHERE project_path = ?", pid).Scan(&totalEdges)
+			conn.QueryRow(countProjectSymbolsAndFilesQuery, pid).Scan(&totalSymbols, &totalFiles)
+			conn.QueryRow(countProjectEdgesQuery, pid).Scan(&totalEdges)
 		} else {
-			conn.QueryRow("SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols").Scan(&totalSymbols, &totalFiles)
-			conn.QueryRow("SELECT COUNT(*) FROM edges").Scan(&totalEdges)
+			conn.QueryRow(countSymbolsAndFilesQuery).Scan(&totalSymbols, &totalFiles)
+			conn.QueryRow(countEdgesQuery).Scan(&totalEdges)
 		}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -428,9 +449,9 @@ func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query("SELECT kind, COUNT(*) as count FROM symbols WHERE project_path = ? GROUP BY kind ORDER BY count DESC", pid)
+		rows, err = conn.Query(selectProjectSymbolKindsQuery, pid)
 	} else {
-		rows, err = conn.Query("SELECT kind, COUNT(*) as count FROM symbols GROUP BY kind ORDER BY count DESC")
+		rows, err = conn.Query(selectSymbolKindsQuery)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -455,17 +476,11 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
-	q := `SELECT CASE
-		WHEN file LIKE '%.py' THEN 'Python' WHEN file LIKE '%.go' THEN 'Go'
-		WHEN file LIKE '%.js' THEN 'JavaScript' WHEN file LIKE '%.jsx' THEN 'JSX'
-		WHEN file LIKE '%.ts' THEN 'TypeScript' WHEN file LIKE '%.tsx' THEN 'TSX'
-		WHEN file LIKE '%.sh' THEN 'Bash' WHEN file LIKE '%.fish' THEN 'Fish'
-		ELSE 'Other' END as language, COUNT(DISTINCT file) as files, COUNT(*) as symbols FROM symbols`
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query(q+" WHERE project_path = ? GROUP BY language ORDER BY symbols DESC", pid)
+		rows, err = conn.Query(selectLanguageStatsBaseQuery+languageStatsProjectClause, pid)
 	} else {
-		rows, err = conn.Query(q + " GROUP BY language ORDER BY symbols DESC")
+		rows, err = conn.Query(selectLanguageStatsBaseQuery + languageStatsGroupClause)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -492,9 +507,9 @@ func handleTopImports(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows *sql.Rows
 	if pid != "" {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE project_path = ? AND kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20", pid)
+		rows, err = conn.Query(selectProjectTopImportsQuery, pid)
 	} else {
-		rows, err = conn.Query("SELECT target, COUNT(*) as count FROM edges WHERE kind = 'import' GROUP BY target ORDER BY count DESC LIMIT 20")
+		rows, err = conn.Query(selectTopImportsQuery)
 	}
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -526,9 +541,9 @@ func handleVectorStats(w http.ResponseWriter, r *http.Request) {
 	var dbVectors int
 	if conn, err := db.IndexReader(); err == nil {
 		if pid != "" {
-			conn.QueryRow("SELECT COUNT(*) FROM vectors WHERE project_path = ?", pid).Scan(&dbVectors)
+			conn.QueryRow(countProjectVectorsQuery, pid).Scan(&dbVectors)
 		} else {
-			conn.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&dbVectors)
+			conn.QueryRow(countVectorsQuery).Scan(&dbVectors)
 		}
 	}
 
@@ -680,7 +695,7 @@ func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error
 	if c := r.FormValue("count"); c != "" {
 		n, err := strconv.Atoi(c)
 		if err != nil {
-			return 0, nil, fmt.Errorf("count: %w", err)
+			return 0, nil, errs.WrapCodeMessage(errs.CodeInvalidInput, "invalid count", err, "count", c)
 		}
 		return 0, &n, nil
 	}
@@ -886,7 +901,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "EMBED_AUX_WORKERS" {
 			n, _ := strconv.Atoi(value)
 			if _, err := embedqueue.SetAuxWorkerCount(n); err != nil {
-				log.Printf("dashboard: set aux workers: %v", err)
+				logger.Warn("Failed to set aux embed workers", "workers", n, "error", err)
 			}
 		}
 		if key == "EMBED_AUX_BACKEND" {
@@ -1388,7 +1403,7 @@ func deleteProjectData(projectPath string) {
 		return
 	}
 	if err := purge.ProjectData(projectPath); err != nil {
-		log.Printf("dashboard: delete project %s: %v", projectPath, err)
+		logger.Warn("Failed to delete project data", "project_path", projectPath, "error", err)
 		return
 	}
 	_ = db.SetProjectDisplayName(projectPath, "")

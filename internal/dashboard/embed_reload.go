@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
@@ -11,7 +10,7 @@ import (
 
 func appendReloadFields(out map[string]interface{}) {
 	if err := embedder.Reload(); err != nil {
-		log.Printf("embedder reload: %v", err)
+		logger.Warn("Failed to reload embedder", "error", err)
 		out["reload_error"] = err.Error()
 		return
 	}

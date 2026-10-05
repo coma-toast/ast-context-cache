@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"log"
 	"sync"
 	"time"
 
@@ -9,6 +8,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/prometheus/client_golang/prometheus"
+)
+
+const (
+	selectTokensSavedTodayQuery = "SELECT " + tokensSavedSum + " FROM queries WHERE timestamp >= ? AND timestamp < ?"
 )
 
 var (
@@ -77,7 +80,7 @@ func registerPrometheusMetrics() {
 			mcpToolCalls,
 			mcpToolDuration,
 		)
-		log.Printf("dashboard: prometheus metrics registered at /metrics")
+		logger.Info("Registered prometheus metrics", "path", "/metrics")
 	})
 }
 
@@ -87,7 +90,7 @@ func mustRegister(cs ...prometheus.Collector) {
 			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				continue
 			}
-			log.Printf("dashboard: prometheus register: %v", err)
+			logger.Warn("Failed to register prometheus collector", "error", err)
 		}
 	}
 }
@@ -117,10 +120,7 @@ func tokensSavedToday() float64 {
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	var n int
-	err := db.DB.QueryRow(
-		"SELECT "+tokensSavedSum+" FROM queries WHERE timestamp >= ? AND timestamp < ?",
-		todayStart, tomorrowStart,
-	).Scan(&n)
+	err := db.DB.QueryRow(selectTokensSavedTodayQuery, todayStart, tomorrowStart).Scan(&n)
 	if err != nil {
 		return 0
 	}
