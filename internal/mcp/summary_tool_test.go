@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 )
 
@@ -17,11 +18,7 @@ func indexedPythonProject(t *testing.T) (project, file string) {
 
 func indexedPython(t *testing.T, name, src string) (project, file string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
+	dbtest.Init(t)
 	project = t.TempDir()
 	file = filepath.Join(project, name)
 	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
@@ -174,11 +171,7 @@ func TestRetrieveReturnsEachSameNamedMethod(t *testing.T) {
 // Only "<file basename>.<qualified name>" fqns name a member; plaintext rows
 // store "<path>#plaintext" and must not surface that as a qualified name.
 func TestFileContextOmitsQualifiedNameForNonMemberFqn(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
+	dbtest.Init(t)
 	project := t.TempDir()
 	file := filepath.Join(project, "app.log")
 	if err := os.WriteFile(file, []byte("started\n"), 0o644); err != nil {

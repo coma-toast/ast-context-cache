@@ -8,19 +8,17 @@ import (
 	"testing"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 )
 
 func setupMemoryToolTest(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
 	t.Setenv("AST_MCP_TIER", "complete")
 	origCfg := srvCfg
 	srvCfg = DefaultConfig()
 	t.Cleanup(func() { srvCfg = origCfg })
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	dbtest.Init(t)
 }
 
 // callTool runs a tools/call through the JSON-RPC handler and returns the

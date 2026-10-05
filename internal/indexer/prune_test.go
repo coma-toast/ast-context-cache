@@ -10,15 +10,24 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 )
 
-// testPruneDB isolates HOME so nothing touches the real ~/.astcache.
+// testPruneDB gives the test its own empty database. dbtest closes it (stopping
+// the index writer, batchers and the startup FTS rebuild) before its TempDir is
+// removed; the pools used to be left open, and the rebuild writing into .astcache
+// during RemoveAll failed cleanup with "directory not empty". The package's
+// TestMain database is closed first and reopened afterwards (cleanups run last-in
+// first-out, so HOME is restored by then) for tests that rely on it.
 func testPruneDB(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	db.Close()
+	t.Cleanup(func() {
+		if err := db.Init(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dbtest.Init(t)
 }
 
 func writeGo(t *testing.T, path, fn string) {
