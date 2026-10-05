@@ -278,6 +278,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		watcher.EnsureWatcher(projectPath)
 	}
 	sid := sessionArg(toolArgs)
+	touchHandoffSession(sid)
 
 	var result interface{}
 	loggedToolCall := false
@@ -639,6 +640,9 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		} else if ctxResult, ok, _ := handleContextTool(toolName, toolArgs, args, emb, start, cpuStart, projectPath); ok {
 			result = ctxResult
 			loggedToolCall = true
+		} else if hofResult, ok, _ := handleHandoffTool(toolName, toolArgs, args, start, cpuStart, projectPath); ok {
+			result = hofResult
+			loggedToolCall = true
 		} else {
 			result = map[string]string{"error": "not implemented: " + toolName}
 		}
@@ -650,10 +654,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	}
 	// MCP tools/call response must have result.content[].text and isError so clients pass tool output to the model.
 	resultJSON, _ := json.Marshal(result)
+	content := []map[string]interface{}{{"type": "text", "text": string(resultJSON)}}
+	if notice := claimsGrantedNotice(sid); notice != "" {
+		content = append(content, map[string]interface{}{"type": "text", "text": notice})
+	}
 	mcpResult := map[string]interface{}{
-		"content": []map[string]interface{}{
-			{"type": "text", "text": string(resultJSON)},
-		},
+		"content": content,
 		"isError": resultIsError(resultJSON),
 	}
 	json.NewEncoder(w).Encode(JSONRPCResponse{

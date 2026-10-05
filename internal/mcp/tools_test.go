@@ -139,7 +139,8 @@ func setFlagEnvs(t *testing.T, kv map[string]string) {
 	flags.Reload()
 }
 
-// The handoff tools are not registered yet, so these tests gate a scratchpad Tool literal.
+// A scratchpad literal at extended tier (the real tool is core) lets these cases see the tier
+// check apply alongside the flags.
 func TestToolAccessFeatureFlags(t *testing.T) {
 	scratchpad := Tool{Name: "scratchpad", Tier: TierExtended}
 	tests := []struct {
