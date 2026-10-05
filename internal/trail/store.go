@@ -24,7 +24,8 @@ const (
 		WHERE session_id = ?
 		AND COALESCE(tool,'') || '|' || COALESCE(query_norm,'') || '|' || COALESCE(filters_key,'') || '|' || COALESCE(doc_type,'') = ?
 		ORDER BY created_at DESC, id DESC LIMIT 1`
-	deleteTrailBeforeQuery = `DELETE FROM search_trail WHERE created_at < ?`
+	deleteTrailBeforeQuery  = `DELETE FROM search_trail WHERE created_at < ?`
+	deleteTrailSessionQuery = `DELETE FROM search_trail WHERE session_id = ?`
 )
 
 func toRow(e Entry) db.TrailRow {
@@ -74,6 +75,25 @@ func deleteBefore(cutoff time.Time) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// deleteSessions deletes every row of sids in one transaction and returns how many it deleted.
+func deleteSessions(sids []string) (int64, error) {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var total int64
+	for _, sid := range sids {
+		res, err := tx.Exec(deleteTrailSessionQuery, sid)
+		if err != nil {
+			return 0, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	return total, tx.Commit()
 }
 
 type scanner interface {

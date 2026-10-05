@@ -8,6 +8,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/trail"
 )
 
 const (
@@ -87,9 +88,17 @@ func (s *realService) flushTree(tree TreeID) (*FlushResponse, error) {
 	return res, nil
 }
 
-// deleteTrailSessions drops the search-trail rows of expired child sessions. internal/trail
-// lands with Phase 5; wire its session delete here when it does.
-func (s *realService) deleteTrailSessions(sids []SessionID) {}
+// deleteTrailSessions drops the search-trail rows of flushed child sessions, best effort like
+// the other out-of-transaction deletes in flushTree; PruneOlderThan catches any left behind.
+func (s *realService) deleteTrailSessions(sids []SessionID) {
+	ids := make([]string, len(sids))
+	for i, sid := range sids {
+		ids[i] = string(sid)
+	}
+	if _, err := trail.DeleteSessions(ids...); err != nil {
+		s.logger.Warn("Failed to delete flushed child search trail", "children", len(sids), "error", err)
+	}
+}
 
 func treeChildIDsTx(tx *sql.Tx, tree TreeID) ([]SessionID, error) {
 	rows, err := tx.Query(selectTreeChildIDsQuery, string(tree))

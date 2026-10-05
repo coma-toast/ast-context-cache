@@ -69,6 +69,7 @@ type realService struct {
 	logger  *slog.Logger
 	trees   *treeIndex
 	waiters *waitHub
+	touches *touchCoalescer
 }
 
 // New returns the handoff service, starts its expiry sweeper and abandonment loops, and
@@ -120,38 +121,10 @@ func (s *realService) Expand(ctx context.Context, req ExpandRequest) (*ExpandRes
 	return nil, notImplemented("expand")
 }
 
-// Complete is implemented in Phase 6.7.
-func (s *realService) Complete(ctx context.Context, req CompleteRequest) (*CompleteResponse, error) {
-	return nil, notImplemented("complete")
-}
-
-// Collect is implemented in Phase 6.8.
-func (s *realService) Collect(ctx context.Context, req CollectRequest) (*CollectResponse, error) {
-	return nil, notImplemented("collect")
-}
-
-// List is implemented in Phase 6.8.
-func (s *realService) List(ctx context.Context, req ListRequest) (*ListResponse, error) {
-	return nil, notImplemented("list")
-}
-
-// Status is implemented in Phase 6.8.
-func (s *realService) Status(ctx context.Context, req StatusRequest) (*StatusResponse, error) {
-	return nil, notImplemented("status")
-}
-
-// Flush is implemented in Phase 6.8 on top of flushTree.
-func (s *realService) Flush(ctx context.Context, req FlushRequest) (*FlushResponse, error) {
-	return nil, notImplemented("flush")
-}
-
 // Annotate is implemented in Phase 6.6; until then no response is annotated.
 func (s *realService) Annotate(sid SessionID, ev SearchEvent, results []map[string]any) map[string]any {
 	return nil
 }
-
-// Touch is implemented in Phase 6.9; until then activity is not recorded.
-func (s *realService) Touch(sid SessionID) {}
 
 // IsTreeSession reports whether sid belongs to a tree.
 func (s *realService) IsTreeSession(sid SessionID) bool {
@@ -165,6 +138,7 @@ func newService(emb embedder.Interface) *realService {
 		logger:  logging.Tagged("handoff"),
 		trees:   newTreeIndex(),
 		waiters: newWaitHub(),
+		touches: newTouchCoalescer(),
 	}
 }
 
