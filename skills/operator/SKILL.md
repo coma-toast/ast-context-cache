@@ -48,7 +48,7 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
 | **Analytics** | Tool performance table, symbol/language/import charts |
 | **Recent** | MCP tool calls vs indexing activity (accessible error expand) |
-| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **storage (move data directory, prune, drive/SSD health)**, **projects (link/unlink subprojects)**, agent install, MCP tier (read-only) |
+| **Settings** | Performance, virtual context, embedding backend, watcher, retention, **storage (move data directory, prune, drive/SSD health)**, **projects (link/unlink subprojects)**, feature flags (**Features**: live toggles, env-locked flags read-only), agent integration (installer preview / apply / backups), MCP tier (read-only) |
 
 ### Settings (operators)
 
@@ -57,7 +57,10 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 - **Virtual context** — limits + **Flush all**; per-session flush via API `POST /api/flush-context` with `session_id`
 - **Watcher ignore globs** — JSON array
 - **Embedding backend** — persisted to SQLite; env overrides on restart
-- **MCP tier** — read-only card (`AST_MCP_TIER`, `~/.astcache/tools.json`)
+- **MCP tier** — read-only card (`AST_MCP_TIER`, and the `tools.json` path the server loads: `AST_MCP_TOOLS_CONFIG` or `~/.astcache/tools.json`)
+- **Features** — feature flags (`feature_handoff`, `feature_handoff_scratchpad`, `feature_handoff_claims`, `feature_handoff_live_trail`, `feature_handoff_hooks`, `feature_shared_query_cache`); toggles apply live and send `tools/list_changed`. A non-empty `AST_FEATURE_*` env value locks a flag. API: `GET`/`POST /api/dashboard/flags`
+- **Handoff limits** — settings `handoff_ttl_days`, `handoff_summary_max_tokens`, `handoff_child_inactive_minutes`, `handoff_tree_max_tokens`, `handoff_tree_max_entries`, `handoff_max_depth`, `handoff_max_children`, `handoff_open_budget_tokens` (env `AST_HANDOFF_*`); see [docs/handoff.md](../../docs/handoff.md#settings-and-limits)
+- **Agent integration** — installer for 7 hosts with preview diff, apply, backups and restore (same engine as `ast-mcp install`; see [install/SKILL.md](../install/SKILL.md))
 
 ### Storage (operators)
 

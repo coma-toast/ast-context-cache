@@ -2,16 +2,14 @@
 
 ## What This File Is
 
-Copy-paste-ready MCP config snippets and agent instruction blocks for integrating
-ast-context-cache into your editor and projects. Pick the section for your editor,
-then copy the `AGENTS.md` / `CLAUDE.md` block into your project root.
+How to wire ast-context-cache into an editor or agent host, plus a pasteable instruction block for project `AGENTS.md` / `CLAUDE.md`. Prefer the installer: it writes the MCP entry, these skills, and the rule or instruction block for each host, merge-only and with backups.
 
 ### Cursor project skills (this repo)
 
-When working **in this repository**, prefer discoverable skills under [`.cursor/skills/`](../.cursor/skills/):
+When working **in this repository**, prefer discoverable skills under [`.cursor/skills/`](../../.cursor/skills/):
 
-- `ast-context-cache-usage` — MCP search, RAG, modes, filters, **virtual context compaction**
-- `ast-context-cache-install` — setup, tiers (**extended** for store_context)
+- `ast-context-cache-usage` — MCP search, RAG, modes, filters, **virtual context compaction**, **subagent handoff**
+- `ast-context-cache-install` — setup, installer, tiers (**extended** for store_context)
 - `ast-context-cache-rebuild` — rebuild/restart after server changes
 - `ast-context-cache-operator` — embeddings, dashboard, **virtual context limits**
 
@@ -19,69 +17,86 @@ Portable sources live in `skills/`; sync notes in [skills/README.md](../README.m
 
 ---
 
-## Editor MCP Configuration
+## Install with the installer (recommended)
 
-### OpenCode
-File: `~/.config/opencode/opencode.jsonc`
-```jsonc
+```bash
+./ast-mcp install --target <host> --dry-run   # preview the per-file diff
+./ast-mcp install --target <host> --yes       # apply (backs up every file first)
+./ast-mcp verify                              # status per host and component
+```
+
+Hosts: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`, or `all`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code only, behind the `feature_handoff_hooks` flag). The dashboard offers the same under Settings → **Agent integration**. Reference: [docs/INSTALL.md](../../docs/INSTALL.md#connect-your-agents); exact files and keys per host: [docs/host-integration.md](../../docs/host-integration.md).
+
+---
+
+## Editor MCP Configuration (manual)
+
+These are the entries the installer writes. URL entries take **no `env` block** (it does nothing for an HTTP server); set `AST_MCP_TIER` and similar on the `ast-mcp` process.
+
+### Claude Code
+File: `~/.claude.json` (top level), or `claude mcp add --transport http --scope user ast-context-cache http://127.0.0.1:7821/mcp`
+```json
 {
   "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
-    }
+    "ast-context-cache": { "type": "http", "url": "http://127.0.0.1:7821/mcp" }
   }
 }
 ```
 
 ### Cursor
-File: `.cursor/mcp.json`
+File: `~/.cursor/mcp.json`
 ```json
 {
   "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
-    }
+    "ast-context-cache": { "url": "http://127.0.0.1:7821/mcp" }
   }
 }
 ```
 
-Project skills: `.cursor/skills/ast-{usage,install,rebuild,operator}/` (see [skills/README.md](../README.md)).
+### OpenCode
+File: `~/.config/opencode/opencode.jsonc` (or `opencode.json`). The key is `mcp`, not `mcpServers`.
+```jsonc
+{
+  "mcp": {
+    "ast-context-cache": { "type": "remote", "url": "http://127.0.0.1:7821/mcp", "enabled": true }
+  }
+}
+```
+
+### Codex
+File: `~/.codex/config.toml`
+```toml
+[mcp_servers.ast-context-cache]
+url = "http://127.0.0.1:7821/mcp"
+```
 
 ### VS Code (GitHub Copilot)
-File: `.vscode/mcp.json`
+File: user `mcp.json` (run "MCP: Open User Configuration")
 ```json
 {
   "servers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
-    }
+    "ast-context-cache": { "type": "http", "url": "http://127.0.0.1:7821/mcp" }
   }
 }
 ```
 
 ### Claude Desktop
-File: `~/Library/Application Support/Claude/claude_desktop_config.json`
+File: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux). Claude Desktop launches stdio servers only, so it needs a bridge: [mcp-local](https://github.com/coma-toast/mcp-local)'s `bridge` command (use its absolute path), or `npx -y mcp-remote`.
 ```json
 {
   "mcpServers": {
     "ast-context-cache": {
-      "command": "http",
-      "url": "http://localhost:7821/mcp"
+      "command": "/absolute/path/to/mcp-local",
+      "args": ["bridge", "http://127.0.0.1:7821/mcp"]
     }
   }
 }
 ```
 
 ### JetBrains (AI Assistant)
-File: `.idea/mcp.json`
+No config file: Settings → Tools → AI Assistant → Model Context Protocol (MCP) → Add, paste the JSON below, set the server level to Global, then OK and Apply.
 ```json
-{
-  "mcpServers": {
-    "ast-context-cache": {
-      "url": "http://localhost:7821/mcp"
-    }
-  }
-}
+{ "mcpServers": { "ast-context-cache": { "url": "http://127.0.0.1:7821/mcp" } } }
 ```
 
 ---
@@ -93,6 +108,7 @@ The MCP server does not let agents pick a tier. The **operator** sets:
 - `AST_MCP_TIER=core|extended|complete` on the ast-mcp process
 - `AST_MCP_CODE_MODE=false` to hide `execute_code`
 - Optional `~/.astcache/tools.json` (or `AST_MCP_TOOLS_CONFIG`) for per-tool `enabled` / `tier` / `description`
+- Feature flags (dashboard Settings → Features, or `AST_FEATURE_*` env locks) to switch features such as handoff on and off live
 
 Restart ast-mcp after changing `tools.json`. Example file: [`skills/tools.json.example`](../tools.json.example). See [README tool tiers](../../README.md#tool-tiers-and-per-tool-overrides).
 
@@ -100,12 +116,14 @@ Restart ast-mcp after changing `tools.json`. Example file: [`skills/tools.json.e
 
 ## Agent Instructions Block (paste into AGENTS.md or CLAUDE.md)
 
+The installer writes the short canonical block from [`instructions/agents-block.md`](../../instructions/agents-block.md) into each host's global instructions file. For a project `AGENTS.md` / `CLAUDE.md` that wants the full tool surface, paste this longer block:
+
 ```markdown
 # MCP Code Search (ast-context-cache)
 
 **Goals:** Token-efficient local code search (tree-sitter + hybrid BM25/vector), cached library docs, impact analysis, and **virtual context compaction** so long threads survive host chat compaction.
 
-MCP server: http://localhost:7821/mcp · Dashboard: http://localhost:7830
+MCP server: http://127.0.0.1:7821/mcp · Dashboard: http://127.0.0.1:7830
 
 When working with this codebase, **always prefer MCP tools** over direct grep/read/glob.
 
@@ -122,6 +140,8 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 9. `search_docs` — search cached library/framework documentation; `no_match: true` means nothing relevant is cached → `fetch_doc`
 10. `store_context` — offload bulky thread text before host compaction (extended); keep `ctx_*` stubs
 11. `fetch_context` / `search_context` — recover offloaded notes after compaction (core)
+12. `open_handoff` — **first call** when your prompt contains `[handoff hof_…]`; then use the child `session_id` it returns
+13. `handoff` — `create` to delegate (paste the stub into the subagent prompt), `complete` to finish as a child, `collect` / `list` to fan in or recover refs
 
 ## Core Tools
 
@@ -132,6 +152,9 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 | `get_file_context` | All symbols in a file; **default `skeleton`**. Pass `session_id`. Use instead of reading files directly. |
 | `get_project_map` | Project structure overview (depth 1=dirs, 2=files, 3=symbols). |
 | `get_impact_graph` | Blast radius of a symbol — files that import or depend on it. |
+| `diff_impact` | Blast radius of a branch (`base_ref`...`head_ref`) or a GitHub PR (`pr`). |
+| `check_symbol_exists` | Whether a name is declared anywhere, with every declaring file and line. |
+| `check_deletion_safety` | Symbols a change removes: still referenced (unsafe) vs no callers (safe). |
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation (FTS). Try before WebFetch. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
@@ -139,6 +162,10 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 | `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). Primary recovery after compaction. |
 | `list_context` | List stored virtual context refs for a session (metadata only). |
 | `search_context` | Find stored virtual context by keyword/meaning when refs are lost. |
+| `recall_memory` | Compact structured facts/procedures (`mem_*`). |
+| `handoff` | Delegate and fan in: `create`, `complete`, `collect`, `list`, `status`, `flush`. |
+| `open_handoff` | Child entry point: `open` (before any search), `expand`, `resume`. |
+| `scratchpad` | Shared findings, dead ends, and advisory claims for parallel subagents: `post`, `read`, `retract`, `claim`, `release`. |
 
 ## Extended Tools
 
@@ -148,6 +175,7 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
 | `store_context` | Offload conversation/code notes before compaction; returns stable `ctx_*` refs. |
 | `flush_context` | Delete stored virtual context (session, refs, or all). Frees quota. |
+| `store_memory` / `forget_memory` | Write or invalidate structured memory (`mem_*`). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
 | `export_bundle` | Export indexed code as a portable `.astbundle` file. |
@@ -204,6 +232,13 @@ Use the **same `session_id`** as code search. Chat stub: `[ctx_a1b2c3d4e5f6] lab
 
 Metrics: dashboard **Virtual context** card (separate from code **Tokens saved**). Requires **`AST_MCP_TIER=extended`** for store/flush.
 
+## Subagent handoff
+
+- Prompt contains `[handoff hof_…]` → `open_handoff(handoff=…)` before any search; pass the returned child `session_id` everywhere; finish with `handoff(action=complete, content, status, summary)` and output the returned stub.
+- Delegating → `handoff(action=create, session_id, brief, pointers)` → paste the stub into the subagent prompt. `mode=fork` only for a host fork that inherited your window.
+- Parallel subagents share one stub and coordinate through `scratchpad` (claims are advisory). Fan in with `handoff(action=collect)`; after compaction, `handoff(action=list)` recovers lost refs.
+- Never put credentials in a brief or scratchpad post.
+
 ## Token savings tracking
 
 - **Formula:** `tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips`
@@ -251,24 +286,6 @@ Avoid using grep/read for:
 
 ## Cursor Rules (global or project)
 
-Install a always-on rule so every agent session knows the full tool surface and compaction policy.
+The canonical always-apply rule is [`rules/cursor/ast-context-cache.mdc`](../../rules/cursor/ast-context-cache.mdc) (`alwaysApply: true`): session ids, efficient exploration, host compaction, and subagent handoffs. `./ast-mcp install --target cursor --component rules --yes` writes it to `~/.cursor/rules/ast-context-cache.mdc` between version-stamped markers. Cursor documents global rules as Settings → Rules (User Rules) only, so if the global file is not picked up, paste the rule body there instead.
 
-**Global (recommended):** `~/.cursor/rules/ast-context-cache.mdc` with `alwaysApply: true` — copy from this repo’s documented rule or from [AGENTS.md](../../AGENTS.md).
-
-**Project optional:** `.cursor/rules/ast-context-cache.mdc`
-
-Minimum compaction lines every agent must follow:
-
-```markdown
-## Host compaction — use ast-context-cache
-
-Before host chat compaction (or ~70% context): store_context(extended) + same session_id → [ctx_…] stub in chat.
-After compaction: fetch_context(refs) | list_context | search_context (core).
-When done: flush_context(extended).
-
-Prefer MCP over Read/Grep for exploration. All tools: get_context_capsule, search_semantic, get_file_context,
-get_project_map, get_impact_graph, retrieve, index_status, search_docs, list_doc_sources, fetch_context,
-list_context, search_context, index_files, cache_summary, store_context, flush_context, analyze_dead_code,
-analyze_complexity, export_bundle, import_bundle, fetch_doc, add/remove/update_doc_source, execute_code.
-Code-mode: code_script_hints → execute_code(script_id, data, project_path). fetch_doc not WebFetch.
-```
+**Project optional:** copy the same file to `.cursor/rules/ast-context-cache.mdc`.

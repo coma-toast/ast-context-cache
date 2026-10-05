@@ -12,16 +12,17 @@ Local-first MCP server for AI coding agents. **No cloud, no account** — indexe
 | **Library docs offline** | `search_docs` / `fetch_doc` cached locally (Context7-style) |
 | **Survive host compaction** | **Virtual context** — `store_context` → `ctx_*` stubs → `fetch_context` after compaction (extended write, core read) |
 | **Remember prefs / rules** | **Structured memory** — `store_memory` → `mem_*` facts/procedures → `recall_memory` (extended write, core read) |
+| **Delegate without re-exploring** | **Subagent handoff** — `handoff` create → `[handoff hof_…]` stub in the subagent prompt → `open_handoff` → `handoff` complete returns a short stub (all core) |
 
 MCP: `http://localhost:7821/mcp` · Dashboard: `http://localhost:7830`
 
 ## Running the MCP server
 
-Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. **Optional:** For an external launcher that supervises `ast-mcp`, registers Cursor/OpenCode/Claude, and manages `~/.astcache/tools.json`, see [mcp-local](https://github.com/coma-toast/mcp-local) — agent workflows: [mcp-local/AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
+Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. Register it with your agent hosts with `./ast-mcp install --target <host> --yes` (or dashboard Settings → Agent integration) — see [docs/INSTALL.md](docs/INSTALL.md#connect-your-agents). **Optional:** For an external launcher that supervises `ast-mcp` and manages `~/.astcache/tools.json`, see [mcp-local](https://github.com/coma-toast/mcp-local) (its registration delegates to `ast-mcp install`) — agent workflows: [mcp-local/AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
 
 ## Tool tiers (server policy)
 
-The host sets which MCP tools exist via **`AST_MCP_TIER`** (`core` | `extended` | `complete`) and optional **`~/.astcache/tools.json`** per-tool `enabled` / `tier` overrides (`AST_MCP_TOOLS_CONFIG` for path). **`AST_MCP_CODE_MODE=false`** disables `execute_code`. Config is read at **ast-mcp startup** only.
+The host sets which MCP tools exist via **`AST_MCP_TIER`** (`core` | `extended` | `complete`) and optional **`~/.astcache/tools.json`** per-tool `enabled` / `tier` overrides (`AST_MCP_TOOLS_CONFIG` for path). **`AST_MCP_CODE_MODE=false`** disables `execute_code`. Tier and `tools.json` are read at **ast-mcp startup** only. **Feature flags** (dashboard Settings → Features, or `AST_FEATURE_*` env locks) switch whole features such as handoff on and off **live**, and the server sends `tools/list_changed`. A tool is listed only when its flag, `tools.json`, and the tier all allow it.
 
 Agents see only `tools/list` results—they cannot negotiate tier over MCP. If `index_files` or `execute_code` is missing, ask the user to raise tier or adjust `tools.json` and restart. Full tables and examples: [README.md](README.md#tool-tiers-and-per-tool-overrides), [skills/tools.json.example](skills/tools.json.example).
 
@@ -33,7 +34,7 @@ Project skills under [`.cursor/skills/`](.cursor/skills/) load when the task mat
 
 | Skill | When it applies |
 |-------|-----------------|
-| `ast-context-cache-usage` | MCP search, RAG, modes, filters, **virtual context compaction** |
+| `ast-context-cache-usage` | MCP search, RAG, modes, filters, **virtual context compaction**, **subagent handoff** |
 | `ast-context-cache-install` | Install, MCP config, tool tiers, **virtual context tier requirements** |
 | `ast-context-cache-rebuild` | Rebuild or restart ast-mcp after code changes |
 | `ast-context-cache-operator` | Embeddings, dashboard settings, logs, **virtual context limits** |
@@ -46,9 +47,9 @@ The `skills/` directory has copy-paste blocks and MCP JSON:
 
 | Skill | Contents |
 |-------|----------|
-| `skills/agents/SKILL.md` | MCP config for OpenCode, Cursor, Claude, VS Code, JetBrains |
+| `skills/agents/SKILL.md` | Installer pointer, manual MCP entries per host, the shared AGENTS.md / CLAUDE.md block |
 | `skills/install/SKILL.md` | Install, troubleshoot, **tool tiers for virtual context** |
-| `skills/usage/SKILL.md` | Tool selection, RAG, token tips, **virtual context compaction** |
+| `skills/usage/SKILL.md` | Tool selection, RAG, token tips, **virtual context compaction**, **subagent handoff** |
 | `skills/operator/SKILL.md` | Embeddings, dashboard, log retention |
 
 Read `skills/<name>/SKILL.md` when not using Cursor project skills.
@@ -70,6 +71,8 @@ Use MCP in this order for unfamiliar code (generate a stable **`session_id`** pe
 
 **Structured memory (prefs / rules):** Use **`store_memory`** / **`recall_memory`** / **`forget_memory`** for compact facts and procedures (`mem_*`) — not bulky notes. Prefer **`recall_memory`** over **`fetch_context`** when you need preferences or rules. Optional: `retrieve(..., include_memory=true)`. See [Structured memory](#structured-memory-facts--procedures) below.
 
+**Subagent handoff (delegation):** If your prompt contains **`[handoff hof_…]`**, call **`open_handoff`** before any search and use the child `session_id` it returns. To delegate, **`handoff`** `action=create` (brief, pointers) and paste the returned stub into the subagent prompt; the child ends with `handoff` `action=complete` and outputs the return stub. See [Subagent handoff](#subagent-handoff) below.
+
 **Defaults:** `get_context_capsule` → `auto`; `get_file_context` → **`skeleton`**; `search_semantic` → `skeleton`. Do not read whole source files when MCP can return structured symbols.
 
 **Operators** (embeddings, dashboard, log retention): [skills/operator/SKILL.md](skills/operator/SKILL.md) — dashboard http://localhost:7830 (embed queue gauge; tool performance with CPU/latency).
@@ -85,6 +88,7 @@ When working with codebases that have an MCP server available, **always prefer M
 - **retrieve** - RAG-style retrieval combining code + docs into formatted context
 - **search_docs** - Search cached library/framework documentation
 - **cache_summary** - Cache your own summaries for future queries
+- **handoff** / **open_handoff** / **scratchpad** - Delegate to subagents with a snapshot instead of re-exploring
 
 ### All Tools
 
@@ -108,6 +112,9 @@ When working with codebases that have an MCP server available, **always prefer M
 | `list_context` | List stored virtual context refs for a session (metadata only). |
 | `search_context` | Find stored virtual context by keyword/meaning. |
 | `recall_memory` | Compact structured facts/procedures (`mem_*`); prefer over `fetch_context` for prefs/rules. |
+| `handoff` | Delegate and fan in. Actions `create` (parent: snapshot → `hof_` ref + prompt stub), `complete` (child: store result → return stub), `collect`, `list`, `status`, `flush`. |
+| `open_handoff` | Child entry point: if your prompt contains `[handoff hof_…]`, call it before any search. Actions `open`, `expand`, `resume`. |
+| `scratchpad` | Shared notes for a handoff tree. Actions `post`, `read`, `retract`, `claim`, `release`; claims are advisory. |
 
 #### Extended
 
@@ -212,6 +219,41 @@ flush_context(session_id? | refs? | all=true, project_path?)
 Dashboard **Virtual context** card: active inventory, 30d stored vs accessed, utilization %, orphan notes (stored but never fetched), flushed tokens. API: `GET http://localhost:7830/api/context-stats`.
 
 **Chat pattern:** After store, write `[ctx_…] label` in the thread instead of the full content. After compaction, fetch by ref.
+
+**Handoffs and compaction:** handoff snapshots and child results belong to the handoff tree, so `flush_context` on the parent does not delete them. If compaction loses a `hof_` ref, `handoff(action="list", session_id=...)` recovers it.
+
+### Subagent handoff
+
+A subagent normally starts empty, re-runs the parent's searches, and returns a long report. A handoff passes it a snapshot of what the parent explored and returns a ref plus a capped summary. Full guide: [docs/handoff.md](docs/handoff.md).
+
+| Tool | Tier | Role |
+|------|------|------|
+| `handoff` | core | `create` (parent), `complete` (child), `collect` / `list` / `status` / `flush` (fan-in and recovery) |
+| `open_handoff` | core | `open` (child, first call), `expand` (pointer source, notes, memory, trail, manifest), `resume` |
+| `scratchpad` | core | `post` findings / dead ends, `read` since a cursor, `retract`, `claim` / `release` (advisory, FIFO) |
+
+```
+# parent
+handoff(action="create", session_id="parent", project_path="/abs/repo", brief="…", label="…",
+        pointers=[{"key": "internal/x/file.go", "note": "start here"}], mode="fresh")
+→ stub "[handoff hof_…] <label> — call open_handoff first"  → paste into the subagent prompt
+
+# child
+open_handoff(handoff="hof_…", project_path="/abs/repo")          → session_id (use it everywhere), digest
+open_handoff(action="expand", handoff="hof_…", session_id="<child>", section="pointer", items=[1], mode="auto")
+handoff(action="complete", session_id="<child>", content="<full result>", status="done", summary="…")
+→ stub "[result ctx_… for hof_…] done — <summary>"  → output as the final message
+
+# parent, after compaction lost the ref
+handoff(action="list", session_id="parent")  then  handoff(action="collect", session_id="parent")
+```
+
+- **Fork vs fresh:** `mode="fork"` only when the host spawned a fork that inherited your window (and prompt cache); it seeds the child's dedup with your explored symbols. Otherwise use the default `fresh`.
+- **Fan-out:** give one stub to up to 16 agents; each `open` mints its own child session. Siblings share findings and dead ends through `scratchpad`, see each other's searches (`sibling_trail_match`), and claim files before editing. **Claims are advisory**; nothing blocks edits.
+- **Annotations:** `parent_trail_match` (the parent already ran this search), `parent_explored: true` (fresh child, symbol already returned to the parent), `[claims_granted]` notice.
+- **Limits:** depth 3, 16 children per handoff, 64k tokens / 300 entries per tree, summary 300 tokens, trees expire 7 days after last access (settings `handoff_*`, env `AST_HANDOFF_*`).
+- **Errors** carry stable codes: `handoff_not_found`, `handoff_expired`, `handoff_depth_exceeded`, `handoff_children_exceeded`, `handoff_tree_limit_exceeded`, `claim_deadlock_risk`, `feature_disabled`.
+- **Never put credentials in a brief or scratchpad post**: anyone holding the ref can read the tree.
 
 ### Structured memory (facts & procedures)
 

@@ -23,12 +23,13 @@ type Skill struct {
 }
 
 // catalog lists the shipped skills in install order. Descriptions feed the frontmatter hosts use
-// to decide when to load a skill, since the canonical files carry none.
+// to decide when to load a skill, since the canonical files carry none. They are written as plain
+// YAML scalars, so they must not contain ": " or start with a YAML indicator character.
 var catalog = []struct{ name, description string }{
-	{"usage", "Use when searching, exploring, or analyzing code with the ast-context-cache MCP tools: token-efficient search modes, session_id dedup, virtual context (store_context/fetch_context), structured memory, and subagent handoffs."},
-	{"agents", "Use when wiring ast-context-cache into an editor or agent host: MCP registration snippets and the shared AGENTS.md / CLAUDE.md instruction block."},
-	{"install", "Use when installing, configuring, or troubleshooting the ast-mcp server, MCP editor config, tool tiers, or tools.json overrides."},
-	{"operator", "Use when operating the ast-mcp server: embedding backends, dashboard settings, log indexing and retention, watcher ignores, and virtual context limits."},
+	{"usage", "Use when searching, exploring, or analyzing code with the ast-context-cache MCP tools (token-efficient search modes, session_id dedup, virtual context, structured memory), and when delegating to a subagent or when your prompt contains [handoff hof_...] (handoff, open_handoff, scratchpad)."},
+	{"agents", "Use when wiring ast-context-cache into an editor or agent host - the installer, manual MCP registration entries per host, and the shared AGENTS.md / CLAUDE.md instruction block."},
+	{"install", "Use when installing, configuring, or troubleshooting the ast-mcp server, registering it with editors (ast-mcp install / verify / uninstall), tool tiers, or tools.json overrides."},
+	{"operator", "Use when operating the ast-mcp server - embedding backends, dashboard settings, feature flags, handoff limits, log indexing and retention, watcher ignores, and virtual context limits."},
 }
 
 // All returns the canonical skills in install order. An error means the embed directive and the
