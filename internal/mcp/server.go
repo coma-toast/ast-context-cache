@@ -277,6 +277,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	if projectPath != "" {
 		watcher.EnsureWatcher(projectPath)
 	}
+	sid := sessionArg(toolArgs)
 
 	var result interface{}
 	loggedToolCall := false
@@ -317,11 +318,14 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		inputTokens := db.EstimateTokens(query)
 		outputTokens := db.EstimateTokens(ctxResult.JSON)
 		logToolQuery(toolName, args, len(ctxResult.JSON), inputTokens, outputTokens, ctxResult.Savings, start, cpuStart, projectPath, "")
-		recordSearch(sessionArg(toolArgs), ctxResult.Trail)
+		recordSearch(sid, ctxResult.Trail)
 		var parsed map[string]interface{}
 		if err := json.Unmarshal([]byte(ctxResult.JSON), &parsed); err == nil {
 			parsed["input_tokens"] = inputTokens
 			parsed["output_tokens"] = outputTokens
+			if ann := annotateSearch(sid, ctxResult.Trail, resultMaps(parsed["results"])); ann != nil {
+				parsed["handoff"] = ann
+			}
 			resultJSON, _ := json.Marshal(parsed)
 			result = json.RawMessage(resultJSON)
 		} else {
@@ -418,10 +422,14 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					resp["tokens_remaining"] = tokenBudget - packSavings.TokensUsed
 				}
 				codescripts.AttachHints(resp, "search_semantic", query, projectPath, results)
+				entry := semanticTrail(hits, query, docType, projectPath, filters)
+				recordSearch(sessionID, entry)
+				if ann := annotateSearch(sessionID, entry, results); ann != nil {
+					resp["handoff"] = ann
+				}
 				respData, _ := json.Marshal(resp)
 				outTokens := db.EstimateTokens(string(respData))
 				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, packSavings, start, cpuStart, projectPath, "")
-				recordSearch(sessionID, semanticTrail(hits, query, docType, projectPath, filters))
 				loggedToolCall = true
 				result = json.RawMessage(respData)
 			}
@@ -451,10 +459,10 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			result = map[string]string{"error": "file and project_path required"}
 		} else {
 			fc := handleFileContextWithMeta(file, projectPath, mode, sessionID, tokenBudget)
-			result = json.RawMessage(fc.JSON)
 			outTokens := db.EstimateTokens(fc.JSON)
 			logToolQuery(toolName, args, len(fc.JSON), 0, outTokens, fc.Savings, start, cpuStart, projectPath, "")
 			recordSearch(sessionID, fc.Trail)
+			result = json.RawMessage(annotateFileContext(sessionID, fc.Trail, fc.JSON))
 			loggedToolCall = true
 		}
 	case "analyze_dead_code":
@@ -620,7 +628,6 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 						savings.TokensSaved = computed.TokensSaved
 					}
 					logToolQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, savings, start, cpuStart, projectPath, "")
-					recordSearch(sessionArg(toolArgs), retrieveTrail(retrieveResult))
 					loggedToolCall = true
 				}
 			}

@@ -13,6 +13,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -29,6 +30,8 @@ type RetrieveResult struct {
 	Chunks          []RetrieveChunk    `json:"chunks"`
 	Stats           RetrieveStats      `json:"stats"`
 	CodeScriptHints []codescripts.Hint `json:"code_script_hints,omitempty"`
+	// Handoff carries the session's handoff tree annotations (OP-9, SP-6); never cached.
+	Handoff map[string]any `json:"handoff,omitempty"`
 }
 
 type RetrieveChunk struct {
@@ -41,6 +44,8 @@ type RetrieveChunk struct {
 	Score         float64 `json:"score"`
 	Source        string  `json:"source"`
 	Content       string  `json:"content"`
+	// ParentExplored marks a code chunk the session's handoff parent was already returned (OP-10).
+	ParentExplored bool `json:"parent_explored,omitempty"`
 
 	// absFile and endLine locate a code chunk's symbol for dedup logging and
 	// baselines; File is project-relative for display.
@@ -81,8 +86,8 @@ type codeRetrieveMeta struct {
 	hits []string
 }
 
-// HandleRetrieve answers a retrieve call with {"result": json.RawMessage} on success, plus
-// "trail" (a trail.Entry describing the search for the session's search trail), or {"error"}.
+// HandleRetrieve answers a retrieve call with {"result": json.RawMessage} on success, or
+// {"error"}. It records the search in the session's trail and annotates it for a handoff tree.
 func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]interface{} {
 	query, _ := args["query"].(string)
 	if query == "" {
@@ -214,16 +219,40 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 	result.CodeScriptHints = codescripts.MatchHints("retrieve", query, projectPath, hintRows)
 
-	resultJSON, _ := json.Marshal(result)
 	entry := trail.Entry{
 		Tool: "retrieve", Query: query, FiltersKey: filters.NormalizedKey(projectPath), Mode: mode, ProjectPath: projectPath,
 		HitCount: codeCount + docCount, ZeroHit: codeCount+docCount == 0,
 		TopHits: codeMeta.hits[:min(len(codeMeta.hits), trail.MaxTopHits)], CandidateHits: codeMeta.hits,
 	}
-	return map[string]interface{}{
-		"result": json.RawMessage(resultJSON),
-		"trail":  entry,
+	recordSearch(sessionID, entry)
+	result.Handoff = annotateChunks(sessionID, entry, result.Chunks)
+	resultJSON, _ := json.Marshal(result)
+	return map[string]interface{}{"result": json.RawMessage(resultJSON)}
+}
+
+// annotateChunks annotates a retrieve search for a handoff tree session, marking the code chunks
+// its parent already explored; outside a tree it builds nothing.
+func annotateChunks(sessionID string, e trail.Entry, chunks []RetrieveChunk) map[string]any {
+	svc := treeService(sessionID, e)
+	if svc == nil {
+		return nil
 	}
+	keyed := make([]map[string]any, 0, len(chunks))
+	idx := make([]int, 0, len(chunks))
+	for i, c := range chunks {
+		if c.Type != "code" {
+			continue
+		}
+		keyed = append(keyed, map[string]any{"file": c.File, "name": c.Name, "start_line": c.StartLine})
+		idx = append(idx, i)
+	}
+	ann := svc.Annotate(handoff.SessionID(sessionID), handoff.SearchEventFor(e), keyed)
+	for j, k := range keyed {
+		if explored, _ := k["parent_explored"].(bool); explored {
+			chunks[idx[j]].ParentExplored = true
+		}
+	}
+	return ann
 }
 
 // retrieveCode ranks code chunks for query, skipping symbols already returned to
