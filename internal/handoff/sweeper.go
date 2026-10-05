@@ -139,13 +139,6 @@ func (s *realService) markAbandoned() (int, error) {
 	return len(marked), nil
 }
 
-// releaseAllTx releases every claim sid holds in tree and leaves its queue positions, granting
-// each key to the next waiter, and returns the released keys. Claims land in Phase 7.3; until
-// then a session holds none.
-func (s *realService) releaseAllTx(tx *sql.Tx, tree TreeID, sid SessionID) ([]string, error) {
-	return nil, nil
-}
-
 // pruneTrail drops search-trail rows older than the tree TTL. internal/trail lands with
 // Phase 5; wire trail.PruneOlderThan here when it does.
 func (s *realService) pruneTrail(ttl time.Duration) {}
