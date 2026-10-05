@@ -504,6 +504,22 @@ TypeScript (STYLEGUIDE TS section): import grouping and naming; `interface` for 
   - Idle sessions are evicted after 1 hour.
 - **For `2026-07-28` (if verified):** accept the per-request `_meta` without requiring a session, and deliver `list_changed` via the mechanism that revision defines (recorded in the 0.3 notes).
 
+#### 4.4b / 4.5b Dual-era amendment (Phase 0.3 verified 2026-07-28; see `docs/spikes/mcp-protocol-versions.md`)
+This replaces the conditional bullets above wherever they conflict.
+- **One `/mcp` endpoint serves two eras.**
+  - **Modern stateless `2026-07-28`:** detected by the `MCP-Protocol-Version` header or `_meta["io.modelcontextprotocol/protocolVersion"]` with no prior `initialize`.
+  - **Legacy handshake:** `initialize` negotiates `2025-11-25`, `2025-06-18`, `2025-03-26`, or `2024-11-05`. The plain-JSON POST behavior is kept for the oldest clients.
+- **Modern path, per the spec doc:**
+  - Implement `server/discover`.
+  - Validate the `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` headers: a mismatch returns 400 with `-32020`; an unsupported version returns 400 with `-32022` plus the supported list.
+  - Never mint or require `Mcp-Session-Id`. GET and DELETE return 405.
+  - Results carry `resultType`, and list results carry `ttlMs`/`cacheScope`.
+  - **`subscriptions/listen`:** a long-lived POST whose SSE response opens with `notifications/subscriptions/acknowledged`, then streams `notifications/tools/list_changed` (each with `subscriptionId`), plus keep-alive comments every ≤25s. Claude Code backs off for about 6h after repeated drops.
+  - `ping` and `logging/setLevel` don't exist in this era.
+- **Legacy path** keeps 4.4/4.5 as written: `Mcp-Session-Id`, GET SSE stream, DELETE, `ping`, and a 202 for notifications.
+- **`hub.Broadcast` fans out to both** legacy GET streams and modern listen subscriptions.
+- **Tests** cover both eras, including that a modern client receives `list_changed` over `subscriptions/listen` within 1s of `flags.Set` (AC28).
+
 #### 4.6 Flag → `list_changed`
 - **File:** `internal/mcp/server.go` init (or `mcp.Init`, called from main).
 - **Add:** `flags.OnChange(func(key string, _ bool){ if flags.AffectsTools(key) { hub.Broadcast("notifications/tools/list_changed", nil) } })`. Also call `realtime.Notify(realtime.SettingsChanged)` for the dashboard.
