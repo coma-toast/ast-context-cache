@@ -129,6 +129,7 @@ func main() {
 			return
 		}
 		projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
+		mcp.Init()
 		dbReady <- nil
 
 		db.BeforeForceCheckpoint = func() {
@@ -158,6 +159,8 @@ func main() {
 		})
 
 		mcpSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(mcpPort)), Handler: mcpMux}
+		// Shutdown waits for idle connections, which open SSE streams never become.
+		mcpSrv.RegisterOnShutdown(mcp.CloseStreams)
 		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
 
 		go func() {
