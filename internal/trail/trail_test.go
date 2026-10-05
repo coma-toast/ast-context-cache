@@ -155,6 +155,30 @@ func TestPruneOlderThan(t *testing.T) {
 	assert.False(t, ok, "an emptied ring is dropped")
 }
 
+func TestDeleteSessions(t *testing.T) {
+	setup(t)
+	Record(entry("c1", "persisted", 1))
+	db.FlushWriteBuffers()
+	Record(entry("c1", "buffered", 2))
+	Record(entry("c2", "other child", 1))
+	Record(entry("keep", "parent", 3))
+	n, err := DeleteSessions("c1", "", "c2", "missing")
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), n, "persisted and still-buffered rows of both sessions")
+	assert.Empty(t, ForSession("c1", 10))
+	assert.Empty(t, ForSession("c2", 10))
+	_, ok := rings.Load("c1")
+	assert.False(t, ok, "the ring is dropped")
+	db.FlushWriteBuffers()
+	var left int
+	require.NoError(t, db.DB.QueryRow(`SELECT COUNT(*) FROM search_trail WHERE session_id IN ('c1', 'c2')`).Scan(&left))
+	assert.Zero(t, left, "a later flush doesn't re-insert deleted rows")
+	assert.Len(t, ForSession("keep", 10), 1, "other sessions stay")
+	n, err = DeleteSessions()
+	require.NoError(t, err)
+	assert.Zero(t, n)
+}
+
 func TestSubscribe(t *testing.T) {
 	setup(t)
 	t.Cleanup(func() {

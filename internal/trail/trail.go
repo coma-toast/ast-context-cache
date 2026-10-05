@@ -167,6 +167,31 @@ func PruneOlderThan(d time.Duration) (int64, error) {
 	return n, nil
 }
 
+// DeleteSessions deletes every trail entry of sids, from memory and the DB, and returns how many
+// DB rows it deleted. Handoff tree expiry uses it for child sessions. Buffered rows are flushed
+// first, so a pending batch can't re-insert a deleted session's entries.
+func DeleteSessions(sids ...string) (int64, error) {
+	sids = slices.DeleteFunc(slices.Clone(sids), func(s string) bool { return s == "" })
+	if len(sids) == 0 {
+		return 0, nil
+	}
+	for _, sid := range sids {
+		rings.Delete(sid)
+	}
+	if db.DB == nil {
+		return 0, errNoDB
+	}
+	db.FlushWriteBuffers()
+	n, err := deleteSessions(sids)
+	if err != nil {
+		return 0, errs.WrapMessage("failed to delete search trail sessions", err, "sessions", len(sids))
+	}
+	if n > 0 {
+		logger.Info("Deleted search trail sessions", "sessions", len(sids), "rows", n)
+	}
+	return n, nil
+}
+
 // Subscribe registers fn to be called synchronously after each Record, with the recorded entry.
 func Subscribe(fn func(Entry)) {
 	subMu.Lock()
