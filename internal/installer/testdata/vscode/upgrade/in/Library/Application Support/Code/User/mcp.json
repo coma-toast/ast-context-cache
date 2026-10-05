@@ -2,7 +2,7 @@
 	"servers": {
 		"ast-context-cache": {
 			"type": "http",
-			"url": "http://localhost:7821/mcp"
+			"url": "http://localhost:7800/mcp"
 		}
 	}
 }

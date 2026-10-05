@@ -3,7 +3,7 @@
     "target": "cursor",
     "component": "mcp",
     "path": ".cursor/mcp.json",
-    "content": "{\"url\":\"http://localhost:7821/mcp\"}",
+    "content": "{\"url\":\"http://localhost:7800/mcp\"}",
     "created": 1
   },
   {

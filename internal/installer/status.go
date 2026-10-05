@@ -71,12 +71,13 @@ func foldStatus(statuses []Status) Status {
 }
 
 // entryStatus classifies a present entry by its canonical hash: current, as we last wrote it, or
-// edited since. An entry we never recorded that differs from ours counts as user-modified.
-func entryStatus(currentHash, desiredHash string, row *stateRow) Status {
+// edited since. An entry we never recorded that differs from ours counts as user-modified. The
+// recorded hash may be either form (see entryHashes).
+func entryStatus(cur entryHashes, desiredHash string, row *stateRow) Status {
 	switch {
-	case currentHash == desiredHash:
+	case cur.norm == desiredHash:
 		return StatusInstalled
-	case row != nil && row.EntryHash == currentHash:
+	case row != nil && (row.EntryHash == cur.norm || row.EntryHash == cur.raw):
 		return StatusOutdated
 	default:
 		return StatusModifiedByUser

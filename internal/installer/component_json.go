@@ -42,7 +42,7 @@ func (u jsonEntryUnit) status(e *env) ComponentStatus {
 	if err != nil {
 		return e.cs(StatusNotInstalled, u.file, err.Error())
 	}
-	st := entryStatus(shortHash(cur), shortHash(desired), row)
+	st := entryStatus(hashEntry(cur), desiredEntryHash(desired), row)
 	reason := ""
 	if st == StatusModifiedByUser && row == nil {
 		reason = "an ast-context-cache entry exists that the installer did not write"
@@ -74,12 +74,12 @@ func (u jsonEntryUnit) planInstall(e *env, data []byte, doc *jsonDoc) ([]FileCha
 	if err != nil {
 		return nil, nil, err
 	}
-	dh := shortHash(desired)
+	dh := desiredEntryHash(desired)
 	cur, present, err := doc.standard(u.block, serverName)
 	if err != nil {
 		return nil, nil, err
 	}
-	if present && shortHash(cur) == dh {
+	if present && hashEntry(cur).norm == dh {
 		c := e.skip(u.file, "already installed")
 		c.upserts = []stateRow{e.stateRow(u.file, dh, 0)}
 		return []FileChange{c}, nil, nil
@@ -98,7 +98,7 @@ func (u jsonEntryUnit) planInstall(e *env, data []byte, doc *jsonDoc) ([]FileCha
 	c := e.change(u.file, kind, data, doc.bytes())
 	c.upserts = []stateRow{e.stateRow(u.file, dh, created)}
 	warnings := append([]string(nil), u.warnings...)
-	if present && entryStatus(shortHash(cur), dh, row) == StatusModifiedByUser {
+	if present && entryStatus(hashEntry(cur), dh, row) == StatusModifiedByUser {
 		warnings = append(warnings, "Replaces an ast-context-cache entry edited outside the installer in "+e.s.displayPath(u.file)+" (a backup is taken first)")
 	}
 	return []FileChange{c}, warnings, nil
