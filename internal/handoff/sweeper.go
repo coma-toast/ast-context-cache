@@ -7,6 +7,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/trail"
 )
 
 const (
@@ -146,9 +147,13 @@ func (s *realService) releaseAllTx(tx *sql.Tx, tree TreeID, sid SessionID) ([]st
 	return nil, nil
 }
 
-// pruneTrail drops search-trail rows older than the tree TTL. internal/trail lands with
-// Phase 5; wire trail.PruneOlderThan here when it does.
-func (s *realService) pruneTrail(ttl time.Duration) {}
+// pruneTrail drops search-trail rows older than the tree TTL: by then no live tree can snapshot
+// or match them. A failure is logged; the next sweep retries.
+func (s *realService) pruneTrail(ttl time.Duration) {
+	if _, err := trail.PruneOlderThan(ttl); err != nil {
+		s.logger.Warn("Failed to prune search trail", "ttl", ttl, "error", err)
+	}
+}
 
 func inactiveChildrenTx(tx *sql.Tx, cutoff string) ([]abandonedChild, error) {
 	rows, err := tx.Query(selectInactiveChildrenQuery, cutoff)
