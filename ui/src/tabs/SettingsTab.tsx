@@ -33,6 +33,7 @@ import { formatBytes, formatNum } from '../api/client'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
 import { FeaturesSection } from '../components/FeaturesSection'
+import { InstallerSection } from '../components/InstallerSection'
 
 const PROJECTS_PAGE_SIZE = 8
 
@@ -45,7 +46,7 @@ const SECTIONS = [
   { id: 'watcher', label: 'Watcher' },
   { id: 'retention', label: 'Retention' },
   { id: 'projects', label: 'Projects' },
-  { id: 'agents', label: 'Agents' },
+  { id: 'agents', label: 'Agent integration' },
   { id: 'mcp', label: 'MCP tier' },
 ]
 
@@ -576,49 +577,7 @@ export function SettingsTab({
         </CardContent>
       </Card>
 
-      <Card variant="outlined" id="settings-agents" sx={{ mb: 2 }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            Agent integration
-          </Typography>
-          <Stack spacing={2}>
-            {data.Agents?.map((a) => (
-              <Box key={a.Type}>
-                <Typography sx={{ fontWeight: 500 }}>{a.Name}</Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {a.Description}
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                  <Button size="small" variant={a.GlobalInstalled ? 'contained' : 'outlined'} onClick={async () => {
-                    try {
-                      if (a.GlobalInstalled) await api.agentUninstall(a.Type, true)
-                      else await api.agentInstall(a.Type, true)
-                      showToast('Updated agent config', 'success')
-                      onRefresh()
-                    } catch (e) {
-                      showToast(String(e), 'error')
-                    }
-                  }}>
-                    Global {a.GlobalInstalled ? '✓' : 'Install'}
-                  </Button>
-                  <Button size="small" variant={a.ProjectInstalled ? 'contained' : 'outlined'} onClick={async () => {
-                    try {
-                      if (a.ProjectInstalled) await api.agentUninstall(a.Type, false)
-                      else await api.agentInstall(a.Type, false)
-                      showToast('Updated agent config', 'success')
-                      onRefresh()
-                    } catch (e) {
-                      showToast(String(e), 'error')
-                    }
-                  }}>
-                    Project {a.ProjectInstalled ? '✓' : 'Install'}
-                  </Button>
-                </Stack>
-              </Box>
-            ))}
-          </Stack>
-        </CardContent>
-      </Card>
+      <InstallerSection refreshKey={data} />
 
       {mcpTier && (
         <Card variant="outlined" id="settings-mcp">

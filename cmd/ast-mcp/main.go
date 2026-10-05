@@ -25,6 +25,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/installer"
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
@@ -137,6 +138,11 @@ func main() {
 		}
 		projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
 		mcp.Init()
+		if svc, err := installer.New(installer.Config{MCPURL: installer.MCPURL(mcpPort)}); err != nil {
+			logger.Warn("Failed to start installer", "error", err)
+		} else {
+			dashboard.SetInstaller(svc)
+		}
 		dbReady <- nil
 
 		db.BeforeForceCheckpoint = func() {

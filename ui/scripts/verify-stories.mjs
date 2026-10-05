@@ -25,6 +25,16 @@ const storiesToCheck = [
     label: "Settings / Features",
     textSignals: ["feature_handoff_hooks", "feature_shared_query_cache"],
   },
+  {
+    id: "dashboard-installer--default",
+    label: "Installer / Default",
+    textSignals: ["Agent integration", "Modified by user"],
+  },
+  {
+    id: "dashboard-installer--preview-open",
+    label: "Installer / Preview open",
+    textSignals: ["Install preview — Cursor", "Files changed since preview"],
+  },
 ];
 
 async function exists(p) {

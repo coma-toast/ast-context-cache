@@ -1,10 +1,16 @@
 import type {
+  ApiError,
   BrowseDirResult,
   ContextSessionsResponse,
   DataDirMoveStatus,
   FlagsResponse,
   Health,
   IndexHealth,
+  InstallerApplyResult,
+  InstallerBackupsResponse,
+  InstallerOverview,
+  InstallerPlan,
+  InstallerPlanRequest,
   MCPTier,
   MemoryData,
   Project,
@@ -74,14 +80,25 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     throw new Error(`${path}: network error (${e instanceof Error ? e.message : 'fetch failed'})`)
   }
   const text = await r.text()
-  let data: T & { error?: string }
+  let data: T & ErrorBody
   try {
-    data = JSON.parse(text) as T & { error?: string }
+    data = JSON.parse(text) as T & ErrorBody
   } catch {
     throw new Error(`${path}: invalid JSON (HTTP ${r.status})`)
   }
-  if (!r.ok || data.error) throw new Error(data.error || `${path}: HTTP ${r.status}`)
+  if (!r.ok || data.error) throw apiError(data.error || `${path}: HTTP ${r.status}`, data)
   return data
+}
+
+interface ErrorBody {
+  error?: string
+  code?: string
+  repreview?: boolean
+}
+
+/** Carries the server's error code and repreview hint (installer apply, IN-5) on the thrown Error. */
+function apiError(message: string, body: ErrorBody): ApiError {
+  return Object.assign(new Error(message), { code: body.code ?? '', repreview: body.repreview === true })
 }
 
 /** POST that returns JSON even when the server signals failure via ok:false / HTTP 4xx/5xx. */
@@ -176,8 +193,13 @@ export const api = {
     post('/api/doc-sources', { action: 'add', name, url, type, version }),
   installDocPack: () =>
     post<{ status?: string; pack?: string; added?: number }>('/api/doc-packs/install', {}),
-  agentInstall: (agent_type: string, is_global: boolean) => post('/api/agent-install', { agent_type, is_global }),
-  agentUninstall: (agent_type: string, is_global: boolean) => post('/api/agent-uninstall', { agent_type, is_global }),
+  installer: () => get<InstallerOverview>('/api/dashboard/installer'),
+  installerPreview: (req: InstallerPlanRequest) => post<InstallerPlan>('/api/dashboard/installer/preview', req),
+  /** Rejects with an ApiError whose `repreview` is set when the plan must be previewed again. */
+  installerApply: (plan_id: string) => post<InstallerApplyResult>('/api/dashboard/installer/apply', { plan_id }),
+  installerBackups: () => get<InstallerBackupsResponse>('/api/dashboard/installer/backups'),
+  installerRestore: (backup_id: string) =>
+    post<{ status: string; backup_id: string }>('/api/dashboard/installer/restore', { backup_id }),
   embedderTest: () => post<{ status?: string; error?: string }>('/api/embedder/test', {}),
   embedderRetry: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string; skipped?: boolean }>('/api/embedder/retry'),

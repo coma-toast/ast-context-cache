@@ -55,27 +55,6 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 	queryRetentionLast := settings["query_retention_last_run"]
 
 	projects, projectsLoading := loadProjectsForPage()
-	configs, _ := db.GetAgentConfigs()
-	var agents []components.AgentInfo
-	for _, sa := range supportedAgents {
-		a := components.AgentInfo{
-			Type:        sa.Type,
-			Name:        sa.Name,
-			GlobalPath:  sa.GlobalPath,
-			ProjectPath: sa.ProjectPath,
-			Description: sa.Description,
-		}
-		for _, c := range configs {
-			if c.AgentType == sa.Type {
-				if c.IsGlobal {
-					a.GlobalInstalled = true
-				} else {
-					a.ProjectInstalled = true
-				}
-			}
-		}
-		agents = append(agents, a)
-	}
 	data := components.SettingsData{
 		IdleUnloadMinutes:        idleMinutes,
 		WatcherIgnoreGlobs:       watcherIgn,
@@ -93,7 +72,6 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		QueryRetentionLastRun:    queryRetentionLast,
 		Projects:                 projects,
 		ProjectsLoading:          projectsLoading,
-		Agents:                   agents,
 		EmbedWorkerMax:           embedqueue.MaxWorkers(),
 		EmbedAuxWorkerMax:        embedqueue.AuxMaxWorkers(),
 		EmbedAuxWorkers:          embedqueue.AuxWorkerTarget(),

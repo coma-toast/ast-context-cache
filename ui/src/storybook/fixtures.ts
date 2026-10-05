@@ -7,6 +7,9 @@ import type {
   FlagState,
   Health,
   IndexHealth,
+  InstallerBackup,
+  InstallerOverview,
+  InstallerPlan,
   MCPTier,
   MemoryData,
   SettingsData,
@@ -341,26 +344,6 @@ export const fixtureSettings: SettingsData = {
     },
   ],
   ProjectsLoading: false,
-  Agents: [
-    {
-      Type: 'cursor',
-      Name: 'Cursor',
-      Description: 'MCP config + project skills for Cursor IDE',
-      GlobalPath: '~/.cursor/mcp.json',
-      ProjectPath: '.cursor/mcp.json',
-      GlobalInstalled: true,
-      ProjectInstalled: true,
-    },
-    {
-      Type: 'claude',
-      Name: 'Claude Code',
-      Description: 'MCP config for Claude Code CLI',
-      GlobalPath: '~/.claude/mcp.json',
-      ProjectPath: '.claude/mcp.json',
-      GlobalInstalled: false,
-      ProjectInstalled: false,
-    },
-  ],
 }
 
 export const fixtureMcpTier: MCPTier = {
@@ -426,5 +409,232 @@ export const fixtureFlags: FlagState[] = [
     enabled: true,
     default: true,
     locked: false,
+  },
+]
+
+/**
+ * Installer overview covering every status style: Cursor installed, Claude Code edited by the
+ * user with hooks shown, VS Code with an unparseable config, JetBrains unsupported, and a
+ * pre-4.0 legacy warning.
+ */
+export const fixtureInstaller: InstallerOverview = {
+  hooks_enabled: true,
+  legacy_warnings: [
+    'A pre-4.0 install wrote markdown instructions over ~/.claude.json (recorded 2026-03-02 10:14:00), which can erase Claude Code\'s settings and MCP servers. If Claude Code lost its configuration, restore ~/.claude.json from Claude Code\'s own backups in ~/.claude/backups/, then run `ast-mcp install --target claude_code`.',
+  ],
+  targets: [
+    {
+      id: 'claude_code',
+      name: 'Claude Code',
+      components: [
+        {
+          component: 'mcp',
+          supported: true,
+          path: '/Users/demo/.claude.json',
+          status: 'modified_by_user',
+          status_reason: 'an ast-context-cache entry exists that the installer did not write',
+        },
+        {
+          component: 'skills',
+          supported: true,
+          path: '/Users/demo/.claude/skills',
+          status: 'externally_managed',
+          status_reason: '/Users/demo/.claude/skills/ast-context-cache is a symlink to /Users/demo/git/ast-context-cache/skills/usage',
+        },
+        { component: 'rules', supported: true, path: '/Users/demo/.claude/CLAUDE.md', status: 'outdated' },
+        { component: 'hooks', supported: true, path: '/Users/demo/.claude/settings.json', status: 'not_installed' },
+      ],
+    },
+    {
+      id: 'cursor',
+      name: 'Cursor',
+      components: [
+        { component: 'mcp', supported: true, path: '/Users/demo/.cursor/mcp.json', status: 'installed' },
+        {
+          component: 'skills',
+          supported: true,
+          path: '/Users/demo/.agents/skills',
+          status: 'covered',
+          status_reason: 'Cursor already loads ast-context-cache skills from /Users/demo/.claude/skills',
+        },
+        { component: 'rules', supported: true, path: '/Users/demo/.cursor/rules/ast-context-cache.mdc', status: 'installed' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'opencode',
+      name: 'OpenCode',
+      components: [
+        { component: 'mcp', supported: true, path: '/Users/demo/.config/opencode/opencode.json', status: 'not_installed' },
+        { component: 'skills', supported: true, path: '/Users/demo/.config/opencode/skills', status: 'not_installed' },
+        { component: 'rules', supported: true, path: '/Users/demo/.config/opencode/AGENTS.md', status: 'missing' },
+        {
+          component: 'hooks',
+          supported: false,
+          reason: 'OpenCode hooks require a plugin; handoff hooks are Claude Code only',
+          status: 'unsupported',
+        },
+      ],
+    },
+    {
+      id: 'codex',
+      name: 'Codex',
+      components: [
+        { component: 'mcp', supported: true, path: '/Users/demo/.codex/config.toml', status: 'outdated' },
+        { component: 'skills', supported: true, path: '/Users/demo/.agents/skills', status: 'installed' },
+        { component: 'rules', supported: true, path: '/Users/demo/.codex/AGENTS.md', status: 'installed' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'claude_desktop',
+      name: 'Claude Desktop',
+      components: [
+        {
+          component: 'mcp',
+          supported: true,
+          path: '/Users/demo/Library/Application Support/Claude/claude_desktop_config.json',
+          status: 'missing',
+        },
+        { component: 'skills', supported: false, reason: 'Claude Desktop has no documented local location for this component', status: 'unsupported' },
+        { component: 'rules', supported: false, reason: 'Claude Desktop has no documented local location for this component', status: 'unsupported' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'vscode',
+      name: 'VS Code',
+      components: [
+        {
+          component: 'mcp',
+          supported: true,
+          path: '/Users/demo/Library/Application Support/Code/User/mcp.json',
+          status: 'not_installed',
+          status_reason: "~/Library/Application Support/Code/User/mcp.json could not be parsed, so it was left unchanged: unexpected '}' at line 4",
+        },
+        { component: 'skills', supported: false, reason: "VS Code's user-scope location for this component is unverified", status: 'unsupported' },
+        { component: 'rules', supported: false, reason: "VS Code's user-scope location for this component is unverified", status: 'unsupported' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+    {
+      id: 'jetbrains',
+      name: 'JetBrains',
+      components: [
+        {
+          component: 'mcp',
+          supported: false,
+          reason:
+            'JetBrains AI Assistant has no documented config file. In the IDE open Settings → Tools → AI Assistant → Model Context Protocol (MCP) → Add, paste {"mcpServers":{"ast-context-cache":{"url":"http://127.0.0.1:7821/mcp"}}}, set the server level to Global, then OK and Apply',
+          status: 'unsupported',
+        },
+        { component: 'skills', supported: false, reason: 'JetBrains AI Assistant has no documented local location for this component', status: 'unsupported' },
+        { component: 'rules', supported: false, reason: 'JetBrains AI Assistant has no documented local location for this component', status: 'unsupported' },
+        { component: 'hooks', supported: false, reason: 'handoff hooks are Claude Code only', status: 'unsupported' },
+      ],
+    },
+  ],
+}
+
+/** Cursor install preview: a merged MCP entry, a new rule file, a skipped skill, and a warning. */
+export const fixtureInstallerPlan: InstallerPlan = {
+  plan_id: 'plan_0123456789abcdef01234567',
+  action: 'install',
+  expires_at: '2026-07-28T12:10:00Z',
+  warnings: [
+    'Cursor: loading rules from the global ~/.cursor/rules directory is unverified; Settings → Rules (User Rules) is the documented path',
+  ],
+  status: [],
+  changes: [
+    {
+      target: 'cursor',
+      component: 'mcp',
+      path: '/Users/demo/.cursor/mcp.json',
+      kind: 'modify',
+      skipped: false,
+      diff: [
+        '--- a/Users/demo/.cursor/mcp.json',
+        '+++ b/Users/demo/.cursor/mcp.json',
+        '@@ -1,5 +1,8 @@',
+        ' {',
+        '   "mcpServers": {',
+        '-    "other": {"url": "http://example.test/mcp"}',
+        '+    "other": {"url": "http://example.test/mcp"},',
+        '+    "ast-context-cache": {',
+        '+      "url": "http://127.0.0.1:7821/mcp"',
+        '+    }',
+        '   }',
+        ' }',
+        '',
+      ].join('\n'),
+    },
+    {
+      target: 'cursor',
+      component: 'skills',
+      path: '/Users/demo/.agents/skills/ast-context-cache-usage/SKILL.md',
+      kind: 'none',
+      skipped: true,
+      diff: '',
+      reason: 'Cursor already loads ast-context-cache skills from /Users/demo/.claude/skills',
+    },
+    {
+      target: 'cursor',
+      component: 'rules',
+      path: '/Users/demo/.cursor/rules/ast-context-cache.mdc',
+      kind: 'create',
+      skipped: false,
+      diff: [
+        '--- /dev/null',
+        '+++ b/Users/demo/.cursor/rules/ast-context-cache.mdc',
+        '@@ -0,0 +1,6 @@',
+        '+---',
+        '+alwaysApply: true',
+        '+---',
+        '+<!-- BEGIN ast-context-cache v4.0.0 -->',
+        '+Use ast-context-cache tools before broad grep or whole-file reads.',
+        '+<!-- END ast-context-cache -->',
+        '',
+      ].join('\n'),
+    },
+  ],
+}
+
+/** VS Code preview aborted by a parse error: nothing is written for the target (IN-3). */
+export const fixtureInstallerErrorPlan: InstallerPlan = {
+  plan_id: 'plan_fedcba9876543210fedcba98',
+  action: 'install',
+  expires_at: '2026-07-28T12:10:00Z',
+  warnings: [],
+  status: [],
+  errors: [
+    {
+      target: 'vscode',
+      component: 'mcp',
+      code: 'invalid_input',
+      message: "~/Library/Application Support/Code/User/mcp.json could not be parsed, so it was left unchanged: unexpected '}' at line 4",
+    },
+  ],
+  changes: [
+    {
+      target: 'vscode',
+      component: 'mcp',
+      path: '',
+      kind: 'none',
+      skipped: true,
+      diff: '',
+      reason: "~/Library/Application Support/Code/User/mcp.json could not be parsed, so it was left unchanged: unexpected '}' at line 4",
+    },
+  ],
+}
+
+export const fixtureInstallerBackups: InstallerBackup[] = [
+  { id: '20260728-120412/%Users%demo%.cursor%mcp.json', path: '/Users/demo/.cursor/mcp.json', created_at: '2026-07-28T12:04:12Z', size: 412 },
+  { id: '20260727-093000/%Users%demo%.claude%CLAUDE.md', path: '/Users/demo/.claude/CLAUDE.md', created_at: '2026-07-27T09:30:00Z', size: 8_240 },
+  {
+    id: '20260727-092955/%Users%demo%.claude%skills%ast-context-cache.symlink',
+    path: '/Users/demo/.claude/skills/ast-context-cache',
+    created_at: '2026-07-27T09:29:55Z',
+    size: 52,
+    symlink: true,
   },
 ]

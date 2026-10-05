@@ -302,17 +302,6 @@ export interface SettingsData {
   EmbedderError: string
   Projects: Project[]
   ProjectsLoading: boolean
-  Agents: AgentInfo[]
-}
-
-export interface AgentInfo {
-  Type: string
-  Name: string
-  Description: string
-  GlobalPath: string
-  ProjectPath: string
-  GlobalInstalled: boolean
-  ProjectInstalled: boolean
 }
 
 export interface MemoryData {
@@ -482,4 +471,130 @@ export interface FlagsResponse {
 
 export interface SetFlagResponse extends FlagsResponse {
   status: string
+}
+
+/** Agent host the installer configures (`internal/installer.Target`). */
+export type InstallerTargetId =
+  | 'claude_code'
+  | 'cursor'
+  | 'opencode'
+  | 'codex'
+  | 'claude_desktop'
+  | 'vscode'
+  | 'jetbrains'
+
+/** Installable piece of a target, in display and apply order. */
+export type InstallerComponentId = 'mcp' | 'skills' | 'rules' | 'hooks'
+
+export type InstallerAction = 'install' | 'uninstall'
+
+/** A component's installed state, computed from the files on disk (IN-8). */
+export type InstallerStatus =
+  | 'installed'
+  | 'outdated'
+  | 'modified_by_user'
+  | 'missing'
+  | 'not_installed'
+  | 'externally_managed'
+  | 'unsupported'
+  | 'covered'
+
+/** What applying a change does to its file. */
+export type InstallerChangeKind = 'create' | 'modify' | 'remove-block' | 'delete' | 'none'
+
+/** One target × component cell of `GET /api/dashboard/installer`. */
+export interface InstallerComponent {
+  component: InstallerComponentId
+  supported: boolean
+  path?: string
+  /** Why the component is unsupported. */
+  reason?: string
+  status: InstallerStatus
+  /** Detail on the status, e.g. a parse error or which target already covers it. */
+  status_reason?: string
+}
+
+export interface InstallerTarget {
+  id: InstallerTargetId
+  name: string
+  components: InstallerComponent[]
+}
+
+export interface InstallerOverview {
+  targets: InstallerTarget[]
+  /** Findings of the one-time pre-4.0 install-record check (IN-13). */
+  legacy_warnings: string[]
+  hooks_enabled: boolean
+}
+
+export interface InstallerPlanRequest {
+  targets: InstallerTargetId[]
+  components: InstallerComponentId[]
+  action: InstallerAction
+  replace_external: boolean
+}
+
+/** One file a plan would touch (`internal/installer.FileChange`). */
+export interface InstallerFileChange {
+  target: InstallerTargetId
+  component: InstallerComponentId
+  path: string
+  kind: InstallerChangeKind
+  /** Unified diff; empty for a skipped change. */
+  diff: string
+  skipped: boolean
+  reason?: string
+}
+
+export interface InstallerComponentStatus {
+  target: InstallerTargetId
+  component: InstallerComponentId
+  status: InstallerStatus
+  path: string
+  reason?: string
+}
+
+/** A target aborted because one of its files could not be edited safely (IN-3). */
+export interface InstallerPlanError {
+  target: InstallerTargetId
+  component: InstallerComponentId
+  code: string
+  message: string
+}
+
+export interface InstallerPlan {
+  plan_id: string
+  action: InstallerAction
+  changes: InstallerFileChange[]
+  status: InstallerComponentStatus[]
+  warnings: string[]
+  errors?: InstallerPlanError[]
+  expires_at: string
+}
+
+export interface InstallerBackup {
+  /** `<timestamp dir>/<encoded name>`, passed back to restore. */
+  id: string
+  path: string
+  created_at: string
+  size: number
+  symlink?: boolean
+}
+
+export interface InstallerApplyResult {
+  plan_id: string
+  written: string[]
+  backups: InstallerBackup[]
+  status: InstallerComponentStatus[]
+  warnings: string[]
+}
+
+export interface InstallerBackupsResponse {
+  backups: InstallerBackup[]
+}
+
+/** Error thrown by API POSTs; installer apply sets `repreview` when the plan is stale (IN-5). */
+export interface ApiError extends Error {
+  code: string
+  repreview: boolean
 }
