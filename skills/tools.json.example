@@ -18,5 +18,10 @@
     "enabled": true,
     "tier": "extended",
     "description": "Delete stored virtual context to free quota"
+  },
+  "scratchpad": {
+    "enabled": false,
+    "tier": "core",
+    "description": "Hidden from tools/list by policy. tools.json is read at startup and can only hide or re-tier a tool; to switch a whole feature on or off live use its feature flag (feature_handoff_scratchpad, AST_FEATURE_HANDOFF_SCRATCHPAD). A tool is listed only when its flag, tools.json, and the tier all allow it."
   }
 }

@@ -30,7 +30,11 @@ Generate one stable `session_id` per conversation (for example a UUID) and pass 
 
 ## Subagent handoffs
 
-- If your prompt contains `[handoff hof_…]`, call `open_handoff` (action `open`) before any search, then use the child `session_id` it returns.
-- To delegate: `handoff` `create` with a brief and pointers, and put the returned stub in the subagent prompt.
-- A child finishes with `handoff` `complete` and outputs the return stub as its final message; the parent fetches the full result only if needed.
-- Use `scratchpad` to post findings and claim files when several agents share one handoff.
+Cursor has no subagent hooks, so follow this manual flow.
+
+- If your prompt contains `[handoff hof_…]`, call `open_handoff` (action `open`) before any search, then use the child `session_id` it returns on every call.
+- To delegate: `handoff` `create` with your `session_id`, a brief, and pointers, and put the returned stub (`[handoff hof_…] <label> — call open_handoff first`) at the top of the subagent's task. Use the default `mode=fresh`; `fork` is only for a host fork that inherited your window.
+- A child expands only what it needs (`open_handoff` `expand`), finishes with `handoff` `complete` (full `content`, `status`, short `summary`), and outputs the return stub `[result ctx_… for hof_…] <status> — <summary>` as its final message; the parent fetches the full result only if needed.
+- When several agents share one handoff: post findings and dead ends with `scratchpad`, and `claim` a file before editing it. Claims are advisory; nothing blocks an edit. The parent fans in with `handoff` `collect`.
+- After compaction, `handoff` `list` with your `session_id` recovers lost `hof_` refs.
+- Never put credentials or secrets in a brief or scratchpad post; anyone with the ref can read it.

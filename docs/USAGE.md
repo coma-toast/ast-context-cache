@@ -2,11 +2,11 @@
 
 ## What It Does
 
-ast-context-cache is an MCP server that provides token-efficient code search for AI coding agents. Instead of reading entire files, it returns only the symbols (functions, classes, types) you need — saving 80-94% of tokens. It also offers **virtual context** (`ctx_*`) for host compaction survival and **structured memory** (`mem_*`) for compact prefs/rules.
+ast-context-cache is an MCP server that provides token-efficient code search for AI coding agents. Instead of reading entire files, it returns only the symbols (functions, classes, types) you need — saving 80-94% of tokens. It also offers **virtual context** (`ctx_*`) for host compaction survival, **structured memory** (`mem_*`) for compact prefs/rules, and **subagent handoff** (`hof_*`) so a subagent starts from what its parent already explored.
 
 **Operator dashboard:** React SPA at `http://localhost:7830/dashboard/` (not Preact/HTMX). Prometheus metrics: `GET http://localhost:7830/metrics`.
 
-Tool list must match `internal/mcp/tools.go` / `tools/list`. See [README — MCP Tools](../README.md#mcp-tools) and [AGENTS.md](../AGENTS.md) for full tables.
+Tool list must match `internal/mcp/tools.go` / `tools/list`. See [AGENTS.md — All Tools](../AGENTS.md#all-tools) for full tables and [README — Tool tiers](../README.md#tool-tiers-and-per-tool-overrides) for tiers and overrides.
 
 ## Available Tools
 
@@ -19,6 +19,9 @@ Tool list must match `internal/mcp/tools.go` / `tools/list`. See [README — MCP
 | `get_file_context` | All symbols in a specific file with mode-aware output |
 | `get_project_map` | Hierarchical project overview (~200 tokens) |
 | `get_impact_graph` | Find all files depending on a symbol |
+| `diff_impact` | Blast radius of a branch or a GitHub PR (`pr`) |
+| `check_symbol_exists` | Whether a name is declared anywhere, and where |
+| `check_deletion_safety` | Removed symbols still referenced elsewhere vs safe to delete |
 | `index_status` | Check if a project is indexed |
 | `search_docs` | Search cached library/framework documentation |
 | `list_doc_sources` | List tracked documentation sources (read-only) |
@@ -27,6 +30,9 @@ Tool list must match `internal/mcp/tools.go` / `tools/list`. See [README — MCP
 | `list_context` | List virtual context refs (metadata) |
 | `search_context` | Find virtual context when refs are lost |
 | `recall_memory` | Compact structured facts/procedures (`mem_*`) |
+| `handoff` | Delegate to a subagent: `create`, `complete`, `collect`, `list`, `status`, `flush` |
+| `open_handoff` | Child entry point: `open`, `expand`, `resume` |
+| `scratchpad` | Shared findings and advisory claims across a handoff tree: `post`, `read`, `retract`, `claim`, `release` |
 
 ### Extended
 
@@ -128,6 +134,25 @@ recall_memory(session_id="ses_abc123", query="shell")
 fetch_context(refs=["ctx_..."], session_id="ses_abc123")
 ```
 
+### 6. Delegating to a subagent
+```
+# parent: snapshot what you explored, then paste the stub into the subagent prompt
+handoff(action="create", session_id="ses_abc123", project_path="/path", brief="Find why X fails; don't edit.",
+        label="X failure", pointers=[{"key": "internal/x/x.go", "note": "start here"}])
+→ stub: [handoff hof_…] X failure — call open_handoff first
+
+# child: open first, use the returned session_id everywhere, finish with complete
+open_handoff(handoff="hof_…", project_path="/path")
+handoff(action="complete", session_id="<child session_id>", content="<full result>", status="done", summary="…")
+→ stub: [result ctx_… for hof_…] done — <summary>   (output as the final message)
+
+# parent: fan in, or recover refs after compaction
+handoff(action="collect", session_id="ses_abc123")
+handoff(action="list", session_id="ses_abc123")
+```
+
+Use `mode="fork"` only when the host spawned a fork that inherited the parent's window. Parallel children share one stub and coordinate with `scratchpad` (claims are advisory). Full guide: [handoff.md](handoff.md).
+
 ## Mode Selection
 
 | Mode | Token Usage | Best For |
@@ -145,7 +170,7 @@ Measured on **`get_context_capsule`**, **`get_file_context`**, **`search_semanti
 
 Each response includes **`tokens_saved`**, **`tokens_used`**, and baseline fields. Doc tools (`fetch_doc`, `search_docs`) and indexing calls do not increment dashboard totals. Use **`mode=auto`** or **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all context tools for dedup credit.
 
-**Code-mode scripts:** Search tools may return **`code_script_hints`**. See [README](../README.md#code-mode-scripts) and [scripts/code-mode/README.md](../scripts/code-mode/README.md).
+**Code-mode scripts:** Search tools may return **`code_script_hints`**. See [AGENTS.md](../AGENTS.md#code-mode-scripts) and [scripts/code-mode/README.md](../scripts/code-mode/README.md).
 
 ## Supported Languages
 

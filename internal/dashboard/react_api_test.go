@@ -4,7 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 )
@@ -50,5 +55,43 @@ func TestHandleDashboardMCPTierJSONReportsRealConfig(t *testing.T) {
 	ov, ok := out.ToolOverrides["execute_code"]
 	if !ok || ov.Enabled || ov.Tier != "core" {
 		t.Fatalf("tool_overrides[execute_code]=%+v want {enabled:false tier:core}", ov)
+	}
+}
+
+// BF-3: the mcp-tier view reports the tools.json the server loads, so a custom
+// AST_MCP_TOOLS_CONFIG is shown instead of the hard-coded ~/.astcache/tools.json.
+func TestHandleDashboardMCPTierJSONToolsConfigPath(t *testing.T) {
+	custom := filepath.Join(t.TempDir(), "custom-tools.json")
+	tests := []struct {
+		name       string
+		env        string
+		write      bool
+		wantPath   string
+		wantExists bool
+	}{
+		{name: "env path exists", env: custom, write: true, wantPath: custom, wantExists: true},
+		{name: "env path missing", env: custom + ".missing", wantPath: custom + ".missing"},
+		{name: "default path", env: "", wantPath: filepath.Join(t.TempDir(), ".astcache", "tools.json")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env == "" {
+				home := filepath.Dir(filepath.Dir(tt.wantPath))
+				t.Setenv("HOME", home)
+			}
+			t.Setenv("AST_MCP_TOOLS_CONFIG", tt.env)
+			if tt.write {
+				require.NoError(t, os.WriteFile(tt.env, []byte("{}"), 0o644))
+			}
+			rec := httptest.NewRecorder()
+			handleDashboardMCPTierJSON(rec, httptest.NewRequest(http.MethodGet, "/api/dashboard/mcp-tier", nil))
+			var out struct {
+				Path   string `json:"tools_json_path"`
+				Exists bool   `json:"tools_json_exists"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Equal(t, tt.wantPath, out.Path)
+			assert.Equal(t, tt.wantExists, out.Exists)
+		})
 	}
 }

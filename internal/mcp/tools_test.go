@@ -196,3 +196,53 @@ func TestToolDenyMessageFeatureDisabled(t *testing.T) {
 	assert.Contains(t, msg, "scratchpad")
 	assert.Contains(t, msg, flags.KeyHandoffScratchpad)
 }
+
+func TestGetPromptsNames(t *testing.T) {
+	var names []string
+	for _, p := range GetPrompts() {
+		names = append(names, p.Name)
+		assert.NotEmpty(t, p.Description, p.Name)
+		assert.NotEmpty(t, p.Prompt, p.Name)
+	}
+	assert.Equal(t, []string{"efficient-context-usage", "virtual-context-compaction", "subagent-handoff", "context-mode-decisions"}, names)
+}
+
+// TestGetPromptsHandoffContent pins the TS-6 prompt updates: the handoff tools appear in the
+// compaction table and usage guide, and the handoff prompt covers W1, W3, W4, and recovery.
+func TestGetPromptsHandoffContent(t *testing.T) {
+	prompts := map[string]string{}
+	for _, p := range GetPrompts() {
+		prompts[p.Name] = p.Prompt
+	}
+	for _, tool := range []string{toolHandoff, toolOpenHandoff, toolScratchpad} {
+		assert.Contains(t, prompts["virtual-context-compaction"], "| "+tool+" | core |")
+		assert.Contains(t, prompts["subagent-handoff"], "| "+tool+" |")
+	}
+	assert.Contains(t, prompts["efficient-context-usage"], "### Subagent handoff")
+	for _, want := range []string{
+		"call open_handoff first",
+		"mode=fork: only when the host spawned a fork",
+		"Claims are advisory",
+		"handoff(action=list, session_id)",
+		"[result ctx_… for hof_…]",
+		"credentials",
+	} {
+		assert.Contains(t, prompts["subagent-handoff"], want)
+	}
+	// Every action the prompt names must exist in the tool schemas.
+	for tool, actions := range map[string][]string{
+		toolHandoff:     {"create", "complete", "collect", "list", "status", "flush"},
+		toolOpenHandoff: {"open", "expand", "resume"},
+		toolScratchpad:  {"post", "read", "retract", "claim", "release"},
+	} {
+		var def Tool
+		for _, tl := range GetTools() {
+			if tl.Name == tool {
+				def = tl
+			}
+		}
+		require.NotEmpty(t, def.Name, tool)
+		enum := def.InputSchema["properties"].(map[string]any)["action"].(map[string]any)["enum"]
+		assert.ElementsMatch(t, actions, enum, tool)
+	}
+}
