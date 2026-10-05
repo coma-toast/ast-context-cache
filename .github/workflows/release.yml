@@ -1,0 +1,104 @@
+name: Release
+
+# Builds ast-mcp natively per platform (cgo) with GoReleaser and publishes one GitHub release.
+# - workflow_call: run by bump-version.yml right after it pushes the vX.Y.Z tag. (A tag pushed with
+#   GITHUB_TOKEN does not trigger other workflows, so the bump workflow calls this one directly.)
+# - workflow_dispatch: (re)release any existing tag by hand.
+# - pull_request: a snapshot dry run when the release setup itself changes; nothing is published.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Tag to release, e.g. v4.0.4
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release, e.g. v4.0.4
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - .github/workflows/release.yml
+      - Makefile
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: darwin_arm64
+          - runner: ubuntu-24.04-arm
+            target: linux_arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ inputs.tag }}
+      SNAPSHOT: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download libtokenizers.a
+        run: make download-tokenizer-lib
+
+      - name: Build and package
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean --skip=publish ${{ env.SNAPSHOT == 'true' && '--snapshot' || '' }}
+        env:
+          GORELEASER_CURRENT_TAG: ${{ inputs.tag }}
+          CGO_LDFLAGS: -L${{ github.workspace }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/checksums_*.txt
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Merge checksums
+        working-directory: dist
+        run: |
+          cat checksums_*.txt | sort -k2 > checksums.txt
+          rm checksums_*.txt
+          cat checksums.txt
+
+      - name: Create or update the GitHub release
+        working-directory: dist
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" ./*.tar.gz checksums.txt --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" ./*.tar.gz checksums.txt --title "$TAG" --generate-notes --verify-tag --repo "$GITHUB_REPOSITORY"
+          fi

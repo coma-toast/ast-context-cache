@@ -12,6 +12,8 @@ jobs:
   bump:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,3 +39,12 @@ jobs:
           git tag -a "v${NEW_VERSION}" -m "v${NEW_VERSION}"
           git push origin main
           git push origin "v${NEW_VERSION}"
+
+  # A tag pushed with GITHUB_TOKEN doesn't trigger other workflows, so release from here.
+  release:
+    needs: bump
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: v${{ needs.bump.outputs.version }}
+    permissions:
+      contents: write
