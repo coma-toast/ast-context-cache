@@ -71,10 +71,11 @@ type realService struct {
 	waiters *waitHub
 }
 
-// New returns the handoff service and starts its expiry sweeper and abandonment loops, which
-// stop when ctx is done.
+// New returns the handoff service, starts its expiry sweeper and abandonment loops, and
+// subscribes it to the search trail for live sharing (SP-5); all stop when ctx is done.
 func New(ctx context.Context, emb embedder.Interface) Service {
 	s := newService(emb)
+	s.subscribeTrail(ctx)
 	go s.sweepLoop(ctx)
 	go s.abandonLoop(ctx)
 	return s
@@ -144,31 +145,6 @@ func (s *realService) Flush(ctx context.Context, req FlushRequest) (*FlushRespon
 	return nil, notImplemented("flush")
 }
 
-// Post is implemented in Phase 7.1.
-func (s *realService) Post(ctx context.Context, req PostRequest) (*PostResponse, error) {
-	return nil, notImplemented("post")
-}
-
-// Read is implemented in Phase 7.1.
-func (s *realService) Read(ctx context.Context, req ReadRequest) (*ReadResponse, error) {
-	return nil, notImplemented("read")
-}
-
-// Retract is implemented in Phase 7.1.
-func (s *realService) Retract(ctx context.Context, req RetractRequest) (*RetractResponse, error) {
-	return nil, notImplemented("retract")
-}
-
-// Claim is implemented in Phase 7.3.
-func (s *realService) Claim(ctx context.Context, req ClaimRequest) (*ClaimResponse, error) {
-	return nil, notImplemented("claim")
-}
-
-// Release is implemented in Phase 7.3.
-func (s *realService) Release(ctx context.Context, req ReleaseRequest) (*ReleaseResponse, error) {
-	return nil, notImplemented("release")
-}
-
 // Annotate is implemented in Phase 6.6; until then no response is annotated.
 func (s *realService) Annotate(sid SessionID, ev SearchEvent, results []map[string]any) map[string]any {
 	return nil
@@ -176,11 +152,6 @@ func (s *realService) Annotate(sid SessionID, ev SearchEvent, results []map[stri
 
 // Touch is implemented in Phase 6.9; until then activity is not recorded.
 func (s *realService) Touch(sid SessionID) {}
-
-// PendingGrants is implemented in Phase 7.3.
-func (s *realService) PendingGrants(sid SessionID) ([]Grant, error) {
-	return nil, notImplemented("pending_grants")
-}
 
 // IsTreeSession reports whether sid belongs to a tree.
 func (s *realService) IsTreeSession(sid SessionID) bool {

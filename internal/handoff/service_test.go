@@ -246,12 +246,6 @@ func TestUnimplementedMethods(t *testing.T) {
 		"list":     func() error { _, err := s.List(ctx, ListRequest{}); return err },
 		"status":   func() error { _, err := s.Status(ctx, StatusRequest{}); return err },
 		"flush":    func() error { _, err := s.Flush(ctx, FlushRequest{}); return err },
-		"post":     func() error { _, err := s.Post(ctx, PostRequest{}); return err },
-		"read":     func() error { _, err := s.Read(ctx, ReadRequest{}); return err },
-		"retract":  func() error { _, err := s.Retract(ctx, RetractRequest{}); return err },
-		"claim":    func() error { _, err := s.Claim(ctx, ClaimRequest{}); return err },
-		"release":  func() error { _, err := s.Release(ctx, ReleaseRequest{}); return err },
-		"grants":   func() error { _, err := s.PendingGrants("x"); return err },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
