@@ -17,3 +17,41 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
       - name: Run tests
         run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install SQLite build deps
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Run go vet and gofumpt check
+        run: make lint
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install SQLite build deps
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Run tests with race detector
+        run: make race
+
+  ui-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI deps
+        run: cd ui && npm ci
+      - name: Run UI tests
+        run: make ui-test
