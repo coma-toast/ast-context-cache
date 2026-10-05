@@ -76,3 +76,14 @@ func TestParseLevel(t *testing.T) {
 		assert.Equal(t, want, ParseLevel(in), in)
 	}
 }
+
+// Not parallel: swaps the process-wide default logger.
+func TestTaggedFollowsCurrentDefault(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	logger := Tagged("db").With("pool", "usage")
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(NewHandler(&buf, FormatText, slog.LevelInfo)))
+	logger.Info("Opened pool", "conns", 4)
+	assert.Contains(t, buf.String(), `msg="Opened pool" tag=db pool=usage conns=4`)
+}
