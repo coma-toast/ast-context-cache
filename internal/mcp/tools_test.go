@@ -4,6 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 )
 
 func TestFilterTools_disabledOverride(t *testing.T) {
@@ -121,4 +126,72 @@ func TestToolDenyMessage(t *testing.T) {
 	if msg := ToolDenyMessage("nope", cfg, denyUnknown); msg != "unknown tool: nope" {
 		t.Fatalf("got %q", msg)
 	}
+}
+
+// setFlagEnvs sets feature-flag env vars for the test and reloads the registry. The Reload
+// cleanup is registered before t.Setenv so it runs after the env vars are restored.
+func setFlagEnvs(t *testing.T, kv map[string]string) {
+	t.Helper()
+	t.Cleanup(flags.Reload)
+	for k, v := range kv {
+		t.Setenv(k, v)
+	}
+	flags.Reload()
+}
+
+// The handoff tools are not registered yet, so these tests gate a scratchpad Tool literal.
+func TestToolAccessFeatureFlags(t *testing.T) {
+	scratchpad := Tool{Name: "scratchpad", Tier: TierExtended}
+	tests := []struct {
+		name       string
+		master     string
+		child      string
+		active     Tier
+		configs    map[string]*ToolConfig
+		wantOK     bool
+		wantReason toolDenyReason
+	}{
+		{name: "flags on", master: "true", child: "true", active: TierExtended, wantOK: true, wantReason: denyNone},
+		{name: "child flag off hides tool", master: "true", child: "false", active: TierComplete, wantReason: denyFlag},
+		{name: "master flag off hides tool", master: "false", child: "true", active: TierComplete, wantReason: denyFlag},
+		{name: "tools.json cannot override flag", master: "true", child: "false", active: TierComplete, configs: map[string]*ToolConfig{"scratchpad": {Enabled: true, Tier: TierCore}}, wantReason: denyFlag},
+		{name: "tools.json disables with flag on", master: "true", child: "true", active: TierComplete, configs: map[string]*ToolConfig{"scratchpad": {Enabled: false}}, wantReason: denyDisabled},
+		{name: "tier still applies with flag on", master: "true", child: "true", active: TierCore, wantReason: denyTier},
+		{name: "tools.json promotes tier with flag on", master: "true", child: "true", active: TierCore, configs: map[string]*ToolConfig{"scratchpad": {Enabled: true, Tier: TierCore}}, wantOK: true, wantReason: denyNone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": tt.master, "AST_FEATURE_HANDOFF_SCRATCHPAD": tt.child})
+			ok, reason := toolAccess(scratchpad, ServerConfig{ActiveTier: tt.active, ToolConfigs: tt.configs})
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantReason, reason)
+		})
+	}
+}
+
+func TestFilterToolsHidesFlagDisabledTools(t *testing.T) {
+	all := []Tool{{Name: "scratchpad", Tier: TierCore}, {Name: "get_context_capsule", Tier: TierCore}}
+	cfg := ServerConfig{ActiveTier: TierComplete, ToolConfigs: map[string]*ToolConfig{"scratchpad": {Enabled: true, Description: "Custom scratchpad"}}}
+	names := func() []string {
+		var out []string
+		for _, tool := range filterTools(all, cfg) {
+			out = append(out, tool.Name)
+		}
+		return out
+	}
+	setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": "true", "AST_FEATURE_HANDOFF_SCRATCHPAD": "false"})
+	assert.Equal(t, []string{"get_context_capsule"}, names())
+	t.Setenv("AST_FEATURE_HANDOFF_SCRATCHPAD", "true")
+	flags.Reload()
+	visible := filterTools(all, cfg)
+	require.Len(t, visible, 2)
+	assert.Equal(t, "Custom scratchpad", visible[0].Description, "tools.json overrides still apply to flag-allowed tools")
+}
+
+func TestToolDenyMessageFeatureDisabled(t *testing.T) {
+	setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": "true", "AST_FEATURE_HANDOFF_SCRATCHPAD": "false"})
+	msg := ToolDenyMessage("scratchpad", ServerConfig{ActiveTier: TierComplete}, denyFlag)
+	assert.Contains(t, msg, "feature_disabled")
+	assert.Contains(t, msg, "scratchpad")
+	assert.Contains(t, msg, flags.KeyHandoffScratchpad)
 }
