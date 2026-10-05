@@ -20,6 +20,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
@@ -60,7 +61,10 @@ const (
 	countVectorsQuery            = "SELECT COUNT(*) FROM vectors"
 )
 
-func NewHandler(_ string) http.Handler {
+// NewHandler builds the dashboard HTTP handler. listen is the address the server
+// binds to; httpguard uses it to reject cross-origin writes and DNS-rebinding
+// requests whose Host doesn't match.
+func NewHandler(listen string) http.Handler {
 	mux := http.NewServeMux()
 	initUIAssets()
 	registerReactAPI(mux)
@@ -134,7 +138,7 @@ func NewHandler(_ string) http.Handler {
 	// Root redirects to React dashboard
 	mux.HandleFunc("/", handleRootRedirect)
 
-	return mux
+	return httpguard.Middleware(listen, mux)
 }
 
 type stats struct {

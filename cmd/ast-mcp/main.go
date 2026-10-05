@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
@@ -41,6 +43,15 @@ var (
 	dashboardPort = 7830
 )
 
+// listenAddr is the host both servers bind to (-listen / AST_LISTEN). Loopback by
+// default: neither server has authentication, and the MCP spec says local servers
+// SHOULD bind to 127.0.0.1. Docker sets 0.0.0.0 so published ports work.
+var listenAddr = "127.0.0.1"
+
+// shutdownFlushTimeout bounds the final analytics flush so a wedged SQLite write
+// can't stop the process from exiting on SIGTERM.
+const shutdownFlushTimeout = 2 * time.Second
+
 const (
 	deleteFromQueryPrefix        = "DELETE FROM "
 	whereDotProjectQuerySuffix   = " WHERE project_path = '.'"
@@ -61,7 +72,16 @@ func main() {
 	embedWorkersFlag := flag.Int("embed-workers", -1, "Embed worker count at startup (-1 = auto/DB)")
 	flag.IntVar(&mcpPort, "mcp-port", mcpPort, "MCP HTTP port")
 	flag.IntVar(&dashboardPort, "dashboard-port", dashboardPort, "Dashboard HTTP port")
+	if v := strings.TrimSpace(os.Getenv("AST_LISTEN")); v != "" {
+		listenAddr = v
+	}
+	flag.StringVar(&listenAddr, "listen", listenAddr, "Host/IP for the MCP and dashboard servers to bind (default: from AST_LISTEN env or 127.0.0.1)")
 	flag.Parse()
+	// JoinHostPort adds IPv6 brackets itself; "[::1]" would otherwise become "[[::1]]:7821".
+	listenAddr = strings.Trim(strings.TrimSpace(listenAddr), "[]")
+	// Cancelled on SIGINT/SIGTERM so background loops stop before the final flush.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	cfg := mcp.DefaultConfig()
 	if *tierFlag != "" {
@@ -71,7 +91,10 @@ func main() {
 		cfg.CodeMode = false
 	}
 	mcp.SetConfig(cfg)
-	logger.Info("Config", "tier", cfg.ActiveTier, "code_mode", cfg.CodeMode)
+	logger.Info("Config", "tier", cfg.ActiveTier, "code_mode", cfg.CodeMode, "listen", listenAddr)
+	if !httpguard.IsLoopbackHost(listenAddr) {
+		logger.Warn("Listening on non-loopback address", "listen", listenAddr)
+	}
 
 	logger.Info("Initializing")
 	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
@@ -91,11 +114,11 @@ func main() {
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 
-	dashHandler := dashboard.NewHandler("")
+	dashHandler := dashboard.NewHandler(listenAddr)
 	// Constructed here (before the db.Init() goroutine below reads it via restartHook)
 	// rather than at its ListenAndServe call further down, so that read has a clear
 	// happens-before edge and isn't a data race with this assignment.
-	dashSrv := &http.Server{Addr: fmt.Sprintf(":%d", dashboardPort), Handler: dashHandler}
+	dashSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(dashboardPort)), Handler: dashHandler}
 	dbReady := make(chan error, 1)
 
 	go func() {
@@ -123,7 +146,7 @@ func main() {
 		go db.StartDriveMonitor()
 
 		mcpMux := http.NewServeMux()
-		mcpMux.HandleFunc("/mcp", mcp.NewHandler())
+		mcpMux.Handle("/mcp", httpguard.MCPMiddleware(listenAddr, mcp.NewHandler()))
 		mcpMux.HandleFunc("/health", handleMCPHealth)
 		mcpMux.HandleFunc("/embed", handleEmbedHTTP)
 		mcpMux.HandleFunc("/embed/health", handleEmbedHealthHTTP)
@@ -131,14 +154,14 @@ func main() {
 			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": fmt.Sprintf("http://localhost:%d", dashboardPort)})
+			json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": serverURL(dashboardPort)})
 		})
 
-		mcpSrv := &http.Server{Addr: fmt.Sprintf(":%d", mcpPort), Handler: mcpMux}
+		mcpSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(mcpPort)), Handler: mcpMux}
 		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
 
 		go func() {
-			logger.Info("Starting MCP server", "url", "http://localhost"+mcpSrv.Addr+"/mcp")
+			logger.Info("Starting MCP server", "url", serverURL(mcpPort)+"/mcp")
 			if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				logger.Error("MCP server failed", "error", err)
 				os.Exit(1)
@@ -146,7 +169,7 @@ func main() {
 		}()
 
 		embedder.MarkLoading()
-		finishStartup(exeDir, *embedWorkersFlag)
+		finishStartup(ctx, exeDir, *embedWorkersFlag)
 	}()
 
 	go func() {
@@ -154,12 +177,14 @@ func main() {
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
 		logger.Info("Shutting down")
+		cancel()
 		db.RequestShutdown()
+		flushWriteBuffers(shutdownFlushTimeout)
 		embedqueue.EndRunLock()
 		os.Exit(0)
 	}()
 
-	logger.Info("Starting dashboard server", "url", "http://localhost"+dashSrv.Addr)
+	logger.Info("Starting dashboard server", "url", serverURL(dashboardPort))
 	if err := dashSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("Dashboard server failed", "error", err)
 		os.Exit(1)
@@ -209,7 +234,34 @@ func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 	}
 }
 
-func finishStartup(exeDir string, embedWorkersFlag int) {
+// serverURL is the address to show for a server on port: listenAddr, or
+// localhost when it binds every interface.
+func serverURL(port int) string {
+	host := listenAddr
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+// flushWriteBuffers commits buffered query and session analytics before exit, giving
+// up after timeout. The flush keeps running in its goroutine on timeout, but os.Exit
+// follows immediately, so at worst that batch is lost, as it was before this flush.
+func flushWriteBuffers(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		db.FlushWriteBuffers()
+	}()
+	select {
+	case <-done:
+		logger.Info("Flushed write buffers")
+	case <-time.After(timeout):
+		logger.Warn("Timed out flushing write buffers", "timeout", timeout)
+	}
+}
+
+func finishStartup(ctx context.Context, exeDir string, embedWorkersFlag int) {
 	defer func() {
 		if startup.Ready() {
 			return
@@ -298,7 +350,7 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 	}
 
 	startup.SetMessage("Starting background services…")
-	startBackgroundServices()
+	startBackgroundServices(ctx)
 	startup.MarkReady()
 	logger.Info("Startup complete", "mcp_port", mcpPort, "dashboard_port", dashboardPort)
 }
@@ -416,24 +468,14 @@ func resolveStartupWorkers(flagVal int) int {
 	return -1
 }
 
-func startBackgroundServices() {
+// startBackgroundServices starts the periodic jobs; the tickers owned here stop when
+// ctx is cancelled at shutdown.
+func startBackgroundServices(ctx context.Context) {
 	go docs.EmbedAllSources()
 	purge.StartDeletedProjectSweep()
 	db.StartFTSSelfCheck()
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			logretention.RunOnce()
-		}
-	}()
-	go func() {
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			docs.UpdateAllSources()
-		}
-	}()
+	go runEvery(ctx, time.Hour, logretention.RunOnce)
+	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
 	seen := map[string]bool{}
 	if conn, err := db.IndexReader(); err == nil {
 		restoreRows, err := conn.Query(selectSymbolProjectsQuery)
@@ -465,6 +507,20 @@ func startBackgroundServices() {
 	}
 	for pp := range seen {
 		maybeStartPinnedWatcher(pp)
+	}
+}
+
+// runEvery calls fn every interval until ctx is cancelled.
+func runEvery(ctx context.Context, interval time.Duration, fn func()) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fn()
+		}
 	}
 }
 

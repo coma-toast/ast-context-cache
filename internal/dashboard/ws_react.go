@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 )
 
 // ─── WebSocket hub ────────────────────────────────────────────────────
@@ -107,7 +109,9 @@ func (c *wsClient) writePump() {
 }
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// httpguard.Middleware already rejects foreign-Origin upgrades; checking here too
+	// keeps /ws safe if it is ever mounted without the middleware.
+	CheckOrigin: func(r *http.Request) bool { return httpguard.AllowOrigin(r.Header.Get("Origin")) },
 }
 
 func handleWS(w http.ResponseWriter, r *http.Request) {
