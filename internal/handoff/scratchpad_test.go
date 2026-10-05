@@ -17,7 +17,7 @@ import (
 
 // seedBareTree inserts a tree with one handoff and a child per label, with no scratchpad
 // entries, claims, or usage, standing in for Create and Open.
-func seedBareTree(t *testing.T, root SessionID, labels ...string) testTree {
+func seedBareTree(t testing.TB, root SessionID, labels ...string) testTree {
 	t.Helper()
 	tree, err := NewTreeID()
 	require.NoError(t, err)
@@ -37,7 +37,7 @@ func seedBareTree(t *testing.T, root SessionID, labels ...string) testTree {
 	return tt
 }
 
-func initHandoffDB(t *testing.T) {
+func initHandoffDB(t testing.TB) {
 	t.Helper()
 	dbtest.Init(t)
 	t.Cleanup(db.FlushWriteBuffers)

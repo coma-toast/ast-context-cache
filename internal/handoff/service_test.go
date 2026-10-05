@@ -33,13 +33,13 @@ func setClock(t *testing.T, now time.Time) {
 	t.Cleanup(func() { nowFunc = prev })
 }
 
-func exec(t *testing.T, q string, args ...any) {
+func exec(t testing.TB, q string, args ...any) {
 	t.Helper()
 	_, err := db.ContextDB.Exec(q, args...)
 	require.NoError(t, err, q)
 }
 
-func count(t *testing.T, q string, args ...any) int {
+func count(t testing.TB, q string, args ...any) int {
 	t.Helper()
 	var n int
 	require.NoError(t, db.ContextDB.QueryRow(q, args...).Scan(&n), q)

@@ -36,7 +36,7 @@ func Gamma() int {
 `
 
 // newTestService opens a fresh database and returns a service without background loops.
-func newTestService(t *testing.T) *realService {
+func newTestService(t testing.TB) *realService {
 	t.Helper()
 	dbtest.Init(t)
 	t.Cleanup(db.FlushWriteBuffers)
@@ -45,14 +45,14 @@ func newTestService(t *testing.T) *realService {
 }
 
 // indexFixture writes fixtureSource as svc.go in a new project and indexes it.
-func indexFixture(t *testing.T) string {
+func indexFixture(t testing.TB) string {
 	t.Helper()
 	project := t.TempDir()
 	writeAndIndex(t, project, "svc.go", fixtureSource)
 	return project
 }
 
-func writeAndIndex(t *testing.T, project, rel, src string) {
+func writeAndIndex(t testing.TB, project, rel, src string) {
 	t.Helper()
 	file := filepath.Join(project, rel)
 	require.NoError(t, os.WriteFile(file, []byte(src), 0o644))
@@ -88,7 +88,7 @@ func recordSearches(sid SessionID, project string, n, hits int) {
 }
 
 // mustCreate makes a handoff from parent, failing the test on error.
-func mustCreate(t *testing.T, s *realService, req CreateRequest) *CreateResponse {
+func mustCreate(t testing.TB, s *realService, req CreateRequest) *CreateResponse {
 	t.Helper()
 	if req.Brief == "" {
 		req.Brief = "investigate the retry path"
@@ -99,7 +99,7 @@ func mustCreate(t *testing.T, s *realService, req CreateRequest) *CreateResponse
 }
 
 // mustOpen opens ref as a new child, failing the test on error.
-func mustOpen(t *testing.T, s *realService, ref HandoffRef, project string) *OpenResponse {
+func mustOpen(t testing.TB, s *realService, ref HandoffRef, project string) *OpenResponse {
 	t.Helper()
 	resp, err := s.Open(context.Background(), OpenRequest{Handoff: ref, ProjectPath: project, TokenBudget: 100000})
 	require.NoError(t, err)
