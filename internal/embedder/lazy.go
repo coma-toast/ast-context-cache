@@ -1,7 +1,6 @@
 package embedder
 
 import (
-	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -35,13 +34,13 @@ func (le *LazyEmbedder) getLocked() (*Embedder, error) {
 	if le.inner != nil {
 		return le.inner, nil
 	}
-	log.Printf("Lazy-loading embedder from %s...", le.modelDir)
+	logger.Info("Lazy-loading embedder", "model_dir", le.modelDir)
 	e, err := New(le.modelDir)
 	if err != nil {
 		return nil, err
 	}
 	le.inner = e
-	log.Printf("Embedder loaded: %s (%d dims)", ModelName, Dimensions)
+	logger.Info("Embedder loaded", "model", ModelName, "dims", Dimensions)
 	realtime.Notify(realtime.HealthBar)
 	return e, nil
 }
@@ -78,7 +77,7 @@ func (le *LazyEmbedder) Close() {
 	if le.inner != nil {
 		le.inner.Close()
 		le.inner = nil
-		log.Println("Embedder unloaded (idle timeout)")
+		logger.Info("Embedder unloaded (idle timeout)")
 		realtime.Notify(realtime.HealthBar)
 	}
 }
@@ -114,7 +113,7 @@ func (le *LazyEmbedder) idleLoop() {
 			if le.inner != nil && time.Since(le.lastUsed) > timeout {
 				le.inner.Close()
 				le.inner = nil
-				log.Printf("Embedder unloaded after %v idle", timeout)
+				logger.Info("Embedder unloaded after idle", "idle", timeout)
 				realtime.Notify(realtime.HealthBar)
 			}
 			le.mu.Unlock()

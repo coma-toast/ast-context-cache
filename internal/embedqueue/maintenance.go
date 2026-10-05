@@ -1,7 +1,6 @@
 package embedqueue
 
 import (
-	"log"
 	"sync/atomic"
 	"time"
 )
@@ -48,7 +47,7 @@ func PauseAllForMaintenance(timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if n := atomic.LoadInt64(&inFlight); n > 0 {
-		log.Printf("embedqueue: maintenance drain timed out with %d in-flight embed(s) (primary_live=%d aux_live=%d)", n, WorkerLive(), AuxWorkerLive())
+		logger.Warn("Maintenance drain timed out with in-flight embeds", "in_flight", n, "primary_live", WorkerLive(), "aux_live", AuxWorkerLive())
 	}
 }
 
@@ -69,10 +68,10 @@ func pauseAuxForMaintenance() {
 	}
 	prev := auxWorkerCount
 	if err := applyAuxWorkerCountLocked(0, false); err != nil {
-		log.Printf("embedqueue: maintenance pause aux workers: %v", err)
+		logger.Warn("Failed to pause aux workers for maintenance", "error", err)
 		return
 	}
-	log.Printf("embedqueue: paused %d aux workers for DB maintenance (target was %d)", prev, maintenanceRestoreAux)
+	logger.Info("Paused aux workers for DB maintenance", "workers", prev, "target", maintenanceRestoreAux)
 }
 
 // RestoreAfterMaintenance resumes workers paused by PauseAllForMaintenance.
@@ -104,8 +103,8 @@ func restoreAuxAfterMaintenance() {
 		n = max
 	}
 	if err := applyAuxWorkerCountLocked(n, false); err != nil {
-		log.Printf("embedqueue: restore aux workers after maintenance: %v", err)
+		logger.Warn("Failed to restore aux workers after maintenance", "error", err)
 		return
 	}
-	log.Printf("embedqueue: restored %d aux workers after DB maintenance", n)
+	logger.Info("Restored aux workers after DB maintenance", "workers", n)
 }

@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 type openAIErrorEnvelope struct {
@@ -29,16 +31,16 @@ func FormatHTTPError(label string, statusCode int, status string, body []byte) e
 		label = "embed"
 	}
 	if detail == "" {
-		return fmt.Errorf("%s: %s", label, strings.TrimSpace(status))
+		return errs.New(label+": "+strings.TrimSpace(status), "status_code", statusCode)
 	}
 	code := statusCode
 	if code <= 0 {
 		code = parseStatusCode(status)
 	}
 	if code > 0 {
-		return fmt.Errorf("%s: %d: %s", label, code, detail)
+		return errs.New(fmt.Sprintf("%s: %d: %s", label, code, detail), "status_code", code)
 	}
-	return fmt.Errorf("%s: %s: %s", label, strings.TrimSpace(status), detail)
+	return errs.New(label+": "+strings.TrimSpace(status)+": "+detail, "status", status)
 }
 
 func parseStatusCode(status string) int {

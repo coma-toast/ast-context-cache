@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 // HTTPEmbedder calls a service that matches ast-mcp’s POST /embed JSON: request {"texts":[...]} response {"embeddings":[[...float32]...]}.
@@ -70,7 +72,7 @@ func (h *HTTPEmbedder) Embed(texts []string) ([][]float32, error) {
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("embed http: %w", err)
+		return nil, errs.WrapMessage("embed http", err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
@@ -82,10 +84,10 @@ func (h *HTTPEmbedder) Embed(texts []string) ([][]float32, error) {
 	}
 	var out httpEmbedResp
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("embed response json: %w", err)
+		return nil, errs.WrapMessage("failed to decode embed response json", err)
 	}
 	if len(out.Embeddings) != len(trimmed) {
-		return nil, fmt.Errorf("embed: got %d vectors for %d inputs", len(out.Embeddings), len(trimmed))
+		return nil, errs.New("embed returned wrong vector count", "vectors", len(out.Embeddings), "inputs", len(trimmed))
 	}
 	if err := checkDims(out.Embeddings, GetActiveDim()); err != nil {
 		return nil, err
@@ -99,7 +101,7 @@ func (h *HTTPEmbedder) EmbedSingle(text string) ([]float32, error) {
 		return nil, err
 	}
 	if len(vecs) == 0 {
-		return nil, fmt.Errorf("embed: empty result")
+		return nil, errs.New("embed returned empty result")
 	}
 	return vecs[0], nil
 }
@@ -119,8 +121,8 @@ func truncateForErr(b []byte, n int) string {
 func checkDims(emb [][]float32, want int) error {
 	for i, v := range emb {
 		if len(v) != want {
-			return fmt.Errorf("embedding[%d] has %d dimensions (expected %d for this index; re-embed or match backend to %d-dim model)",
-				i, len(v), want, want)
+			return errs.New(fmt.Sprintf("embedding[%d] has %d dimensions (expected %d for this index; re-embed or match backend to %d-dim model)",
+				i, len(v), want, want), "index", i, "dims", len(v), "want_dims", want)
 		}
 		NormalizeL2(emb[i])
 	}

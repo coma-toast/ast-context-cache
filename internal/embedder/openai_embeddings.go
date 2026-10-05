@@ -3,12 +3,13 @@ package embedder
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 const openAIChunk = 32
@@ -120,7 +121,7 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	}
 	resp, err := o.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", o.errLabel, err)
+		return nil, errs.WrapMessage(o.errLabel, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
@@ -132,10 +133,10 @@ func (o *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	}
 	var apiOut openAIEmbedAPIResponse
 	if err := json.Unmarshal(raw, &apiOut); err != nil {
-		return nil, fmt.Errorf("%s response json: %w", o.errLabel, err)
+		return nil, errs.WrapMessage("failed to decode "+o.errLabel+" response json", err)
 	}
 	if len(apiOut.Data) != len(texts) {
-		return nil, fmt.Errorf("%s: got %d data rows for %d inputs", o.errLabel, len(apiOut.Data), len(texts))
+		return nil, errs.New(o.errLabel+" returned wrong data row count", "rows", len(apiOut.Data), "inputs", len(texts))
 	}
 	sort.Slice(apiOut.Data, func(i, j int) bool { return apiOut.Data[i].Index < apiOut.Data[j].Index })
 	vecs := make([][]float32, len(apiOut.Data))
@@ -162,7 +163,7 @@ func (o *OpenAIEmbedder) EmbedSingle(text string) ([]float32, error) {
 		return nil, err
 	}
 	if len(vecs) == 0 {
-		return nil, fmt.Errorf("%s: empty result", o.errLabel)
+		return nil, errs.New(o.errLabel + " returned empty result")
 	}
 	return vecs[0], nil
 }

@@ -1,7 +1,6 @@
 package embedqueue
 
 import (
-	"log"
 	"sync"
 	"time"
 
@@ -12,7 +11,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
-const missingVectorsSQL = `
+const (
+	selectMissingVectorsQuery = `
 SELECT DISTINCT file, project_path FROM (
 	SELECT DISTINCT s.file, s.project_path
 	FROM symbols s
@@ -33,11 +33,18 @@ SELECT DISTINCT file, project_path FROM (
 	WHERE v.id IS NULL
 		AND (s.embed_hash IS NULL OR s.embed_hash = '')
 )`
+	deleteStaleEmbedPendingQuery = `
+		DELETE FROM embed_pending
+		WHERE NOT EXISTS (
+			SELECT 1 FROM symbols s
+			WHERE s.file = embed_pending.file AND s.project_path = embed_pending.project_path
+		)`
+)
 
 var (
-	recoveryMu        sync.Mutex
-	errorScanOnce     sync.Once
-	pendingReconOnce  sync.Once
+	recoveryMu       sync.Mutex
+	errorScanOnce    sync.Once
+	pendingReconOnce sync.Once
 
 	flushLogMu        sync.Mutex
 	lastFlushLogAt    time.Time
@@ -66,12 +73,12 @@ func SyncPendingFromDB() int {
 	type row struct{ file, projectPath string }
 	conn, err := db.IndexReader()
 	if err != nil {
-		log.Printf("embedqueue: sync pending: %v", err)
+		logger.Warn("Failed to sync pending", "error", err)
 		return 0
 	}
-	rows, err := conn.Query(missingVectorsSQL)
+	rows, err := conn.Query(selectMissingVectorsQuery)
 	if err != nil {
-		log.Printf("embedqueue: sync pending: %v", err)
+		logger.Warn("Failed to sync pending", "error", err)
 		return 0
 	}
 	var pendingRows []row
@@ -111,7 +118,7 @@ func StartErrorScanLoop() {
 					continue
 				}
 				if n := SyncPendingFromDB(); n > 0 {
-					log.Printf("embedqueue: error-scan marked %d files pending", n)
+					logger.Info("Error scan marked files pending", "files", n)
 				}
 				// Primary is down; still re-queue for aux (onnx) catch-up when available.
 				flushPendingIfReady()
@@ -145,7 +152,7 @@ func RetryPendingNow() (queued int, blocked string) {
 	}
 	queued = PendingCount()
 	if queued > 0 {
-		log.Printf("embedqueue: manual retry of %d pending", queued)
+		logger.Info("Manual retry of pending", "pending", queued)
 		FlushPending()
 	}
 	return queued, ""
@@ -162,9 +169,9 @@ func flushPendingIfReady() {
 	s := Snapshot()
 	if shouldLogFlush(s.Pending, s.InFlight) {
 		if state == "error" {
-			log.Printf("embedqueue: flush pending via aux catch-up pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+			logger.Info("Flush pending via aux catch-up", "pending", s.Pending, "queued", s.Queued, "in_flight", s.InFlight)
 		} else {
-			log.Printf("embedqueue: flush pending=%d queued=%d inFlight=%d", s.Pending, s.Queued, s.InFlight)
+			logger.Info("Flush pending", "pending", s.Pending, "queued", s.Queued, "in_flight", s.InFlight)
 		}
 	}
 	FlushPending()
@@ -199,8 +206,8 @@ func recoverPending() {
 	total := PendingCount()
 	s := Snapshot()
 	if added > 0 || total > 0 || purged > 0 || pruned > 0 {
-		log.Printf("embed recovery: synced=%d pending=%d purged_orphans=%d pruned_pending=%d queued=%d inFlight=%d",
-			added, total, purged, pruned, s.Queued, s.InFlight)
+		logger.Info("Embed recovery", "synced", added, "pending", total, "purged_orphans", purged, "pruned_pending", pruned,
+			"queued", s.Queued, "in_flight", s.InFlight)
 	}
 	flushPendingIfReady()
 }
@@ -209,12 +216,12 @@ func syncPendingFromDBLocked() int {
 	type row struct{ file, projectPath string }
 	conn, err := db.IndexReader()
 	if err != nil {
-		log.Printf("embedqueue: sync pending: %v", err)
+		logger.Warn("Failed to sync pending", "error", err)
 		return 0
 	}
-	rows, err := conn.Query(missingVectorsSQL)
+	rows, err := conn.Query(selectMissingVectorsQuery)
 	if err != nil {
-		log.Printf("embedqueue: sync pending: %v", err)
+		logger.Warn("Failed to sync pending", "error", err)
 		return 0
 	}
 	var pendingRows []row
@@ -244,17 +251,12 @@ func syncPendingFromDBLocked() int {
 func pruneStaleEmbedPending() int {
 	conn, err := db.IndexReader()
 	if err != nil {
-		log.Printf("embedqueue: prune embed_pending: %v", err)
+		logger.Warn("Failed to prune embed_pending", "error", err)
 		return 0
 	}
-	res, err := conn.Exec(`
-		DELETE FROM embed_pending
-		WHERE NOT EXISTS (
-			SELECT 1 FROM symbols s
-			WHERE s.file = embed_pending.file AND s.project_path = embed_pending.project_path
-		)`)
+	res, err := conn.Exec(deleteStaleEmbedPendingQuery)
 	if err != nil {
-		log.Printf("embedqueue: prune embed_pending: %v", err)
+		logger.Warn("Failed to prune embed_pending", "error", err)
 		return 0
 	}
 	n, _ := res.RowsAffected()

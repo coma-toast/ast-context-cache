@@ -1,35 +1,36 @@
 package embedder
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 // DefaultDockerURL is the DMR host when EMBED_DOCKER_URL is unset.
 const (
-	DefaultDockerURL         = "http://127.0.0.1:12434"
-	DefaultDockerModel       = "ai/qwen3-embedding"
-	DefaultDockerDimensions  = "768"
+	DefaultDockerURL        = "http://127.0.0.1:12434"
+	DefaultDockerModel      = "ai/qwen3-embedding"
+	DefaultDockerDimensions = "768"
 )
 
 // Settings holds embedding config from dashboard form values (not process env).
 type Settings struct {
-	Backend            string
-	ModelDir           string
-	HTTPURL            string
-	HTTPBearer         string
-	OllamaHost         string
-	OllamaModel        string
-	OpenAIBaseURL      string
-	OpenAIAPIKey       string
-	OpenAIModel        string
-	OpenAIDimensions   string
-	DockerURL          string
-	DockerModel        string
-	DockerDimensions   string
+	Backend          string
+	ModelDir         string
+	HTTPURL          string
+	HTTPBearer       string
+	OllamaHost       string
+	OllamaModel      string
+	OpenAIBaseURL    string
+	OpenAIAPIKey     string
+	OpenAIModel      string
+	OpenAIDimensions string
+	DockerURL        string
+	DockerModel      string
+	DockerDimensions string
 }
 
 // SettingsFromMap parses dashboard/API settings keys into a Settings value.
@@ -74,7 +75,7 @@ func newFromSettings(s Settings, modelDir string, remoteTimeout time.Duration) (
 	switch backend {
 	case "onnx":
 		if err := EnsureModel(modelDir); err != nil {
-			return nil, fmt.Errorf("model files: %w", err)
+			return nil, errs.WrapMessage("failed to ensure model files", err, "model_dir", modelDir)
 		}
 		return New(modelDir)
 	case "http":
@@ -103,7 +104,7 @@ func newFromSettings(s Settings, modelDir string, remoteTimeout time.Duration) (
 		}
 		model := strings.TrimSpace(s.OpenAIModel)
 		if model == "" {
-			return nil, fmt.Errorf("EMBED_OPENAI_MODEL is required when EMBED_BACKEND=openai")
+			return nil, errOpenAIModelRequired
 		}
 		jsonDims, err := parseOpenAIDimensionsValue(strings.TrimSpace(s.OpenAIDimensions))
 		if err != nil {
@@ -117,7 +118,7 @@ func newFromSettings(s Settings, modelDir string, remoteTimeout time.Duration) (
 	case "docker":
 		return newDockerEmbedderFromSettings(s, remoteTimeout)
 	default:
-		return nil, fmt.Errorf("EMBED_BACKEND: unknown %q (use onnx, http, ollama, openai, or docker)", backend)
+		return nil, unknownBackendErr(backend)
 	}
 }
 

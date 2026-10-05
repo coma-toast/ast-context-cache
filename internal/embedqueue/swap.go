@@ -1,7 +1,6 @@
 package embedqueue
 
 import (
-	"log"
 	"sync/atomic"
 	"time"
 )
@@ -40,9 +39,9 @@ func PrepareForEmbedderSwap(timeout time.Duration) {
 		swapRestoreWorkers = workerCount
 		if workerCount > 0 {
 			if err := applyWorkerCountLocked(0, false); err != nil {
-				log.Printf("embedqueue: swap prep pause workers: %v", err)
+				logger.Warn("Failed to pause workers for embedder swap", "error", err)
 			} else {
-				log.Printf("embedqueue: paused %d workers for embedder swap", swapRestoreWorkers)
+				logger.Info("Paused workers for embedder swap", "workers", swapRestoreWorkers)
 			}
 		}
 	}
@@ -53,10 +52,10 @@ func PrepareForEmbedderSwap(timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if n := atomic.LoadInt64(&inFlight); n > 0 {
-		log.Printf("embedqueue: swap prep timed out with %d in-flight embed(s) still running", n)
+		logger.Warn("Swap prep timed out with in-flight embeds still running", "in_flight", n)
 	}
 	if n := DrainQueueToPending(); n > 0 {
-		log.Printf("embedqueue: drained %d queued jobs before embedder swap", n)
+		logger.Info("Drained queued jobs before embedder swap", "jobs", n)
 	}
 }
 
@@ -82,8 +81,8 @@ func RestoreWorkersAfterSwap() {
 		n = max
 	}
 	if err := applyWorkerCountLocked(n, false); err != nil {
-		log.Printf("embedqueue: restore workers after swap: %v", err)
+		logger.Warn("Failed to restore workers after swap", "error", err)
 		return
 	}
-	log.Printf("embedqueue: restored %d workers after embedder swap", n)
+	logger.Info("Restored workers after embedder swap", "workers", n)
 }

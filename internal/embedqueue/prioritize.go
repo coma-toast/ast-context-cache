@@ -1,7 +1,6 @@
 package embedqueue
 
 import (
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +39,7 @@ func boostOneProject(projectPath string) {
 	queryBoostMu.Lock()
 	defer queryBoostMu.Unlock()
 	if promoted := promoteProjectToHigh(projectPath); promoted > 0 {
-		log.Printf("embedqueue: query boosted %d embed job(s) for %s", promoted, projectPath)
+		logger.Debug("Query boosted embed jobs", "jobs", promoted, "project", projectPath)
 	}
 	deadline := time.Now().Add(queryBoostMaxWait)
 	for time.Now().Before(deadline) {
@@ -58,7 +57,7 @@ func boostOneProject(projectPath string) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	log.Printf("embedqueue: query boost timed out for %s", projectPath)
+	logger.Warn("Query boost timed out", "project", projectPath, "max_wait", queryBoostMaxWait)
 }
 
 func promoteProjectToHigh(projectPath string) int {

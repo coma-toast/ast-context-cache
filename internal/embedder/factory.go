@@ -1,15 +1,16 @@
 package embedder
 
 import (
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
+
+var errOpenAIModelRequired = errs.NewCode(errs.CodeInvalidInput, "EMBED_OPENAI_MODEL is required when EMBED_BACKEND=openai")
 
 // NewForMain selects an embedder from the environment. Must match vector index dimension 768
 // (see search.VectorDims); otherwise indexing and search will be inconsistent.
@@ -44,7 +45,7 @@ func NewForMain(modelDir string) (e Interface, isLoaded func() bool, err error) 
 	case "onnx":
 		SetActive("onnx", ModelName, Dimensions, "onnxruntime", "")
 		if eerr := EnsureModel(modelDir); eerr != nil {
-			log.Printf("WARNING: Could not ensure embedder model files: %v", eerr)
+			logger.Warn("Could not ensure embedder model files", "error", eerr)
 		}
 		le := NewLazy(modelDir)
 		return le, func() bool { return le.IsLoaded() }, nil
@@ -82,7 +83,7 @@ func NewForMain(modelDir string) (e Interface, isLoaded func() bool, err error) 
 		}
 		model := strings.TrimSpace(EffectiveEnv("EMBED_OPENAI_MODEL"))
 		if model == "" {
-			return nil, nil, fmt.Errorf("EMBED_OPENAI_MODEL is required when EMBED_BACKEND=openai")
+			return nil, nil, errOpenAIModelRequired
 		}
 		jsonDims, err := resolveOpenAIDimensions()
 		if err != nil {
@@ -97,7 +98,7 @@ func NewForMain(modelDir string) (e Interface, isLoaded func() bool, err error) 
 		return newDockerEmbedder()
 
 	default:
-		return nil, nil, fmt.Errorf("EMBED_BACKEND: unknown %q (use onnx, http, ollama, openai, or docker)", backend)
+		return nil, nil, unknownBackendErr(backend)
 	}
 }
 
@@ -120,10 +121,14 @@ func parseOpenAIDimensionsValue(v string) (int, error) {
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		return 0, fmt.Errorf("EMBED_OPENAI_DIMENSIONS: %w", err)
+		return 0, errs.WrapCodeMessage(errs.CodeInvalidInput, "invalid EMBED_OPENAI_DIMENSIONS", err, "value", v)
 	}
 	if n <= 0 {
 		return 0, nil
 	}
 	return n, nil
+}
+
+func unknownBackendErr(backend string) error {
+	return errs.NewCode(errs.CodeInvalidInput, "unknown EMBED_BACKEND (use onnx, http, ollama, openai, or docker)", "backend", backend)
 }
