@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"fmt"
-	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -153,7 +152,7 @@ func runIndexJob(job *indexJob, lock *sync.Mutex) {
 	defer close(job.done)
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("index_files: job %s panicked: %v", job.ID, r)
+			logger.Error("Index job panicked", "job_id", job.ID, "panic", r)
 			job.setState(indexJobFailed, fmt.Sprintf("panic: %v", r))
 		}
 	}()
@@ -166,13 +165,13 @@ func runIndexJob(job *indexJob, lock *sync.Mutex) {
 	})
 	job.symbols.Store(int64(n))
 	if err != nil {
-		log.Printf("index_files: job %s (%s) failed after %d files: %v", job.ID, job.Path, job.filesDone.Load(), err)
+		logger.Warn("Index job failed", "job_id", job.ID, "path", job.Path, "files_done", job.filesDone.Load(), "error", err)
 		job.setState(indexJobFailed, err.Error())
 		return
 	}
 	afterIndexDirectory(job.ProjectPath)
 	job.setState(indexJobCompleted, "")
-	log.Printf("index_files: job %s indexed %s: %d files, %d symbols in %s", job.ID, job.Path, job.filesDone.Load(), n, time.Since(job.StartedAt).Round(time.Millisecond))
+	logger.Info("Index job completed", "job_id", job.ID, "path", job.Path, "files", job.filesDone.Load(), "symbols", n, "duration", time.Since(job.StartedAt).Round(time.Millisecond))
 }
 
 func defaultAfterIndexDirectory(projectPath string) {

@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
@@ -215,6 +215,6 @@ func handleContextTool(toolName string, toolArgs map[string]interface{}, args ma
 	case "report_kv_repair_event":
 		return handleReportKvRepairEvent(toolArgs, start, cpuStart, args, projectPath), true, nil
 	default:
-		return nil, false, errors.New("not a context tool")
+		return nil, false, errs.New("not a context tool")
 	}
 }

@@ -17,11 +17,15 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
+const (
+	selectSymbolLinesQuery = "SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1"
+)
+
 type RetrieveResult struct {
-	Query           string            `json:"query"`
-	Context         string            `json:"context"`
-	Chunks          []RetrieveChunk   `json:"chunks"`
-	Stats           RetrieveStats     `json:"stats"`
+	Query           string             `json:"query"`
+	Context         string             `json:"context"`
+	Chunks          []RetrieveChunk    `json:"chunks"`
+	Stats           RetrieveStats      `json:"stats"`
 	CodeScriptHints []codescripts.Hint `json:"code_script_hints,omitempty"`
 }
 
@@ -42,14 +46,14 @@ type RetrieveStats struct {
 	TotalTokens  int     `json:"total_tokens"`
 	SearchTimeMs float64 `json:"search_time_ms"`
 	// Pipeline observability (hybrid search + assembly)
-	BM25Candidates     int     `json:"bm25_candidates,omitempty"`
-	VectorCandidates   int     `json:"vector_candidates,omitempty"`
-	HybridAfterFuse    int     `json:"hybrid_after_fuse,omitempty"`
-	AfterDedup         int     `json:"after_dedup,omitempty"`
-	ChunksInBudget     int     `json:"chunks_in_budget,omitempty"`
-	TokensEstAllChunks int     `json:"tokens_est_all_chunks,omitempty"`
-	CodeRetrieveMs     float64 `json:"code_retrieve_ms,omitempty"`
-	DocsRetrieveMs     float64 `json:"docs_retrieve_ms,omitempty"`
+	BM25Candidates       int     `json:"bm25_candidates,omitempty"`
+	VectorCandidates     int     `json:"vector_candidates,omitempty"`
+	HybridAfterFuse      int     `json:"hybrid_after_fuse,omitempty"`
+	AfterDedup           int     `json:"after_dedup,omitempty"`
+	ChunksInBudget       int     `json:"chunks_in_budget,omitempty"`
+	TokensEstAllChunks   int     `json:"tokens_est_all_chunks,omitempty"`
+	CodeRetrieveMs       float64 `json:"code_retrieve_ms,omitempty"`
+	DocsRetrieveMs       float64 `json:"docs_retrieve_ms,omitempty"`
 	DedupBudgetMs        float64 `json:"dedup_budget_ms,omitempty"`
 	SymbolBaselineTokens int     `json:"symbol_baseline_tokens,omitempty"`
 	DedupTokensSaved     int     `json:"dedup_tokens_saved,omitempty"`
@@ -244,9 +248,7 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 		endLine, _ := r.Data["end_line"].(int)
 		if startLine == 0 {
 			if indexDB, err := db.IndexReader(); err == nil {
-				indexDB.QueryRow(
-					"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
-					name, file, owner).Scan(&startLine, &endLine)
+				indexDB.QueryRow(selectSymbolLinesQuery, name, file, owner).Scan(&startLine, &endLine)
 			}
 		}
 		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
@@ -291,9 +293,7 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 		owner := projectlinks.OwningProject(absFile, projectPath)
 		var startLine, endLine int
 		if indexDB, err := db.IndexReader(); err == nil {
-			indexDB.QueryRow(
-				"SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1",
-				c.Name, absFile, owner).Scan(&startLine, &endLine)
+			indexDB.QueryRow(selectSymbolLinesQuery, c.Name, absFile, owner).Scan(&startLine, &endLine)
 		}
 		total += context.FullSourceTokens(absFile, c.Name, owner, startLine, endLine, fileCache)
 	}

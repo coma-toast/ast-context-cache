@@ -13,6 +13,17 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
+const (
+	selectIndexedFileQuery         = `SELECT 1 FROM indexed_files WHERE file = ? AND project_path = ?`
+	selectAnyFileSymbolQuery       = `SELECT 1 FROM symbols WHERE file = ? AND project_path = ? LIMIT 1`
+	selectSummarySymbolQueryPrefix = `SELECT name, COALESCE(code,''), COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? AND `
+	orderByStartLineQuerySuffix    = ` ORDER BY start_line`
+	upsertSummaryQuery             = `INSERT INTO summaries (file_path, symbol_name, summary_text, content_hash, project_path)
+			 VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(file_path, symbol_name, project_path) DO UPDATE SET summary_text=excluded.summary_text, content_hash=excluded.content_hash, created_at=datetime('now')`
+	selectSimilarSymbolsQuery = `SELECT DISTINCT name, COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? AND INSTR(LOWER(name), ?) > 0 ORDER BY start_line LIMIT 5`
+)
+
 // handleCacheSummary stores an LLM-written summary for an indexed symbol (or,
 // with no symbol, for an indexed file). It refuses names the index doesn't
 // know: summary mode looks summaries up by an indexed symbol's qualified name
@@ -41,8 +52,8 @@ func handleCacheSummary(args map[string]interface{}, projectPath string) map[str
 	name, qualified, contentHash := "", "", ""
 	if symbol == "" {
 		var one int
-		if conn.QueryRow(`SELECT 1 FROM indexed_files WHERE file = ? AND project_path = ?`, file, owner).Scan(&one) != nil &&
-			conn.QueryRow(`SELECT 1 FROM symbols WHERE file = ? AND project_path = ? LIMIT 1`, file, owner).Scan(&one) != nil {
+		if conn.QueryRow(selectIndexedFileQuery, file, owner).Scan(&one) != nil &&
+			conn.QueryRow(selectAnyFileSymbolQuery, file, owner).Scan(&one) != nil {
 			return map[string]interface{}{
 				"error": fmt.Sprintf("file %s is not indexed for this project; index it with index_files before caching a summary", rel),
 				"file":  file,
@@ -50,9 +61,7 @@ func handleCacheSummary(args map[string]interface{}, projectPath string) map[str
 		}
 	} else {
 		nameFrag, nameArgs := impact.NameMatchSQL("", symbol)
-		rows, err := conn.Query(
-			`SELECT name, COALESCE(code,''), COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? AND `+nameFrag+` ORDER BY start_line`,
-			append([]interface{}{file, owner}, nameArgs...)...)
+		rows, err := conn.Query(selectSummarySymbolQueryPrefix+nameFrag+orderByStartLineQuerySuffix, append([]interface{}{file, owner}, nameArgs...)...)
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
@@ -97,11 +106,7 @@ func handleCacheSummary(args map[string]interface{}, projectPath string) map[str
 	}
 
 	err = db.IndexWrite(func(tx *sql.Tx) error {
-		_, err := tx.Exec(
-			`INSERT INTO summaries (file_path, symbol_name, summary_text, content_hash, project_path)
-			 VALUES (?, ?, ?, ?, ?)
-			 ON CONFLICT(file_path, symbol_name, project_path) DO UPDATE SET summary_text=excluded.summary_text, content_hash=excluded.content_hash, created_at=datetime('now')`,
-			file, qualified, summary, contentHash, projectPath)
+		_, err := tx.Exec(upsertSummaryQuery, file, qualified, summary, contentHash, projectPath)
 		return err
 	})
 	if err != nil {
@@ -125,9 +130,7 @@ func similarSymbols(conn *sql.DB, file, projectPath, symbol string) []string {
 	if seg == "" {
 		return out
 	}
-	rows, err := conn.Query(
-		`SELECT DISTINCT name, COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? AND INSTR(LOWER(name), ?) > 0 ORDER BY start_line LIMIT 5`,
-		file, projectPath, seg)
+	rows, err := conn.Query(selectSimilarSymbolsQuery, file, projectPath, seg)
 	if err != nil {
 		return out
 	}

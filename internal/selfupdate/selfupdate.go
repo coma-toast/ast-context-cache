@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
@@ -158,7 +159,7 @@ func Start(repoDir string) (started bool, errMsg string) {
 
 func runUpdate(repoDir string) {
 	if out, err := git(repoDir, "pull", "--ff-only", "origin", "main"); err != nil {
-		fail(fmt.Errorf("git pull: %w (%s)", err, out))
+		fail(errs.WrapMessage(fmt.Sprintf("failed to git pull (%s)", out), err))
 		return
 	}
 
@@ -169,7 +170,7 @@ func runUpdate(repoDir string) {
 	buildCmd := exec.Command("make", "build")
 	buildCmd.Dir = repoDir
 	if out, err := buildCmd.CombinedOutput(); err != nil {
-		fail(fmt.Errorf("make build: %w (%s)", err, truncate(string(out), 4000)))
+		fail(errs.WrapMessage(fmt.Sprintf("failed to make build (%s)", truncate(string(out), 4000)), err))
 		return
 	}
 

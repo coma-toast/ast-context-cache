@@ -1,14 +1,27 @@
 package projectlinks
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/repokey"
+)
+
+const (
+	selectIndexedProjectPathsQuery = `SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'`
+	selectLinkChildrenQuery        = `SELECT child_path FROM project_links WHERE parent_path = ? ORDER BY child_path`
+	selectLinkParentsQuery         = `SELECT parent_path FROM project_links WHERE child_path = ? ORDER BY parent_path`
+	insertLinkQuery                = `INSERT OR IGNORE INTO project_links (parent_path, child_path, auto_linked) VALUES (?, ?, ?)`
+	deleteLinkQuery                = `DELETE FROM project_links WHERE parent_path = ? AND child_path = ?`
+	deleteLinksForPathQuery        = `DELETE FROM project_links WHERE parent_path = ? OR child_path = ?`
+	projectPathColumn              = "project_path"
+	equalsParamQueryFrag           = " = ?"
+	inListOpenQueryFrag            = " IN ("
+	inListCloseQueryFrag           = ")"
 )
 
 // linksQueries counts project_links lookups so tests can assert hot loops resolve scope once.
@@ -76,7 +89,7 @@ func IndexedProjectPaths() []string {
 	if err != nil {
 		return nil
 	}
-	rows, err := conn.Query(`SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != '' AND project_path != '.'`)
+	rows, err := conn.Query(selectIndexedProjectPathsQuery)
 	if err != nil {
 		return nil
 	}
@@ -143,7 +156,7 @@ func Links(parent string) ([]string, error) {
 		return nil, nil
 	}
 	linksQueries.Add(1)
-	rows, err := db.DB.Query(`SELECT child_path FROM project_links WHERE parent_path = ? ORDER BY child_path`, parent)
+	rows, err := db.DB.Query(selectLinkChildrenQuery, parent)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +180,7 @@ func Parents(child string) ([]string, error) {
 	if child == "" || db.DB == nil {
 		return nil, nil
 	}
-	rows, err := db.DB.Query(`SELECT parent_path FROM project_links WHERE child_path = ? ORDER BY parent_path`, child)
+	rows, err := db.DB.Query(selectLinkParentsQuery, child)
 	if err != nil {
 		return nil, err
 	}
@@ -324,15 +337,15 @@ func ScopeSQLWithRepoSiblings(alias, projectPath string, includeSiblings bool) (
 }
 
 func scopeSQLFor(alias, projectPath string, scope []string) (string, []interface{}) {
-	col := "project_path"
+	col := projectPathColumn
 	if alias != "" {
-		col = alias + ".project_path"
+		col = alias + "." + projectPathColumn
 	}
 	if len(scope) == 0 {
-		return col + " = ?", []interface{}{projectPath}
+		return col + equalsParamQueryFrag, []interface{}{projectPath}
 	}
 	if len(scope) == 1 {
-		return col + " = ?", []interface{}{scope[0]}
+		return col + equalsParamQueryFrag, []interface{}{scope[0]}
 	}
 	ph := strings.Repeat("?,", len(scope))
 	ph = strings.TrimSuffix(ph, ",")
@@ -340,29 +353,29 @@ func scopeSQLFor(alias, projectPath string, scope []string) (string, []interface
 	for i, p := range scope {
 		args[i] = p
 	}
-	return col + " IN (" + ph + ")", args
+	return col + inListOpenQueryFrag + ph + inListCloseQueryFrag, args
 }
 
 func validateLink(parent, child string) error {
 	parent = NormalizePath(parent)
 	child = NormalizePath(child)
 	if parent == "" || child == "" {
-		return fmt.Errorf("parent_path and child_path required")
+		return errs.NewCode(errs.CodeInvalidInput, "parent_path and child_path required")
 	}
 	if parent == child {
-		return fmt.Errorf("parent and child must differ")
+		return errs.NewCode(errs.CodeInvalidInput, "parent and child must differ")
 	}
 	if !IsStrictSubpath(child, parent) {
-		return fmt.Errorf("child must be a subdirectory of parent")
+		return errs.NewCode(errs.CodeInvalidInput, "child must be a subdirectory of parent")
 	}
 	if parents, _ := Parents(parent); len(parents) > 0 {
-		return fmt.Errorf("parent is already linked under another container")
+		return errs.NewCode(errs.CodeConflict, "parent is already linked under another container")
 	}
 	if st, err := os.Stat(parent); err != nil || !st.IsDir() {
-		return fmt.Errorf("parent path not found")
+		return errs.NewCode(errs.CodeNotFound, "parent path not found")
 	}
 	if st, err := os.Stat(child); err != nil || !st.IsDir() {
-		return fmt.Errorf("child path not found")
+		return errs.NewCode(errs.CodeNotFound, "child path not found")
 	}
 	return nil
 }
@@ -379,9 +392,9 @@ func CreateLink(parent, child string, auto bool) error {
 		autoInt = 1
 	}
 	if db.DB == nil {
-		return fmt.Errorf("database not initialized")
+		return errs.New("database not initialized")
 	}
-	if _, err := db.DB.Exec(`INSERT OR IGNORE INTO project_links (parent_path, child_path, auto_linked) VALUES (?, ?, ?)`, parent, child, autoInt); err != nil {
+	if _, err := db.DB.Exec(insertLinkQuery, parent, child, autoInt); err != nil {
 		return err
 	}
 	return CleanupParentDuplicates(parent, child)
@@ -392,9 +405,9 @@ func Unlink(parent, child string) error {
 	parent = NormalizePath(parent)
 	child = NormalizePath(child)
 	if parent == "" || child == "" || db.DB == nil {
-		return fmt.Errorf("parent_path and child_path required")
+		return errs.NewCode(errs.CodeInvalidInput, "parent_path and child_path required")
 	}
-	_, err := db.DB.Exec(`DELETE FROM project_links WHERE parent_path = ? AND child_path = ?`, parent, child)
+	_, err := db.DB.Exec(deleteLinkQuery, parent, child)
 	return err
 }
 
@@ -404,7 +417,7 @@ func RemoveLinksForPath(path string) error {
 	if path == "" || db.DB == nil {
 		return nil
 	}
-	_, err := db.DB.Exec(`DELETE FROM project_links WHERE parent_path = ? OR child_path = ?`, path, path)
+	_, err := db.DB.Exec(deleteLinksForPathQuery, path, path)
 	return err
 }
 

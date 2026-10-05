@@ -1,7 +1,6 @@
 package purge
 
 import (
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -12,6 +11,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
+)
+
+const (
+	selectIndexedProjectPathsQuery = `SELECT DISTINCT project_path FROM indexed_files WHERE project_path IS NOT NULL AND project_path != ''`
 )
 
 const (
@@ -107,10 +110,10 @@ func purgePaths(due []string) []string {
 	for _, p := range due {
 		watcher.DeleteWatcher(p)
 		if err := ProjectData(p); err != nil {
-			log.Printf("purge: %s: %v", p, err)
+			logger.Warn("Failed to purge deleted project", "project_path", p, "error", err)
 			continue
 		}
-		log.Printf("purged data for deleted project: %s", p)
+		logger.Info("Purged data for deleted project", "project_path", p)
 		purged = append(purged, p)
 	}
 	if len(purged) > 0 {
@@ -212,7 +215,7 @@ func indexedFileProjectPaths() []string {
 	if err != nil {
 		return nil
 	}
-	rows, err := conn.Query(`SELECT DISTINCT project_path FROM indexed_files WHERE project_path IS NOT NULL AND project_path != ''`)
+	rows, err := conn.Query(selectIndexedProjectPathsQuery)
 	if err != nil {
 		return nil
 	}
