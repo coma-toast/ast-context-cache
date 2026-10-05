@@ -86,7 +86,7 @@ func ProjectData(projectPath string) error {
 	}
 	purgeContextData(projectPath, refs)
 
-	cache.GlobalCache.ClearProject(projectPath)
+	cache.Candidates.ClearProject(projectPath)
 	search.Cache.DeleteByProject(projectPath)
 	logger.Info("Deleted all indexed data and memory for project", "project_path", projectPath)
 	return nil

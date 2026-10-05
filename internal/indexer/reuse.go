@@ -177,7 +177,7 @@ func ReuseFile(filePath, projectPath string, src *ReuseSource) (int, bool) {
 	search.Cache.DeleteByFile(filePath, projectPath)
 	copyReuseVectors(vectors, newIDs, filePath, projectPath)
 	db.InvalidateSummariesForFile(filePath, projectPath)
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return copied, true
 }
 

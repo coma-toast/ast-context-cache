@@ -72,20 +72,6 @@ func ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens int) S
 	}
 }
 
-// CacheHasSavingsMeta reports whether a cached get_context_capsule payload includes savings fields.
-func CacheHasSavingsMeta(parsed map[string]interface{}) bool {
-	if parsed == nil {
-		return false
-	}
-	if _, ok := parsed["symbol_baseline_tokens"]; ok {
-		return true
-	}
-	if _, ok := parsed["tokens_saved"]; ok {
-		return true
-	}
-	return false
-}
-
 func (m SavingsMeta) ApplyTo(resp map[string]interface{}) {
 	resp["tokens_used"] = m.TokensUsed
 	resp["symbol_baseline_tokens"] = m.SymbolBaseline

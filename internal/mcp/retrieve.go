@@ -208,10 +208,12 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 }
 
 func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics, codeRetrieveMeta, []map[string]interface{}) {
+	stage := "retrieve:bm25"
 	if emb != nil {
 		embedqueue.EnsureProjectEmbeddings(projectPath)
+		stage = "retrieve:hybrid"
 	}
-	results, metrics := search.HybridSearch(query, projectPath, emb, limit*2, filters)
+	results, metrics, _ := context.RankedHybrid(context.CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: limit * 2, Filters: filters}, emb)
 	if len(results) > limit {
 		results = results[:limit]
 	}

@@ -110,6 +110,6 @@ func IndexFishFile(filePath, projectPath string) (count, fullTokens, skeletonTok
 		return 0, 0, 0, err
 	}
 	search.Cache.DeleteByFile(filePath, projectPath)
-	notifyIndexCommitted()
+	notifyIndexCommitted(projectPath)
 	return count, 0, 0, nil
 }

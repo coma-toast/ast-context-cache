@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/cache"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
@@ -46,6 +47,7 @@ func PurgeExcluded(projectPath string) int {
 	}
 	if removed > 0 {
 		logger.Info("Purged newly excluded files", "files", removed, "project", projectPath)
+		cache.Candidates.ClearProject(projectPath)
 		realtime.Notify(realtime.IndexCommitted)
 	}
 	return removed

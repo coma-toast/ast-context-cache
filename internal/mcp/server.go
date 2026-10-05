@@ -311,13 +311,11 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
 				limit = int(l)
 			}
-			queryVec, embErr := emb.EmbedSingle(query)
-			RecordEmbed()
+			filters := search.ParseSearchFilters(toolArgs)
+			scored, cacheHit, embErr := semanticCandidates(query, projectPath, docType, limit, filters)
 			if embErr != nil {
 				result = map[string]string{"error": "embed query: " + embErr.Error()}
 			} else {
-				filters := search.ParseSearchFilters(toolArgs)
-				scored := search.Cache.Search(queryVec, projectPath, docType, limit, filters)
 				mode := "skeleton"
 				if m, ok := toolArgs["mode"].(string); ok && m != "" {
 					mode = m
@@ -328,6 +326,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 					tokenBudget = int(tb)
 				}
 				results, packSavings := context.PackScoredResults(scored, limit, projectPath, mode, sessionID, tokenBudget)
+				packSavings.CacheHit = cacheHit
 				resp := map[string]interface{}{
 					"query":         query,
 					"mode":          mode,
