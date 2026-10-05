@@ -29,7 +29,7 @@ func (u tomlTableUnit) block(nl string) string {
 
 func (u tomlTableUnit) desiredHash() (string, error) {
 	b, err := canonicalJSON(map[string]any{"url": u.url})
-	return shortHash(b), err
+	return desiredEntryHash(b), err
 }
 
 func (u tomlTableUnit) status(e *env) ComponentStatus {
@@ -57,7 +57,7 @@ func (u tomlTableUnit) status(e *env) ComponentStatus {
 	if err != nil {
 		return e.cs(StatusNotInstalled, u.file, err.Error())
 	}
-	st := entryStatus(shortHash(cur), dh, row)
+	st := entryStatus(hashEntry(cur), dh, row)
 	reason := ""
 	if st == StatusModifiedByUser && row == nil {
 		reason = "an ast-context-cache table exists that the installer did not write"
@@ -96,7 +96,7 @@ func (u tomlTableUnit) plan(e *env) ([]FileChange, []string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		if shortHash(cur) == dh {
+		if hashEntry(cur).norm == dh {
 			c := e.skip(u.file, "already installed")
 			c.upserts = []stateRow{e.stateRow(u.file, dh, 0)}
 			return []FileChange{c}, nil, nil

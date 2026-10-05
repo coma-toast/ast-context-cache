@@ -3,7 +3,7 @@
     "target": "codex",
     "component": "mcp",
     "path": ".codex/config.toml",
-    "content": "{\"url\":\"http://localhost:7821/mcp\"}"
+    "content": "{\"url\":\"http://localhost:7800/mcp\"}"
   },
   {
     "target": "codex",
