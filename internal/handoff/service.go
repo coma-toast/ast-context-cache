@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
-	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 )
 
@@ -70,6 +69,7 @@ type realService struct {
 	trees   *treeIndex
 	waiters *waitHub
 	touches *touchCoalescer
+	annot   *annotator
 }
 
 // New returns the handoff service, starts its expiry sweeper and abandonment loops, and
@@ -106,26 +106,6 @@ func SetDefault(s Service) {
 	defaultService.Store(&s)
 }
 
-// Create is implemented in Phase 6.4.
-func (s *realService) Create(ctx context.Context, req CreateRequest) (*CreateResponse, error) {
-	return nil, notImplemented("create")
-}
-
-// Open is implemented in Phase 6.5.
-func (s *realService) Open(ctx context.Context, req OpenRequest) (*OpenResponse, error) {
-	return nil, notImplemented("open")
-}
-
-// Expand is implemented in Phase 6.5.
-func (s *realService) Expand(ctx context.Context, req ExpandRequest) (*ExpandResponse, error) {
-	return nil, notImplemented("expand")
-}
-
-// Annotate is implemented in Phase 6.6; until then no response is annotated.
-func (s *realService) Annotate(sid SessionID, ev SearchEvent, results []map[string]any) map[string]any {
-	return nil
-}
-
 // IsTreeSession reports whether sid belongs to a tree.
 func (s *realService) IsTreeSession(sid SessionID) bool {
 	_, ok := s.trees.lookup(sid)
@@ -139,11 +119,8 @@ func newService(emb embedder.Interface) *realService {
 		trees:   newTreeIndex(),
 		waiters: newWaitHub(),
 		touches: newTouchCoalescer(),
+		annot:   newAnnotator(),
 	}
-}
-
-func notImplemented(method string) error {
-	return errs.NewCode(errs.CodeUnsupported, "not implemented yet", "method", method)
 }
 
 // sqlTime formats t like SQLite's datetime('now'), in UTC, so stored times compare as text.

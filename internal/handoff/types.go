@@ -118,14 +118,16 @@ type PointerInput struct {
 	Note string `json:"note,omitempty"`
 }
 
-// Breakdown is a snapshot's token estimate per section (HO-5, HO-7).
+// Breakdown is a snapshot's token estimate per section (HO-5, HO-7): the tokens each section
+// charges against the tree cap, and how many items it holds.
 type Breakdown struct {
-	Manifest int `json:"manifest"`
-	Trail    int `json:"trail"`
-	Notes    int `json:"notes"`
-	Memory   int `json:"memory"`
-	Pointers int `json:"pointers"`
-	Total    int `json:"total"`
+	Manifest int             `json:"manifest"`
+	Trail    int             `json:"trail"`
+	Notes    int             `json:"notes"`
+	Memory   int             `json:"memory"`
+	Pointers int             `json:"pointers"`
+	Total    int             `json:"total"`
+	Counts   map[Section]int `json:"counts,omitempty"`
 }
 
 // CreateRequest is a parent's handoff creation (HO-1, HO-4).
@@ -229,6 +231,11 @@ type OpenResponse struct {
 	TokensUsed int               `json:"tokens_used"`
 	Truncated  bool              `json:"truncated,omitempty"`
 	Next       *PageCursor       `json:"next,omitempty"`
+	// TokensAvailable and TokensDelivered are the child's running OB-2 totals after this call:
+	// the snapshot content it could pull, and what open and expand delivered. The MCP layer
+	// logs the difference as handoff tokens saved; they are not sent to the agent.
+	TokensAvailable int `json:"-"`
+	TokensDelivered int `json:"-"`
 }
 
 // ExpandRequest expands snapshot items on demand (OP-4). Items are snapshot item ids; All
@@ -278,6 +285,9 @@ type ExpandResponse struct {
 	TokensUsed int            `json:"tokens_used"`
 	Truncated  bool           `json:"truncated,omitempty"`
 	Next       *PageCursor    `json:"next,omitempty"`
+	// TokensAvailable and TokensDelivered are the child's running OB-2 totals, as on OpenResponse.
+	TokensAvailable int `json:"-"`
+	TokensDelivered int `json:"-"`
 }
 
 // CompleteRequest is a child's completion (RT-1, RT-8).
@@ -526,14 +536,18 @@ type Grant struct {
 
 // SearchEvent is the search a tree session just ran, as Annotate matches it against the parent
 // and sibling trails (OP-9, SP-6). MatchKey is the trail's match key: tool, normalized query,
-// and filters.
+// and filters. ProjectPath is the search's project, which result files are relative to.
+// CandidateKeys are its pre-dedup hits in trail.HitRef form ("relfile#name@line",
+// trail.Entry.CandidateHits), for repeat accounting (OB-1).
 type SearchEvent struct {
-	Tool     string   `json:"tool"`
-	Query    string   `json:"query"`
-	MatchKey string   `json:"match_key"`
-	Hits     int      `json:"hits"`
-	TopKeys  []string `json:"top_keys,omitempty"`
-	ZeroHit  bool     `json:"zero_hit,omitempty"`
+	Tool          string   `json:"tool"`
+	Query         string   `json:"query"`
+	MatchKey      string   `json:"match_key"`
+	Hits          int      `json:"hits"`
+	TopKeys       []string `json:"top_keys,omitempty"`
+	ZeroHit       bool     `json:"zero_hit,omitempty"`
+	ProjectPath   string   `json:"project_path,omitempty"`
+	CandidateKeys []string `json:"candidate_keys,omitempty"`
 }
 
 // NewHandoffRef returns a random handoff ref.

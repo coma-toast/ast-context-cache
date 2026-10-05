@@ -79,7 +79,7 @@ func (s *realService) Claim(ctx context.Context, req ClaimRequest) (*ClaimRespon
 	if err != nil {
 		return nil, err
 	}
-	reason := truncateBytes(strings.TrimSpace(req.Reason), maxClaimReasonBytes)
+	reason := cutBytes(strings.TrimSpace(req.Reason), maxClaimReasonBytes)
 	var res *ClaimResponse
 	err = db.HandoffTx(func(tx *sql.Tx) error {
 		var err error

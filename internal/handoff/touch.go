@@ -44,6 +44,7 @@ func (s *realService) Touch(sid SessionID) {
 	if !ok || !e.isChild {
 		return
 	}
+	s.flushSearchCounters(sid)
 	now := nowFunc()
 	if !s.touches.due(string(sid), now) {
 		return

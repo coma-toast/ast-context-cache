@@ -142,7 +142,7 @@ func liveTrailEntry(e trail.Entry) (text, refsJSON string, tokens int) {
 	}
 	text = trailEntryText(e.Tool, query, e.HitCount)
 	if over := len(text) - maxTrailTextTokens*4; over > 0 {
-		query = truncateBytes(query, len(query)-over-len(truncationMark)) + truncationMark
+		query = cutBytes(query, len(query)-over-len(truncationMark)) + truncationMark
 		text = trailEntryText(e.Tool, query, e.HitCount)
 	}
 	tokens = db.EstimateTokens(text)
@@ -166,7 +166,7 @@ func dispatchTrail(e trail.Entry) {
 }
 
 // truncateBytes cuts s to at most n bytes without splitting a rune.
-func truncateBytes(s string, n int) string {
+func cutBytes(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}

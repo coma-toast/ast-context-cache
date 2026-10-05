@@ -43,8 +43,8 @@ const (
 	collectEntryTokens = 80
 )
 
-// handoffRow is one handoffs row as collect, list, and status read it.
-type handoffRow struct {
+// fanInHandoff is one handoffs row as collect, list, and status read it.
+type fanInHandoff struct {
 	ref       HandoffRef
 	tree      TreeID
 	label     string
@@ -216,7 +216,7 @@ func (s *realService) waitAny(trees []TreeID) (<-chan struct{}, func()) {
 }
 
 // collectRoots resolves a collect request to the handoffs whose children it lists.
-func collectRoots(req CollectRequest) ([]handoffRow, error) {
+func collectRoots(req CollectRequest) ([]fanInHandoff, error) {
 	if db.ContextDB == nil {
 		return nil, errNoContextDB
 	}
@@ -229,7 +229,7 @@ func collectRoots(req CollectRequest) ([]handoffRow, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []handoffRow{h}, nil
+		return []fanInHandoff{h}, nil
 	case req.SessionID != "":
 		rows, err := handoffsByParent(req.SessionID)
 		if err != nil {
@@ -247,12 +247,12 @@ func collectRoots(req CollectRequest) ([]handoffRow, error) {
 // collectChildren lists the children of roots (and, recursively, of the handoffs they created)
 // within budget tokens, and reports whether any child it read is still open. Every child is
 // read, so anyOpen holds even when the response is truncated.
-func collectChildren(roots []handoffRow, recursive bool, budget int) (*CollectResponse, bool, error) {
+func collectChildren(roots []fanInHandoff, recursive bool, budget int) (*CollectResponse, bool, error) {
 	res := &CollectResponse{Children: []ChildResult{}}
 	anyOpen := false
 	seen := map[HandoffRef]bool{}
-	var visit func(h handoffRow) error
-	visit = func(h handoffRow) error {
+	var visit func(h fanInHandoff) error
+	visit = func(h fanInHandoff) error {
 		if seen[h.ref] {
 			return nil
 		}
@@ -324,7 +324,7 @@ func childTokens(c ChildResult) int {
 	return db.EstimateTokens(string(b))
 }
 
-func summarizeHandoff(h handoffRow) (HandoffSummary, error) {
+func summarizeHandoff(h fanInHandoff) (HandoffSummary, error) {
 	sum := HandoffSummary{Ref: h.ref, TreeID: h.tree, Label: h.label, Mode: h.mode, Depth: h.depth, CreatedAt: h.createdAt}
 	rows, err := db.ContextDB.Query(selectChildStatusCountsQuery, string(h.ref))
 	if err != nil {
@@ -346,33 +346,33 @@ func summarizeHandoff(h handoffRow) (HandoffSummary, error) {
 	return sum, rows.Err()
 }
 
-func handoffByRef(ref HandoffRef) (handoffRow, error) {
+func handoffByRef(ref HandoffRef) (fanInHandoff, error) {
 	rows, err := queryHandoffs(selectHandoffByRefQuery, string(ref))
 	if err != nil {
-		return handoffRow{}, err
+		return fanInHandoff{}, err
 	}
 	if len(rows) == 0 {
-		return handoffRow{}, errs.NewCode(CodeHandoffNotFound, "handoff not found", "handoff", string(ref))
+		return fanInHandoff{}, errs.NewCode(CodeHandoffNotFound, "handoff not found", "handoff", string(ref))
 	}
 	return rows[0], nil
 }
 
-func handoffsByParent(sid SessionID) ([]handoffRow, error) {
+func handoffsByParent(sid SessionID) ([]fanInHandoff, error) {
 	if db.ContextDB == nil {
 		return nil, errNoContextDB
 	}
 	return queryHandoffs(selectParentHandoffsQuery, string(sid))
 }
 
-func queryHandoffs(q string, arg string) ([]handoffRow, error) {
+func queryHandoffs(q string, arg string) ([]fanInHandoff, error) {
 	rows, err := db.ContextDB.Query(q, arg)
 	if err != nil {
 		return nil, errs.WrapMessage("failed to list handoffs", err)
 	}
 	defer rows.Close()
-	var out []handoffRow
+	var out []fanInHandoff
 	for rows.Next() {
-		var h handoffRow
+		var h fanInHandoff
 		if err := rows.Scan(&h.ref, &h.tree, &h.label, &h.mode, &h.depth, &h.createdAt); err != nil {
 			return nil, errs.WrapMessage("failed to read handoff", err)
 		}
@@ -454,7 +454,7 @@ func requireTree(tree TreeID) error {
 	return nil
 }
 
-func uniqueTrees(rows []handoffRow) []TreeID {
+func uniqueTrees(rows []fanInHandoff) []TreeID {
 	seen := map[TreeID]bool{}
 	var out []TreeID
 	for _, h := range rows {

@@ -233,26 +233,6 @@ func TestTreeIndex(t *testing.T) {
 	assert.True(t, s.IsTreeSession(tt.root), "positive entries survive the negative cap")
 }
 
-func TestUnimplementedMethods(t *testing.T) {
-	dbtest.Init(t)
-	s := newService(nil)
-	ctx := context.Background()
-	calls := map[string]func() error{
-		"create": func() error { _, err := s.Create(ctx, CreateRequest{}); return err },
-		"open":   func() error { _, err := s.Open(ctx, OpenRequest{}); return err },
-		"expand": func() error { _, err := s.Expand(ctx, ExpandRequest{}); return err },
-	}
-	for name, call := range calls {
-		t.Run(name, func(t *testing.T) {
-			err := call()
-			assert.True(t, errs.HasCode(err, errs.CodeUnsupported), "%v", err)
-			assert.Equal(t, "unsupported", ErrorMap(err)["error"])
-		})
-	}
-	assert.Nil(t, s.Annotate("x", SearchEvent{}, nil))
-	s.Touch("x")
-}
-
 func TestStartInstallsDefault(t *testing.T) {
 	dbtest.Init(t)
 	ctx, cancel := context.WithCancel(context.Background())
