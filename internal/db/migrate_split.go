@@ -3,11 +3,30 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
+)
+
+const (
+	countSymbolsTableQuery              = `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='symbols'`
+	countSymbolsQuery                   = `SELECT COUNT(*) FROM symbols`
+	rebuildSymbolsFTSQuery              = `INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`
+	rebuildSymbolsTrigramQuery          = `INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`
+	rebuildDocsFTSQuery                 = `INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`
+	rebuildContextNotesFTSQuery         = `INSERT INTO context_notes_fts(context_notes_fts) VALUES('rebuild')`
+	rebuildStructuredMemoryFTSQuery     = `INSERT INTO structured_memory_fts(structured_memory_fts) VALUES('rebuild')`
+	attachSrcDatabaseQueryTemplate      = `ATTACH DATABASE '%s' AS src`
+	detachSrcDatabaseQuery              = `DETACH DATABASE src`
+	countSrcTableQuery                  = `SELECT COUNT(*) FROM src.sqlite_master WHERE type='table' AND name=?`
+	copySrcTableQueryTemplate           = `INSERT INTO main.%[1]s (%[2]s) SELECT %[2]s FROM src.%[1]s`
+	selectTableColumnNamesQuery         = `SELECT name FROM pragma_table_info(?, ?)`
+	dropTableIfExistsQueryTemplate      = `DROP TABLE IF EXISTS %s`
+	selectSessionsMissingSymbolQuery    = `SELECT id, symbol_id FROM sessions WHERE symbol_id > 0 AND (symbol_name IS NULL OR symbol_name = '')`
+	selectSymbolForSessionBackfillQuery = `SELECT name, file, COALESCE(start_line,0) FROM symbols WHERE id=?`
+	updateSessionSymbolFieldsQuery      = `UPDATE sessions SET symbol_name=?, start_line=?, file_path=COALESCE(NULLIF(file_path,''), ?) WHERE id=?`
 )
 
 var indexTables = []string{
@@ -30,11 +49,11 @@ func needsSplitMigration(usagePath, indexPath string) bool {
 	}
 	defer usageConn.Close()
 	var usageTables int
-	if err := usageConn.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='symbols'`).Scan(&usageTables); err != nil || usageTables == 0 {
+	if err := usageConn.QueryRow(countSymbolsTableQuery).Scan(&usageTables); err != nil || usageTables == 0 {
 		return false
 	}
 	var usageSymbols int64
-	if err := usageConn.QueryRow(`SELECT COUNT(*) FROM symbols`).Scan(&usageSymbols); err != nil || usageSymbols == 0 {
+	if err := usageConn.QueryRow(countSymbolsQuery).Scan(&usageSymbols); err != nil || usageSymbols == 0 {
 		return false
 	}
 	if !indexHasSymbols(indexPath) {
@@ -46,13 +65,13 @@ func needsSplitMigration(usagePath, indexPath string) bool {
 	}
 	defer indexConn.Close()
 	var indexSymbols int64
-	if err := indexConn.QueryRow(`SELECT COUNT(*) FROM symbols`).Scan(&indexSymbols); err != nil {
+	if err := indexConn.QueryRow(countSymbolsQuery).Scan(&indexSymbols); err != nil {
 		return true
 	}
 	if indexSymbols >= usageSymbols {
 		return false
 	}
-	log.Printf("db split: incomplete migration (usage symbols=%d index symbols=%d) — resuming", usageSymbols, indexSymbols)
+	logger.Warn("Resuming incomplete split migration", "usage_symbols", usageSymbols, "index_symbols", indexSymbols)
 	removePartialDB(indexPath)
 	removePartialDB(contextDBPath())
 	return true
@@ -74,12 +93,12 @@ func indexHasSymbols(indexPath string) bool {
 	}
 	defer conn.Close()
 	var n int
-	err = conn.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='symbols'`).Scan(&n)
+	err = conn.QueryRow(countSymbolsTableQuery).Scan(&n)
 	return err == nil && n > 0
 }
 
 func migrateSplitDB(usagePath, indexPath, contextPath string) error {
-	log.Printf("db split: migrating monolithic %s -> index.db + context.db", usagePath)
+	logger.Info("Migrating monolithic database to index.db and context.db", "path", usagePath)
 	startup.SetMessage("Migrating database (index tables)…")
 
 	idx, err := openPool(indexPath)
@@ -97,19 +116,19 @@ func migrateSplitDB(usagePath, indexPath, contextPath string) error {
 	initContextSchema(ctxDB)
 
 	if err := copyTablesFromAttach(idx, usagePath, indexTables); err != nil {
-		return fmt.Errorf("split migration index: %w", err)
+		return errs.WrapMessage("failed to copy index tables in split migration", err)
 	}
-	idx.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')`)
-	idx.Exec(`INSERT INTO symbols_trigram(symbols_trigram) VALUES('rebuild')`)
+	idx.Exec(rebuildSymbolsFTSQuery)
+	idx.Exec(rebuildSymbolsTrigramQuery)
 
 	startup.SetMessage("Migrating database (context tables)…")
 	if err := copyTablesFromAttach(ctxDB, usagePath, contextTables); err != nil {
-		return fmt.Errorf("split migration context: %w", err)
+		return errs.WrapMessage("failed to copy context tables in split migration", err)
 	}
 	startup.SetMessage("Migrating database (finalizing)…")
-	ctxDB.Exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`)
-	ctxDB.Exec(`INSERT INTO context_notes_fts(context_notes_fts) VALUES('rebuild')`)
-	ctxDB.Exec(`INSERT INTO structured_memory_fts(structured_memory_fts) VALUES('rebuild')`)
+	ctxDB.Exec(rebuildDocsFTSQuery)
+	ctxDB.Exec(rebuildContextNotesFTSQuery)
+	ctxDB.Exec(rebuildStructuredMemoryFTSQuery)
 
 	usage, err := openPool(usagePath)
 	if err != nil {
@@ -118,32 +137,32 @@ func migrateSplitDB(usagePath, indexPath, contextPath string) error {
 	defer usage.Close()
 	initUsageSchema(usage)
 	if err := trimMonolithicTables(usage); err != nil {
-		return fmt.Errorf("split migration trim usage: %w", err)
+		return errs.WrapMessage("failed to trim usage tables in split migration", err)
 	}
 	backfillSessionDedupFields(usage, idx)
 
-	log.Printf("db split: migration complete (index=%s context=%s)", indexPath, contextPath)
+	logger.Info("Split migration complete", "index_path", indexPath, "context_path", contextPath)
 	return nil
 }
 
 func copyTablesFromAttach(dest *sql.DB, srcPath string, tables []string) error {
 	esc := strings.ReplaceAll(srcPath, "'", "''")
-	if _, err := dest.Exec(`ATTACH DATABASE '` + esc + `' AS src`); err != nil {
+	if _, err := dest.Exec(fmt.Sprintf(attachSrcDatabaseQueryTemplate, esc)); err != nil {
 		return err
 	}
-	defer dest.Exec(`DETACH DATABASE src`)
+	defer dest.Exec(detachSrcDatabaseQuery)
 	for _, t := range tables {
 		var n int
-		if err := dest.QueryRow(`SELECT COUNT(*) FROM src.sqlite_master WHERE type='table' AND name=?`, t).Scan(&n); err != nil || n == 0 {
+		if err := dest.QueryRow(countSrcTableQuery, t).Scan(&n); err != nil || n == 0 {
 			continue
 		}
 		// Copy by name: the destination may have columns added since the
 		// monolithic DB was written (e.g. indexed_files.parser_version).
 		cols := strings.Join(tableColumns(dest, "src", t), ", ")
-		if _, err := dest.Exec(`INSERT INTO main.` + t + ` (` + cols + `) SELECT ` + cols + ` FROM src.` + t); err != nil {
-			return fmt.Errorf("copy %s: %w", t, err)
+		if _, err := dest.Exec(fmt.Sprintf(copySrcTableQueryTemplate, t, cols)); err != nil {
+			return errs.WrapMessage("failed to copy table", err, "table", t)
 		}
-		log.Printf("db split: copied table %s", t)
+		logger.Info("Copied table into split database", "table", t)
 	}
 	return nil
 }
@@ -151,7 +170,7 @@ func copyTablesFromAttach(dest *sql.DB, srcPath string, tables []string) error {
 // tableColumns returns the columns of schema.table (quoted) that main.table also has.
 func tableColumns(conn *sql.DB, schema, table string) []string {
 	names := func(s string) []string {
-		rows, err := conn.Query(`SELECT name FROM pragma_table_info(?, ?)`, table, s)
+		rows, err := conn.Query(selectTableColumnNamesQuery, table, s)
 		if err != nil {
 			return nil
 		}
@@ -180,17 +199,17 @@ func tableColumns(conn *sql.DB, schema, table string) []string {
 
 func trimMonolithicTables(usage *sql.DB) error {
 	for _, t := range monolithicDropVirtual {
-		usage.Exec(`DROP TABLE IF EXISTS ` + t)
+		usage.Exec(fmt.Sprintf(dropTableIfExistsQueryTemplate, t))
 	}
 	for _, t := range monolithicDropTables {
-		usage.Exec(`DROP TABLE IF EXISTS ` + t)
+		usage.Exec(fmt.Sprintf(dropTableIfExistsQueryTemplate, t))
 	}
-	log.Printf("db split: trimmed index/context tables from usage.db (VACUUM deferred)")
+	logger.Info("Trimmed index and context tables from usage.db, VACUUM deferred")
 	return nil
 }
 
 func backfillSessionDedupFields(usage, index *sql.DB) {
-	rows, err := usage.Query(`SELECT id, symbol_id FROM sessions WHERE symbol_id > 0 AND (symbol_name IS NULL OR symbol_name = '')`)
+	rows, err := usage.Query(selectSessionsMissingSymbolQuery)
 	if err != nil {
 		return
 	}
@@ -208,10 +227,9 @@ func backfillSessionDedupFields(usage, index *sql.DB) {
 	for _, r := range pending {
 		var name, file string
 		var startLine int
-		if index.QueryRow(`SELECT name, file, COALESCE(start_line,0) FROM symbols WHERE id=?`, r.symID).Scan(&name, &file, &startLine) != nil {
+		if index.QueryRow(selectSymbolForSessionBackfillQuery, r.symID).Scan(&name, &file, &startLine) != nil {
 			continue
 		}
-		usage.Exec(`UPDATE sessions SET symbol_name=?, start_line=?, file_path=COALESCE(NULLIF(file_path,''), ?) WHERE id=?`,
-			name, startLine, file, r.id)
+		usage.Exec(updateSessionSymbolFieldsQuery, name, startLine, file, r.id)
 	}
 }

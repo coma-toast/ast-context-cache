@@ -3,11 +3,14 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
+
+const walCheckpointQueryTemplate = "PRAGMA wal_checkpoint(%s)"
 
 const (
 	walPassiveBytes  = 32 * 1024 * 1024
@@ -16,9 +19,11 @@ const (
 
 	checkpointOpTimeout  = 20 * time.Second
 	checkpointMaxElapsed = 90 * time.Second
-	embedDeferDuration     = 2 * time.Minute
-	quietWALCooldown        = 5 * time.Minute
+	embedDeferDuration   = 2 * time.Minute
+	quietWALCooldown     = 5 * time.Minute
 )
+
+var errCheckpointAborted = errs.New("checkpoint aborted")
 
 var (
 	walBusyStreak atomic.Int32
@@ -27,9 +32,9 @@ var (
 	lastMaintAt   time.Time
 	lastMaintBusy bool
 
-	maintBusyCycles    int
-	maintBackoffUntil  time.Time
-	truncateDeferUntil time.Time
+	maintBusyCycles     int
+	maintBackoffUntil   time.Time
+	truncateDeferUntil  time.Time
 	truncateDeferLogged bool
 
 	lastSkipLogAt time.Time
@@ -43,14 +48,13 @@ var (
 
 func logPoolStats(name string, pool *sql.DB) {
 	if pool == nil {
-		log.Printf("WAL diagnostics: pool=%s unavailable", name)
+		logger.Info("WAL diagnostics pool unavailable", "pool", name)
 		return
 	}
 	s := pool.Stats()
-	log.Printf(
-		"WAL diagnostics: pool=%s open=%d in_use=%d idle=%d wait_count=%d wait_dur=%s max_idle_closed=%d max_idle_time_closed=%d max_lifetime_closed=%d",
-		name, s.OpenConnections, s.InUse, s.Idle, s.WaitCount, s.WaitDuration, s.MaxIdleClosed, s.MaxIdleTimeClosed, s.MaxLifetimeClosed,
-	)
+	logger.Info("WAL diagnostics pool stats", "pool", name, "open", s.OpenConnections, "in_use", s.InUse, "idle", s.Idle,
+		"wait_count", s.WaitCount, "wait_dur", s.WaitDuration, "max_idle_closed", s.MaxIdleClosed,
+		"max_idle_time_closed", s.MaxIdleTimeClosed, "max_lifetime_closed", s.MaxLifetimeClosed)
 }
 
 func logBusyCheckpointDiagnostics(path, mode string, walFrames, checkpointed int) {
@@ -63,10 +67,9 @@ func logBusyCheckpointDiagnostics(path, mode string, walFrames, checkpointed int
 	if EmbedQueueIdleHook != nil {
 		embedIdle = EmbedQueueIdleHook()
 	}
-	log.Printf(
-		"WAL diagnostics: busy checkpoint db=%s mode=%s log=%d checkpointed=%d index_wal=%s usage_wal=%s context_wal=%s index_read_quiesced=%t embed_idle=%t in_flight=%d",
-		label, mode, walFrames, checkpointed, FormatFileSize(IndexWalBytes()), FormatFileSize(UsageWalBytes()), FormatFileSize(ContextWalBytes()), IndexReadQuiesced(), embedIdle, inFlight,
-	)
+	logger.Warn("WAL diagnostics busy checkpoint", "db", label, "mode", mode, "wal_frames", walFrames, "checkpointed", checkpointed,
+		"index_wal", FormatFileSize(IndexWalBytes()), "usage_wal", FormatFileSize(UsageWalBytes()), "context_wal", FormatFileSize(ContextWalBytes()),
+		"index_read_quiesced", IndexReadQuiesced(), "embed_idle", embedIdle, "in_flight", inFlight)
 	logPoolStats("index", IndexDB)
 	logPoolStats("usage", DB)
 	logPoolStats("context", ContextDB)
@@ -101,7 +104,7 @@ func noteMaintResult(busy int) {
 			maintBackoffUntil = time.Now().Add(5 * time.Minute)
 		}
 		setWalSkipReason("busy_readers", maintBackoffUntil)
-		log.Printf("WAL TRUNCATE deferred: readers busy (retry after %s)", maintBackoffUntil.Format(time.RFC3339))
+		logger.Warn("WAL TRUNCATE deferred, readers busy", "retry_after", maintBackoffUntil.Format(time.RFC3339))
 		return
 	}
 	maintBusyCycles = 0
@@ -115,15 +118,15 @@ func logWalSkip(reason string, detail string) {
 	}
 	lastSkipLogAt = now
 	if detail != "" {
-		log.Printf("WAL maintenance skipped (%s): %s", reason, detail)
-	} else {
-		log.Printf("WAL maintenance skipped (%s)", reason)
+		logger.Info("WAL maintenance skipped", "reason", reason, "detail", detail)
+		return
 	}
+	logger.Info("WAL maintenance skipped", "reason", reason)
 }
 
 func checkpointFile(path, mode string) (busy, walFrames, checkpointed int, err error) {
 	if checkpointAbort.Load() {
-		return 1, 0, 0, fmt.Errorf("checkpoint aborted")
+		return 1, 0, 0, errCheckpointAborted
 	}
 	if WALMaintenanceActive() {
 		setWALPhase(WALPhaseCheckpoint, mode)
@@ -139,7 +142,7 @@ func checkpointFile(path, mode string) (busy, walFrames, checkpointed int, err e
 	}
 	ch := make(chan res, 1)
 	go func() {
-		row := conn.QueryRow("PRAGMA wal_checkpoint(" + mode + ")")
+		row := conn.QueryRow(fmt.Sprintf(walCheckpointQueryTemplate, mode))
 		var b, f, c int
 		e := row.Scan(&b, &f, &c)
 		ch <- res{b, f, c, e}
@@ -150,7 +153,7 @@ func checkpointFile(path, mode string) (busy, walFrames, checkpointed int, err e
 		busy, walFrames, checkpointed, err = r.busy, r.frames, r.ckpt, r.err
 	case <-time.After(checkpointOpTimeout):
 		conn.Close()
-		busy, err = 1, fmt.Errorf("checkpoint %s timed out after %s", mode, checkpointOpTimeout)
+		busy, err = 1, errs.New("checkpoint timed out", "mode", mode, "timeout", checkpointOpTimeout)
 	}
 	if WALMaintenanceActive() {
 		recordWALCheckpointResult(busy, walFrames, checkpointed, err)
@@ -167,7 +170,7 @@ func checkpointIndexTruncate() (busy, walFrames, checkpointed int, err error) {
 	}
 	defer func() {
 		if rerr := restoreIndexPool(); rerr != nil {
-			log.Printf("WAL: restore index pool: %v", rerr)
+			logger.Warn("Failed to restore index pool", "error", rerr)
 		}
 	}()
 	return checkpointFile(indexDBPath(), "TRUNCATE")
@@ -234,7 +237,7 @@ func prepCheckpoint(pauseWriters bool) (restore func(), ready bool) {
 	}
 	if WALInFlightHook != nil {
 		if n := WALInFlightHook(); n > 0 {
-			log.Printf("WAL: checkpoint blocked — %d embed job(s) still in-flight after drain", n)
+			logger.Warn("WAL checkpoint blocked, embed jobs still in flight after drain", "in_flight", n)
 			setWalSkipReason("embed_in_flight", time.Now().Add(2*time.Minute))
 			return restore, false
 		}
@@ -247,9 +250,8 @@ func prepCheckpoint(pauseWriters bool) (restore func(), ready bool) {
 }
 
 func logCheckpoint(label string, walBefore int64, busy, walFrames, checkpointed int) {
-	log.Printf("WAL %s: busy=%d log=%d checkpointed=%d index_wal %s -> %s total_wal %s",
-		label, busy, walFrames, checkpointed,
-		FormatFileSize(walBefore), FormatFileSize(IndexWalBytes()), FormatFileSize(walFileBytes()))
+	logger.Info("WAL checkpoint", "label", label, "busy", busy, "wal_frames", walFrames, "checkpointed", checkpointed,
+		"index_wal_before", FormatFileSize(walBefore), "index_wal_after", FormatFileSize(IndexWalBytes()), "total_wal", FormatFileSize(walFileBytes()))
 }
 
 func CheckpointWAL(truncate bool) (busy, walFrames, checkpointed int, err error) {
@@ -268,7 +270,7 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 
 	if checkpointAbort.Load() {
 		logWalSkip("aborted", "shutdown requested")
-		return 1, 0, 0, fmt.Errorf("checkpoint aborted")
+		return 1, 0, 0, errCheckpointAborted
 	}
 	if !force && shouldDeferMaint() {
 		setWalSkipReason("backoff", maintBackoffUntil)
@@ -292,7 +294,7 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 	}
 
 	if indexWal >= walTruncateBytes {
-		log.Printf("WAL maintenance starting reason=%s force=%v index_wal=%s", reason, force, FormatFileSize(indexWal))
+		logger.Info("WAL maintenance starting", "reason", reason, "force", force, "index_wal", FormatFileSize(indexWal))
 	}
 	setWalSkipReason("", time.Time{})
 	truncateDeferLogged = false
@@ -319,13 +321,13 @@ func maintainWAL(reason string, force bool) (busy, walFrames, checkpointed int, 
 		lastMaintAt = time.Now()
 		lastMaintBusy = true
 		noteMaintResult(1)
-		return 1, 0, 0, fmt.Errorf("embed workers still active")
+		return 1, 0, 0, errs.New("embed workers still active")
 	}
 
 	indexQuiesce := pause
 	tryCheckpoint := func(mode string) (int, int, int, error) {
 		if checkpointAbort.Load() || time.Now().After(deadline) {
-			return 1, 0, 0, fmt.Errorf("checkpoint aborted or deadline exceeded")
+			return 1, 0, 0, errs.New("checkpoint aborted or deadline exceeded")
 		}
 		return checkpointAllDbs(mode, indexQuiesce && mode == "TRUNCATE")
 	}
@@ -407,7 +409,7 @@ func TryQuietWALTruncate(reason string) {
 		return
 	}
 	go func() {
-		log.Printf("WAL: quiet period (%s) — attempting TRUNCATE (index_wal=%s)", reason, FormatFileSize(indexWal))
+		logger.Info("WAL quiet period, attempting TRUNCATE", "reason", reason, "index_wal", FormatFileSize(indexWal))
 		maintainWAL(reason, true)
 	}()
 }
@@ -495,13 +497,13 @@ func truncateMaintForce(indexWal int64) (force bool, skip bool) {
 		setWalSkipReason("embed_deferred", truncateDeferUntil)
 		if !truncateDeferLogged {
 			truncateDeferLogged = true
-			log.Printf("WAL: deferring TRUNCATE (embed active) until %s", truncateDeferUntil.Format(time.RFC3339))
+			logger.Info("Deferring WAL TRUNCATE while embed is active", "until", truncateDeferUntil.Format(time.RFC3339))
 		}
 		return false, true
 	}
 	truncateDeferUntil = time.Time{}
 	truncateDeferLogged = false
-	log.Printf("WAL: embed still active after defer — forcing maintenance")
+	logger.Info("Embed still active after defer, forcing WAL maintenance")
 	return true, false
 }
 

@@ -1,7 +1,6 @@
 package db
 
 import (
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -148,7 +147,7 @@ func SetWalBackpressureForTest(ceiling int, lastWal int64) {
 func NoteDBLock() {
 	n := dbLockStreak.Add(1)
 	if n == 5 || n%20 == 0 {
-		log.Printf("db pressure: database locked streak=%d index_wal=%s", n, FormatFileSize(IndexWalBytes()))
+		logger.Warn("Database locked", "streak", n, "index_wal", FormatFileSize(IndexWalBytes()))
 	}
 }
 
@@ -177,10 +176,10 @@ func retryQueryRetention(label string) {
 		n := RunQueryRetention()
 		if n >= 0 {
 			if n > 0 {
-				log.Printf("query retention: %s deleted %d rows", label, n)
+				logger.Info("Query retention deleted rows", "trigger", label, "rows", n)
 			}
 			return
 		}
 	}
-	log.Printf("query retention: %s deferred (database busy)", label)
+	logger.Warn("Query retention deferred, database busy", "trigger", label)
 }

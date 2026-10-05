@@ -3,9 +3,11 @@ package db
 import (
 	"bytes"
 	"errors"
-	"log"
+	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/coma-toast/ast-context-cache/internal/logging"
 )
 
 func fakeFree(free uint64, err error) func(string) (uint64, error) {
@@ -72,9 +74,9 @@ func TestSampleDiskSpaceWarnsOnLevelChange(t *testing.T) {
 	restore := SetFreeBytesFuncForTest(func(string) (uint64, error) { return free, nil })
 	defer restore()
 	var buf bytes.Buffer
-	prevOut := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(prevOut)
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(logging.NewHandler(&buf, logging.FormatText, slog.LevelDebug)))
+	t.Cleanup(func() { slog.SetDefault(prevLogger) })
 
 	for _, f := range []uint64{100 << 30, 3 << 30, 3 << 30, 500 << 20, 500 << 20, 100 << 30, 100 << 30} {
 		free = f
@@ -82,15 +84,15 @@ func TestSampleDiskSpaceWarnsOnLevelChange(t *testing.T) {
 	}
 	out := buf.String()
 	for msg, want := range map[string]int{
-		"disk space: low":       1,
-		"disk space: CRITICAL":  1,
-		"disk space: recovered": 1,
+		"Disk space low":       1,
+		"Disk space critical":  1,
+		"Disk space recovered": 1,
 	} {
 		if got := strings.Count(out, msg); got != want {
 			t.Fatalf("%q logged %d times, want %d; log:\n%s", msg, got, want, out)
 		}
 	}
-	if !strings.Contains(out, "capping embed workers at 2") || !strings.Contains(out, "pausing embed workers") {
+	if !strings.Contains(out, "capping embed workers") || !strings.Contains(out, "worker_cap=2") || !strings.Contains(out, "pausing embed workers") {
 		t.Fatalf("warnings do not say what is throttled; log:\n%s", out)
 	}
 }

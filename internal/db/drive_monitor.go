@@ -1,7 +1,6 @@
 package db
 
 import (
-	"log"
 	"os"
 	"sync"
 	"syscall"
@@ -119,7 +118,7 @@ func statDev(path string) (uint64, bool) {
 
 func declareDriveDisconnected() {
 	path := GetDataDir()
-	log.Printf("data directory %s is no longer reachable — the drive may have been disconnected; pausing embed workers, restart required to recover", path)
+	logger.Error("Data directory is no longer reachable, the drive may have been disconnected; pausing embed workers, restart required to recover", "path", path)
 	checkpointAbort.Store(true)
 	if BeforeForceCheckpoint != nil {
 		BeforeForceCheckpoint()

@@ -3,14 +3,29 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
+)
+
+const (
+	selectSettingQuery      = "SELECT value FROM settings WHERE key = ?"
+	upsertSettingQuery      = "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+	selectAllSettingsQuery  = "SELECT key, value FROM settings"
+	selectAgentConfigsQuery = "SELECT id, agent_type, install_path, is_global, instructions_hash, installed_at FROM agent_configs ORDER BY agent_type"
+	upsertAgentConfigQuery  = `INSERT INTO agent_configs (agent_type, install_path, is_global, instructions_hash) VALUES (?, ?, ?, ?)
+		ON CONFLICT(agent_type, install_path) DO UPDATE SET instructions_hash = excluded.instructions_hash, installed_at = datetime('now')`
+	deleteAgentConfigQuery = "DELETE FROM agent_configs WHERE agent_type = ? AND install_path = ?"
+	upsertIndexedFileQuery = `INSERT INTO indexed_files (file, project_path, indexed_at, parser_version) VALUES (?, ?, ?, ?)
+		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at, parser_version = excluded.parser_version`
+	selectIndexedFilesQuery = "SELECT file, indexed_at, COALESCE(parser_version, 0) FROM indexed_files WHERE project_path = ?"
+	deleteIndexedFileQuery  = "DELETE FROM indexed_files WHERE file = ? AND project_path = ?"
+	vacuumQuery             = `VACUUM`
 )
 
 // DefaultLogPath is the default ast-mcp server log file (ast-mcp start / dashboard Logs tab).
@@ -24,7 +39,8 @@ func DefaultLogPath() string {
 
 func Init() error {
 	if _, err := ResolveDataDir(); err != nil {
-		return fmt.Errorf("configured data directory unavailable: %w — reconnect the drive, or delete %s to use the default location", err, locationOverridePath())
+		p := locationOverridePath()
+		return errs.WrapMessage(fmt.Sprintf("configured data directory unavailable (reconnect the drive, or delete %s to use the default location)", p), err, "override_path", p)
 	}
 	idxPath := indexDBPath()
 	ctxPath := contextDBPath()
@@ -66,7 +82,7 @@ func Init() error {
 	if err := createFTSTriggers(IndexDB); err != nil {
 		// Not fatal: StartFTSSelfCheck retries, and search still works on whatever
 		// the indexes already hold.
-		log.Printf("FTS: %v", err)
+		logger.Warn("Failed to create FTS triggers", "error", err)
 	}
 	startIndexWriter()
 	StartWriteBatchers()
@@ -79,7 +95,7 @@ func GetSetting(key, defaultValue string) string {
 		return defaultValue
 	}
 	var val string
-	err := DB.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&val)
+	err := DB.QueryRow(selectSettingQuery, key).Scan(&val)
 	if err != nil {
 		return defaultValue
 	}
@@ -87,7 +103,7 @@ func GetSetting(key, defaultValue string) string {
 }
 
 func SetSetting(key, value string) error {
-	_, err := DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value)
+	_, err := DB.Exec(upsertSettingQuery, key, value)
 	return err
 }
 
@@ -96,7 +112,7 @@ func GetAllSettings() map[string]string {
 	if DB == nil {
 		return result
 	}
-	rows, err := DB.Query("SELECT key, value FROM settings")
+	rows, err := DB.Query(selectAllSettingsQuery)
 	if err != nil {
 		return result
 	}
@@ -122,7 +138,7 @@ func GetAgentConfigs() ([]AgentConfig, error) {
 	if DB == nil {
 		return nil, nil
 	}
-	rows, err := DB.Query("SELECT id, agent_type, install_path, is_global, instructions_hash, installed_at FROM agent_configs ORDER BY agent_type")
+	rows, err := DB.Query(selectAgentConfigsQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -139,14 +155,12 @@ func GetAgentConfigs() ([]AgentConfig, error) {
 }
 
 func AddAgentConfig(agentType, installPath string, isGlobal bool, hash string) error {
-	_, err := DB.Exec(`INSERT INTO agent_configs (agent_type, install_path, is_global, instructions_hash) VALUES (?, ?, ?, ?)
-		ON CONFLICT(agent_type, install_path) DO UPDATE SET instructions_hash = excluded.instructions_hash, installed_at = datetime('now')`,
-		agentType, installPath, map[bool]int{true: 1, false: 0}[isGlobal], hash)
+	_, err := DB.Exec(upsertAgentConfigQuery, agentType, installPath, map[bool]int{true: 1, false: 0}[isGlobal], hash)
 	return err
 }
 
 func RemoveAgentConfig(agentType, installPath string) error {
-	_, err := DB.Exec("DELETE FROM agent_configs WHERE agent_type = ? AND install_path = ?", agentType, installPath)
+	_, err := DB.Exec(deleteAgentConfigQuery, agentType, installPath)
 	return err
 }
 
@@ -191,9 +205,7 @@ var ParserVersion = func(file string) int { return 0 }
 
 // UpsertIndexedFileWith writes indexed_files using the given executor (e.g. within a transaction).
 func UpsertIndexedFileWith(e Execer, file, projectPath string, indexedAt time.Time) error {
-	_, err := e.Exec(`INSERT INTO indexed_files (file, project_path, indexed_at, parser_version) VALUES (?, ?, ?, ?)
-		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at, parser_version = excluded.parser_version`,
-		file, projectPath, indexedAt.Format(time.RFC3339), ParserVersion(file))
+	_, err := e.Exec(upsertIndexedFileQuery, file, projectPath, indexedAt.Format(time.RFC3339), ParserVersion(file))
 	return err
 }
 
@@ -206,7 +218,7 @@ func GetIndexedFiles(projectPath string) map[string]time.Time {
 	if err != nil {
 		return result
 	}
-	rows, err := conn.Query("SELECT file, indexed_at, COALESCE(parser_version, 0) FROM indexed_files WHERE project_path = ?", projectPath)
+	rows, err := conn.Query(selectIndexedFilesQuery, projectPath)
 	if err != nil {
 		return result
 	}
@@ -227,7 +239,7 @@ func GetIndexedFiles(projectPath string) map[string]time.Time {
 
 func DeleteIndexedFile(file, projectPath string) {
 	_ = IndexWrite(func(tx *sql.Tx) error {
-		_, err := tx.Exec("DELETE FROM indexed_files WHERE file = ? AND project_path = ?", file, projectPath)
+		_, err := tx.Exec(deleteIndexedFileQuery, file, projectPath)
 		return err
 	})
 }
@@ -253,13 +265,13 @@ func deferredStartupWALCheckpoint(walAtStart int64) {
 	if indexWal <= walTruncateBytes {
 		return
 	}
-	log.Printf("Startup deferred WAL checkpoint (index_wal=%s, was %s at boot)", FormatFileSize(indexWal), FormatFileSize(walAtStart))
+	logger.Info("Running deferred startup WAL checkpoint", "index_wal", FormatFileSize(indexWal), "boot_index_wal", FormatFileSize(walAtStart))
 	maintainWAL("startup", true)
 }
 
 func StartWALCheckpoint() {
 	if wal := IndexWalBytes(); wal > walTruncateBytes {
-		log.Printf("Large index WAL at startup (%s) — deferring checkpoint until server is up", FormatFileSize(wal))
+		logger.Info("Large index WAL at startup, deferring checkpoint until server is up", "index_wal", FormatFileSize(wal))
 		go deferredStartupWALCheckpoint(wal)
 	}
 	passiveTicker := time.NewTicker(30 * time.Second)
@@ -319,7 +331,7 @@ func Compact() {
 	if compactRunning {
 		compactPending = true
 		compactMu.Unlock()
-		log.Println("VACUUM already in progress, will run again once it finishes")
+		logger.Info("VACUUM already in progress, will run again once it finishes")
 		return
 	}
 	compactRunning = true
@@ -347,12 +359,12 @@ func Compact() {
 }
 
 func runCompactOnce() {
-	log.Println("Running VACUUM on index, context, and usage databases...")
+	logger.Info("Running VACUUM on index, context, and usage databases")
 	start := time.Now()
 	for _, c := range []*sql.DB{IndexDB, ContextDB, DB} {
 		if c != nil {
-			c.Exec(`VACUUM`)
+			c.Exec(vacuumQuery)
 		}
 	}
-	log.Printf("VACUUM completed in %v", time.Since(start))
+	logger.Info("VACUUM completed", "duration", time.Since(start))
 }

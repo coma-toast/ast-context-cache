@@ -4,9 +4,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+)
+
+const (
+	insertQueryLogQuery = `INSERT INTO queries (
+		timestamp, tool_name, arguments, result_chars, input_tokens, output_tokens,
+		tokens_saved, file_baseline_tokens, full_baseline_tokens,
+		tokens_used, symbol_baseline_tokens, dedup_tokens_saved, savings_vs_files,
+		deduped_count, mode, cache_hit,
+		duration_ms, cpu_ms, interface, session_id, error, project_path
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	insertSessionLogQuery = `INSERT INTO sessions (session_id, symbol_id, symbol_name, start_line, file_path, mode, token_count) VALUES (?, ?, ?, ?, ?, ?, ?)`
 )
 
 // Execer matches *sql.DB and *sql.Tx for Exec.
@@ -40,13 +50,13 @@ type QueryLogMetrics struct {
 }
 
 type queryLogRow struct {
-	toolName           string
-	argsJSON           string
-	metrics            QueryLogMetrics
-	sessionID          string
-	errMsg             string
-	projectPath        string
-	timestampRFC3339   string
+	toolName         string
+	argsJSON         string
+	metrics          QueryLogMetrics
+	sessionID        string
+	errMsg           string
+	projectPath      string
+	timestampRFC3339 string
 }
 
 type sessionLogRow struct {
@@ -152,19 +162,13 @@ func flushQueryLogBuffer() {
 	queryBufMu.Unlock()
 	tx, err := DB.Begin()
 	if err != nil {
-		log.Printf("query log batch: begin: %v", err)
+		logger.Warn("Failed to begin query log batch", "error", err)
 		return
 	}
 	defer tx.Rollback()
-	stmt, err := tx.Prepare(`INSERT INTO queries (
-		timestamp, tool_name, arguments, result_chars, input_tokens, output_tokens,
-		tokens_saved, file_baseline_tokens, full_baseline_tokens,
-		tokens_used, symbol_baseline_tokens, dedup_tokens_saved, savings_vs_files,
-		deduped_count, mode, cache_hit,
-		duration_ms, cpu_ms, interface, session_id, error, project_path
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(insertQueryLogQuery)
 	if err != nil {
-		log.Printf("query log batch: prepare: %v", err)
+		logger.Warn("Failed to prepare query log batch", "error", err)
 		return
 	}
 	defer stmt.Close()
@@ -181,11 +185,11 @@ func flushQueryLogBuffer() {
 			m.DedupedCount, m.Mode, cacheHit,
 			m.DurationMs, m.CpuMs, "http", r.sessionID, r.errMsg, r.projectPath,
 		); err != nil {
-			log.Printf("query log batch: insert: %v", err)
+			logger.Warn("Failed to insert query log row", "error", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		log.Printf("query log batch: commit: %v", err)
+		logger.Warn("Failed to commit query log batch", "error", err)
 		return
 	}
 	if AfterQueryLogFlush != nil {
@@ -216,23 +220,23 @@ func flushSessionLogBuffer() {
 	sessBufMu.Unlock()
 	tx, err := DB.Begin()
 	if err != nil {
-		log.Printf("session log batch: begin: %v", err)
+		logger.Warn("Failed to begin session log batch", "error", err)
 		return
 	}
 	defer tx.Rollback()
-	stmt, err := tx.Prepare(`INSERT INTO sessions (session_id, symbol_id, symbol_name, start_line, file_path, mode, token_count) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(insertSessionLogQuery)
 	if err != nil {
-		log.Printf("session log batch: prepare: %v", err)
+		logger.Warn("Failed to prepare session log batch", "error", err)
 		return
 	}
 	defer stmt.Close()
 	for _, r := range batch {
 		if _, err := stmt.Exec(r.sessionID, r.symbolID, r.symbolName, r.startLine, r.filePath, r.mode, r.tokenCount); err != nil {
-			log.Printf("session log batch: insert: %v", err)
+			logger.Warn("Failed to insert session log row", "error", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		log.Printf("session log batch: commit: %v", err)
+		logger.Warn("Failed to commit session log batch", "error", err)
 	}
 }
 

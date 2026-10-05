@@ -2,15 +2,15 @@ package db
 
 import (
 	"database/sql"
-	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 // errIndexWriterStopped is returned to an IndexWrite whose job was handed to a
 // writer that stopped (quiesce or Close) before running it.
-var errIndexWriterStopped = errors.New("index writer stopped before running write")
+var errIndexWriterStopped = errs.New("index writer stopped before running write")
 
 type indexWriteJob struct {
 	fn   func(*sql.Tx) error
@@ -106,7 +106,7 @@ func runIndexWriter(ch chan *indexWriteJob, stop chan struct{}) {
 
 func indexWriteTx(fn func(*sql.Tx) error) error {
 	if IndexDB == nil {
-		return fmt.Errorf("index db unavailable")
+		return errIndexUnavailable
 	}
 	tx, err := IndexDB.Begin()
 	if err != nil {
@@ -122,7 +122,7 @@ func indexWriteTx(fn func(*sql.Tx) error) error {
 // IndexWrite serializes index mutations on a single writer goroutine.
 func IndexWrite(fn func(*sql.Tx) error) error {
 	if IndexReadQuiesced() {
-		return fmt.Errorf("index db quiesced for maintenance")
+		return errIndexQuiesced
 	}
 	startIndexWriter()
 	indexWriterMu.Lock()
