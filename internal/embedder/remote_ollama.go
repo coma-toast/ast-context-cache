@@ -3,11 +3,12 @@ package embedder
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 // OllamaEmbedder uses Ollama’s POST /api/embed. Default model nomic-embed-text is 768-dim, matching the vector store.
@@ -90,7 +91,7 @@ func (o *OllamaEmbedder) postEmbed(texts []string) ([][]float32, error) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := o.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("ollama embed: %w", err)
+		return nil, errs.WrapMessage("ollama embed", err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
@@ -102,10 +103,10 @@ func (o *OllamaEmbedder) postEmbed(texts []string) ([][]float32, error) {
 	}
 	var out ollamaEmbedResp
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("ollama response json: %w", err)
+		return nil, errs.WrapMessage("failed to decode ollama response json", err)
 	}
 	if len(out.Embeddings) != len(texts) {
-		return nil, fmt.Errorf("ollama: got %d embeddings for %d inputs", len(out.Embeddings), len(texts))
+		return nil, errs.New("ollama returned wrong embedding count", "embeddings", len(out.Embeddings), "inputs", len(texts))
 	}
 	if err := checkDims(out.Embeddings, GetActiveDim()); err != nil {
 		return nil, err
@@ -119,7 +120,7 @@ func (o *OllamaEmbedder) EmbedSingle(text string) ([]float32, error) {
 		return nil, err
 	}
 	if len(vecs) == 0 {
-		return nil, fmt.Errorf("ollama: empty result")
+		return nil, errs.New("ollama returned empty result")
 	}
 	return vecs[0], nil
 }

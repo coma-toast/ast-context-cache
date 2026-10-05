@@ -1,7 +1,6 @@
 package embedder
 
 import (
-	"log"
 	"os"
 	"strings"
 
@@ -17,7 +16,7 @@ import (
 //	EMBED_DOCKER_DIMENSIONS: optional; unset sends 768 in JSON; "0" omits the field
 func newDockerEmbedder() (Interface, func() bool, error) {
 	if p := strings.TrimSpace(EffectiveEnv("EMBED_DOCKER_PROVIDER")); p != "" {
-		log.Printf("WARNING: EMBED_DOCKER_PROVIDER=%q is ignored; docker backend uses Docker Model Runner. Use EMBED_BACKEND=ollama or http for other servers.", p)
+		logger.Warn("EMBED_DOCKER_PROVIDER is ignored; docker backend uses Docker Model Runner. Use EMBED_BACKEND=ollama or http for other servers.", "provider", p)
 	}
 	base := normalizeDMRBase(strings.TrimSpace(EffectiveEnv("EMBED_DOCKER_URL")))
 	model := strings.TrimSpace(EffectiveEnv("EMBED_DOCKER_MODEL"))

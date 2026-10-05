@@ -1,12 +1,12 @@
 package embedder
 
 import (
-	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 const (
@@ -18,7 +18,7 @@ const (
 // Call before New() so the embedder can load. Returns nil if both files exist or were downloaded successfully.
 func EnsureModel(modelDir string) error {
 	if err := os.MkdirAll(modelDir, 0755); err != nil {
-		return fmt.Errorf("create model dir: %w", err)
+		return errs.WrapMessage("failed to create model dir", err, "path", modelDir)
 	}
 
 	onnxPath := filepath.Join(modelDir, "model.onnx")
@@ -26,29 +26,29 @@ func EnsureModel(modelDir string) error {
 
 	missingONNX, err := fileExists(onnxPath)
 	if err != nil {
-		return fmt.Errorf("check model.onnx: %w", err)
+		return errs.WrapMessage("failed to check model.onnx", err, "path", onnxPath)
 	}
 	missingTok, err := fileExists(tokPath)
 	if err != nil {
-		return fmt.Errorf("check tokenizer.json: %w", err)
+		return errs.WrapMessage("failed to check tokenizer.json", err, "path", tokPath)
 	}
 	if !missingONNX && !missingTok {
 		return nil
 	}
 
 	if missingONNX {
-		log.Printf("Embedder: downloading model.onnx (this may take a minute)...")
+		logger.Info("Downloading model.onnx (this may take a minute)", "path", onnxPath)
 		if err := downloadFile(modelONNXURL, onnxPath); err != nil {
-			return fmt.Errorf("download model.onnx: %w", err)
+			return errs.WrapMessage("failed to download model.onnx", err)
 		}
-		log.Printf("Embedder: model.onnx ready")
+		logger.Info("Model file ready", "file", "model.onnx")
 	}
 	if missingTok {
-		log.Printf("Embedder: downloading tokenizer.json...")
+		logger.Info("Downloading tokenizer.json", "path", tokPath)
 		if err := downloadFile(tokenizerJSONURL, tokPath); err != nil {
-			return fmt.Errorf("download tokenizer.json: %w", err)
+			return errs.WrapMessage("failed to download tokenizer.json", err)
 		}
-		log.Printf("Embedder: tokenizer.json ready")
+		logger.Info("Model file ready", "file", "tokenizer.json")
 	}
 
 	return nil
@@ -72,7 +72,7 @@ func downloadFile(url, dest string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", url, resp.Status)
+		return errs.New("unexpected download status", "url", url, "status", resp.Status)
 	}
 
 	f, err := os.Create(dest)
@@ -86,6 +86,6 @@ func downloadFile(url, dest string) error {
 		os.Remove(dest)
 		return err
 	}
-	log.Printf("Embedder: wrote %s (%d bytes)", dest, written)
+	logger.Info("Wrote model file", "path", dest, "bytes", written)
 	return nil
 }

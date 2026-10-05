@@ -2,12 +2,17 @@ package embedqueue
 
 import (
 	"database/sql"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+)
+
+const (
+	upsertEmbedPendingQuery = `INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, ?, ?)`
+	deleteEmbedPendingQuery = `DELETE FROM embed_pending WHERE file = ? AND project_path = ?`
+	selectEmbedPendingQuery = `SELECT file, project_path FROM embed_pending`
 )
 
 const (
@@ -102,7 +107,7 @@ func FlushPendingDB() {
 
 	locked := false
 	err := db.IndexWrite(func(tx *sql.Tx) error {
-		upsertStmt, err := tx.Prepare(`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, ?, ?)`)
+		upsertStmt, err := tx.Prepare(upsertEmbedPendingQuery)
 		if err != nil {
 			return err
 		}
@@ -125,11 +130,11 @@ func FlushPendingDB() {
 					pendingDirtyMu.Unlock()
 					continue
 				}
-				log.Printf("embedqueue: persist pending %s: %v", row.j.file, err)
+				logger.Warn("Failed to persist pending", "file", row.j.file, "error", err)
 			}
 		}
 
-		delStmt, err := tx.Prepare(`DELETE FROM embed_pending WHERE file = ? AND project_path = ?`)
+		delStmt, err := tx.Prepare(deleteEmbedPendingQuery)
 		if err != nil {
 			return err
 		}
@@ -150,7 +155,7 @@ func FlushPendingDB() {
 					pendingDirtyMu.Unlock()
 					continue
 				}
-				log.Printf("embedqueue: clear pending %s: %v", j.file, err)
+				logger.Warn("Failed to clear pending", "file", j.file, "error", err)
 			}
 		}
 		return nil
@@ -194,9 +199,9 @@ func LoadPendingFromDB() int {
 	if err != nil {
 		return 0
 	}
-	rows, err := conn.Query(`SELECT file, project_path FROM embed_pending`)
+	rows, err := conn.Query(selectEmbedPendingQuery)
 	if err != nil {
-		log.Printf("embedqueue: load pending: %v", err)
+		logger.Warn("Failed to load pending", "error", err)
 		return 0
 	}
 	type row struct{ file, projectPath string }
@@ -229,7 +234,7 @@ func LoadPendingFromDB() int {
 	pendingMu.Unlock()
 	trackPendingPeak(n)
 	if loaded > 0 {
-		log.Printf("embedqueue: loaded %d pending from DB", loaded)
+		logger.Info("Loaded pending from DB", "pending", loaded)
 	}
 	return loaded
 }

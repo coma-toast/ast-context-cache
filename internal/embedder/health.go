@@ -1,13 +1,12 @@
 package embedder
 
 import (
-	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
@@ -38,15 +37,15 @@ const (
 )
 
 var (
-	healthMu         sync.RWMutex
-	healthState      = "idle" // idle, loading, ready, degraded, error
-	healthLastErr    string
-	healthLastUse       time.Time
-	healthLastWorkerOK  time.Time
-	healthRecentErrAt   time.Time
-	onRecovery       func()
-	onError          func()
-	onReady          func()
+	healthMu           sync.RWMutex
+	healthState        = "idle" // idle, loading, ready, degraded, error
+	healthLastErr      string
+	healthLastUse      time.Time
+	healthLastWorkerOK time.Time
+	healthRecentErrAt  time.Time
+	onRecovery         func()
+	onError            func()
+	onReady            func()
 )
 
 // SetOnRecovery registers a callback when embedder health recovers from error to ready.
@@ -291,7 +290,7 @@ func NudgeRecovery() NudgeResult {
 		return NudgeResult{State: "error", Error: "embedder not configured"}
 	}
 	start := time.Now()
-	log.Printf("embedder recovery: manual nudge")
+	logger.Info("Embedder recovery manual nudge")
 	switch runRecoveryCycle(e) {
 	case probeOK:
 		state, _, _ := HealthSnapshot()
@@ -421,7 +420,7 @@ func runRecoveryCycle(e Interface) probeResult {
 		res, err := runConnectivityProbe(e, timeout, false)
 		switch res {
 		case probeOK:
-			log.Printf("embedder recovery: probe succeeded")
+			logger.Info("Embedder recovery probe succeeded")
 			MarkSuccess()
 			return probeOK
 		case probeSkipped:
@@ -431,7 +430,7 @@ func runRecoveryCycle(e Interface) probeResult {
 		}
 	}
 	if lastErr != nil {
-		log.Printf("embedder recovery: probe failed: %v", lastErr)
+		logger.Warn("Embedder recovery probe failed", "error", lastErr)
 		refreshProbeError(lastErr)
 	}
 	return probeFail
@@ -527,6 +526,6 @@ func runConnectivityProbe(e Interface, timeout time.Duration, deferFailure bool)
 		if deferFailure && probeShouldDefer() {
 			return probeSkipped, nil
 		}
-		return probeFail, fmt.Errorf("connectivity probe: timeout after %s", timeout)
+		return probeFail, errs.New("connectivity probe timeout", "timeout", timeout)
 	}
 }
