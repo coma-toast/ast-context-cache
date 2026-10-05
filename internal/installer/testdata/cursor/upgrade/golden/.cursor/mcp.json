@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "ast-context-cache": {
+      "url": "http://127.0.0.1:7821/mcp"
+    }
+  }
+}

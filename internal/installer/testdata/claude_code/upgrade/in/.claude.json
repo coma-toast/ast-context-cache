@@ -1,0 +1,29 @@
+{
+  "numStartups": 42,
+  "theme": "dark",
+  "mcpServers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.example.com/mcp/"
+    },
+    "ast-context-cache": {
+      "type": "http",
+      "url": "http://127.0.0.1:7900/mcp"
+    },
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem"
+      ],
+      "env": {}
+    }
+  },
+  "projects": {
+    "/Users/me/repo": {
+      "allowedTools": [],
+      "mcpServers": {}
+    }
+  }
+}

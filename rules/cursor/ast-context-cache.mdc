@@ -1,0 +1,36 @@
+---
+description: ast-context-cache MCP tools for token-efficient code context, virtual context across compaction, structured memory, and subagent handoffs
+alwaysApply: true
+---
+
+# ast-context-cache
+
+Prefer the `ast-context-cache` MCP tools over Read/Grep for exploring code. Use Read/Grep only for a single known keyword or file, or when the MCP server is not running.
+
+## Session id
+
+Generate one stable `session_id` per conversation (for example a UUID) and pass it on every ast-context-cache call: search, file context, retrieve, virtual context, memory, and handoff tools. It deduplicates symbols already returned and scopes notes to the thread.
+
+## Explore efficiently
+
+1. `index_status` → `index_files` if the project is not indexed.
+2. `get_project_map` (depth=2) for orientation.
+3. `get_context_capsule` with `mode="auto"`; `search_semantic` for intent; `retrieve` for RAG bundles (`include_memory=true` when prefs matter).
+4. `get_file_context` with the default `skeleton` mode instead of reading whole files.
+5. `get_impact_graph` before changing an exported symbol.
+6. `search_docs` first for library docs; `fetch_doc` on a miss (not WebFetch).
+7. When a response has `code_script_hints`, run `execute_code(script_id, data, project_path)` and use only its `result`.
+
+## Host compaction
+
+- Before host chat compaction (or about 70% context): `store_context` with the same `session_id`, and keep only the `[ctx_…]` stub in chat.
+- After compaction: `fetch_context(refs)`, `list_context`, or `search_context`.
+- When done: `flush_context`.
+- Prefs and short rules go in structured memory: `store_memory` → `mem_*`, read back with `recall_memory`.
+
+## Subagent handoffs
+
+- If your prompt contains `[handoff hof_…]`, call `open_handoff` (action `open`) before any search, then use the child `session_id` it returns.
+- To delegate: `handoff` `create` with a brief and pointers, and put the returned stub in the subagent prompt.
+- A child finishes with `handoff` `complete` and outputs the return stub as its final message; the parent fetches the full result only if needed.
+- Use `scratchpad` to post findings and claim files when several agents share one handoff.

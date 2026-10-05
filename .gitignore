@@ -27,6 +27,8 @@ internal/version/VERSION
 
 # Local agent skill installs (see skills/ and .cursor/skills/ for repo-owned skills)
 .agents/
+# Installer golden fixtures model a HOME that contains ~/.agents/skills
+!internal/installer/testdata/**/.agents/
 skills-lock.json
 
 # Go test/coverage artifacts

@@ -1,0 +1,16 @@
+﻿{
+  "globalShortcut": "Ctrl+Space",
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Desktop"]
+    },
+    "ast-context-cache": {
+      "command": "/usr/local/bin/mcp-local",
+      "args": [
+        "bridge",
+        "http://127.0.0.1:7821/mcp"
+      ]
+    }
+  }
+}

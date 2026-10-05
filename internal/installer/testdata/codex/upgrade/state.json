@@ -1,0 +1,15 @@
+[
+  {
+    "target": "codex",
+    "component": "mcp",
+    "path": ".codex/config.toml",
+    "content": "{\"url\":\"http://localhost:7821/mcp\"}"
+  },
+  {
+    "target": "codex",
+    "component": "rules",
+    "path": ".codex/AGENTS.md",
+    "entry_hash": "fc406e346d47",
+    "created": 1
+  }
+]

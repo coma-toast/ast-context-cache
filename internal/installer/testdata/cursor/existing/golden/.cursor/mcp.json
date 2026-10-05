@@ -1,0 +1,17 @@
+{
+  // Global Cursor MCP servers
+  "mcpServers": {
+    "github": {
+      "url": "https://api.example.com/mcp/", // hosted
+    },
+    /* local tools */
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+    },
+    "memory": { "command": "memory-server" }, // last one
+    "ast-context-cache": {
+      "url": "http://127.0.0.1:7821/mcp"
+    },
+  },
+}

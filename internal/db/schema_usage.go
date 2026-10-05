@@ -125,6 +125,20 @@ const (
 		);
 		CREATE INDEX IF NOT EXISTS idx_search_trail_session ON search_trail(session_id, created_at);
 	`
+	// installer_state records what the v4 installer wrote, per target × component × path. created
+	// is a bit set: 1 = the installer created the file, 2 = it created the containing block/object.
+	createInstallerStateTable = `
+		CREATE TABLE IF NOT EXISTS installer_state (
+			target TEXT NOT NULL,
+			component TEXT NOT NULL,
+			path TEXT NOT NULL,
+			entry_hash TEXT NOT NULL DEFAULT '',
+			version TEXT NOT NULL DEFAULT '',
+			created INTEGER NOT NULL DEFAULT 0,
+			installed_at TEXT DEFAULT (datetime('now')),
+			PRIMARY KEY (target, component, path)
+		);
+	`
 )
 
 func initUsageSchema(conn *sql.DB) {
@@ -158,4 +172,5 @@ func initUsageSchema(conn *sql.DB) {
 	conn.Exec(createProjectLinksTable)
 
 	conn.Exec(createSearchTrailTable)
+	conn.Exec(createInstallerStateTable)
 }
