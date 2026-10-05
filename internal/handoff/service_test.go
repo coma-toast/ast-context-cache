@@ -238,9 +238,6 @@ func TestUnimplementedMethods(t *testing.T) {
 	s := newService(nil)
 	ctx := context.Background()
 	calls := map[string]func() error{
-		"create":   func() error { _, err := s.Create(ctx, CreateRequest{}); return err },
-		"open":     func() error { _, err := s.Open(ctx, OpenRequest{}); return err },
-		"expand":   func() error { _, err := s.Expand(ctx, ExpandRequest{}); return err },
 		"complete": func() error { _, err := s.Complete(ctx, CompleteRequest{}); return err },
 		"collect":  func() error { _, err := s.Collect(ctx, CollectRequest{}); return err },
 		"list":     func() error { _, err := s.List(ctx, ListRequest{}); return err },

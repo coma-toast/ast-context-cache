@@ -104,21 +104,6 @@ func SetDefault(s Service) {
 	defaultService.Store(&s)
 }
 
-// Create is implemented in Phase 6.4.
-func (s *realService) Create(ctx context.Context, req CreateRequest) (*CreateResponse, error) {
-	return nil, notImplemented("create")
-}
-
-// Open is implemented in Phase 6.5.
-func (s *realService) Open(ctx context.Context, req OpenRequest) (*OpenResponse, error) {
-	return nil, notImplemented("open")
-}
-
-// Expand is implemented in Phase 6.5.
-func (s *realService) Expand(ctx context.Context, req ExpandRequest) (*ExpandResponse, error) {
-	return nil, notImplemented("expand")
-}
-
 // Complete is implemented in Phase 6.7.
 func (s *realService) Complete(ctx context.Context, req CompleteRequest) (*CompleteResponse, error) {
 	return nil, notImplemented("complete")
