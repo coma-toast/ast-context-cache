@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
@@ -192,5 +195,48 @@ func TestFlushOrphansRespectsGraceScopeAndAccess(t *testing.T) {
 	}
 	if exists(oldOrphanP2) {
 		t.Fatal("global purge should remove the remaining old orphan")
+	}
+}
+
+// TestSearchLikeRespectsSession covers BF-1: the LIKE fallback used to bind its
+// appended scope filters only to the content arm of the OR, so a label match
+// from another session or project leaked through.
+func TestSearchLikeRespectsSession(t *testing.T) {
+	testNotesDB(t)
+	// "zyplu" sits mid-token in each label, so the prefix FTS query misses and
+	// Search must take the LIKE path.
+	store := func(sid, label, proj string) string {
+		res, err := Store(sid, "unrelated body text", label, proj, nil, "", nil, nil)
+		require.NoError(t, err)
+		return res.Ref
+	}
+	s1a := store("S1", "xyzzyplugh alpha", "/proj/a")
+	s1b := store("S1", "xyzzyplugh beta", "/proj/b")
+	store("S2", "xyzzyplugh gamma", "/proj/a")
+	store("S2", "xyzzyplugh delta", "/proj/b")
+	fts, err := searchNotesFTS("zyplu", "S1", "", 10)
+	require.NoError(t, err)
+	require.Empty(t, fts, "FTS must miss so the LIKE fallback is exercised")
+	tests := []struct {
+		name, sessionID, projectPath string
+		want                         []string
+	}{
+		{name: "session only", sessionID: "S1", want: []string{s1a, s1b}},
+		{name: "session and project", sessionID: "S1", projectPath: "/proj/a", want: []string{s1a}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Search("zyplu", tc.sessionID, tc.projectPath, 10, nil)
+			require.NoError(t, err)
+			var got []string
+			for _, n := range res.Notes {
+				assert.Equal(t, tc.sessionID, n.SessionID)
+				if tc.projectPath != "" {
+					assert.Equal(t, tc.projectPath, n.ProjectPath)
+				}
+				got = append(got, n.Ref)
+			}
+			assert.ElementsMatch(t, tc.want, got)
+		})
 	}
 }

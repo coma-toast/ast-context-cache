@@ -34,8 +34,10 @@ const (
 	updateEntryAccessQuery          = `UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`
 	insertMemoryAccessQuery         = `INSERT INTO memory_access (ref, session_id, project_path, tool_name, tokens_returned) VALUES (?, ?, ?, ?, ?)`
 	validAsOfClause                 = ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`
+	validFromAsOfClause             = ` AND valid_from <= ?`
 	validNowClause                  = ` AND (valid_until IS NULL OR valid_until = '')`
 	smValidAsOfClause               = ` AND sm.valid_from <= ? AND (sm.valid_until IS NULL OR sm.valid_until = '' OR sm.valid_until > ?)`
+	smValidFromAsOfClause           = ` AND sm.valid_from <= ?`
 	smValidNowClause                = ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
 	orderByAccessCreatedLimitClause = ` ORDER BY access_count DESC, created_at DESC LIMIT ?`
 	orderByAccessLimitClause        = ` ORDER BY access_count DESC LIMIT ?`
@@ -52,15 +54,17 @@ const (
 
 // RecallInput configures structured memory retrieval.
 type RecallInput struct {
-	Query          string
-	SessionID      string
-	ProjectPath    string
-	Kinds          []Kind
-	Scope          Scope  // optional filter
-	AsOf           string // RFC3339 or SQLite datetime; empty = now (current facts only)
-	Limit          int
-	TokenBudget    int
-	IncludeHistory bool // include superseded facts when as_of set
+	Query       string
+	SessionID   string
+	ProjectPath string
+	Kinds       []Kind
+	Scope       Scope  // optional filter
+	AsOf        string // RFC3339 or SQLite datetime; empty = now (current facts only)
+	Limit       int
+	TokenBudget int
+	// IncludeHistory drops the valid_until (superseded/forgotten) filter. With
+	// AsOf set it still excludes entries that only became valid after AsOf.
+	IncludeHistory bool
 	// IncludeRepoSiblings widens project-scoped lookups to every indexed checkout of
 	// the same repo, so a note taken in one worktree is recallable from a sibling
 	// worktree of that repo sitting on a different branch.
@@ -76,6 +80,15 @@ type RecallResult struct {
 	TokensSavedEst int           `json:"tokens_saved_est"`
 	RefsAccessed   int           `json:"refs_accessed"`
 }
+
+// validityClauses holds the validity filters for one column qualification, so
+// joined and unjoined queries share validityClause.
+type validityClauses struct{ now, asOf, fromAsOf string }
+
+var (
+	entryValidity   = validityClauses{now: validNowClause, asOf: validAsOfClause, fromAsOf: validFromAsOfClause}
+	smEntryValidity = validityClauses{now: smValidNowClause, asOf: smValidAsOfClause, fromAsOf: smValidFromAsOfClause}
+)
 
 // Recall returns compact valid facts and procedures matching query within token budget.
 func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
@@ -154,14 +167,17 @@ func applyTokenBudget(entries []Entry, budget int) ([]Entry, int, int) {
 	return out, used, saved
 }
 
-func validityClause(asOf string, includeHistory bool) (string, []any) {
-	if asOf != "" {
-		if includeHistory {
-			return validAsOfClause, []any{asOf, asOf}
-		}
-		return validAsOfClause, []any{asOf, asOf}
+// validityClause builds the validity filter from c's column qualification.
+func validityClause(in RecallInput, c validityClauses) (string, []any) {
+	switch {
+	case in.AsOf != "" && in.IncludeHistory:
+		return c.fromAsOf, []any{in.AsOf}
+	case in.AsOf != "":
+		return c.asOf, []any{in.AsOf, in.AsOf}
+	case in.IncludeHistory:
+		return "", nil
 	}
-	return validNowClause, nil
+	return c.now, nil
 }
 
 // recallProjectPaths returns the project_path values a recall should match.
@@ -239,7 +255,7 @@ func scopeClauseFor(in RecallInput, prefix string) (string, []any) {
 func listActiveEntries(in RecallInput) ([]Entry, error) {
 	q := selectActiveEntriesQuery
 	var args []any
-	if clause, a := validityClause(in.AsOf, in.IncludeHistory); clause != "" {
+	if clause, a := validityClause(in, entryValidity); clause != "" {
 		q += clause
 		args = append(args, a...)
 	}
@@ -260,7 +276,7 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 	likeQ := `%` + in.Query + `%`
 	q := searchEntriesLikeQuery
 	args := []any{likeQ, likeQ, likeQ, likeQ}
-	if clause, a := validityClause(in.AsOf, in.IncludeHistory); clause != "" {
+	if clause, a := validityClause(in, entryValidity); clause != "" {
 		q += clause
 		args = append(args, a...)
 	}
@@ -284,11 +300,9 @@ func searchFTS(in RecallInput) ([]Entry, error) {
 	}
 	q := searchEntriesFTSQuery
 	args := []any{ftsQuery}
-	if in.AsOf != "" {
-		q += smValidAsOfClause
-		args = append(args, in.AsOf, in.AsOf)
-	} else {
-		q += smValidNowClause
+	if clause, a := validityClause(in, smEntryValidity); clause != "" {
+		q += clause
+		args = append(args, a...)
 	}
 	if clause, a := scopeClauseFor(in, "sm."); clause != "" {
 		q += clause
@@ -304,7 +318,9 @@ func vectorSearch(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	scored := search.Cache.SearchMemory(vec, in.SessionID, in.Limit*2)
+	// Session-less vectors only hold project or global entries, which a
+	// session-scoped recall can never return.
+	scored := search.Cache.SearchMemory(vec, in.SessionID, in.Scope != ScopeSession, in.Limit*2)
 	var refs []string
 	for _, s := range scored {
 		if ref, _ := s.Data["ref"].(string); ref != "" {
@@ -314,14 +330,43 @@ func vectorSearch(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 	if len(refs) == 0 {
 		return nil, nil
 	}
-	placeholders := strings.Repeat("?,", len(refs))
-	placeholders = placeholders[:len(placeholders)-1]
-	q := selectEntriesByRefsQuery + placeholders + ")"
-	args := make([]any, len(refs))
-	for i, r := range refs {
-		args[i] = r
+	// Vectors only know the storing session, so the re-select applies the same
+	// validity and scope filters as the FTS and LIKE paths.
+	q := selectEntriesByRefsQuery + strings.TrimSuffix(strings.Repeat("?,", len(refs)), ",") + ")"
+	args := make([]any, 0, len(refs))
+	for _, r := range refs {
+		args = append(args, r)
 	}
-	return queryEntries(q, args...)
+	if clause, a := validityClause(in, entryValidity); clause != "" {
+		q += clause
+		args = append(args, a...)
+	}
+	if clause, a := scopeClause(in); clause != "" {
+		q += clause
+		args = append(args, a...)
+	}
+	entries, err := queryEntries(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return orderByRefs(entries, refs), nil
+}
+
+// orderByRefs returns entries in refs order (the vector similarity rank),
+// dropping duplicate refs.
+func orderByRefs(entries []Entry, refs []string) []Entry {
+	byRef := make(map[string]Entry, len(entries))
+	for _, e := range entries {
+		byRef[e.Ref] = e
+	}
+	out := make([]Entry, 0, len(entries))
+	for _, r := range refs {
+		if e, ok := byRef[r]; ok {
+			out = append(out, e)
+			delete(byRef, r)
+		}
+	}
+	return out
 }
 
 func queryEntries(q string, args ...any) ([]Entry, error) {
