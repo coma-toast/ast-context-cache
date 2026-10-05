@@ -41,6 +41,10 @@ var (
 	// debounce callbacks from when they're scheduled — so tests can wait for
 	// all of them before the next test changes what they read.
 	bg sync.WaitGroup
+
+	// indexFile is what a debounce callback re-indexes a file with. Tests
+	// swap it to hold a callback in flight for as long as they need.
+	indexFile = indexer.IndexFile
 )
 
 func init() {
@@ -417,7 +421,7 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 				realtime.Notify(realtime.IndexCommitted)
 			}
 		} else {
-			n, fullT, skelT, err := indexer.IndexFile(path, projectPath)
+			n, fullT, skelT, err := indexFile(path, projectPath)
 			if err == nil {
 				logger.Debug("Re-indexed file", "file", path, "symbols", n)
 				resultJSON, _ := json.Marshal(map[string]interface{}{"file": path, "symbols": n})
