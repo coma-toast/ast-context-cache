@@ -382,6 +382,9 @@ func GetTools() []Tool {
 			Tier:     TierCore,
 			ReadOnly: true,
 		},
+		handoffTool(),
+		openHandoffTool(),
+		scratchpadTool(),
 		{
 			Name:        "forget_memory",
 			Description: "Invalidate structured memory (soft-delete via valid_until). Modes: refs, subject+predicate, or all=true. With refs, each mem_* ref's scope is read from the stored entry (no scope/session_id needed) and only the named refs are touched; the response lists invalidated, not_found, already_invalid, and scope_mismatch refs, and sets error if no ref was invalidated or already invalid.",
