@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "ast-context-cache": {
+      "type": "remote",
+      "url": "http://127.0.0.1:7821/mcp",
+      "enabled": true
+    }
+  }
+}

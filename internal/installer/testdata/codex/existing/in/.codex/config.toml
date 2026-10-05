@@ -1,0 +1,13 @@
+# Codex config
+model = "o4-mini" # default model
+approval_policy = "on-request"
+
+[mcp_servers.node_repl]
+command = "node"
+args = [
+  "repl.js",
+]
+
+# Desktop app settings
+[desktop]
+theme = "dark"

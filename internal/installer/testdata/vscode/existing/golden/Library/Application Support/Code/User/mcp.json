@@ -1,0 +1,14 @@
+{
+	// User MCP servers
+	"servers": {
+		"playwright": {
+			"command": "npx",
+			"args": ["@playwright/mcp@latest"]
+		},
+		"ast-context-cache": {
+			"type": "http",
+			"url": "http://127.0.0.1:7821/mcp"
+		}
+	},
+	"inputs": []
+}

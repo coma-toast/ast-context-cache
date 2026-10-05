@@ -1,0 +1,3 @@
+# OpenCode rules
+
+Use tabs.

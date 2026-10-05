@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ast-context-cache": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:7821/mcp"]
+    }
+  }
+}
