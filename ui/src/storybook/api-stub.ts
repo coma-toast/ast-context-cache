@@ -7,6 +7,8 @@
  * `../api/client` because that import specifier is itself aliased to this file —
  * re-exporting it would create a self-import loop.
  */
+import { fixtureFlags } from './fixtures'
+
 export function formatUptime(ns: number): string {
   const sec = Math.floor(ns / 1e9)
   const h = Math.floor(sec / 3600)
@@ -51,6 +53,9 @@ export const api = {
   topImports: noop,
   timeseries: noop,
   mcpTier: noop,
+  // Read-only fixture so the Features section renders; toggling still hits `noop`.
+  flags: async () => ({ flags: fixtureFlags }),
+  setFlag: noop,
   saveSetting: noop,
   saveEmbedSettings: noop,
   pinProject: noop,

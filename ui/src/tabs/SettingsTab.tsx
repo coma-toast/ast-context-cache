@@ -32,10 +32,12 @@ import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
+import { FeaturesSection } from '../components/FeaturesSection'
 
 const PROJECTS_PAGE_SIZE = 8
 
 const SECTIONS = [
+  { id: 'features', label: 'Features' },
   { id: 'performance', label: 'Performance' },
   { id: 'storage', label: 'Storage' },
   { id: 'virtual', label: 'Virtual context' },
@@ -143,6 +145,8 @@ export function SettingsTab({
           <Chip key={s.id} label={s.label} component="a" href={`#settings-${s.id}`} clickable variant="outlined" size="small" />
         ))}
       </Stack>
+
+      <FeaturesSection refreshKey={data} />
 
       <Card variant="outlined" id="settings-performance" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
         <CardContent>

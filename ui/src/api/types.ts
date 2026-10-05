@@ -459,3 +459,27 @@ export interface BrowseDirResult {
   shortcuts?: BrowseDirEntry[]
   error?: string
 }
+
+/** Where a feature flag's own value came from; env locks the flag. */
+export type FlagSource = 'env' | 'setting' | 'default'
+
+/** One feature flag's resolved state (`internal/flags.FlagState`). */
+export interface FlagState {
+  key: string
+  description: string
+  source: FlagSource
+  /** Env var that overrides (and locks) the flag. */
+  env: string
+  /** Effective value: a feature_handoff_* child reads false while feature_handoff is off. */
+  enabled: boolean
+  default: boolean
+  locked: boolean
+}
+
+export interface FlagsResponse {
+  flags: FlagState[]
+}
+
+export interface SetFlagResponse extends FlagsResponse {
+  status: string
+}

@@ -4,6 +4,7 @@
  */
 import type {
   ContextSessionsResponse,
+  FlagState,
   Health,
   IndexHealth,
   MCPTier,
@@ -369,3 +370,61 @@ export const fixtureMcpTier: MCPTier = {
   tools_json_path: '~/.astcache/tools.json',
   tools_json_exists: true,
 }
+
+/** Feature flags covering every source: defaults, a dashboard setting, and an env-locked flag. */
+export const fixtureFlags: FlagState[] = [
+  {
+    key: 'feature_handoff',
+    description: 'Master switch for subagent handoff: the handoff, open_handoff, and scratchpad tools.',
+    source: 'default',
+    env: 'AST_FEATURE_HANDOFF',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_scratchpad',
+    description: 'Shared scratchpad tool and its digest sections for handoff trees.',
+    source: 'default',
+    env: 'AST_FEATURE_HANDOFF_SCRATCHPAD',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_claims',
+    description: 'Scratchpad claim and release actions for coordinating work across agents.',
+    source: 'setting',
+    env: 'AST_FEATURE_HANDOFF_CLAIMS',
+    enabled: false,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_live_trail',
+    description: "Automatic sharing of each agent's search trail into the handoff tree.",
+    source: 'default',
+    env: 'AST_FEATURE_HANDOFF_LIVE_TRAIL',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+  {
+    key: 'feature_handoff_hooks',
+    description: 'Installer offers Claude Code hooks that create and open handoffs.',
+    source: 'env',
+    env: 'AST_FEATURE_HANDOFF_HOOKS',
+    enabled: true,
+    default: false,
+    locked: true,
+  },
+  {
+    key: 'feature_shared_query_cache',
+    description: 'Cross-session cache of search results shared between agents.',
+    source: 'default',
+    env: 'AST_FEATURE_SHARED_QUERY_CACHE',
+    enabled: true,
+    default: true,
+    locked: false,
+  },
+]

@@ -2,6 +2,7 @@ import type {
   BrowseDirResult,
   ContextSessionsResponse,
   DataDirMoveStatus,
+  FlagsResponse,
   Health,
   IndexHealth,
   MCPTier,
@@ -9,6 +10,7 @@ import type {
   Project,
   PruneStatus,
   ReconcileSpacesResult,
+  SetFlagResponse,
   SettingsData,
   StartWatcherSpaceResult,
   Stats,
@@ -132,6 +134,8 @@ export const api = {
   timeseries: (projectId?: string, interval = 'daily', days = 30) =>
     get<TimeseriesPoint[]>(`/api/timeseries${qs(projectId, { interval, days: String(days) })}`),
   mcpTier: () => get<MCPTier>('/api/dashboard/mcp-tier'),
+  flags: () => get<FlagsResponse>('/api/dashboard/flags'),
+  setFlag: (key: string, enabled: boolean) => post<SetFlagResponse>('/api/dashboard/flags', { key, enabled }),
   saveSetting: (key: string, value: string) => post<{ status?: string; error?: string }>('/api/settings', { key, value }),
   saveEmbedSettings: (settings: Record<string, string>) =>
     post<{ status?: string; error?: string }>('/api/settings/embed', { settings }),

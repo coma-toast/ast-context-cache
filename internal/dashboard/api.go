@@ -836,6 +836,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
 			return
 		}
+		if isFlagKey(key) {
+			writeFlagsError(w, http.StatusBadRequest, flagSettingKeyMsg)
+			return
+		}
 		if key == "embed_worker_max" {
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 1 || n > embedqueue.AbsoluteMaxWorkers {

@@ -20,6 +20,11 @@ const storiesToCheck = [
     label: "Memory / Healthy",
     textSignals: ["Virtual context", "Memory"],
   },
+  {
+    id: "dashboard-settings--features",
+    label: "Settings / Features",
+    textSignals: ["feature_handoff_hooks", "feature_shared_query_cache"],
+  },
 ];
 
 async function exists(p) {

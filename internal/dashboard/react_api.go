@@ -32,6 +32,7 @@ func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/recent-split", handleDashboardRecentSplitJSON)
 	mux.HandleFunc("/api/dashboard/recent-logs", handleDashboardRecentLogsJSON)
 	mux.HandleFunc("/api/dashboard/mcp-tier", handleDashboardMCPTierJSON)
+	mux.HandleFunc("/api/dashboard/flags", handleDashboardFlagsJSON)
 }
 
 func handleDashboardRecentLogsJSON(w http.ResponseWriter, r *http.Request) {

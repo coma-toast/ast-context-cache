@@ -7,3 +7,4 @@
 - `dashboard-embeddings--healthy`
 - `dashboard-embeddings--degraded`
 - `dashboard-settings--embedding-and-virtual`
+- `dashboard-settings--features`
