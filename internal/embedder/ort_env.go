@@ -35,11 +35,26 @@ func ortLibFromSidecar() string {
 	if err != nil {
 		return ""
 	}
-	data, err := os.ReadFile(exePath + ".ortlib")
+	return sidecarLibPath(exePath + ".ortlib")
+}
+
+// sidecarLibPath returns the library path recorded in a sidecar file, or "" when the file is
+// unreadable or names a library that doesn't exist (e.g. a build that resolved the wrong
+// Homebrew), so resolution falls through to the default instead of failing to load.
+func sidecarLibPath(sidecar string) string {
+	data, err := os.ReadFile(sidecar)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	p := strings.TrimSpace(string(data))
+	if p == "" {
+		return ""
+	}
+	if _, err := os.Stat(p); err != nil {
+		logger.Warn("Ignoring onnxruntime path from build sidecar", "sidecar", sidecar, "path", p, "error", err)
+		return ""
+	}
+	return p
 }
 
 func ensureONNXRuntime() error {

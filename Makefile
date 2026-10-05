@@ -1,4 +1,7 @@
-BREW_PREFIX := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
+# Intel (/usr/local) and Apple Silicon (/opt/homebrew) Homebrews can coexist, and the first brew on
+# PATH may be the one without onnxruntime, so prefer whichever prefix actually has the library.
+BREW_DEFAULT := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
+BREW_PREFIX  := $(or $(firstword $(patsubst %/lib/libonnxruntime.dylib,%,$(wildcard $(BREW_DEFAULT)/lib/libonnxruntime.dylib /opt/homebrew/lib/libonnxruntime.dylib /usr/local/lib/libonnxruntime.dylib))),$(BREW_DEFAULT))
 ORT_LIB     := $(BREW_PREFIX)/lib
 ORT_INC     := $(BREW_PREFIX)/include/onnxruntime
 PROJ_DIR    := $(shell pwd)
