@@ -424,8 +424,11 @@ func (vc *VectorCache) SearchNote(query []float32, sessionID string, limit int) 
 	return out
 }
 
-// SearchMemory returns top structured-memory vector matches (doc_type=memory).
-func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int) []ScoredResult {
+// SearchMemory returns top structured-memory vector matches (doc_type=memory),
+// best first. Memory vectors carry the storing session in ProjectPath; an empty
+// one (stored without a session) passes only when includeSessionless is set.
+// Callers must still re-check validity and scope against the rows.
+func (vc *VectorCache) SearchMemory(query []float32, sessionID string, includeSessionless bool, limit int) []ScoredResult {
 	if len(query) != VectorDims {
 		return nil
 	}
@@ -441,23 +444,27 @@ func (vc *VectorCache) SearchMemory(query []float32, sessionID string, limit int
 		if e.DocType != "memory" {
 			continue
 		}
+		if e.ProjectPath == "" && !includeSessionless {
+			continue
+		}
 		if sessionID != "" && e.ProjectPath != sessionID && e.ProjectPath != "" {
 			continue
 		}
 		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
 	}
-	if len(results) > limit {
-		for i := 0; i < limit; i++ {
-			maxIdx := i
-			for j := i + 1; j < len(results); j++ {
-				if results[j].sim > results[maxIdx].sim {
-					maxIdx = j
-				}
+	// Partial selection sort, run even when every result fits, so callers get
+	// similarity order.
+	n := min(max(limit, 0), len(results))
+	for i := 0; i < n; i++ {
+		maxIdx := i
+		for j := i + 1; j < len(results); j++ {
+			if results[j].sim > results[maxIdx].sim {
+				maxIdx = j
 			}
-			results[i], results[maxIdx] = results[maxIdx], results[i]
 		}
-		results = results[:limit]
+		results[i], results[maxIdx] = results[maxIdx], results[i]
 	}
+	results = results[:n]
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
 		ref := strings.TrimPrefix(r.entry.SourceFile, "mem:")

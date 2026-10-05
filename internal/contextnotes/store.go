@@ -38,9 +38,10 @@ const (
 		FROM context_notes_fts f
 		JOIN context_notes cn ON cn.ref = f.ref
 		WHERE context_notes_fts MATCH ?`
+	// The OR is parenthesized so the appended AND scope fragments bind to both LIKE arms.
 	searchNotesLikeQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
-		FROM context_notes WHERE label LIKE ? OR content LIKE ?`
+		FROM context_notes WHERE (label LIKE ? OR content LIKE ?)`
 	andSessionIDClause                = ` AND session_id = ?`
 	andProjectPathClause              = ` AND project_path = ?`
 	andNoteSessionIDClause            = ` AND cn.session_id = ?`
