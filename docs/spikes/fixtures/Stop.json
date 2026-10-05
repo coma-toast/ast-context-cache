@@ -1,0 +1,13 @@
+{
+  "session_id": "82de5123-70a6-4982-b7cc-aa839be2cd89",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/scratchpad",
+  "prompt_id": "e1fb89fd-0834-4d30-ba36-952ca76a45c0",
+  "permission_mode": "default",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "Subagent canary: CANARY-SUBAGENT-4402\nSession canary: NONE\nCANARY-PROMPT-9915",
+  "background_tasks": [],
+  "session_crons": []
+}

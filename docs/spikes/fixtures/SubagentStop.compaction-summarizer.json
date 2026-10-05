@@ -1,0 +1,16 @@
+{
+  "session_id": "82de5123-70a6-4982-b7cc-aa839be2cd89",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/scratchpad",
+  "prompt_id": "0fb86502-ad49-40fc-8da3-a9f11e66b64b",
+  "permission_mode": "default",
+  "agent_id": "a7152e5968941ab82",
+  "agent_type": "",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89/subagents/agent-a7152e5968941ab82.jsonl",
+  "last_assistant_message": "<analysis>\nThe conversation is very brief and consists of a single exchange. Let me analyze the key elements:\n\n1. The user's explicit request was three-fold:\n   - State the session canary if I know it (else NONE)\n   - Spawn a general-purpose subagent to report the subagent canary and session canary without using tools\n   - Repeat exactly what the subagent returned\n\n2. The context provided to me at …[truncated]",
+  "background_tasks": [],
+  "session_crons": []
+}

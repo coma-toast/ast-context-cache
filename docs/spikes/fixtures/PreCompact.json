@@ -1,0 +1,10 @@
+{
+  "session_id": "82de5123-70a6-4982-b7cc-aa839be2cd89",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/scratchpad",
+  "prompt_id": "0fb86502-ad49-40fc-8da3-a9f11e66b64b",
+  "hook_event_name": "PreCompact",
+  "trigger": "manual",
+  "custom_instructions": null
+}

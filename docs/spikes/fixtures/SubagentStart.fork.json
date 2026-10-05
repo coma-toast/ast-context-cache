@@ -1,0 +1,10 @@
+{
+  "session_id": "776dc3f7-daed-4f4b-a8f2-8976cc28bd51",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/776dc3f7-daed-4f4b-a8f2-8976cc28bd51.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/776dc3f7-daed-4f4b-a8f2-8976cc28bd51/scratchpad",
+  "prompt_id": "3403386d-d5bb-44ef-8d5d-478114d9c844",
+  "agent_id": "a0a0899bd5e5ba186",
+  "agent_type": "fork",
+  "hook_event_name": "SubagentStart"
+}

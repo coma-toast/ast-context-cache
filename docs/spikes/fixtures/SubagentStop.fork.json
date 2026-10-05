@@ -1,0 +1,24 @@
+{
+  "session_id": "776dc3f7-daed-4f4b-a8f2-8976cc28bd51",
+  "transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/776dc3f7-daed-4f4b-a8f2-8976cc28bd51.jsonl",
+  "cwd": "/tmp/hook-spike/work",
+  "scratchpad_dir": "/tmp/claude-scratch/-work/776dc3f7-daed-4f4b-a8f2-8976cc28bd51/scratchpad",
+  "prompt_id": "3403386d-d5bb-44ef-8d5d-478114d9c844",
+  "permission_mode": "bubble",
+  "agent_id": "a0a0899bd5e5ba186",
+  "agent_type": "fork",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/776dc3f7-daed-4f4b-a8f2-8976cc28bd51/subagents/agent-a0a0899bd5e5ba186.jsonl",
+  "last_assistant_message": "**Report:**\n\n(1) Conversation secret word: PELICAN-2210\n(2) Session canary: CANARY-SESSION-7731\n(3) Subagent canary: CANARY-SUBAGENT-4402\n\nCANARY-PROMPT-9915",
+  "background_tasks": [
+    {
+      "id": "a0a0899bd5e5ba186",
+      "type": "subagent",
+      "status": "running",
+      "description": "Read /etc/shells and report canaries and secret word",
+      "agent_type": "fork"
+    }
+  ],
+  "session_crons": []
+}
