@@ -37,9 +37,7 @@ func runCLIWith(args []string, stdout, stderr io.Writer) (int, bool) {
 		setupCLILogging(stderr)
 		return runInstaller(args[0], args[1:], stdout, stderr), true
 	case "hook":
-		// Hook entries may be installed before the hook handlers ship; exiting 0 with no output
-		// keeps them fail-open instead of starting a second server.
-		return exitOK, true
+		return runHook(args[1:], os.Stdin, stdout, stderr), true
 	}
 	return exitOK, false
 }
