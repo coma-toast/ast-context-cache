@@ -7,7 +7,14 @@
  * `../api/client` because that import specifier is itself aliased to this file —
  * re-exporting it would create a self-import loop.
  */
-import { fixtureFlags } from './fixtures'
+import type { InstallerPlanRequest } from '../api/types'
+import {
+  fixtureFlags,
+  fixtureInstaller,
+  fixtureInstallerBackups,
+  fixtureInstallerErrorPlan,
+  fixtureInstallerPlan,
+} from './fixtures'
 
 export function formatUptime(ns: number): string {
   const sec = Math.floor(ns / 1e9)
@@ -76,8 +83,13 @@ export const api = {
   docSourceAction: noop,
   addDocSource: noop,
   installDocPack: noop,
-  agentInstall: noop,
-  agentUninstall: noop,
+  // Read-only fixtures so the installer cards, preview, and backups render; Apply and Restore hit `noop`.
+  installer: async () => fixtureInstaller,
+  installerPreview: async (req: InstallerPlanRequest) =>
+    req.targets[0] === 'vscode' ? fixtureInstallerErrorPlan : { ...fixtureInstallerPlan, action: req.action },
+  installerApply: noop,
+  installerBackups: async () => ({ backups: fixtureInstallerBackups }),
+  installerRestore: noop,
   embedderTest: noop,
   embedderRetry: noop,
   embedderDismissAlert: noop,

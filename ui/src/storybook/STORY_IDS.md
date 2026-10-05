@@ -8,3 +8,5 @@
 - `dashboard-embeddings--degraded`
 - `dashboard-settings--embedding-and-virtual`
 - `dashboard-settings--features`
+- `dashboard-installer--default`
+- `dashboard-installer--preview-open`
