@@ -22,6 +22,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/logging"
@@ -526,6 +527,7 @@ func startBackgroundServices(ctx context.Context) {
 	go runEvery(ctx, time.Hour, logretention.RunOnce)
 	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
 	ctxpkg.StartSessionStoreEviction(ctx)
+	handoff.Start(ctx, embedder.Tracked())
 	seen := map[string]bool{}
 	if conn, err := db.IndexReader(); err == nil {
 		restoreRows, err := conn.Query(selectSymbolProjectsQuery)
