@@ -14,7 +14,9 @@ type ToolConfig struct {
 	Description string `json:"description"`
 }
 
-func getToolsConfigPath() string {
+// ToolsConfigPath is the per-tool overrides file: $AST_MCP_TOOLS_CONFIG, else
+// ~/.astcache/tools.json. The dashboard reports the same path the server loads.
+func ToolsConfigPath() string {
 	if p := os.Getenv("AST_MCP_TOOLS_CONFIG"); p != "" {
 		return p
 	}
@@ -23,7 +25,7 @@ func getToolsConfigPath() string {
 }
 
 func LoadToolConfigs() map[string]*ToolConfig {
-	path := getToolsConfigPath()
+	path := ToolsConfigPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return make(map[string]*ToolConfig)
@@ -41,7 +43,7 @@ func LoadToolConfigs() map[string]*ToolConfig {
 }
 
 func SaveToolConfigs(configs map[string]*ToolConfig) error {
-	path := getToolsConfigPath()
+	path := ToolsConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

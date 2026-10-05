@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -155,12 +154,11 @@ func handleDashboardRecentSplitJSON(w http.ResponseWriter, r *http.Request) {
 // TierComplete, not "extended", so this endpoint reported the wrong tier
 // whenever AST_MCP_TIER was unset. Reads mcp.GetConfig() instead, which also
 // lets it surface code_mode and per-tool overrides it previously omitted.
+// tools_json_path is the file the server actually loads, so AST_MCP_TOOLS_CONFIG
+// is honored rather than assuming ~/.astcache/tools.json (BF-3).
 func handleDashboardMCPTierJSON(w http.ResponseWriter, r *http.Request) {
 	cfg := mcp.GetConfig()
-	toolsPath := filepath.Join(os.Getenv("HOME"), ".astcache", "tools.json")
-	if home, err := os.UserHomeDir(); err == nil {
-		toolsPath = filepath.Join(home, ".astcache", "tools.json")
-	}
+	toolsPath := mcp.ToolsConfigPath()
 	var toolsExists bool
 	if _, err := os.Stat(toolsPath); err == nil {
 		toolsExists = true
