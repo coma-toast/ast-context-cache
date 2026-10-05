@@ -1,10 +1,19 @@
 package projectlinks
 
 import (
-	"log"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+)
+
+const (
+	deleteParentDupSymbolsQuery      = `DELETE FROM symbols WHERE project_path = ? AND (file = ? OR file LIKE ?)`
+	deleteParentDupEdgesQuery        = `DELETE FROM edges WHERE project_path = ? AND (source_file = ? OR source_file LIKE ?)`
+	deleteParentDupVectorsQuery      = `DELETE FROM vectors WHERE project_path = ? AND (source_file = ? OR source_file LIKE ?)`
+	deleteParentDupIndexedFilesQuery = `DELETE FROM indexed_files WHERE project_path = ? AND (file = ? OR file LIKE ?)`
+	deleteParentDupSummariesQuery    = `DELETE FROM summaries WHERE project_path = ? AND (file_path = ? OR file_path LIKE ?)`
+	deleteParentDupEmbedPendingQuery = `DELETE FROM embed_pending WHERE project_path = ? AND (file = ? OR file LIKE ?)`
+	countProjectSymbolsQuery         = `SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?`
 )
 
 var onLinkCleanup func(parent, child string)
@@ -41,18 +50,18 @@ func cleanupParentDuplicates(parent, child, like string) error {
 		return nil
 	}
 	queries := []string{
-		`DELETE FROM symbols WHERE project_path = ? AND (file = ? OR file LIKE ?)`,
-		`DELETE FROM edges WHERE project_path = ? AND (source_file = ? OR source_file LIKE ?)`,
-		`DELETE FROM vectors WHERE project_path = ? AND (source_file = ? OR source_file LIKE ?)`,
-		`DELETE FROM indexed_files WHERE project_path = ? AND (file = ? OR file LIKE ?)`,
-		`DELETE FROM summaries WHERE project_path = ? AND (file_path = ? OR file_path LIKE ?)`,
-		`DELETE FROM embed_pending WHERE project_path = ? AND (file = ? OR file LIKE ?)`,
+		deleteParentDupSymbolsQuery,
+		deleteParentDupEdgesQuery,
+		deleteParentDupVectorsQuery,
+		deleteParentDupIndexedFilesQuery,
+		deleteParentDupSummariesQuery,
+		deleteParentDupEmbedPendingQuery,
 	}
 	var total int64
 	for _, q := range queries {
 		res, err := conn.Exec(q, parent, child, like)
 		if err != nil {
-			log.Printf("projectlinks: cleanup: %v", err)
+			logger.Warn("Failed to clean up parent duplicate rows", "parent", parent, "child", child, "error", err)
 			continue
 		}
 		if n, err := res.RowsAffected(); err == nil {
@@ -60,7 +69,7 @@ func cleanupParentDuplicates(parent, child, like string) error {
 		}
 	}
 	if total > 0 {
-		log.Printf("projectlinks: removed %d duplicate rows for parent=%s child=%s", total, parent, child)
+		logger.Info("Removed parent duplicate rows", "rows", total, "parent", parent, "child", child)
 	}
 	return nil
 }
@@ -75,6 +84,6 @@ func LinkStats(projectPath string) (symbols, files int) {
 	if err != nil {
 		return 0, 0
 	}
-	conn.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT file) FROM symbols WHERE project_path = ?`, projectPath).Scan(&symbols, &files)
+	conn.QueryRow(countProjectSymbolsQuery, projectPath).Scan(&symbols, &files)
 	return symbols, files
 }

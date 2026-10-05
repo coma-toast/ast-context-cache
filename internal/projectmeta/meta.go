@@ -1,7 +1,6 @@
 package projectmeta
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/repokey"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"gopkg.in/yaml.v3"
@@ -161,19 +161,19 @@ func SpacesRoot() string {
 func ListSpaceRepoPaths(spaceName string) ([]string, error) {
 	spaceName = strings.TrimSpace(spaceName)
 	if spaceName == "" {
-		return nil, fmt.Errorf("space required")
+		return nil, errs.NewCode(errs.CodeInvalidInput, "space required")
 	}
 	if spaceName != filepath.Base(spaceName) || spaceName == "." || spaceName == ".." {
-		return nil, fmt.Errorf("invalid space name: %s", spaceName)
+		return nil, errs.NewCode(errs.CodeInvalidInput, "invalid space name", "space", spaceName)
 	}
 	root := SpacesRoot()
 	if root == "" {
-		return nil, fmt.Errorf("no WTG spaces root configured")
+		return nil, errs.New("no WTG spaces root configured")
 	}
 	spaceDir := filepath.Join(root, spaceName)
 	entries, err := os.ReadDir(spaceDir)
 	if err != nil {
-		return nil, fmt.Errorf("space not found: %s", spaceName)
+		return nil, errs.NewCode(errs.CodeNotFound, "space not found", "space", spaceName)
 	}
 	var out []string
 	for _, e := range entries {

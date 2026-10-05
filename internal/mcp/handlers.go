@@ -3,7 +3,6 @@ package mcp
 import (
 	"database/sql"
 	"encoding/json"
-	"log"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -18,6 +17,38 @@ import (
 	"github.com/dop251/goja"
 )
 
+const (
+	selectProjectMapQueryPrefix     = "SELECT file, name, kind FROM symbols WHERE "
+	orderByFileStartLineQuerySuffix = " ORDER BY file, start_line"
+	selectFileSymbolsQuery          = "SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,''), COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line"
+	selectDeadCodeQueryPrefix       = `
+			SELECT s.name, s.file, s.kind 
+			FROM symbols s
+			WHERE `
+	deadFunctionsQuerySuffix = ` AND s.kind IN ('function', 'method')
+			AND NOT EXISTS (
+				SELECT 1 FROM edges e 
+				WHERE e.source_file = s.file AND e.source_symbol = s.name AND e.kind = 'call'
+			)
+			ORDER BY s.file, s.name
+		`
+	deadKindQuerySuffix = ` AND s.kind = ?
+			AND NOT EXISTS (
+				SELECT 1 FROM edges e 
+				WHERE e.source_file = s.file AND e.source_symbol = s.name AND e.kind = 'import'
+			)
+			ORDER BY s.file, s.name
+		`
+	selectComplexityQueryPrefix = `
+		SELECT name, file, kind, complexity 
+		FROM symbols 
+		WHERE `
+	complexityQuerySuffix = ` AND complexity >= ?
+		ORDER BY complexity DESC
+		LIMIT ?
+	`
+)
+
 func handleProjectMap(projectPath string, depth int) string {
 	type fileEntry struct {
 		path    string
@@ -29,9 +60,7 @@ func handleProjectMap(projectPath string, depth int) string {
 		return indexDBErrJSON(err)
 	}
 	scopeFrag, scopeArgs := projectlinks.ScopeSQL("", projectPath)
-	rows, err := indexDB.Query(
-		"SELECT file, name, kind FROM symbols WHERE "+scopeFrag+" ORDER BY file, start_line",
-		scopeArgs...)
+	rows, err := indexDB.Query(selectProjectMapQueryPrefix+scopeFrag+orderByFileStartLineQuerySuffix, scopeArgs...)
 	if err != nil {
 		data, _ := json.Marshal(map[string]string{"error": err.Error()})
 		return string(data)
@@ -131,9 +160,7 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		return fileContextResult{JSON: indexDBErrJSON(err)}
 	}
 	owner := projectlinks.OwningProject(file, projectPath)
-	rows, err := indexDB.Query(
-		"SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,''), COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line",
-		file, owner)
+	rows, err := indexDB.Query(selectFileSymbolsQuery, file, owner)
 	if err != nil {
 		data, _ := json.Marshal(map[string]string{"error": err.Error()})
 		return fileContextResult{JSON: string(data)}
@@ -277,28 +304,10 @@ func handleAnalyzeDeadCode(args map[string]interface{}, projectPath string) map[
 
 	if kind == "" || kind == "function" {
 		scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
-		rows, err = indexDB.Query(`
-			SELECT s.name, s.file, s.kind 
-			FROM symbols s
-			WHERE `+scopeFrag+` AND s.kind IN ('function', 'method')
-			AND NOT EXISTS (
-				SELECT 1 FROM edges e 
-				WHERE e.source_file = s.file AND e.source_symbol = s.name AND e.kind = 'call'
-			)
-			ORDER BY s.file, s.name
-		`, scopeArgs...)
+		rows, err = indexDB.Query(selectDeadCodeQueryPrefix+scopeFrag+deadFunctionsQuerySuffix, scopeArgs...)
 	} else {
 		scopeFrag, scopeArgs := projectlinks.ScopeSQL("s", projectPath)
-		rows, err = indexDB.Query(`
-			SELECT s.name, s.file, s.kind 
-			FROM symbols s
-			WHERE `+scopeFrag+` AND s.kind = ?
-			AND NOT EXISTS (
-				SELECT 1 FROM edges e 
-				WHERE e.source_file = s.file AND e.source_symbol = s.name AND e.kind = 'import'
-			)
-			ORDER BY s.file, s.name
-		`, append(scopeArgs, kind)...)
+		rows, err = indexDB.Query(selectDeadCodeQueryPrefix+scopeFrag+deadKindQuerySuffix, append(scopeArgs, kind)...)
 	}
 
 	if err != nil {
@@ -339,13 +348,7 @@ func handleAnalyzeComplexity(args map[string]interface{}, projectPath string) ma
 		return map[string]interface{}{"error": err.Error()}
 	}
 	scopeFrag, scopeArgs := projectlinks.ScopeSQL("", projectPath)
-	rows, err := indexDB.Query(`
-		SELECT name, file, kind, complexity 
-		FROM symbols 
-		WHERE `+scopeFrag+` AND complexity >= ?
-		ORDER BY complexity DESC
-		LIMIT ?
-	`, append(scopeArgs, threshold, limit)...)
+	rows, err := indexDB.Query(selectComplexityQueryPrefix+scopeFrag+complexityQuerySuffix, append(scopeArgs, threshold, limit)...)
 
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}
@@ -485,7 +488,7 @@ func handleExecuteCodeWithMeta(args map[string]interface{}) executeCodeOutcome {
 		// to cancel or observe it after this handler has already returned.
 		vm.Interrupt("execute_code: timed out after " + strconv.Itoa(timeoutSecs) + " seconds")
 		<-done
-		log.Printf("execute_code: script_id=%q interrupted after %ds timeout", scriptID, timeoutSecs)
+		logger.Warn("Execute code interrupted after timeout", "script_id", scriptID, "timeout_secs", timeoutSecs)
 		return fail("timeout after " + strconv.Itoa(timeoutSecs) + " seconds")
 	}
 }

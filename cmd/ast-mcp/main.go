@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +21,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
@@ -30,8 +30,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
-	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/coma-toast/ast-context-cache/internal/version"
+	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
 // Overridable (-mcp-port / -dashboard-port) so a second instance can run
@@ -41,6 +41,13 @@ var (
 	dashboardPort = 7830
 )
 
+const (
+	deleteFromQueryPrefix        = "DELETE FROM "
+	whereDotProjectQuerySuffix   = " WHERE project_path = '.'"
+	deleteDotProjectQueriesQuery = "DELETE FROM queries WHERE project_path = '.'"
+	selectSymbolProjectsQuery    = "SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''"
+)
+
 var startTime = time.Now()
 
 func GetStartTime() time.Time {
@@ -48,6 +55,7 @@ func GetStartTime() time.Time {
 }
 
 func main() {
+	logging.Setup(os.Stderr)
 	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")
 	codeModeFlag := flag.Bool("code-mode", true, "Enable execute_code sandbox tool (default: true)")
 	embedWorkersFlag := flag.Int("embed-workers", -1, "Embed worker count at startup (-1 = auto/DB)")
@@ -63,19 +71,19 @@ func main() {
 		cfg.CodeMode = false
 	}
 	mcp.SetConfig(cfg)
-	log.Printf("Config: tier=%s code_mode=%v", cfg.ActiveTier, cfg.CodeMode)
+	logger.Info("Config", "tier", cfg.ActiveTier, "code_mode", cfg.CodeMode)
 
-	log.Println("Initializing...")
+	logger.Info("Initializing")
 	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
 		logPath := db.DefaultLogPath()
 		_ = os.MkdirAll(filepath.Dir(logPath), 0755)
 		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
-			log.SetOutput(f)
-			log.Printf("Logging to %s", logPath)
+			logging.Setup(f)
+			logger.Info("Logging to file", "path", logPath)
 		}
 	}
 	if u := sys.FileDescriptorUsage(); u.SoftLimit > 0 {
-		log.Printf("File descriptors: %d open, limit %d (hard %d); watcher backend %s", u.Open, u.SoftLimit, u.HardLimit, watcher.DefaultBackendName())
+		logger.Info("File descriptors", "open", u.Open, "soft_limit", u.SoftLimit, "hard_limit", u.HardLimit, "watcher_backend", watcher.DefaultBackendName())
 	}
 	watcher.ContainerRootsFunc = projectmeta.ContainerRoots
 	startup.SetMessage("Opening databases…")
@@ -93,7 +101,7 @@ func main() {
 	go func() {
 		if err := db.Init(); err != nil {
 			startup.MarkFailed(err.Error())
-			log.Printf("DB error: %v", err)
+			logger.Error("Failed to initialize databases", "error", err)
 			dbReady <- err
 			return
 		}
@@ -108,7 +116,7 @@ func main() {
 		db.WALInFlightHook = embedqueue.InFlight
 		db.EmbedQueueIdleHook = embedqueue.QueueIdleForWAL
 		if embedqueue.BeginRunLock() {
-			log.Printf("embedqueue: previous run exited abnormally; using persisted worker count from DB")
+			logger.Warn("Embed queue previous run exited abnormally; using persisted worker count from DB")
 		}
 		watcher.EnsureDefaultIgnoreGlobs()
 		go db.StartWALCheckpoint()
@@ -130,9 +138,10 @@ func main() {
 		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
 
 		go func() {
-			log.Printf("MCP: http://localhost%s/mcp (starting)", mcpSrv.Addr)
+			logger.Info("Starting MCP server", "url", "http://localhost"+mcpSrv.Addr+"/mcp")
 			if err := mcpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Fatal(err)
+				logger.Error("MCP server failed", "error", err)
+				os.Exit(1)
 			}
 		}()
 
@@ -144,15 +153,16 @@ func main() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
-		log.Println("ast-mcp: shutting down")
+		logger.Info("Shutting down")
 		db.RequestShutdown()
 		embedqueue.EndRunLock()
 		os.Exit(0)
 	}()
 
-	log.Printf("Dashboard: http://localhost%s (starting)", dashSrv.Addr)
+	logger.Info("Starting dashboard server", "url", "http://localhost"+dashSrv.Addr)
 	if err := dashSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+		logger.Error("Dashboard server failed", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -164,7 +174,7 @@ func main() {
 // rebuild).
 func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 	return func() {
-		log.Println("ast-mcp: draining connections to restart")
+		logger.Info("Draining connections to restart")
 		// db.RequestShutdown aborts any in-progress WAL checkpoint quickly, but it also
 		// unconditionally calls AfterForceCheckpoint (wired below to
 		// embedqueue.RestoreAfterMaintenance) as a side effect — harmless for its
@@ -174,25 +184,27 @@ func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 		// the drain and into the exec.
 		db.RequestShutdown()
 		embedqueue.PauseAllForMaintenance(2 * time.Minute)
-		log.Println("ast-mcp: embed queue paused, shutting down servers")
+		logger.Info("Embed queue paused, shutting down servers")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := mcpSrv.Shutdown(ctx); err != nil {
-			log.Printf("ast-mcp: mcp server shutdown: %v", err)
+			logger.Warn("Failed to shut down MCP server", "error", err)
 		}
 		if err := dashSrv.Shutdown(ctx); err != nil {
-			log.Printf("ast-mcp: dashboard server shutdown: %v", err)
+			logger.Warn("Failed to shut down dashboard server", "error", err)
 		}
-		log.Println("ast-mcp: servers shut down")
+		logger.Info("Servers shut down")
 
 		exe, err := os.Executable()
 		if err != nil {
-			log.Fatalf("ast-mcp: cannot resolve executable to restart: %v", err)
+			logger.Error("Failed to resolve executable to restart", "error", err)
+			os.Exit(1)
 		}
-		log.Printf("ast-mcp: restarting %s", exe)
+		logger.Info("Restarting", "exe", exe)
 		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-			log.Fatalf("ast-mcp: restart failed: %v", err)
+			logger.Error("Failed to restart", "exe", exe, "error", err)
+			os.Exit(1)
 		}
 	}
 }
@@ -204,17 +216,17 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 		}
 		if r := recover(); r != nil {
 			startup.MarkFailed(fmt.Sprint(r))
-			log.Printf("startup panic: %v", r)
+			logger.Error("Startup panic", "panic", r)
 		}
 	}()
 
 	if conn, err := db.IndexReader(); err == nil {
 		for _, tbl := range []string{"symbols", "edges", "vectors", "summaries"} {
-			conn.Exec("DELETE FROM "+tbl+" WHERE project_path = '.'")
+			conn.Exec(deleteFromQueryPrefix + tbl + whereDotProjectQuerySuffix)
 		}
 	}
 	if db.DB != nil {
-		db.DB.Exec("DELETE FROM queries WHERE project_path = '.'")
+		db.DB.Exec(deleteDotProjectQueriesQuery)
 	}
 
 	modelDir := strings.TrimSpace(embedder.EffectiveEnv("MODEL_DIR"))
@@ -240,22 +252,22 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 	startup.SetMessage("Loading embedder…")
 	if err := embedder.InitRuntime(modelDir); err != nil {
 		startup.MarkFailed(err.Error())
-		log.Printf("embedder: %v (dashboard and MCP up; embeddings unavailable)", err)
+		logger.Warn("Failed to initialize embedder; dashboard and MCP up, embeddings unavailable", "error", err)
 		return
 	}
 	emb := embedder.Tracked()
 	wb, wm, _, _, wd := embedder.WiredSnapshot()
-	log.Printf("Embedder configured: backend=%s model=%s dims=%d", wb, wm, wd)
+	logger.Info("Embedder configured", "backend", wb, "model", wm, "dims", wd)
 	if n := resolveStartupWorkers(embedWorkersFlag); n >= 0 {
 		embedqueue.SetStartupWorkers(n)
-		log.Printf("embedqueue: startup workers override: %d", n)
+		logger.Info("Embed queue startup workers override", "workers", n)
 	}
 	startup.SetMessage("Starting embed queue…")
 	// Purged files (deleted from disk, symlink aliases) must leave the pending retry set too.
 	indexer.OnFilePurged = embedqueue.ForgetFile
 	embedqueue.Start(emb)
 	if err := embedder.InitAuxRuntime(modelDir); err != nil {
-		log.Printf("aux embedder: %v (aux catch-up workers disabled)", err)
+		logger.Warn("Failed to initialize aux embedder; aux catch-up workers disabled", "error", err)
 	} else {
 		auxEmb := embedder.RawAux()
 		if embedder.AuxSharesPrimary() {
@@ -288,7 +300,7 @@ func finishStartup(exeDir string, embedWorkersFlag int) {
 	startup.SetMessage("Starting background services…")
 	startBackgroundServices()
 	startup.MarkReady()
-	log.Printf("Startup complete (MCP :%d  Dashboard :%d)", mcpPort, dashboardPort)
+	logger.Info("Startup complete", "mcp_port", mcpPort, "dashboard_port", dashboardPort)
 }
 
 func handleMCPHealth(w http.ResponseWriter, r *http.Request) {
@@ -424,7 +436,7 @@ func startBackgroundServices() {
 	}()
 	seen := map[string]bool{}
 	if conn, err := db.IndexReader(); err == nil {
-		restoreRows, err := conn.Query("SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''")
+		restoreRows, err := conn.Query(selectSymbolProjectsQuery)
 		if err == nil {
 			for restoreRows.Next() {
 				var pp string

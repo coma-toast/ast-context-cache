@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 //go:embed builtin/*
@@ -94,7 +95,7 @@ func loadBuiltins() {
 
 func readBuiltinCode(codeFile string) (string, error) {
 	if codeFile == "" {
-		return "", fmt.Errorf("empty code_file")
+		return "", errs.NewCode(errs.CodeInvalidInput, "empty code_file")
 	}
 	path := filepath.Join("builtin", filepath.Base(codeFile))
 	raw, err := builtinFS.ReadFile(path)
@@ -102,7 +103,7 @@ func readBuiltinCode(codeFile string) (string, error) {
 		return "", err
 	}
 	if len(raw) > maxScriptBytes {
-		return "", fmt.Errorf("script too large")
+		return "", errs.NewCode(errs.CodeLimitExceeded, "script too large", "code_file", codeFile, "max_bytes", maxScriptBytes)
 	}
 	return string(raw), nil
 }
@@ -120,7 +121,7 @@ func ResolveScript(scriptID, projectPath string) (string, error) {
 	if s, ok := builtinByID[scriptID]; ok && s.Code != "" {
 		return s.Code, nil
 	}
-	return "", fmt.Errorf("unknown script_id %q", scriptID)
+	return "", errs.NewCode(errs.CodeNotFound, "unknown script_id", "script_id", scriptID)
 }
 
 func loadRepoScripts(projectPath string) []script {
@@ -201,7 +202,7 @@ func jailScriptPath(dir, codeFile string) (string, error) {
 	joined := filepath.Clean(filepath.Join(cleanDir, codeFile))
 	rel, err := filepath.Rel(cleanDir, joined)
 	if err != nil || strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("path escapes scripts/code-mode")
+		return "", errs.NewCode(errs.CodeInvalidInput, "path escapes scripts/code-mode", "code_file", codeFile)
 	}
 	return joined, nil
 }
