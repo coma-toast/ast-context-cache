@@ -32,8 +32,8 @@ func (s *realService) chargeTreeTx(tx *sql.Tx, tree TreeID, tokens, entries int)
 	overEntries := entries > 0 && u.entries+entries > lim.TreeMaxEntries
 	if overTokens || overEntries {
 		return errs.NewCode(CodeHandoffTreeLimitExceeded, "handoff tree is at its cap", "tree", string(tree),
-			"tokens_used", u.tokens, "tokens_max", lim.TreeMaxTokens, "tokens_requested", tokens,
-			"entries_used", u.entries, "entries_max", lim.TreeMaxEntries, "entries_requested", entries)
+			"tokens_used", u.tokens, "tokens_max", lim.TreeMaxTokens, "would_add_tokens", tokens,
+			"entries_used", u.entries, "entries_max", lim.TreeMaxEntries, "would_add_entries", entries)
 	}
 	if _, err := tx.Exec(updateTreeUsageQuery, tokens, entries, string(tree)); err != nil {
 		return errs.WrapMessage("failed to update handoff tree usage", err, "tree", string(tree))

@@ -20,7 +20,6 @@ const (
 	maxTrailEntryTokens = 60
 	// maxTrailTextTokens leaves the rest of the entry's budget for top hits.
 	maxTrailTextTokens = 40
-	truncationMark     = "…"
 
 	selectOldestTrailQuery = `SELECT id, token_est FROM scratchpad_entries
 		WHERE tree_id = ? AND type = '` + string(EntryTypeTrail) + `' ORDER BY id`
