@@ -4,6 +4,8 @@
 
 set -g __ast_mcp_dir  "__AST_DIR__"
 set -g __ast_mcp_ort  "__ORT_LIB__"
+# The server takes its ports from AST_MCP_PORT / AST_DASHBOARD_PORT; ast-mcp re-reads them on
+# every call so status checks follow the same env.
 set -g __ast_mcp_port 7821
 set -g __ast_mcp_dash 7830
 set -g __ast_mcp_log "$HOME/.astcache/ast-mcp.log"
@@ -27,6 +29,19 @@ function __ast_mcp_usage
     echo "  log         Tail the server log"
     echo "  build       Rebuild the binary"
     echo "  dash        Open the dashboard in a browser"
+    echo ""
+    echo "Passed through to the ast-mcp binary:"
+    echo "  install | uninstall | verify | backups | restore   Agent host installer (see docs/INSTALL.md)"
+    echo "  version | --version                                Print the binary version"
+    echo "  hook <event>                                       Claude Code hook handler"
+end
+
+function __ast_mcp_env_port --argument-names name default
+    if set -q $name; and string match -qr '^[0-9]+$' -- $$name
+        echo $$name
+    else
+        echo $default
+    end
 end
 
 function ast-mcp
@@ -35,7 +50,16 @@ function ast-mcp
         return 0
     end
 
+    set -g __ast_mcp_port (__ast_mcp_env_port AST_MCP_PORT 7821)
+    set -g __ast_mcp_dash (__ast_mcp_env_port AST_DASHBOARD_PORT 7830)
+
     switch $argv[1]
+        case install uninstall verify backups restore version --version hook
+            # Run the CLI subcommands with the same binary and env as start, from the current
+            # directory, keeping their exit codes (the installer uses 2-4) and hook stdin/stdout.
+            ONNXRUNTIME_LIB=$__ast_mcp_ort $__ast_mcp_dir/ast-mcp $argv
+            return $status
+
         case start
             rm -f $__ast_mcp_stopfile
             if __ast_mcp_is_running

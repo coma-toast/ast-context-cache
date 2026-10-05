@@ -18,7 +18,7 @@ MCP: `http://localhost:7821/mcp` · Dashboard: `http://localhost:7830`
 
 ## Running the MCP server
 
-Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. Register it with your agent hosts with `./ast-mcp install --target <host> --yes` (or dashboard Settings → Agent integration) — see [docs/INSTALL.md](docs/INSTALL.md#connect-your-agents). **Optional:** For an external launcher that supervises `ast-mcp` and manages `~/.astcache/tools.json`, see [mcp-local](https://github.com/coma-toast/mcp-local) (its registration delegates to `ast-mcp install`) — agent workflows: [mcp-local/AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
+Start the server from this repo with `make run`, or use `ast-mcp start` after `make install`. Register it with your agent hosts with `ast-mcp install --target <host> --yes` (or dashboard Settings → Agent integration) — see [docs/INSTALL.md](docs/INSTALL.md#connect-your-agents). **Optional:** For an external launcher that supervises `ast-mcp` and manages `~/.astcache/tools.json`, see [mcp-local](https://github.com/coma-toast/mcp-local) (its registration delegates to `ast-mcp install`) — agent workflows: [mcp-local/AGENTS.md](https://github.com/coma-toast/mcp-local/blob/main/AGENTS.md).
 
 ## Tool tiers (server policy)
 

@@ -51,10 +51,12 @@ The React dashboard (`ui/`) rebuilds as part of `make build` via `ui-build`.
 Use the installer. It previews a per-file diff, backs up every file it touches, and edits only its own entries, so your other servers, comments, and instructions stay intact:
 
 ```bash
-./ast-mcp install --target cursor --dry-run     # preview
-./ast-mcp install --target cursor --yes         # apply
-./ast-mcp verify                                # status for every host
+ast-mcp install --target cursor --dry-run     # preview
+ast-mcp install --target cursor --yes         # apply
+ast-mcp verify                                # status for every host
 ```
+
+`ast-mcp` is the [shell function](#shell-function-optional) from `make install`; `./ast-mcp` in the repo takes the same subcommands.
 
 Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains` (or `all`). Components: `mcp`, `skills`, `rules`, `hooks`. The dashboard offers the same under Settings → **Agent integration**. Full CLI reference, exit codes, backups, and manual config snippets: [`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents). Exact files and keys per host: [`docs/host-integration.md`](docs/host-integration.md).
 
@@ -136,6 +138,8 @@ make install
 ast-mcp start | supervise | stop | restart | status | health | log | build | dash
 ```
 
+The function also passes `install`, `uninstall`, `verify`, `backups`, `restore`, `version`, and `hook` to the built binary, so `ast-mcp install --target cursor --dry-run` works from any directory.
+
 **Docker keep-alive:** `docker compose -f docker/ast-mcp/compose.yml up -d --build`. See [`docker/ast-mcp/README.md`](docker/ast-mcp/README.md).
 
 ## Optional: mcp-local launcher
@@ -182,8 +186,8 @@ Rebuild after upgrade (`make build` / `ast-mcp build`). Version: [`VERSION`](VER
 | **Scope fixes.** `search_context`'s keyword fallback now honors `session_id` / `project_path`, and memory vector recall no longer returns superseded, forgotten, or out-of-scope entries. | Nothing; results that leaked across scopes disappear. |
 | **`retrieve` stats.** `stats.deduped_count` is now `stats.deduped`. | Rename the field in scripts that read it. |
 | **Installer API.** `/api/agent-*` and project-scope installs are gone. | Use `ast-mcp install\|uninstall\|verify\|backups\|restore` ([`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents)) or `/api/dashboard/installer*` (Settings → Agent integration). |
-| **Pre-4.0 installs.** The old installer overwrote whole files; its Claude Code target could write markdown over `~/.claude.json`. | Re-run `./ast-mcp install --target <host> --yes` (or `--target all`). The first 4.0 start re-checks old install records and shows legacy warnings in `verify` and the dashboard. If Claude Code lost its config, restore `~/.claude.json` from `~/.claude/backups/` first. |
-| **Claude Desktop** needs a stdio bridge: the installer writes `mcp-local bridge <url>`, or `npx -y mcp-remote <url>` when mcp-local is not on `PATH`. | Install the [mcp-local](https://github.com/coma-toast/mcp-local) release that adds the `bridge` command (the companion of this release), or have Node.js for `npx`, then re-run `./ast-mcp install --target claude_desktop --yes`. |
+| **Pre-4.0 installs.** The old installer overwrote whole files; its Claude Code target could write markdown over `~/.claude.json`. | Re-run `ast-mcp install --target <host> --yes` (or `--target all`). The first 4.0 start re-checks old install records and shows legacy warnings in `verify` and the dashboard. If Claude Code lost its config, restore `~/.claude.json` from `~/.claude/backups/` first. |
+| **Claude Desktop** needs a stdio bridge: the installer writes `mcp-local bridge <url>`, or `npx -y mcp-remote <url>` when mcp-local is not on `PATH`. | Install the [mcp-local](https://github.com/coma-toast/mcp-local) release that adds the `bridge` command (the companion of this release), or have Node.js for `npx`, then re-run `ast-mcp install --target claude_desktop --yes`. |
 | **No `env` on URL entries.** Docs no longer suggest `env` blocks on `url` server entries; they never had an effect. | Remove them from your host configs if present, and set `AST_MCP_TIER` on the `ast-mcp` process instead. |
 
 Version: [`VERSION`](VERSION).

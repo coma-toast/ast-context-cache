@@ -59,7 +59,7 @@ Starts the MCP server on `http://127.0.0.1:7821/mcp` and the dashboard on `http:
 make install
 ```
 
-Adds an `ast-mcp start|start-safe|supervise|stop|restart|status|health|log|build|dash` shell function (bash, zsh, fish). The function does not forward the installer subcommands below, so run those with the binary itself (`./ast-mcp` in the repo).
+Adds an `ast-mcp start|start-safe|supervise|stop|restart|status|health|log|build|dash` shell function (bash, zsh, fish). It also passes `install`, `uninstall`, `verify`, `backups`, `restore`, `version` (`--version`), and `hook` straight to the built binary, with their exit codes, so the [installer commands](#cli) below work from any directory. The function and the server both follow `AST_MCP_PORT` / `AST_DASHBOARD_PORT`.
 
 ## Connect your agents
 
@@ -71,18 +71,18 @@ Settings → **Agent integration**: pick targets and components, **Preview** the
 
 ### CLI
 
-The CLI runs in-process against the same installer; the server does not need to be running.
+The CLI runs in-process against the same installer; the server does not need to be running. `ast-mcp` below is the [shell function](#shell-function-optional); without it, run the binary directly (`./ast-mcp` in the repo), which takes the same arguments.
 
 ```bash
-./ast-mcp install --target cursor --dry-run          # preview the diff, write nothing
-./ast-mcp install --target cursor --yes              # apply
-./ast-mcp install --target claude_code,codex --component mcp,rules --yes
-./ast-mcp install --target all --yes                 # every target; unsupported components are skipped
-./ast-mcp verify                                     # status table for every target
-./ast-mcp uninstall --target cursor --yes            # remove only what the installer added
-./ast-mcp backups                                    # list backups (newest first)
-./ast-mcp restore --yes 20261005-142233/%Users%me%.cursor%mcp.json
-./ast-mcp version
+ast-mcp install --target cursor --dry-run          # preview the diff, write nothing
+ast-mcp install --target cursor --yes              # apply
+ast-mcp install --target claude_code,codex --component mcp,rules --yes
+ast-mcp install --target all --yes                 # every target; unsupported components are skipped
+ast-mcp verify                                     # status table for every target
+ast-mcp uninstall --target cursor --yes            # remove only what the installer added
+ast-mcp backups                                    # list backups (newest first)
+ast-mcp restore --yes 20261005-142233/%Users%me%.cursor%mcp.json
+ast-mcp version
 ```
 
 | Flag | Applies to | Meaning |
@@ -155,7 +155,8 @@ make download-model
 
 ```bash
 lsof -i :7821
-# Kill the existing process, or start with --mcp-port and register with ./ast-mcp install --mcp-port <port>
+# Kill the existing process, or move to another port: export AST_MCP_PORT=<port> before starting the
+# server (ast-mcp install and the Claude Code hooks read it too), or pass --mcp-port to both.
 ```
 
 ### 403 `forbidden origin` / `forbidden host`

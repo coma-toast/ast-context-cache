@@ -25,7 +25,7 @@ Cursor loads skills from [`.cursor/skills/`](../.cursor/skills/) with YAML `name
 | `.cursor/skills/ast-rebuild/` | maintained in-repo (repo-relative paths) |
 | `.cursor/skills/ast-operator/` | `skills/operator/SKILL.md` |
 
-**Global Cursor rule:** `~/.cursor/rules/ast-context-cache.mdc` (`alwaysApply: true`), installed by `./ast-mcp install --target cursor --component rules --yes` from [`rules/cursor/ast-context-cache.mdc`](../rules/cursor/ast-context-cache.mdc).
+**Global Cursor rule:** `~/.cursor/rules/ast-context-cache.mdc` (`alwaysApply: true`), installed by `ast-mcp install --target cursor --component rules --yes` from [`rules/cursor/ast-context-cache.mdc`](../rules/cursor/ast-context-cache.mdc).
 
 After editing portable skills, re-sync the Cursor copies. The sync drops the canonical `# Title` line and rewrites relative links, since the copies sit one directory deeper:
 

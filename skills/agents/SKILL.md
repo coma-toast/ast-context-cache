@@ -20,10 +20,12 @@ Portable sources live in `skills/`; sync notes in [skills/README.md](../README.m
 ## Install with the installer (recommended)
 
 ```bash
-./ast-mcp install --target <host> --dry-run   # preview the per-file diff
-./ast-mcp install --target <host> --yes       # apply (backs up every file first)
-./ast-mcp verify                              # status per host and component
+ast-mcp install --target <host> --dry-run   # preview the per-file diff
+ast-mcp install --target <host> --yes       # apply (backs up every file first)
+ast-mcp verify                              # status per host and component
 ```
+
+`ast-mcp` is the shell function from `make install` (it passes these subcommands to the binary); `./ast-mcp` in the repo works the same.
 
 Hosts: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`, or `all`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code only, behind the `feature_handoff_hooks` flag). The dashboard offers the same under Settings → **Agent integration**. Reference: [docs/INSTALL.md](../../docs/INSTALL.md#connect-your-agents); exact files and keys per host: [docs/host-integration.md](../../docs/host-integration.md).
 
@@ -286,6 +288,6 @@ Avoid using grep/read for:
 
 ## Cursor Rules (global or project)
 
-The canonical always-apply rule is [`rules/cursor/ast-context-cache.mdc`](../../rules/cursor/ast-context-cache.mdc) (`alwaysApply: true`): session ids, efficient exploration, host compaction, and subagent handoffs. `./ast-mcp install --target cursor --component rules --yes` writes it to `~/.cursor/rules/ast-context-cache.mdc` between version-stamped markers. Cursor documents global rules as Settings → Rules (User Rules) only, so if the global file is not picked up, paste the rule body there instead.
+The canonical always-apply rule is [`rules/cursor/ast-context-cache.mdc`](../../rules/cursor/ast-context-cache.mdc) (`alwaysApply: true`): session ids, efficient exploration, host compaction, and subagent handoffs. `ast-mcp install --target cursor --component rules --yes` writes it to `~/.cursor/rules/ast-context-cache.mdc` between version-stamped markers. Cursor documents global rules as Settings → Rules (User Rules) only, so if the global file is not picked up, paste the rule body there instead.
 
 **Project optional:** copy the same file to `.cursor/rules/ast-context-cache.mdc`.

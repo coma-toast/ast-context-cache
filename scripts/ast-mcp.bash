@@ -6,8 +6,9 @@
 ast-mcp() {
     local ast_dir="__AST_DIR__"
     local ort_lib="__ORT_LIB__"
-    local port=7821
-    local dash=7830
+    # The server takes its ports from AST_MCP_PORT / AST_DASHBOARD_PORT, so status checks follow them.
+    local port="${AST_MCP_PORT:-7821}"
+    local dash="${AST_DASHBOARD_PORT:-7830}"
     local logfile="${HOME:+$HOME/.astcache/ast-mcp.log}"
     logfile="${logfile:-.astcache/ast-mcp.log}"
 
@@ -19,6 +20,12 @@ ast-mcp() {
     }
 
     case "${1:-}" in
+        install|uninstall|verify|backups|restore|version|--version|hook)
+            # Run the CLI subcommands with the same binary and env as start, from the current
+            # directory, keeping their exit codes (the installer uses 2-4) and hook stdin/stdout.
+            ONNXRUNTIME_LIB="$ort_lib" "$ast_dir/ast-mcp" "$@"
+            return $?
+            ;;
         start)
             rm -f "$stopfile"
             if _ast_mcp_running; then
@@ -228,6 +235,11 @@ ast-mcp() {
             echo "  log         Tail the server log"
             echo "  build       Rebuild the binary"
             echo "  dash        Open the dashboard in a browser"
+            echo ""
+            echo "Passed through to the ast-mcp binary:"
+            echo "  install | uninstall | verify | backups | restore   Agent host installer (see docs/INSTALL.md)"
+            echo "  version | --version                                Print the binary version"
+            echo "  hook <event>                                       Claude Code hook handler"
             return 1
             ;;
     esac
