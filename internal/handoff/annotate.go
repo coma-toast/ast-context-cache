@@ -115,6 +115,7 @@ func (s *realService) Annotate(sid SessionID, ev SearchEvent, results []map[stri
 // countSearch adds one search (and maybe a repeat) to sid's counters, writing them through at
 // most every searchCounterFlushInterval.
 func (s *realService) countSearch(sid SessionID, repeat bool) {
+	countChildSearch(repeat)
 	a := s.annot
 	a.mu.Lock()
 	c := a.counters[sid]

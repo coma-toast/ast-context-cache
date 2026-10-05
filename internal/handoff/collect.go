@@ -182,7 +182,7 @@ func (s *realService) Flush(ctx context.Context, req FlushRequest) (*FlushRespon
 	}
 	total := &FlushResponse{TreeID: trees[0]}
 	for _, tree := range trees {
-		res, err := s.flushTree(tree)
+		res, err := s.flushTree(tree, false)
 		if err != nil {
 			return nil, err
 		}

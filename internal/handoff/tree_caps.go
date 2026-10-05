@@ -23,22 +23,29 @@ type treeUsage struct {
 // usage, caps, and requested amounts, and leaves the usage unchanged. Negative amounts credit
 // the tree back, as when trail entries are evicted.
 func (s *realService) chargeTreeTx(tx *sql.Tx, tree TreeID, tokens, entries int) error {
+	_, err := s.chargeTreeTokensTx(tx, tree, tokens, entries)
+	return err
+}
+
+// chargeTreeTokensTx is chargeTreeTx returning the tree's token usage after the charge, for
+// the tree-tokens histogram (OB-5).
+func (s *realService) chargeTreeTokensTx(tx *sql.Tx, tree TreeID, tokens, entries int) (int, error) {
 	u, err := treeUsageTx(tx, tree)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	lim := LoadLimits()
 	overTokens := tokens > 0 && u.tokens+tokens > lim.TreeMaxTokens
 	overEntries := entries > 0 && u.entries+entries > lim.TreeMaxEntries
 	if overTokens || overEntries {
-		return errs.NewCode(CodeHandoffTreeLimitExceeded, "handoff tree is at its cap", "tree", string(tree),
+		return 0, errs.NewCode(CodeHandoffTreeLimitExceeded, "handoff tree is at its cap", "tree", string(tree),
 			"tokens_used", u.tokens, "tokens_max", lim.TreeMaxTokens, "would_add_tokens", tokens,
 			"entries_used", u.entries, "entries_max", lim.TreeMaxEntries, "would_add_entries", entries)
 	}
 	if _, err := tx.Exec(updateTreeUsageQuery, tokens, entries, string(tree)); err != nil {
-		return errs.WrapMessage("failed to update handoff tree usage", err, "tree", string(tree))
+		return 0, errs.WrapMessage("failed to update handoff tree usage", err, "tree", string(tree))
 	}
-	return nil
+	return max(0, u.tokens+tokens), nil
 }
 
 // treeUsageTx reads tree's usage; a missing tree is CodeHandoffNotFound.

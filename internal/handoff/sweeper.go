@@ -17,16 +17,22 @@ const (
 	abandonInterval   = time.Minute
 
 	selectExpiredTreesQuery     = `SELECT tree_id FROM handoff_trees WHERE last_access_at < ?`
-	selectInactiveChildrenQuery = `SELECT child_session_id, tree_id FROM handoff_children
-		WHERE status = '` + string(StatusOpen) + `' AND last_activity_at < ?`
+	selectInactiveChildrenQuery = `SELECT c.child_session_id, c.tree_id, c.handoff_ref, COALESCE(h.parent_session_id, ''),
+		COALESCE(c.project_path, h.project_path, '')
+		FROM handoff_children c LEFT JOIN handoffs h ON h.ref = c.handoff_ref
+		WHERE c.status = '` + string(StatusOpen) + `' AND c.last_activity_at < ?`
 	markChildAbandonedQuery = `UPDATE handoff_children SET status = '` + string(StatusAbandoned) + `'
 		WHERE child_session_id = ? AND status = '` + string(StatusOpen) + `'`
 )
 
 // abandonedChild is an open child whose inactivity window ran out.
 type abandonedChild struct {
-	sid  SessionID
-	tree TreeID
+	sid      SessionID
+	tree     TreeID
+	ref      HandoffRef
+	parent   SessionID
+	project  string
+	released int
 }
 
 // sweepLoop expires trees past their TTL, first shortly after start and then hourly (RQ-1, RQ-2).
@@ -88,7 +94,7 @@ func (s *realService) sweep() (int, error) {
 	var firstErr error
 	flushed := 0
 	for _, tree := range trees {
-		if _, err := s.flushTree(tree); err != nil {
+		if _, err := s.flushTree(tree, true); err != nil {
 			s.logger.Warn("Failed to expire handoff tree", tree.Attr(), "error", err)
 			if firstErr == nil {
 				firstErr = err
@@ -123,9 +129,11 @@ func (s *realService) markAbandoned() (int, error) {
 			if n, _ := res.RowsAffected(); n == 0 {
 				continue
 			}
-			if _, err := s.releaseAllTx(tx, c.tree, c.sid); err != nil {
+			released, err := s.releaseAllTx(tx, c.tree, c.sid)
+			if err != nil {
 				return err
 			}
+			c.released = len(released)
 			marked = append(marked, c)
 		}
 		return nil
@@ -135,7 +143,12 @@ func (s *realService) markAbandoned() (int, error) {
 	}
 	for _, c := range marked {
 		s.waiters.notify(c.tree)
-		s.logger.Info("Marked handoff child abandoned", c.sid.Attr(), c.tree.Attr())
+		childrenAbandoned.Inc()
+		s.logger.Info("Marked handoff child abandoned", lifecycleArgs(c.tree, c.ref, c.parent, c.sid, c.project,
+			"released_claims", c.released)...)
+	}
+	if len(marked) > 0 {
+		notifyDashboard()
 	}
 	return len(marked), nil
 }
@@ -157,7 +170,7 @@ func inactiveChildrenTx(tx *sql.Tx, cutoff string) ([]abandonedChild, error) {
 	var out []abandonedChild
 	for rows.Next() {
 		var c abandonedChild
-		if err := rows.Scan(&c.sid, &c.tree); err != nil {
+		if err := rows.Scan(&c.sid, &c.tree, &c.ref, &c.parent, &c.project); err != nil {
 			return nil, errs.WrapMessage("failed to read inactive handoff child", err)
 		}
 		out = append(out, c)

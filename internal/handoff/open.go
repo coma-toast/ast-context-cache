@@ -134,10 +134,20 @@ func (s *realService) Open(ctx context.Context, req OpenRequest) (*OpenResponse,
 	if resp.TokensAvailable, resp.TokensDelivered, err = addDelivered(sid, resp.TokensUsed); err != nil {
 		return nil, err
 	}
-	if resumed {
-		s.logger.Info("Resumed handoff child", ref.Attr(), h.tree.Attr(), sid.Attr())
-	} else {
-		s.logger.Info("Opened handoff", ref.Attr(), h.tree.Attr(), sid.Attr(), "mode", string(h.mode))
+	if project == "" {
+		project = h.project
+	}
+	switch {
+	case !resumed:
+		childrenOpened.Inc()
+		notifyDashboard()
+		s.logger.Info("Opened handoff", lifecycleArgs(h.tree, ref, h.parent, sid, project, "mode", string(h.mode))...)
+	case req.Next == nil:
+		// Paging a truncated digest passes the session id too; only a fresh open of an existing
+		// child is a resume.
+		childrenResumed.Inc()
+		notifyDashboard()
+		s.logger.Info("Resumed handoff child", lifecycleArgs(h.tree, ref, h.parent, sid, project)...)
 	}
 	return resp, nil
 }
