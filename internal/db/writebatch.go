@@ -17,6 +17,10 @@ const (
 		duration_ms, cpu_ms, interface, session_id, error, project_path
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	insertSessionLogQuery = `INSERT INTO sessions (session_id, symbol_id, symbol_name, start_line, file_path, mode, token_count) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	insertTrailQuery      = `INSERT INTO search_trail (
+		session_id, tool, query, query_norm, filters_key, mode, doc_type, project_path,
+		hit_count, zero_hit, top_hits_json, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 )
 
 // Execer matches *sql.DB and *sql.Tx for Exec.
@@ -29,6 +33,9 @@ const (
 	queryLogFlushSize     = 120
 	sessionFlushInterval  = 3 * time.Second
 	sessionFlushSize      = 200
+	// The search trail is flushed on the session buffer's cadence and limits.
+	trailFlushInterval = sessionFlushInterval
+	trailFlushSize     = sessionFlushSize
 )
 
 // QueryLogMetrics holds analytics fields for a logged MCP tool call.
@@ -69,6 +76,15 @@ type sessionLogRow struct {
 	tokenCount int
 }
 
+// TrailRow is one search_trail row buffered for a batched insert. CreatedAt is the
+// caller's formatted timestamp, so the row sorts and dedupes the same as its in-memory copy.
+type TrailRow struct {
+	SessionID, Tool, Query, QueryNorm, FiltersKey, Mode, DocType, ProjectPath string
+	HitCount                                                                  int
+	ZeroHit                                                                   bool
+	TopHitsJSON, CreatedAt                                                    string
+}
+
 // QueryLogSnapshot is a flushed analytics row for dashboard toasts / live updates.
 type QueryLogSnapshot struct {
 	Timestamp   string
@@ -88,11 +104,17 @@ var (
 	queryBuf   []queryLogRow
 	sessBufMu  sync.Mutex
 	sessBuf    []sessionLogRow
+	trailBufMu sync.Mutex
+	trailBuf   []TrailRow
+	// trailFlushMu is held for a whole flush, so FlushWriteBuffers returns only after a
+	// batch the batcher already took has committed.
+	trailFlushMu sync.Mutex
 
 	// A full buffer kicks its batcher rather than spawning a flush goroutine of
 	// its own, so every background flush runs on a batcher that Init/Close stop.
 	queryFlushKick = make(chan struct{}, 1)
 	sessFlushKick  = make(chan struct{}, 1)
+	trailFlushKick = make(chan struct{}, 1)
 
 	batcherMu   sync.Mutex
 	batcherStop chan struct{}
@@ -100,7 +122,7 @@ var (
 )
 
 // StartWriteBatchers starts periodic flush of buffered query/session analytics
-// rows. It is a no-op while they are already running.
+// and search trail rows. It is a no-op while they are already running.
 func StartWriteBatchers() {
 	batcherMu.Lock()
 	defer batcherMu.Unlock()
@@ -109,9 +131,10 @@ func StartWriteBatchers() {
 	}
 	stop := make(chan struct{})
 	batcherStop = stop
-	batcherDone.Add(2)
+	batcherDone.Add(3)
 	go runWriteBatcher(stop, queryLogFlushInterval, queryFlushKick, flushQueryLogBuffer)
 	go runWriteBatcher(stop, sessionFlushInterval, sessFlushKick, flushSessionLogBuffer)
+	go runWriteBatcher(stop, trailFlushInterval, trailFlushKick, flushTrailBuffer)
 }
 
 func runWriteBatcher(stop <-chan struct{}, every time.Duration, kick <-chan struct{}, flush func()) {
@@ -240,6 +263,57 @@ func flushSessionLogBuffer() {
 	}
 }
 
+func flushTrailBuffer() {
+	trailFlushMu.Lock()
+	defer trailFlushMu.Unlock()
+	trailBufMu.Lock()
+	if len(trailBuf) == 0 {
+		trailBufMu.Unlock()
+		return
+	}
+	batch := trailBuf
+	trailBuf = nil
+	trailBufMu.Unlock()
+	tx, err := DB.Begin()
+	if err != nil {
+		logger.Warn("Failed to begin search trail batch", "error", err)
+		return
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(insertTrailQuery)
+	if err != nil {
+		logger.Warn("Failed to prepare search trail batch", "error", err)
+		return
+	}
+	defer stmt.Close()
+	for _, r := range batch {
+		zeroHit := 0
+		if r.ZeroHit {
+			zeroHit = 1
+		}
+		if _, err := stmt.Exec(r.SessionID, r.Tool, r.Query, r.QueryNorm, r.FiltersKey, r.Mode, r.DocType, r.ProjectPath, r.HitCount, zeroHit, r.TopHitsJSON, r.CreatedAt); err != nil {
+			logger.Warn("Failed to insert search trail row", "error", err, "session", r.SessionID)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		logger.Warn("Failed to commit search trail batch", "error", err, "rows", len(batch))
+	}
+}
+
+// EnqueueTrail buffers a search trail row; flushed periodically in batches.
+func EnqueueTrail(r TrailRow) {
+	if r.SessionID == "" {
+		return
+	}
+	trailBufMu.Lock()
+	trailBuf = append(trailBuf, r)
+	n := len(trailBuf)
+	trailBufMu.Unlock()
+	if n >= trailFlushSize {
+		kickFlush(trailFlushKick)
+	}
+}
+
 // EnqueueSessionReturned buffers a session dedup row; flushed periodically in batches.
 func EnqueueSessionReturned(sessionID string, symbolID int, symbolName string, startLine int, filePath, mode string, tokenCount int) {
 	if sessionID == "" {
@@ -296,4 +370,5 @@ func enqueueQueryLog(toolName string, args map[string]interface{}, m QueryLogMet
 func FlushWriteBuffers() {
 	flushQueryLogBuffer()
 	flushSessionLogBuffer()
+	flushTrailBuffer()
 }

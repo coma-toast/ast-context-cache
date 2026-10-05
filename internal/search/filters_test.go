@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSearchFilters_MatchesSymbol(t *testing.T) {
@@ -123,4 +125,57 @@ func TestSymbolFilterSQL_LanguageGo(t *testing.T) {
 	if !strings.Contains(frag, "LIKE") || len(args) != 1 || args[0] != "%.go" {
 		t.Fatalf("got %q %v", frag, args)
 	}
+}
+
+func TestSearchFiltersNormalizedKey(t *testing.T) {
+	t.Parallel()
+	const project = "/Users/proj/app"
+	tests := []struct {
+		name string
+		a, b *SearchFilters
+	}{
+		{"kinds case and order", &SearchFilters{Kinds: []string{"Method", "function"}}, &SearchFilters{Kinds: []string{"function", "method"}}},
+		{"kinds duplicates", &SearchFilters{Kinds: []string{"function", "FUNCTION", " function "}}, &SearchFilters{Kinds: []string{"function"}}},
+		{"go alias", &SearchFilters{Language: "golang"}, &SearchFilters{Language: "Go"}},
+		{"ts alias", &SearchFilters{Language: "ts"}, &SearchFilters{Language: "typescript"}},
+		{"yml alias", &SearchFilters{Language: " YML "}, &SearchFilters{Language: "yaml"}},
+		{"dot slash prefix", &SearchFilters{PathPrefix: "./internal/mcp"}, &SearchFilters{PathPrefix: "internal/mcp"}},
+		{"trailing slash prefix", &SearchFilters{PathPrefix: "internal/mcp/"}, &SearchFilters{PathPrefix: "internal/mcp"}},
+		{"absolute prefix", &SearchFilters{PathPrefix: project + "/internal/mcp/"}, &SearchFilters{PathPrefix: "internal/mcp"}},
+		{"doubled separators", &SearchFilters{PathPrefix: "internal//mcp"}, &SearchFilters{PathPrefix: "internal/mcp"}},
+		{"project root is no filter", &SearchFilters{PathPrefix: project}, nil},
+		{"dot is no filter", &SearchFilters{PathPrefix: "./"}, &SearchFilters{}},
+		{"all combined", &SearchFilters{PathPrefix: "./internal/", Kinds: []string{"Class", "function"}, Language: "py"}, &SearchFilters{PathPrefix: project + "/internal", Kinds: []string{"function", "class"}, Language: "python"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.b.NormalizedKey(project), tt.a.NormalizedKey(project))
+		})
+	}
+}
+
+func TestSearchFiltersNormalizedKeyDistinguishes(t *testing.T) {
+	t.Parallel()
+	const project = "/Users/proj/app"
+	keys := map[string]*SearchFilters{
+		"none":     nil,
+		"path":     {PathPrefix: "internal"},
+		"subpath":  {PathPrefix: "internal/mcp"},
+		"kind":     {Kinds: []string{"function"}},
+		"go":       {Language: "go"},
+		"python":   {Language: "python"},
+		"unknown":  {Language: "cobol"},
+		"combined": {PathPrefix: "internal", Language: "go"},
+	}
+	seen := map[string]string{}
+	for name, f := range keys {
+		k := f.NormalizedKey(project)
+		if prev, ok := seen[k]; ok {
+			t.Fatalf("%s and %s share key %q", prev, name, k)
+		}
+		seen[k] = name
+	}
+	assert.Equal(t, "", (*SearchFilters)(nil).NormalizedKey(project))
+	assert.Equal(t, "p:internal/mcp|k:function|l:go", (&SearchFilters{PathPrefix: "internal/mcp", Kinds: []string{"function"}, Language: "golang"}).NormalizedKey(project))
 }

@@ -1,7 +1,9 @@
 package search
 
 import (
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -152,6 +154,51 @@ func (f *SearchFilters) CacheKey() string {
 	return b.String()
 }
 
+// NormalizedKey returns a key that is equal for filters that select the same symbols, so the
+// search trail can match a repeated search however its filters were spelled: kinds are
+// lowercased, sorted and deduplicated; the language is mapped to its canonical name ("golang"
+// and "go" agree); and the path prefix is made relative to projectPath and cleaned ("./x",
+// "x/" and "<projectPath>/x" all become "x"). It returns "" when no filter is active.
+func (f *SearchFilters) NormalizedKey(projectPath string) string {
+	if f == nil {
+		return ""
+	}
+	var kinds []string
+	for _, k := range f.Kinds {
+		if k = strings.ToLower(strings.TrimSpace(k)); k != "" {
+			kinds = append(kinds, k)
+		}
+	}
+	slices.Sort(kinds)
+	kinds = slices.Compact(kinds)
+	prefix := normalizedPathPrefix(f.PathPrefix, projectPath)
+	lang := canonicalLanguage(f.Language)
+	if prefix == "" && len(kinds) == 0 && lang == "" {
+		return ""
+	}
+	return "p:" + prefix + "|k:" + strings.Join(kinds, ",") + "|l:" + lang
+}
+
+// normalizedPathPrefix cleans prefix and makes it relative to projectPath; the project root
+// itself normalizes to "" because it filters nothing.
+func normalizedPathPrefix(prefix, projectPath string) string {
+	p := filepath.ToSlash(strings.TrimSpace(prefix))
+	if p == "" {
+		return ""
+	}
+	p = path.Clean(p)
+	if root := path.Clean(filepath.ToSlash(projectPath)); projectPath != "" && path.IsAbs(p) {
+		if p == root {
+			return ""
+		}
+		p = strings.TrimPrefix(p, root+"/")
+	}
+	if p == "." {
+		return ""
+	}
+	return p
+}
+
 // Empty reports whether any filter is active.
 func (f *SearchFilters) Empty() bool {
 	return f == nil || (f.PathPrefix == "" && len(f.Kinds) == 0 && f.Language == "")
@@ -220,28 +267,54 @@ func fileHasPathPrefix(file, projectPath, prefix string) bool {
 	return rel == p || strings.HasPrefix(rel, p+"/")
 }
 
+// canonicalLanguage maps a language name or alias to the one name languageExtensions keys on;
+// names it does not know are returned lowercased.
+func canonicalLanguage(lang string) string {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	switch lang {
+	case "golang":
+		return "go"
+	case "py":
+		return "python"
+	case "ts":
+		return "typescript"
+	case "js":
+		return "javascript"
+	case "rs":
+		return "rust"
+	case "rb":
+		return "ruby"
+	case "sh":
+		return "bash"
+	case "yml":
+		return "yaml"
+	default:
+		return lang
+	}
+}
+
 // languageExtensions maps a coarse language name to file suffixes used in the repo.
 func languageExtensions(lang string) []string {
-	switch strings.ToLower(lang) {
-	case "go", "golang":
+	switch canonicalLanguage(lang) {
+	case "go":
 		return []string{".go"}
-	case "python", "py":
+	case "python":
 		return []string{".py"}
-	case "typescript", "ts":
+	case "typescript":
 		return []string{".ts", ".tsx"}
-	case "javascript", "js":
+	case "javascript":
 		return []string{".js", ".jsx", ".mjs", ".cjs"}
-	case "rust", "rs":
+	case "rust":
 		return []string{".rs"}
-	case "ruby", "rb":
+	case "ruby":
 		return []string{".rb"}
 	case "java":
 		return []string{".java"}
-	case "bash", "sh":
+	case "bash":
 		return []string{".sh"}
 	case "fish":
 		return []string{".fish"}
-	case "yaml", "yml":
+	case "yaml":
 		return []string{".yaml", ".yml"}
 	default:
 		return nil

@@ -107,6 +107,24 @@ const (
 		CREATE INDEX IF NOT EXISTS idx_project_links_parent ON project_links(parent_path);
 		CREATE INDEX IF NOT EXISTS idx_project_links_child ON project_links(child_path);
 	`
+	createSearchTrailTable = `
+		CREATE TABLE IF NOT EXISTS search_trail (
+			id INTEGER PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			tool TEXT,
+			query TEXT,
+			query_norm TEXT,
+			filters_key TEXT,
+			mode TEXT,
+			doc_type TEXT,
+			project_path TEXT,
+			hit_count INTEGER,
+			zero_hit INTEGER,
+			top_hits_json TEXT,
+			created_at TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_search_trail_session ON search_trail(session_id, created_at);
+	`
 )
 
 func initUsageSchema(conn *sql.DB) {
@@ -138,4 +156,6 @@ func initUsageSchema(conn *sql.DB) {
 
 	conn.Exec(createContextSessionStatsTable)
 	conn.Exec(createProjectLinksTable)
+
+	conn.Exec(createSearchTrailTable)
 }
