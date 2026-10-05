@@ -43,8 +43,8 @@ Starts the MCP server on `http://127.0.0.1:7821/mcp` and the dashboard on `http:
 
 | Flag / env | Default | Purpose |
 |---|---|---|
-| `--mcp-port` | 7821 | MCP HTTP port |
-| `--dashboard-port` | 7830 | Dashboard HTTP port |
+| `--mcp-port` / `AST_MCP_PORT` | 7821 | MCP HTTP port. The installer CLI (`--mcp-port` default) and the Claude Code hooks read `AST_MCP_PORT` too, so one export moves the server, its registrations, and the hooks together. |
+| `--dashboard-port` / `AST_DASHBOARD_PORT` | 7830 | Dashboard HTTP port |
 | `--listen` / `AST_LISTEN` | `127.0.0.1` | Address both servers bind. The default loopback bind also listens on `[::1]`, so `http://localhost:7821/mcp` works wherever `localhost` resolves to IPv6. Docker sets `0.0.0.0` so published ports work. |
 | `AST_LOG_FORMAT` | `text` | `text` or `json` (structured `slog` output) |
 | `AST_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |

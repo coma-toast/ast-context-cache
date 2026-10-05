@@ -39,11 +39,18 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
-// Overridable (-mcp-port / -dashboard-port) so a second instance can run
-// beside the shared one, e.g. with HOME pointed at a scratch data dir.
+// Overridable (-mcp-port / -dashboard-port, or AST_MCP_PORT / AST_DASHBOARD_PORT) so a second
+// instance can run beside the shared one, e.g. with HOME pointed at a scratch data dir.
 var (
 	mcpPort       = 7821
 	dashboardPort = 7830
+)
+
+// Port env vars. AST_MCP_PORT is also what the installer CLI and the hooks read, so one export
+// moves the server, its registrations, and the hooks together.
+const (
+	envMCPPort       = "AST_MCP_PORT"
+	envDashboardPort = "AST_DASHBOARD_PORT"
 )
 
 // listenAddr is the host both servers bind to (-listen / AST_LISTEN). Loopback by
@@ -78,8 +85,8 @@ func main() {
 	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")
 	codeModeFlag := flag.Bool("code-mode", true, "Enable execute_code sandbox tool (default: true)")
 	embedWorkersFlag := flag.Int("embed-workers", -1, "Embed worker count at startup (-1 = auto/DB)")
-	flag.IntVar(&mcpPort, "mcp-port", mcpPort, "MCP HTTP port")
-	flag.IntVar(&dashboardPort, "dashboard-port", dashboardPort, "Dashboard HTTP port")
+	flag.IntVar(&mcpPort, "mcp-port", envPort(envMCPPort, mcpPort), "MCP HTTP port (default: from AST_MCP_PORT env or 7821)")
+	flag.IntVar(&dashboardPort, "dashboard-port", envPort(envDashboardPort, dashboardPort), "Dashboard HTTP port (default: from AST_DASHBOARD_PORT env or 7830)")
 	if v := strings.TrimSpace(os.Getenv("AST_LISTEN")); v != "" {
 		listenAddr = v
 	}
@@ -288,6 +295,21 @@ func listeners(port int) ([]net.Listener, error) {
 		return []net.Listener{primary}, nil
 	}
 	return []net.Listener{primary, v6}, nil
+}
+
+// envPort is the port in env var name, or def when it is unset. An invalid value is ignored with
+// a warning rather than failing startup, matching how the installer and hooks read AST_MCP_PORT.
+func envPort(name string, def int) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
+	}
+	port, err := strconv.Atoi(v)
+	if err != nil || port <= 0 || port > 65535 {
+		logger.Warn("Ignoring invalid port env", "env", name, "value", v, "default", def)
+		return def
+	}
+	return port
 }
 
 // serverURL is the address to show for a server on port: listenAddr, or
