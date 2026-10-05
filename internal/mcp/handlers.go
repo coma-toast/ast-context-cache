@@ -14,6 +14,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/trail"
 	"github.com/dop251/goja"
 )
 
@@ -148,6 +149,8 @@ func handleProjectMap(projectPath string, depth int) string {
 type fileContextResult struct {
 	JSON    string
 	Savings context.SavingsMeta
+	// Trail describes the lookup for the session's search trail; empty when the call failed.
+	Trail trail.Entry
 }
 
 func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget int) string {
@@ -176,11 +179,20 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 	skipped := 0
 	fullCount := 0
 	maxScore := 1.0
+	relFile := db.RelPath(file, projectPath)
+	entry := trail.Entry{Tool: "get_file_context", Query: relFile, Mode: mode, ProjectPath: projectPath}
+	overBudget := false
 
 	for rows.Next() {
 		var name, kind, skeleton, code, fqn string
 		var startLine, endLine int
 		rows.Scan(&name, &kind, &startLine, &endLine, &skeleton, &code, &fqn)
+		// The trail counts every symbol read, before dedup and the token budget.
+		entry.HitCount++
+		entry.CandidateHits = append(entry.CandidateHits, trail.HitRef(relFile, name, startLine))
+		if overBudget {
+			continue
+		}
 		key := context.SymbolDedupKey(file, name, startLine)
 		if _, dup := returned[key]; dup {
 			skipped++
@@ -204,7 +216,8 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		resultJSON, _ := json.Marshal(sym)
 		resultTokens := db.EstimateTokens(string(resultJSON))
 		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
-			break
+			overBudget = true
+			continue
 		}
 		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		tokensUsed += resultTokens
@@ -258,7 +271,9 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		resp["tokens_remaining"] = tokenBudget - tokensUsed
 	}
 	data, _ := json.Marshal(resp)
-	return fileContextResult{JSON: string(data), Savings: savings}
+	entry.ZeroHit = entry.HitCount == 0
+	entry.TopHits = entry.CandidateHits[:min(len(entry.CandidateHits), trail.MaxTopHits)]
+	return fileContextResult{JSON: string(data), Savings: savings, Trail: entry}
 }
 
 func handlePromptGet(w http.ResponseWriter, rpcReq JSONRPCRequest) {

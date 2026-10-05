@@ -317,6 +317,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		inputTokens := db.EstimateTokens(query)
 		outputTokens := db.EstimateTokens(ctxResult.JSON)
 		logToolQuery(toolName, args, len(ctxResult.JSON), inputTokens, outputTokens, ctxResult.Savings, start, cpuStart, projectPath, "")
+		recordSearch(sessionArg(toolArgs), ctxResult.Trail)
 		var parsed map[string]interface{}
 		if err := json.Unmarshal([]byte(ctxResult.JSON), &parsed); err == nil {
 			parsed["input_tokens"] = inputTokens
@@ -403,7 +404,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if tb, ok := toolArgs["token_budget"].(float64); ok && tb > 0 {
 					tokenBudget = int(tb)
 				}
-				results, packSavings := context.PackScoredResults(scored, limit, projectPath, mode, sessionID, tokenBudget)
+				results, packSavings, hits := context.PackScoredResults(scored, limit, projectPath, mode, sessionID, tokenBudget)
 				packSavings.CacheHit = cacheHit
 				resp := map[string]interface{}{
 					"query":         query,
@@ -420,6 +421,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				respData, _ := json.Marshal(resp)
 				outTokens := db.EstimateTokens(string(respData))
 				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, packSavings, start, cpuStart, projectPath, "")
+				recordSearch(sessionID, semanticTrail(hits, query, docType, projectPath, filters))
 				loggedToolCall = true
 				result = json.RawMessage(respData)
 			}
@@ -452,6 +454,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			result = json.RawMessage(fc.JSON)
 			outTokens := db.EstimateTokens(fc.JSON)
 			logToolQuery(toolName, args, len(fc.JSON), 0, outTokens, fc.Savings, start, cpuStart, projectPath, "")
+			recordSearch(sessionID, fc.Trail)
 			loggedToolCall = true
 		}
 	case "analyze_dead_code":
@@ -617,6 +620,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 						savings.TokensSaved = computed.TokensSaved
 					}
 					logToolQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, savings, start, cpuStart, projectPath, "")
+					recordSearch(sessionArg(toolArgs), retrieveTrail(retrieveResult))
 					loggedToolCall = true
 				}
 			}

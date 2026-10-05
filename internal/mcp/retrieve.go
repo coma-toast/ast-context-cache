@@ -16,6 +16,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/trail"
 )
 
 const (
@@ -76,8 +77,12 @@ type codeRetrieveMeta struct {
 	dedupCount     int
 	dedupTokens    int
 	symbolBaseline int
+	// hits are the trail refs of every code candidate, before session dedup.
+	hits []string
 }
 
+// HandleRetrieve answers a retrieve call with {"result": json.RawMessage} on success, plus
+// "trail" (a trail.Entry describing the search for the session's search trail), or {"error"}.
 func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]interface{} {
 	query, _ := args["query"].(string)
 	if query == "" {
@@ -210,8 +215,14 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	result.CodeScriptHints = codescripts.MatchHints("retrieve", query, projectPath, hintRows)
 
 	resultJSON, _ := json.Marshal(result)
+	entry := trail.Entry{
+		Tool: "retrieve", Query: query, FiltersKey: filters.NormalizedKey(projectPath), Mode: mode, ProjectPath: projectPath,
+		HitCount: codeCount + docCount, ZeroHit: codeCount+docCount == 0,
+		TopHits: codeMeta.hits[:min(len(codeMeta.hits), trail.MaxTopHits)], CandidateHits: codeMeta.hits,
+	}
 	return map[string]interface{}{
 		"result": json.RawMessage(resultJSON),
+		"trail":  entry,
 	}
 }
 
@@ -264,6 +275,7 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 				indexDB.QueryRow(selectSymbolLinesQuery, name, file, owner).Scan(&startLine, &endLine)
 			}
 		}
+		meta.hits = append(meta.hits, trail.HitRef(db.RelPath(file, projectPath), name, startLine))
 		key := context.SymbolDedupKey(file, name, startLine)
 		if _, dup := returned[key]; dup {
 			meta.dedupCount++

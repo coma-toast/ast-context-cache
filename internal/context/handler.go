@@ -9,6 +9,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/trail"
 )
 
 var Emb embedder.Interface
@@ -17,6 +18,8 @@ type getContextResult struct {
 	JSON     string
 	Savings  SavingsMeta
 	CacheHit bool
+	// Trail describes the search for the session's search trail; empty when the call failed.
+	Trail trail.Entry
 }
 
 func HandleGetContext(args map[string]interface{}, projectPath string) string {
@@ -57,12 +60,14 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		embedqueue.EnsureProjectEmbeddings(projectPath)
 		stage = "capsule:hybrid"
 	}
-	scored, pipeMetrics, cacheHit := RankedHybrid(CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: 30, Filters: filters}, Emb)
+	q := CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: 30, Filters: filters}
+	scored, pipeMetrics, cacheHit := RankedHybrid(q, Emb)
 	returned := ReturnedKeys(sessionID)
 	var delivered []ReturnedSymbol
 	if len(scored) < limit {
 		limit = len(scored)
 	}
+	entry := SearchTrailEntry("get_context_capsule", q, mode, scored, limit)
 	fileCache := map[string][]string{}
 	matchedFiles := map[string]bool{}
 	var results []map[string]interface{}
@@ -129,11 +134,13 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 	}
 	codescripts.AttachHints(resp, "get_context_capsule", query, projectPath, results)
 	finalData, _ := json.Marshal(resp)
-	return getContextResult{JSON: string(finalData), Savings: savings, CacheHit: cacheHit}
+	return getContextResult{JSON: string(finalData), Savings: savings, CacheHit: cacheHit, Trail: entry}
 }
 
-// PackScoredResults formats hybrid/vector search hits (used by search_semantic).
-func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mode, sessionID string, tokenBudget int) (results []map[string]interface{}, savings SavingsMeta) {
+// PackScoredResults formats hybrid/vector search hits (used by search_semantic). entry carries
+// the pre-dedup hit count and hits for the search trail; the caller fills in the tool, query,
+// filters and doc type.
+func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mode, sessionID string, tokenBudget int) (results []map[string]interface{}, savings SavingsMeta, entry trail.Entry) {
 	if mode == "" {
 		mode = "skeleton"
 	}
@@ -143,6 +150,7 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 	if len(scored) < limit {
 		limit = len(scored)
 	}
+	entry = SearchTrailEntry("", CandidateQuery{ProjectPath: projectPath}, mode, scored, limit)
 	fileCache := map[string][]string{}
 	matchedFiles := map[string]bool{}
 	fullCount := 0
@@ -186,5 +194,5 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 	computed := ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, savings.FileBaseline, savings.DedupTokensSaved)
 	savings.TokensSaved = computed.TokensSaved
 	savings.SavingsVsFiles = computed.SavingsVsFiles
-	return results, savings
+	return results, savings, entry
 }

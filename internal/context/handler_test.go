@@ -113,12 +113,14 @@ func TestPackScoredResultsSkipsDuplicateWithinList(t *testing.T) {
 		return search.ScoredResult{Score: 1, Data: map[string]interface{}{"name": "WidgetAlpha", "kind": "function", "file": file, "start_line": 3, "end_line": 3}}
 	}
 	sid := t.Name()
-	results, savings := PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "skeleton", sid, 4000)
+	results, savings, entry := PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "skeleton", sid, 4000)
 	require.Len(t, results, 1)
 	assert.Equal(t, 1, savings.DedupedCount)
+	assert.Equal(t, 2, entry.HitCount, "the trail counts candidates before dedup")
+	assert.Equal(t, []string{"widgets.go#WidgetAlpha@3", "widgets.go#WidgetAlpha@3"}, entry.TopHits)
 	_, returned := ReturnedKeys(sid)[SymbolDedupKey(file, "WidgetAlpha", 3)]
 	assert.True(t, returned)
 
-	results, _ = PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "skeleton", "", 4000)
+	results, _, _ = PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "skeleton", "", 4000)
 	assert.Len(t, results, 1, "in-list dedup applies without a session")
 }
