@@ -2,8 +2,8 @@ package db
 
 import "database/sql"
 
-func initContextSchema(conn *sql.DB) {
-	conn.Exec(`
+const (
+	createDocSourcesTable = `
 		CREATE TABLE IF NOT EXISTS doc_sources (
 			id INTEGER PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -14,9 +14,8 @@ func initContextSchema(conn *sql.DB) {
 			created_at TEXT DEFAULT (datetime('now')),
 			UNIQUE(name, type, url)
 		);
-	`)
-
-	conn.Exec(`
+	`
+	createDocContentTable = `
 		CREATE TABLE IF NOT EXISTS doc_content (
 			id INTEGER PRIMARY KEY,
 			source_id INTEGER NOT NULL,
@@ -29,17 +28,15 @@ func initContextSchema(conn *sql.DB) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_doc_content_source ON doc_content(source_id);
 		CREATE INDEX IF NOT EXISTS idx_doc_content_title ON doc_content(title);
-	`)
-
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, content, content='doc_content', content_rowid='id')`)
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS docs_fts_ins AFTER INSERT ON doc_content BEGIN
+	`
+	createDocsFTSTable         = `CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, content, content='doc_content', content_rowid='id')`
+	createDocsFTSInsertTrigger = `CREATE TRIGGER IF NOT EXISTS docs_fts_ins AFTER INSERT ON doc_content BEGIN
 		INSERT INTO docs_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-	END`)
-	conn.Exec(`CREATE TRIGGER IF NOT EXISTS docs_fts_del AFTER DELETE ON doc_content BEGIN
+	END`
+	createDocsFTSDeleteTrigger = `CREATE TRIGGER IF NOT EXISTS docs_fts_del AFTER DELETE ON doc_content BEGIN
 		INSERT INTO docs_fts(docs_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
-	END`)
-
-	conn.Exec(`
+	END`
+	createContextNotesTable = `
 		CREATE TABLE IF NOT EXISTS context_notes (
 			ref TEXT PRIMARY KEY,
 			session_id TEXT NOT NULL,
@@ -56,13 +53,11 @@ func initContextSchema(conn *sql.DB) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_context_notes_session ON context_notes(session_id);
 		CREATE INDEX IF NOT EXISTS idx_context_notes_project ON context_notes(project_path);
-	`)
-	conn.Exec(`ALTER TABLE context_notes ADD COLUMN kind TEXT DEFAULT ''`)
-	conn.Exec(`ALTER TABLE context_notes ADD COLUMN metadata_json TEXT DEFAULT ''`)
-
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`)
-
-	conn.Exec(`
+	`
+	addContextNotesKindColumn         = `ALTER TABLE context_notes ADD COLUMN kind TEXT DEFAULT ''`
+	addContextNotesMetadataJSONColumn = `ALTER TABLE context_notes ADD COLUMN metadata_json TEXT DEFAULT ''`
+	createContextNotesFTSTable        = `CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`
+	createKVRepairEventsTable         = `
 		CREATE TABLE IF NOT EXISTS kv_repair_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			session_id TEXT,
@@ -79,9 +74,8 @@ func initContextSchema(conn *sql.DB) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_kv_repair_events_at ON kv_repair_events(created_at);
 		CREATE INDEX IF NOT EXISTS idx_kv_repair_events_reason ON kv_repair_events(repair_reason);
-	`)
-
-	conn.Exec(`
+	`
+	createStructuredMemoryTable = `
 		CREATE TABLE IF NOT EXISTS structured_memory (
 			ref TEXT PRIMARY KEY,
 			kind TEXT NOT NULL,
@@ -104,6 +98,27 @@ func initContextSchema(conn *sql.DB) {
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_session ON structured_memory(session_id);
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_project ON structured_memory(project_path);
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_fact ON structured_memory(kind, subject, predicate, valid_until);
-	`)
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_fts USING fts5(ref, subject, predicate, object, rule)`)
+	`
+	createStructuredMemoryFTSTable = `CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_fts USING fts5(ref, subject, predicate, object, rule)`
+)
+
+func initContextSchema(conn *sql.DB) {
+	conn.Exec(createDocSourcesTable)
+
+	conn.Exec(createDocContentTable)
+
+	conn.Exec(createDocsFTSTable)
+	conn.Exec(createDocsFTSInsertTrigger)
+	conn.Exec(createDocsFTSDeleteTrigger)
+
+	conn.Exec(createContextNotesTable)
+	conn.Exec(addContextNotesKindColumn)
+	conn.Exec(addContextNotesMetadataJSONColumn)
+
+	conn.Exec(createContextNotesFTSTable)
+
+	conn.Exec(createKVRepairEventsTable)
+
+	conn.Exec(createStructuredMemoryTable)
+	conn.Exec(createStructuredMemoryFTSTable)
 }

@@ -2,8 +2,14 @@ package db
 
 import (
 	"database/sql"
-	"fmt"
 	"sync/atomic"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+)
+
+var (
+	errIndexQuiesced    = errs.New("index db quiesced for maintenance")
+	errIndexUnavailable = errs.New("index db unavailable")
 )
 
 var indexReadGate atomic.Bool
@@ -25,10 +31,10 @@ func embedQueueIdle() bool {
 
 func IndexReader() (*sql.DB, error) {
 	if IndexReadQuiesced() {
-		return nil, fmt.Errorf("index db quiesced for maintenance")
+		return nil, errIndexQuiesced
 	}
 	if IndexDB == nil {
-		return nil, fmt.Errorf("index db unavailable")
+		return nil, errIndexUnavailable
 	}
 	return IndexDB, nil
 }
@@ -45,7 +51,7 @@ func quiesceIndexPool() error {
 		return nil
 	}
 	if err := IndexDB.Close(); err != nil {
-		return fmt.Errorf("close index pool: %w", err)
+		return errs.WrapMessage("failed to close index pool", err)
 	}
 	IndexDB = nil
 	syncPoolsOpen()

@@ -8,6 +8,16 @@ import (
 	"sync/atomic"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
+)
+
+const (
+	pragmaJournalModeWAL    = `PRAGMA journal_mode=WAL`
+	pragmaBusyTimeout       = `PRAGMA busy_timeout=15000`
+	pragmaSynchronousNormal = `PRAGMA synchronous=NORMAL`
+	pragmaCacheSize         = `PRAGMA cache_size=-32000`
+	pragmaWALAutocheckpoint = `PRAGMA wal_autocheckpoint=200`
 )
 
 var (
@@ -60,11 +70,11 @@ func openPool(path string) (*sql.DB, error) {
 }
 
 func applyPragmas(conn *sql.DB) {
-	conn.Exec(`PRAGMA journal_mode=WAL`)
-	conn.Exec(`PRAGMA busy_timeout=15000`)
-	conn.Exec(`PRAGMA synchronous=NORMAL`)
-	conn.Exec(`PRAGMA cache_size=-32000`)
-	conn.Exec(`PRAGMA wal_autocheckpoint=200`)
+	conn.Exec(pragmaJournalModeWAL)
+	conn.Exec(pragmaBusyTimeout)
+	conn.Exec(pragmaSynchronousNormal)
+	conn.Exec(pragmaCacheSize)
+	conn.Exec(pragmaWALAutocheckpoint)
 }
 
 // Close closes all database pools (tests and shutdown).
@@ -126,5 +136,5 @@ func dbLabel(path string) string {
 }
 
 func fmtOpenErr(which, path string, err error) error {
-	return fmt.Errorf("open %s db %s: %w", which, path, err)
+	return errs.WrapMessage(fmt.Sprintf("failed to open %s db %s", which, path), err, "db", which, "path", path)
 }

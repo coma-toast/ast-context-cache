@@ -1,7 +1,6 @@
 package db
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -46,13 +45,13 @@ func removeEmptyLegacyDBs(dir string) []string {
 			continue
 		}
 		if err := os.Remove(p); err != nil {
-			log.Printf("db: could not remove empty legacy database %s: %v", p, err)
+			logger.Warn("Failed to remove empty legacy database", "path", p, "error", err)
 			continue
 		}
 		removed = append(removed, name)
 	}
 	if len(removed) > 0 {
-		log.Printf("db: removed %d empty legacy database file(s) from %s: %v", len(removed), dir, removed)
+		logger.Info("Removed empty legacy database files", "count", len(removed), "dir", dir, "files", removed)
 	}
 	return removed
 }

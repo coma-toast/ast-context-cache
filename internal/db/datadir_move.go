@@ -3,15 +3,17 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
+
+const vacuumIntoQuery = `VACUUM INTO ?`
 
 // DataDirMoveSnapshot is a point-in-time view of a data-directory move for the dashboard.
 type DataDirMoveSnapshot struct {
@@ -133,7 +135,7 @@ func runDataDirMove(target string) {
 			// that was moved to before (e.g. reconnecting a USB drive that already
 			// holds a full copy from an earlier move). Switch to using it rather than
 			// clobbering it with a fresh copy from source.
-			log.Printf("data dir move: %s already exists at %s (%d bytes) — keeping it instead of overwriting", s.filename, destPath, fi.Size())
+			logger.Info("Data dir move keeping existing database at target instead of overwriting", "file", s.filename, "path", destPath, "bytes", fi.Size())
 			kept = append(kept, s.filename)
 			continue
 		}
@@ -152,17 +154,17 @@ func runDataDirMove(target string) {
 		// so. Either way, start fresh at the target instead and say so plainly.
 		if s.pool == nil || statErr != nil {
 			if createErr := createEmptyDB(destPath); createErr != nil {
-				finishDataDirMove(fmt.Errorf("%s: source unavailable and could not create a fresh database: %w", s.label, createErr))
+				finishDataDirMove(errs.WrapMessage(s.label+": source unavailable and could not create a fresh database", createErr, "path", destPath))
 				return
 			}
-			log.Printf("data dir move: %s unavailable (pool open=%v, source stat err=%v) — created a fresh, empty database at %s instead of copying", s.filename, s.pool != nil, statErr, destPath)
+			logger.Warn("Data dir move source unavailable, created a fresh empty database at target instead of copying", "file", s.filename, "pool_open", s.pool != nil, "stat_error", statErr, "path", destPath)
 			recreated = append(recreated, s.filename)
 			continue
 		}
 
-		if _, err := s.pool.Exec(`VACUUM INTO ?`, destPath); err != nil {
+		if _, err := s.pool.Exec(vacuumIntoQuery, destPath); err != nil {
 			os.Remove(destPath)
-			finishDataDirMove(fmt.Errorf("%s: %w", s.label, err))
+			finishDataDirMove(errs.WrapMessage(s.label, err, "path", destPath))
 			return
 		}
 	}
@@ -172,15 +174,15 @@ func runDataDirMove(target string) {
 	setDataDirMove(snap)
 
 	if err := os.WriteFile(locationOverridePath(), []byte(target+"\n"), 0o644); err != nil {
-		finishDataDirMove(fmt.Errorf("finalizing: writing %s: %w", locationOverridePath(), err))
+		finishDataDirMove(errs.WrapMessage("finalizing: failed to write location override file", err, "path", locationOverridePath()))
 		return
 	}
 
 	switch {
 	case len(recreated) > 0 || len(kept) > 0:
-		log.Printf("data dir move: finished at %s (recreated: %s; kept existing: %s) — restart to use it", target, joinOrNone(recreated), joinOrNone(kept))
+		logger.Info("Data dir move finished, restart to use it", "target", target, "recreated", joinOrNone(recreated), "kept_existing", joinOrNone(kept))
 	default:
-		log.Printf("data dir move: copied index.db, context.db, and usage.db to %s — restart to use it", target)
+		logger.Info("Data dir move copied index.db, context.db, and usage.db, restart to use it", "target", target)
 	}
 	snap = GetDataDirMoveSnapshot()
 	snap.Active = false
@@ -217,7 +219,7 @@ func createEmptyDB(path string) error {
 }
 
 func finishDataDirMove(err error) {
-	log.Printf("data dir move: failed: %v", err)
+	logger.Warn("Data dir move failed", "error", err)
 	snap := GetDataDirMoveSnapshot()
 	snap.Active = false
 	snap.Done = false

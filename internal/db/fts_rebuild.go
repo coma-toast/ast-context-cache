@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"log"
 	"sync"
 	"time"
 )
@@ -51,13 +50,13 @@ func startFTSRebuild(idx *sql.DB) {
 		for _, table := range symbolFTSTables {
 			if err := rebuild(ctxExecer{idx, ctx}, table); err != nil {
 				if ctx.Err() != nil {
-					log.Printf("FTS: startup rebuild interrupted after %v", time.Since(start).Round(time.Millisecond))
+					logger.Info("FTS startup rebuild interrupted", "elapsed", time.Since(start).Round(time.Millisecond))
 					return
 				}
-				log.Printf("FTS: startup %v", err)
+				logger.Warn("FTS startup rebuild failed", "error", err)
 			}
 		}
-		log.Printf("FTS: startup rebuild finished in %v", time.Since(start).Round(time.Millisecond))
+		logger.Info("FTS startup rebuild finished", "duration", time.Since(start).Round(time.Millisecond))
 	}()
 }
 

@@ -2,8 +2,8 @@ package db
 
 import "database/sql"
 
-func initIndexSchema(conn *sql.DB) {
-	conn.Exec(`
+const (
+	createSymbolsTable = `
 		CREATE TABLE IF NOT EXISTS symbols (
 			id INTEGER PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -17,11 +17,10 @@ func initIndexSchema(conn *sql.DB) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file);
 		CREATE INDEX IF NOT EXISTS idx_symbols_project ON symbols(project_path);
-	`)
-	conn.Exec(`ALTER TABLE symbols ADD COLUMN skeleton TEXT`)
-	conn.Exec(`ALTER TABLE symbols ADD COLUMN embed_hash TEXT`)
-
-	conn.Exec(`
+	`
+	addSymbolsSkeletonColumn  = `ALTER TABLE symbols ADD COLUMN skeleton TEXT`
+	addSymbolsEmbedHashColumn = `ALTER TABLE symbols ADD COLUMN embed_hash TEXT`
+	createEdgesTable          = `
 		CREATE TABLE IF NOT EXISTS edges (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			source_file TEXT NOT NULL,
@@ -33,20 +32,10 @@ func initIndexSchema(conn *sql.DB) {
 		CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
 		CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_file);
 		CREATE INDEX IF NOT EXISTS idx_edges_project ON edges(project_path);
-	`)
-
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(name, fqn, code, content='symbols', content_rowid='id')`)
-
-	// symbols_trigram indexes just name+fqn (not the full code body, to keep the
-	// trigram index — which runs several times the size of the indexed text —
-	// reasonably sized) with SQLite's built-in trigram tokenizer. Unlike symbols_fts's
-	// default unicode61 tokenizer, which only matches whole tokens or prefixes,
-	// trigram indexing matches ANY substring — e.g. a search for "Cache" finds
-	// "VectorCache" and "EmbedCache", which unicode61 can't since those are single
-	// tokens. See BuildTrigramQuery/TrigramSearch in internal/search/bm25.go.
-	conn.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS symbols_trigram USING fts5(name, fqn, content='symbols', content_rowid='id', tokenize="trigram")`)
-
-	conn.Exec(`
+	`
+	createSymbolsFTSTable     = `CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(name, fqn, code, content='symbols', content_rowid='id')`
+	createSymbolsTrigramTable = `CREATE VIRTUAL TABLE IF NOT EXISTS symbols_trigram USING fts5(name, fqn, content='symbols', content_rowid='id', tokenize="trigram")`
+	createSummariesTable      = `
 		CREATE TABLE IF NOT EXISTS summaries (
 			id INTEGER PRIMARY KEY,
 			file_path TEXT NOT NULL,
@@ -57,9 +46,8 @@ func initIndexSchema(conn *sql.DB) {
 			created_at TEXT DEFAULT (datetime('now')),
 			UNIQUE(file_path, symbol_name, project_path)
 		);
-	`)
-
-	conn.Exec(`
+	`
+	createVectorsTable = `
 		CREATE TABLE IF NOT EXISTS vectors (
 			id INTEGER PRIMARY KEY,
 			symbol_id INTEGER,
@@ -75,21 +63,17 @@ func initIndexSchema(conn *sql.DB) {
 		CREATE INDEX IF NOT EXISTS idx_vectors_project ON vectors(project_path);
 		CREATE INDEX IF NOT EXISTS idx_vectors_file ON vectors(source_file);
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_vectors_hash ON vectors(content_hash, project_path);
-	`)
-
-	conn.Exec(`
+	`
+	createIndexedFilesTable = `
 		CREATE TABLE IF NOT EXISTS indexed_files (
 			file TEXT NOT NULL,
 			project_path TEXT NOT NULL,
 			indexed_at DATETIME NOT NULL,
 			PRIMARY KEY (file, project_path)
 		);
-	`)
-	// parser_version records which symbol extractor indexed the file (see
-	// ParserVersion); older rows are re-indexed by the next catch-up.
-	conn.Exec(`ALTER TABLE indexed_files ADD COLUMN parser_version INTEGER NOT NULL DEFAULT 0`)
-
-	conn.Exec(`
+	`
+	addIndexedFilesParserVersionColumn = `ALTER TABLE indexed_files ADD COLUMN parser_version INTEGER NOT NULL DEFAULT 0`
+	createEmbedPendingTable            = `
 		CREATE TABLE IF NOT EXISTS embed_pending (
 			file TEXT NOT NULL,
 			project_path TEXT NOT NULL,
@@ -98,5 +82,35 @@ func initIndexSchema(conn *sql.DB) {
 			PRIMARY KEY (file, project_path)
 		);
 		CREATE INDEX IF NOT EXISTS idx_embed_pending_project ON embed_pending(project_path);
-	`)
+	`
+)
+
+func initIndexSchema(conn *sql.DB) {
+	conn.Exec(createSymbolsTable)
+	conn.Exec(addSymbolsSkeletonColumn)
+	conn.Exec(addSymbolsEmbedHashColumn)
+
+	conn.Exec(createEdgesTable)
+
+	conn.Exec(createSymbolsFTSTable)
+
+	// symbols_trigram indexes just name+fqn (not the full code body, to keep the
+	// trigram index — which runs several times the size of the indexed text —
+	// reasonably sized) with SQLite's built-in trigram tokenizer. Unlike symbols_fts's
+	// default unicode61 tokenizer, which only matches whole tokens or prefixes,
+	// trigram indexing matches ANY substring — e.g. a search for "Cache" finds
+	// "VectorCache" and "EmbedCache", which unicode61 can't since those are single
+	// tokens. See BuildTrigramQuery/TrigramSearch in internal/search/bm25.go.
+	conn.Exec(createSymbolsTrigramTable)
+
+	conn.Exec(createSummariesTable)
+
+	conn.Exec(createVectorsTable)
+
+	conn.Exec(createIndexedFilesTable)
+	// parser_version records which symbol extractor indexed the file (see
+	// ParserVersion); older rows are re-indexed by the next catch-up.
+	conn.Exec(addIndexedFilesParserVersionColumn)
+
+	conn.Exec(createEmbedPendingTable)
 }
