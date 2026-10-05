@@ -66,6 +66,9 @@ func GetStartTime() time.Time {
 }
 
 func main() {
+	if code, handled := runCLI(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	logging.Setup(os.Stderr)
 	tierFlag := flag.String("tier", "", "Tool tier: core, extended, complete (default: from AST_MCP_TIER env or complete)")
 	codeModeFlag := flag.Bool("code-mode", true, "Enable execute_code sandbox tool (default: true)")
