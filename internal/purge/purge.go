@@ -34,6 +34,19 @@ const (
 	deleteProjectKVRepairEventsQuery = `DELETE FROM kv_repair_events WHERE project_path = ?`
 	deleteFromQueryPrefix            = "DELETE FROM "
 	whereProjectPathQuerySuffix      = " WHERE project_path = ?"
+	// Handoff rows go whole-tree for trees rooted in the project, plus any handoff or child row
+	// that names the project itself. Dependents are deleted before the rows the subqueries read.
+	projectTreeIDsSubquery           = `(SELECT tree_id FROM handoff_trees WHERE project_path = ?)`
+	whereProjectTreeQuerySuffix      = ` WHERE tree_id IN ` + projectTreeIDsSubquery
+	whereProjectOrTreeQuerySuffix    = ` WHERE project_path = ? OR tree_id IN ` + projectTreeIDsSubquery
+	deleteProjectSnapshotItemsQuery  = `DELETE FROM handoff_snapshot_items WHERE handoff_ref IN (SELECT ref FROM handoffs` + whereProjectOrTreeQuerySuffix + `)`
+	deleteProjectHandoffResultsQuery = `DELETE FROM handoff_results WHERE child_session_id IN (SELECT child_session_id FROM handoff_children` + whereProjectOrTreeQuerySuffix + `)`
+	deleteProjectHandoffTreesQuery   = `DELETE FROM handoff_trees WHERE project_path = ?`
+)
+
+var (
+	handoffTreeKeyedTables = []string{"scratchpad_entries", "handoff_claims", "handoff_claim_queue", "handoff_claim_grants"}
+	handoffProjectTables   = []string{"handoff_children", "handoffs"}
 )
 
 // ProjectData deletes all indexed and remembered data for projectPath: symbols,
@@ -188,7 +201,7 @@ func (r contextRefs) dropCachedVectors() {
 	search.Cache.DeleteBySourceFiles("memory", r.memoryKeys())
 }
 
-// purgeContextData removes stored notes and structured memory for the project.
+// purgeContextData removes stored notes, structured memory, and handoff trees for the project.
 // Both carry standalone FTS mirrors keyed by ref rather than by project_path, so
 // they are cleaned up by the refs collected at the start of the purge. Their
 // vectors were already deleted with the rest of the index data.
@@ -207,6 +220,35 @@ func purgeContextData(projectPath string, refs contextRefs) {
 	db.ContextDB.Exec(deleteProjectMemoryQuery, projectPath)
 
 	db.ContextDB.Exec(deleteProjectKVRepairEventsQuery, projectPath)
+
+	if err := db.HandoffTx(func(tx *sql.Tx) error { return deleteHandoffData(tx, projectPath) }); err != nil {
+		logger.Warn("Failed to purge handoff trees for project", "project_path", projectPath, "error", err)
+	}
+}
+
+// deleteHandoffData removes the project's handoff trees in one handoff write transaction, so a
+// tree is either gone or intact. The child sessions' notes and memory carry project_path and
+// were deleted above with the rest of the project's notes.
+func deleteHandoffData(tx *sql.Tx, projectPath string) error {
+	for _, q := range []string{deleteProjectSnapshotItemsQuery, deleteProjectHandoffResultsQuery} {
+		if _, err := tx.Exec(q, projectPath, projectPath); err != nil {
+			return errs.WrapMessage("failed to delete handoff rows", err)
+		}
+	}
+	for _, table := range handoffTreeKeyedTables {
+		if _, err := tx.Exec(deleteFromQueryPrefix+table+whereProjectTreeQuerySuffix, projectPath); err != nil {
+			return errs.WrapMessage("failed to delete handoff rows", err, "table", table)
+		}
+	}
+	for _, table := range handoffProjectTables {
+		if _, err := tx.Exec(deleteFromQueryPrefix+table+whereProjectOrTreeQuerySuffix, projectPath, projectPath); err != nil {
+			return errs.WrapMessage("failed to delete handoff rows", err, "table", table)
+		}
+	}
+	if _, err := tx.Exec(deleteProjectHandoffTreesQuery, projectPath); err != nil {
+		return errs.WrapMessage("failed to delete handoff trees", err)
+	}
+	return nil
 }
 
 func queryRefs(query, projectPath string) ([]string, error) {

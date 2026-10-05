@@ -18,7 +18,9 @@ import (
 const (
 	insertNoteQuery = `INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?
+	// LRU eviction never takes a handoff result or any note of a handoff child session: the
+	// handoff tree owns those and they expire with it.
+	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?` + notTreeOwnedClause + `
 		ORDER BY created_at ASC, access_count ASC LIMIT 1`
 	selectNoteByRefQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
@@ -28,9 +30,12 @@ const (
 	selectSessionNoteRefsQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?`
 	selectAllNoteRefsQuery     = `SELECT ref FROM context_notes`
 	deleteAllSessionStatsQuery = `DELETE FROM context_session_stats`
-	selectOrphanNoteRefsQuery  = `SELECT ref, created_at >= datetime('now', ?) FROM context_notes WHERE access_count = 0`
-	countSessionNotesQuery     = `SELECT COUNT(*) FROM context_notes WHERE session_id = ?`
-	listSessionNotesQuery      = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
+	selectOrphanNoteRefsQuery  = `SELECT ref, created_at >= datetime('now', ?) FROM context_notes WHERE access_count = 0` + notTreeOwnedClause
+	// notTreeOwnedClause excludes notes a handoff tree owns (results, and everything stored by a
+	// child session); handoff_children lives in context.db, so it is a plain subquery.
+	notTreeOwnedClause     = ` AND COALESCE(kind,'') != '` + KindHandoffResult + `' AND session_id NOT IN (SELECT child_session_id FROM handoff_children)`
+	countSessionNotesQuery = `SELECT COUNT(*) FROM context_notes WHERE session_id = ?`
+	listSessionNotesQuery  = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE session_id = ?`
 	searchNotesFTSQuery = `SELECT cn.ref, cn.session_id, COALESCE(cn.project_path,''), COALESCE(cn.label,''), cn.content,
@@ -342,7 +347,8 @@ const OrphanPurgeGrace = time.Hour
 
 // FlushOrphans deletes notes that were stored but never fetched back (access_count = 0)
 // and are older than grace, scoped to projectPath when set. keptRecent counts orphans
-// skipped because they are still inside the grace window.
+// skipped because they are still inside the grace window. Notes owned by a handoff tree
+// are never orphans: the tree's expiry removes them.
 func FlushOrphans(projectPath string, grace time.Duration) (res *FlushResult, keptRecent int, err error) {
 	q := selectOrphanNoteRefsQuery
 	args := []any{fmt.Sprintf("-%d seconds", int(grace.Seconds()))}

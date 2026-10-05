@@ -2,7 +2,6 @@ package contextnotes
 
 import (
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -27,31 +26,11 @@ type Limits struct {
 
 func LoadLimits() Limits {
 	l := Limits{
-		MaxNotesSession:  defaultMaxNotesSession,
-		MaxTokensSession: defaultMaxTokensSession,
-		MaxNotesGlobal:   defaultMaxNotesGlobal,
-		MaxTokensGlobal:  defaultMaxTokensGlobal,
+		MaxNotesSession:  db.SettingInt("context_max_notes_session", "AST_CONTEXT_MAX_NOTES_SESSION", defaultMaxNotesSession),
+		MaxTokensSession: db.SettingInt("context_max_tokens_session", "AST_CONTEXT_MAX_TOKENS_SESSION", defaultMaxTokensSession),
+		MaxNotesGlobal:   db.SettingInt("context_max_notes_global", "AST_CONTEXT_MAX_NOTES_GLOBAL", defaultMaxNotesGlobal),
+		MaxTokensGlobal:  db.SettingInt("context_max_tokens_global", "AST_CONTEXT_MAX_TOKENS_GLOBAL", defaultMaxTokensGlobal),
 		Policy:           defaultLimitPolicy,
-	}
-	if v := envOrSetting("AST_CONTEXT_MAX_NOTES_SESSION", "context_max_notes_session"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			l.MaxNotesSession = n
-		}
-	}
-	if v := envOrSetting("AST_CONTEXT_MAX_TOKENS_SESSION", "context_max_tokens_session"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			l.MaxTokensSession = n
-		}
-	}
-	if v := envOrSetting("AST_CONTEXT_MAX_NOTES_GLOBAL", "context_max_notes_global"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			l.MaxNotesGlobal = n
-		}
-	}
-	if v := envOrSetting("AST_CONTEXT_MAX_TOKENS_GLOBAL", "context_max_tokens_global"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			l.MaxTokensGlobal = n
-		}
 	}
 	if v := envOrSetting("AST_CONTEXT_LIMIT_POLICY", "context_limit_policy"); v != "" {
 		p := strings.ToLower(strings.TrimSpace(v))
