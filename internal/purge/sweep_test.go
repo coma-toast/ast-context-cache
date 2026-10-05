@@ -88,7 +88,7 @@ func TestSweepPurgesEveryRepoOfADeletedSpace(t *testing.T) {
 		filepath.Join(space, "sandbox"),
 	}
 	for _, p := range append(append([]string{}, repos...), kept) {
-		if err := os.MkdirAll(p, 0755); err != nil {
+		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		seedProject(t, p)
@@ -143,7 +143,7 @@ func TestSweepDeletedProjectsNowPurgesImmediately(t *testing.T) {
 		filepath.Join(space, "console"),
 	}
 	for _, p := range append(append([]string{}, repos...), kept) {
-		if err := os.MkdirAll(p, 0755); err != nil {
+		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		seedProject(t, p)
@@ -183,7 +183,7 @@ func TestSweepDeletedSpaceProjectsNowIsScopedToSpaces(t *testing.T) {
 	spaceRepo := filepath.Join(home, "spaces", "throwaway", "slapi")
 	nonSpaceRepo := filepath.Join(home, "git", "some-project")
 	for _, p := range []string{spaceRepo, nonSpaceRepo} {
-		if err := os.MkdirAll(p, 0755); err != nil {
+		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		seedProject(t, p)
@@ -218,7 +218,7 @@ func TestProjectDataRequiresPath(t *testing.T) {
 func TestKnownProjectPathsIncludesIndexedButUnwatched(t *testing.T) {
 	home := dbtest.Init(t)
 	p := filepath.Join(home, "git", "lonely")
-	if err := os.MkdirAll(p, 0755); err != nil {
+	if err := os.MkdirAll(p, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	seedProject(t, p)

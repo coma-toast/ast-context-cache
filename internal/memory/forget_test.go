@@ -12,8 +12,10 @@ func storeFacts(t *testing.T, sessionID string, n int) []string {
 	t.Helper()
 	var refs []string
 	for i := 0; i < n; i++ {
-		res, err := Store(StoreInput{Kind: KindFact, Scope: ScopeSession, SessionID: sessionID,
-			Subject: fmt.Sprintf("item%d", i), Predicate: "is", Object: "x"})
+		res, err := Store(StoreInput{
+			Kind: KindFact, Scope: ScopeSession, SessionID: sessionID,
+			Subject: fmt.Sprintf("item%d", i), Predicate: "is", Object: "x",
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

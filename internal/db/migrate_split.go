@@ -37,10 +37,12 @@ var contextTables = []string{
 	"doc_sources", "doc_content", "context_notes", "structured_memory", "kv_repair_events",
 }
 
-var monolithicDropTables = append(append([]string{}, indexTables...), contextTables...)
-var monolithicDropVirtual = []string{
-	"symbols_fts", "docs_fts", "context_notes_fts", "structured_memory_fts",
-}
+var (
+	monolithicDropTables  = append(append([]string{}, indexTables...), contextTables...)
+	monolithicDropVirtual = []string{
+		"symbols_fts", "docs_fts", "context_notes_fts", "structured_memory_fts",
+	}
+)
 
 func needsSplitMigration(usagePath, indexPath string) bool {
 	usageConn, err := sql.Open("sqlite3", usagePath+"?mode=ro&_journal_mode=WAL&_busy_timeout=5000")

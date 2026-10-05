@@ -103,11 +103,11 @@ func TestCollectImportsBashSourceInFunction(t *testing.T) {
 func TestIndexFileRecordsFunctionLocalImportEdges(t *testing.T) {
 	project := t.TempDir()
 	file := filepath.Join(project, "clients", "llamacpp.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := "import os\n\nclass LlamaCppClient:\n    def load_model(self, key):\n        from model_manager.switch import switch_local_model\n        return switch_local_model(key)\n"
-	if err := os.WriteFile(file, []byte(src), 0644); err != nil {
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := IndexFile(file, project); err != nil {

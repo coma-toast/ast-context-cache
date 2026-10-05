@@ -23,11 +23,11 @@ func testPruneDB(t *testing.T) {
 
 func writeGo(t *testing.T, path, fn string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := "package p\n\nimport \"fmt\"\n\nfunc " + fn + "() { fmt.Println(1) }\n"
-	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -71,12 +71,18 @@ func seedAuxRows(t *testing.T, file, project string) {
 		q    string
 		args []interface{}
 	}{
-		{`INSERT INTO vectors (symbol_id, content_hash, vector, doc_type, source_file, name, kind, project_path) VALUES (0, ?, x'00', 'code', ?, 'X', 'function', ?)`,
-			[]interface{}{"h-" + file, file, project}},
-		{`INSERT INTO summaries (symbol_name, file_path, project_path, summary_text, content_hash) VALUES ('X', ?, ?, 's', 'h')`,
-			[]interface{}{file, project}},
-		{`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, 'failed', 0)`,
-			[]interface{}{file, project}},
+		{
+			`INSERT INTO vectors (symbol_id, content_hash, vector, doc_type, source_file, name, kind, project_path) VALUES (0, ?, x'00', 'code', ?, 'X', 'function', ?)`,
+			[]interface{}{"h-" + file, file, project},
+		},
+		{
+			`INSERT INTO summaries (symbol_name, file_path, project_path, summary_text, content_hash) VALUES ('X', ?, ?, 's', 'h')`,
+			[]interface{}{file, project},
+		},
+		{
+			`INSERT OR REPLACE INTO embed_pending (file, project_path, reason, updated_at) VALUES (?, ?, 'failed', 0)`,
+			[]interface{}{file, project},
+		},
 	}
 	for _, s := range stmts {
 		if _, err := db.IndexDB.Exec(s.q, s.args...); err != nil {
@@ -224,7 +230,7 @@ func TestSymlinkOutsideProjectLoopsAndDangling(t *testing.T) {
 	dangling := filepath.Join(proj, "dangling.go")
 	fifoLink := filepath.Join(proj, "fifo.go")
 	// Reading a FIFO blocks forever; a link to one must never be opened.
-	if err := syscall.Mkfifo(filepath.Join(base, "pipe"), 0644); err != nil {
+	if err := syscall.Mkfifo(filepath.Join(base, "pipe"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, l := range []struct{ target, link string }{

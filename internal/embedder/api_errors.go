@@ -18,10 +18,12 @@ type openAIErrorEnvelope struct {
 	} `json:"error"`
 }
 
-var jsonErrInMsg = regexp.MustCompile(`(?s)\{.*"error"\s*:\s*\{.*\}`)
-var apiMessageFieldRe = regexp.MustCompile(`['"]message['"]\s*:\s*['"]([^'"]+)['"]`)
-var errorCodePrefixRe = regexp.MustCompile(`(?i)error code:\s*\d+\s*-\s*`)
-var httpCodeInMsgRe = regexp.MustCompile(`(?:^|:|\s)(\d{3})(?::|\s|$)`)
+var (
+	jsonErrInMsg      = regexp.MustCompile(`(?s)\{.*"error"\s*:\s*\{.*\}`)
+	apiMessageFieldRe = regexp.MustCompile(`['"]message['"]\s*:\s*['"]([^'"]+)['"]`)
+	errorCodePrefixRe = regexp.MustCompile(`(?i)error code:\s*\d+\s*-\s*`)
+	httpCodeInMsgRe   = regexp.MustCompile(`(?:^|:|\s)(\d{3})(?::|\s|$)`)
+)
 
 // FormatHTTPError builds a concise embedding API failure from an HTTP response body.
 func FormatHTTPError(label string, statusCode int, status string, body []byte) error {

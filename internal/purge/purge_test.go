@@ -21,7 +21,7 @@ func TestProjectDataStopsReappearing(t *testing.T) {
 	home := dbtest.Init(t)
 
 	p := filepath.Join(home, "git", "deleteme")
-	if err := os.MkdirAll(p, 0755); err != nil {
+	if err := os.MkdirAll(p, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	seedProject(t, p)
@@ -60,7 +60,7 @@ func TestProjectDataRemovesLinks(t *testing.T) {
 
 	parent := filepath.Join(home, "git", "monorepo")
 	child := filepath.Join(parent, "service")
-	if err := os.MkdirAll(child, 0755); err != nil {
+	if err := os.MkdirAll(child, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	seedProject(t, parent)
@@ -89,7 +89,7 @@ func TestProjectDataRemovesLinks(t *testing.T) {
 	// The deleted child's path must be free to become a parent of its own new,
 	// unrelated sub-project — a leftover link row would incorrectly refuse this.
 	grandchild := filepath.Join(child, "sub")
-	if err := os.MkdirAll(grandchild, 0755); err != nil {
+	if err := os.MkdirAll(grandchild, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := projectlinks.CreateLink(child, grandchild, false); err != nil {

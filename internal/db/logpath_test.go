@@ -20,8 +20,8 @@ func TestResolveServerLogPathNewest(t *testing.T) {
 	t.Setenv("HOME", home)
 	defaultPath := DefaultLogPath()
 	mcpPath := McpLocalLogPath()
-	os.MkdirAll(filepath.Dir(defaultPath), 0755)
-	os.MkdirAll(filepath.Dir(mcpPath), 0755)
+	os.MkdirAll(filepath.Dir(defaultPath), 0o755)
+	os.MkdirAll(filepath.Dir(mcpPath), 0o755)
 	if err := os.WriteFile(defaultPath, []byte("old\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

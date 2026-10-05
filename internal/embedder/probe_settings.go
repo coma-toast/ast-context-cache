@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	probeIntervalSetting       = "embed_probe_interval_seconds"
-	defaultProbeInterval       = 10 * time.Second
-	minProbeInterval           = 5 * time.Second
-	maxProbeInterval           = 600 * time.Second
+	probeIntervalSetting = "embed_probe_interval_seconds"
+	defaultProbeInterval = 10 * time.Second
+	minProbeInterval     = 5 * time.Second
+	maxProbeInterval     = 600 * time.Second
 )
 
 // ProbeIntervalSettingKey is the dashboard DB key for connectivity probe cadence.

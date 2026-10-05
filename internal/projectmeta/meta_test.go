@@ -9,7 +9,7 @@ import (
 func TestWorkspaceForPath(t *testing.T) {
 	home := t.TempDir()
 	spaces := filepath.Join(home, "spaces", "nightly", "slapi")
-	os.MkdirAll(spaces, 0755)
+	os.MkdirAll(spaces, 0o755)
 	t.Setenv("HOME", home)
 	got := Enrich(spaces)
 	if got.Workspace != "nightly" {
@@ -26,7 +26,7 @@ func TestWorkspaceForPath(t *testing.T) {
 func TestDiscoverPathsIncludesSpaces(t *testing.T) {
 	home := t.TempDir()
 	slapi := filepath.Join(home, "spaces", "pipeline", "slapi")
-	os.MkdirAll(filepath.Join(slapi, ".git"), 0755)
+	os.MkdirAll(filepath.Join(slapi, ".git"), 0o755)
 	t.Setenv("HOME", home)
 	paths := DiscoverPaths()
 	found := false

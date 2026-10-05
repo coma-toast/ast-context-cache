@@ -1063,12 +1063,12 @@ func handleAgentInstall(w http.ResponseWriter, r *http.Request) {
 	instructions := generateAgentInstructions(req.AgentType)
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(instructions)))
 
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create dir: " + err.Error()})
 		return
 	}
 
-	if err := os.WriteFile(fullPath, []byte(instructions), 0644); err != nil {
+	if err := os.WriteFile(fullPath, []byte(instructions), 0o644); err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file: " + err.Error()})
 		return
 	}

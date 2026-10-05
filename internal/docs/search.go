@@ -229,7 +229,8 @@ func splitTerms(query string) []string {
 func scanScoredDocs(rows interface {
 	Next() bool
 	Scan(...any) error
-}) ([]ScoredDoc, error) {
+},
+) ([]ScoredDoc, error) {
 	var out []ScoredDoc
 	for rows.Next() {
 		e, rank, err := scanDocEntryRank(rows)
@@ -243,7 +244,8 @@ func scanScoredDocs(rows interface {
 
 func scanDocEntryRank(rows interface {
 	Scan(...any) error
-}) (DocEntry, float64, error) {
+},
+) (DocEntry, float64, error) {
 	var e DocEntry
 	var rank float64
 	err := rows.Scan(&e.ID, &e.SourceID, &e.Title, &e.Content, &e.Path, &e.ContentHash, &e.UpdatedAt, &rank)

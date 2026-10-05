@@ -53,8 +53,10 @@ func vectorEntries(project string, ids map[string]int64) []VectorEntry {
 		if fqn == "backend.py.load_model" {
 			file, kind = "/proj/backend.py", "function"
 		}
-		out = append(out, VectorEntry{SymbolID: id, ContentHash: fqn, Vector: unitVector(), DocType: "code",
-			SourceFile: file, Name: "load_model", Kind: kind, ProjectPath: project})
+		out = append(out, VectorEntry{
+			SymbolID: id, ContentHash: fqn, Vector: unitVector(), DocType: "code",
+			SourceFile: file, Name: "load_model", Kind: kind, ProjectPath: project,
+		})
 	}
 	return out
 }

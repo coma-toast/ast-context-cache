@@ -27,7 +27,7 @@ func TestCreateLinkAndScope(t *testing.T) {
 	root := dbtest.Init(t)
 	parent := filepath.Join(root, "git")
 	child := filepath.Join(parent, "foo")
-	if err := os.MkdirAll(child, 0755); err != nil {
+	if err := os.MkdirAll(child, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := CreateLink(parent, child, false); err != nil {
@@ -59,7 +59,7 @@ func TestOwningProject(t *testing.T) {
 	root := dbtest.Init(t)
 	parent := filepath.Join(root, "git")
 	child := filepath.Join(parent, "foo")
-	if err := os.MkdirAll(child, 0755); err != nil {
+	if err := os.MkdirAll(child, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := CreateLink(parent, child, false); err != nil {
@@ -75,7 +75,7 @@ func TestResolveScopeWithRepoSiblings(t *testing.T) {
 	root := dbtest.Init(t)
 	main := filepath.Join(root, "git", "repo")
 	linked := filepath.Join(root, "space", "repo")
-	if err := os.MkdirAll(main, 0755); err != nil {
+	if err := os.MkdirAll(main, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	gitRun := func(args ...string) {

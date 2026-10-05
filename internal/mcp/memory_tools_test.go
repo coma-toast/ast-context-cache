@@ -27,8 +27,10 @@ func setupMemoryToolTest(t *testing.T) {
 // decoded tool payload plus the MCP isError flag.
 func callTool(t *testing.T, name string, arguments map[string]interface{}) (map[string]interface{}, bool) {
 	t.Helper()
-	req := JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call",
-		Params: map[string]any{"name": name, "arguments": arguments}}
+	req := JSONRPCRequest{
+		JSONRPC: "2.0", ID: 1, Method: "tools/call",
+		Params: map[string]any{"name": name, "arguments": arguments},
+	}
 	rec := httptest.NewRecorder()
 	handleToolCall(rec, req)
 	var resp JSONRPCResponse
@@ -49,8 +51,10 @@ func storeSessionRules(t *testing.T, sessionID string, n int) []string {
 	t.Helper()
 	var refs []string
 	for i := 0; i < n; i++ {
-		res, err := memory.Store(memory.StoreInput{Kind: memory.KindProcedure, Scope: memory.ScopeSession,
-			SessionID: sessionID, Rule: "rule " + string(rune('a'+i))})
+		res, err := memory.Store(memory.StoreInput{
+			Kind: memory.KindProcedure, Scope: memory.ScopeSession,
+			SessionID: sessionID, Rule: "rule " + string(rune('a'+i)),
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,7 +183,8 @@ RULE: Never hardcode SERVICE_MODEL
 RULE: Run a dry-run before applying sync
 FACT: too-short`
 	out, isErr := callTool(t, "store_context", map[string]interface{}{
-		"content": note, "session_id": "s-extract", "extract_memory": true})
+		"content": note, "session_id": "s-extract", "extract_memory": true,
+	})
 	if isErr {
 		t.Fatalf("store_context error: %v", out)
 	}

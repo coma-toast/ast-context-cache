@@ -29,7 +29,7 @@ func TestProjectDataLeavesNoNoteOrMemoryVectorsWhenQuiescedMidPurge(t *testing.T
 	gone := filepath.Join(home, "git", "gone")
 	kept := filepath.Join(home, "git", "kept")
 	for _, p := range []string{gone, kept} {
-		if err := os.MkdirAll(p, 0755); err != nil {
+		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		seedProject(t, p)
@@ -89,7 +89,7 @@ func TestProjectDataFailsWhenQuiescedAndSweepRetries(t *testing.T) {
 	t.Cleanup(func() { db.SetIndexReadGateForTest(false) })
 
 	gone := filepath.Join(home, "git", "gone")
-	if err := os.MkdirAll(gone, 0755); err != nil {
+	if err := os.MkdirAll(gone, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	seedProject(t, gone)

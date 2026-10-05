@@ -12,19 +12,19 @@ func TestReuseFileCopiesSiblingRows(t *testing.T) {
 	root := t.TempDir()
 	sibling := filepath.Join(root, "alpha", "repo")
 	fresh := filepath.Join(root, "bravo", "repo")
-	if err := os.MkdirAll(sibling, 0755); err != nil {
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(fresh, 0755); err != nil {
+	if err := os.MkdirAll(fresh, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := "package p\n\nimport \"fmt\"\n\nfunc Hello() { fmt.Println(\"hi\") }\n"
 	sibFile := filepath.Join(sibling, "a.go")
 	newFile := filepath.Join(fresh, "a.go")
-	if err := os.WriteFile(sibFile, []byte(src), 0644); err != nil {
+	if err := os.WriteFile(sibFile, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(newFile, []byte(src), 0644); err != nil {
+	if err := os.WriteFile(newFile, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := IndexFile(sibFile, sibling); err != nil {
@@ -69,14 +69,14 @@ func TestReuseFileSkipsChangedContent(t *testing.T) {
 	root := t.TempDir()
 	sibling := filepath.Join(root, "alpha", "repo")
 	fresh := filepath.Join(root, "bravo", "repo")
-	os.MkdirAll(sibling, 0755)
-	os.MkdirAll(fresh, 0755)
+	os.MkdirAll(sibling, 0o755)
+	os.MkdirAll(fresh, 0o755)
 	sibFile := filepath.Join(sibling, "b.go")
 	newFile := filepath.Join(fresh, "b.go")
-	if err := os.WriteFile(sibFile, []byte("func A() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(sibFile, []byte("func A() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(newFile, []byte("func B() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(newFile, []byte("func B() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := IndexFile(sibFile, sibling); err != nil {
@@ -94,10 +94,10 @@ func TestReuseFileSkipsMissingSibling(t *testing.T) {
 	root := t.TempDir()
 	sibling := filepath.Join(root, "alpha", "repo")
 	fresh := filepath.Join(root, "bravo", "repo")
-	os.MkdirAll(sibling, 0755)
-	os.MkdirAll(fresh, 0755)
+	os.MkdirAll(sibling, 0o755)
+	os.MkdirAll(fresh, 0o755)
 	newFile := filepath.Join(fresh, "c.go")
-	if err := os.WriteFile(newFile, []byte("func C() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(newFile, []byte("func C() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := ReuseFile(newFile, fresh, &ReuseSource{ProjectPath: sibling}); ok {

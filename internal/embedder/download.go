@@ -17,7 +17,7 @@ const (
 // EnsureModel creates modelDir if needed and downloads model.onnx and tokenizer.json if missing.
 // Call before New() so the embedder can load. Returns nil if both files exist or were downloaded successfully.
 func EnsureModel(modelDir string) error {
-	if err := os.MkdirAll(modelDir, 0755); err != nil {
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
 		return errs.WrapMessage("failed to create model dir", err, "path", modelDir)
 	}
 

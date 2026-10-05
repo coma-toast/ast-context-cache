@@ -57,14 +57,6 @@ type SessionRollup struct {
 	VirtualTokensAccessed int `json:"session_virtual_accessed_total"`
 }
 
-// QuotaStrings for agent-visible quota display.
-type QuotaStrings struct {
-	SessionNotes  string `json:"notes"`
-	SessionTokens string `json:"tokens"`
-	GlobalNotes   string `json:"notes"`
-	GlobalTokens  string `json:"tokens"`
-}
-
 // Inventory is live stored virtual context.
 type Inventory struct {
 	ActiveNotesCount   int

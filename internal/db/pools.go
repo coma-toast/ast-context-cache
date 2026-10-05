@@ -55,7 +55,7 @@ func PoolsReady() bool {
 }
 
 func openPool(path string) (*sql.DB, error) {
-	if err := os.MkdirAll(cacheDir(), 0755); err != nil {
+	if err := os.MkdirAll(cacheDir(), 0o755); err != nil {
 		return nil, err
 	}
 	dsn := path + "?_journal_mode=WAL&_busy_timeout=15000"

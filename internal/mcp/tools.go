@@ -40,14 +40,14 @@ func LoadToolConfigs() map[string]*ToolConfig {
 
 func SaveToolConfigs(configs map[string]*ToolConfig) error {
 	path := getToolsConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(configs, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 type toolDenyReason int
@@ -113,15 +113,15 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":         map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
-					"project_path":  map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":          map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
-					"session_id":    map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
-					"path_prefix":   map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
-					"language":      map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, javascript, rust, ...). Uses file extensions."},
-					"kinds":         map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include (e.g. function,method)."},
-					"kind":          map[string]string{"type": "string", "description": "Optional: single symbol kind filter (same as one entry in kinds)."},
+					"query":        map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"mode":         map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
+					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
+					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
+					"path_prefix":  map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
+					"language":     map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, javascript, rust, ...). Uses file extensions."},
+					"kinds":        map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include (e.g. function,method)."},
+					"kind":         map[string]string{"type": "string", "description": "Optional: single symbol kind filter (same as one entry in kinds)."},
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -234,13 +234,13 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"content":      map[string]string{"type": "string", "description": "Text to offload (markdown OK)"},
-					"session_id":   map[string]string{"type": "string", "description": "Conversation session ID (required)"},
-					"label":        map[string]string{"type": "string", "description": "Short title for the note"},
-					"project_path": map[string]string{"type": "string", "description": "Optional project association"},
-					"tags":         map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
-					"kind":         map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
-					"metadata":     map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
+					"content":        map[string]string{"type": "string", "description": "Text to offload (markdown OK)"},
+					"session_id":     map[string]string{"type": "string", "description": "Conversation session ID (required)"},
+					"label":          map[string]string{"type": "string", "description": "Short title for the note"},
+					"project_path":   map[string]string{"type": "string", "description": "Optional project association"},
+					"tags":           map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
+					"kind":           map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
+					"metadata":       map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
 					"extract_memory": map[string]string{"type": "boolean", "description": "Also save explicitly marked lines as session-scoped mem_* entries: only lines starting with FACT: (subject | predicate | object, or subject predicate object...) or RULE: (free text). Headings, prose, and fenced code are ignored; text is kept as written. Response: memory_extracted (ref, kind, line) and memory_skipped (marked lines that could not be parsed, e.g. a FACT: under 3 words)."},
 				},
 				"required": []string{"content", "session_id"},
@@ -333,16 +333,16 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"kind":                 map[string]string{"type": "string", "description": "fact or procedure"},
-					"session_id":           map[string]string{"type": "string", "description": "Required for session scope"},
-					"scope":                map[string]string{"type": "string", "description": "session (default), project, or global"},
-					"project_path":         map[string]string{"type": "string", "description": "Required for project scope"},
-					"subject":              map[string]string{"type": "string", "description": "Fact subject (e.g. user.testing)"},
-					"predicate":            map[string]string{"type": "string", "description": "Fact relation (default: is)"},
-					"object":               map[string]string{"type": "string", "description": "Fact object/value"},
-					"rule":                 map[string]string{"type": "string", "description": "Procedural rule text (LangMem procedural)"},
-					"invalidate_previous":  map[string]string{"type": "boolean", "description": "For facts: supersede prior same subject+predicate (default true)"},
-					"source_ref":           map[string]string{"type": "string", "description": "Optional ctx_* ref this was extracted from"},
+					"kind":                map[string]string{"type": "string", "description": "fact or procedure"},
+					"session_id":          map[string]string{"type": "string", "description": "Required for session scope"},
+					"scope":               map[string]string{"type": "string", "description": "session (default), project, or global"},
+					"project_path":        map[string]string{"type": "string", "description": "Required for project scope"},
+					"subject":             map[string]string{"type": "string", "description": "Fact subject (e.g. user.testing)"},
+					"predicate":           map[string]string{"type": "string", "description": "Fact relation (default: is)"},
+					"object":              map[string]string{"type": "string", "description": "Fact object/value"},
+					"rule":                map[string]string{"type": "string", "description": "Procedural rule text (LangMem procedural)"},
+					"invalidate_previous": map[string]string{"type": "boolean", "description": "For facts: supersede prior same subject+predicate (default true)"},
+					"source_ref":          map[string]string{"type": "string", "description": "Optional ctx_* ref this was extracted from"},
 				},
 				"required": []string{"kind", "session_id"},
 			},
@@ -354,15 +354,15 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":        map[string]string{"type": "string", "description": "Search query (optional; empty lists recent active memory)"},
-					"session_id":   map[string]string{"type": "string", "description": "Session filter (recommended)"},
-					"project_path": map[string]string{"type": "string", "description": "Project filter"},
-					"kind":         map[string]string{"type": "string", "description": "fact or procedure"},
-					"kinds":        map[string]string{"type": "array", "description": "Filter kinds"},
-					"scope":        map[string]string{"type": "string", "description": "session, project, or global"},
-					"as_of":        map[string]string{"type": "string", "description": "SQLite datetime: facts valid at this time (Zep temporal)"},
-					"limit":        map[string]string{"type": "integer", "description": "Max entries (default 10)"},
-					"token_budget": map[string]string{"type": "integer", "description": "Max tokens in formatted output (default 800)"},
+					"query":         map[string]string{"type": "string", "description": "Search query (optional; empty lists recent active memory)"},
+					"session_id":    map[string]string{"type": "string", "description": "Session filter (recommended)"},
+					"project_path":  map[string]string{"type": "string", "description": "Project filter"},
+					"kind":          map[string]string{"type": "string", "description": "fact or procedure"},
+					"kinds":         map[string]string{"type": "array", "description": "Filter kinds"},
+					"scope":         map[string]string{"type": "string", "description": "session, project, or global"},
+					"as_of":         map[string]string{"type": "string", "description": "SQLite datetime: facts valid at this time (Zep temporal)"},
+					"limit":         map[string]string{"type": "integer", "description": "Max entries (default 10)"},
+					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens in formatted output (default 800)"},
 					"repo_siblings": map[string]string{"type": "boolean", "description": "Also match project memories stored in other checkouts of the same repo (default true)"},
 				},
 			},
@@ -375,12 +375,12 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"refs":         map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate: one ref, a JSON array, or a comma-separated list"},
-					"session_id":   map[string]string{"type": "string", "description": "Session for subject-based forget"},
-					"subject":      map[string]string{"type": "string", "description": "Invalidate active fact with this subject"},
-					"predicate":    map[string]string{"type": "string", "description": "Predicate (default is)"},
-					"scope":        map[string]string{"type": "string", "description": "session, project, or global. For subject-based forget (default session). With refs it is optional and acts as a guard: refs outside it are reported in scope_mismatch"},
-					"all":          map[string]string{"type": "boolean", "description": "Invalidate all active structured memory"},
+					"refs":       map[string]string{"type": "string", "description": "mem_* ref(s) to invalidate: one ref, a JSON array, or a comma-separated list"},
+					"session_id": map[string]string{"type": "string", "description": "Session for subject-based forget"},
+					"subject":    map[string]string{"type": "string", "description": "Invalidate active fact with this subject"},
+					"predicate":  map[string]string{"type": "string", "description": "Predicate (default is)"},
+					"scope":      map[string]string{"type": "string", "description": "session, project, or global. For subject-based forget (default session). With refs it is optional and acts as a guard: refs outside it are reported in scope_mismatch"},
+					"all":        map[string]string{"type": "boolean", "description": "Invalidate all active structured memory"},
 				},
 			},
 			Tier: TierExtended,
@@ -391,16 +391,16 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":         map[string]string{"type": "string", "description": "Natural language search query (e.g. 'function that handles user authentication')"},
-					"project_path":  map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"limit":         map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
-					"doc_type":      map[string]string{"type": "string", "description": "Filter by document type: 'code', 'doc', etc. (optional)"},
-					"session_id":    map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens to return. Results packed greedily by score until budget exhausted."},
-					"path_prefix":   map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative or absolute prefix)."},
-					"language":      map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, ...)."},
-					"kinds":         map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
-					"kind":          map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
+					"query":        map[string]string{"type": "string", "description": "Natural language search query (e.g. 'function that handles user authentication')"},
+					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"limit":        map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
+					"doc_type":     map[string]string{"type": "string", "description": "Filter by document type: 'code', 'doc', etc. (optional)"},
+					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
+					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return. Results packed greedily by score until budget exhausted."},
+					"path_prefix":  map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative or absolute prefix)."},
+					"language":     map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, ...)."},
+					"kinds":        map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
+					"kind":         map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -529,12 +529,12 @@ func GetTools() []Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"name":           map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
-					"type":           map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'webpage' (JS-rendered), 'json'"},
-					"url":            map[string]string{"type": "string", "description": "URL to fetch documentation from"},
-					"version":        map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
-					"force_refresh":  map[string]string{"type": "boolean", "description": "Re-fetch from URL even if cached content is fresh (default false)"},
-					"render_js":      map[string]string{"type": "boolean", "description": "Render page with Playwright Firefox before chunking (stores as type webpage). Default false."},
+					"name":          map[string]string{"type": "string", "description": "Name of the documentation (e.g. 'React', 'Express')"},
+					"type":          map[string]string{"type": "string", "description": "Documentation type: 'markdown', 'html', 'webpage' (JS-rendered), 'json'"},
+					"url":           map[string]string{"type": "string", "description": "URL to fetch documentation from"},
+					"version":       map[string]string{"type": "string", "description": "Version of the documentation (optional)"},
+					"force_refresh": map[string]string{"type": "boolean", "description": "Re-fetch from URL even if cached content is fresh (default false)"},
+					"render_js":     map[string]string{"type": "boolean", "description": "Render page with Playwright Firefox before chunking (stores as type webpage). Default false."},
 				},
 				"required": []string{"name", "type", "url"},
 			},

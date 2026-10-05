@@ -111,8 +111,8 @@ func backendDefaults(backend string) map[string]string {
 		}
 	case "ollama":
 		return map[string]string{
-			"OLLAMA_HOST":         "http://127.0.0.1:11434",
-			"OLLAMA_EMBED_MODEL":  "nomic-embed-text",
+			"OLLAMA_HOST":        "http://127.0.0.1:11434",
+			"OLLAMA_EMBED_MODEL": "nomic-embed-text",
 		}
 	case "openai":
 		return map[string]string{

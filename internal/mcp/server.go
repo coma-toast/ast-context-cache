@@ -11,7 +11,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
-	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
@@ -19,12 +18,15 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
-var emb embedder.Interface
-var srvCfg = DefaultConfig()
+var (
+	emb    embedder.Interface
+	srvCfg = DefaultConfig()
+)
 
 // defaultDocSourcesPerPage matches the dashboard's DefaultDocSourcesPerPage
 // (internal/dashboard/doc_sources_ui.go) — list_doc_sources used to return

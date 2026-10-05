@@ -349,7 +349,6 @@ func handleAnalyzeComplexity(args map[string]interface{}, projectPath string) ma
 	}
 	scopeFrag, scopeArgs := projectlinks.ScopeSQL("", projectPath)
 	rows, err := indexDB.Query(selectComplexityQueryPrefix+scopeFrag+complexityQuerySuffix, append(scopeArgs, threshold, limit)...)
-
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}
 	}

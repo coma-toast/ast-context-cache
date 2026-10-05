@@ -75,7 +75,7 @@ func TestFilterTools_executeCodeRequiresCodeMode(t *testing.T) {
 func TestLoadToolConfigs_invalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tools.json")
-	if err := os.WriteFile(path, []byte("{not json"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AST_MCP_TOOLS_CONFIG", path)
@@ -88,7 +88,7 @@ func TestLoadToolConfigs_invalidJSON(t *testing.T) {
 func TestLoadToolConfigs_normalizesTier(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tools.json")
-	if err := os.WriteFile(path, []byte(`{"index_files":{"enabled":true,"tier":"EXTENDED"}}`), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"index_files":{"enabled":true,"tier":"EXTENDED"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AST_MCP_TOOLS_CONFIG", path)

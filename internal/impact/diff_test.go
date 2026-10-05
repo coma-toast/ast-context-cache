@@ -13,7 +13,7 @@ import (
 // newRepo creates a git repo with one committed file and returns its path.
 func newRepo(t *testing.T, dir string, files map[string]string) {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	git := func(args ...string) {
@@ -26,7 +26,7 @@ func newRepo(t *testing.T, dir string, files map[string]string) {
 	git("config", "user.email", "test@example.com")
 	git("config", "user.name", "test")
 	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -60,7 +60,7 @@ func TestHandleDiffImpactFindsDependents(t *testing.T) {
 		}
 	}
 	git("branch", "-q", "base-branch")
-	if err := os.WriteFile(pageFile, []byte("export function clickSave() { return 1 }\n"), 0644); err != nil {
+	if err := os.WriteFile(pageFile, []byte("export function clickSave() { return 1 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	git("commit", "-qam", "change page")

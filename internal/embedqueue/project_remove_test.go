@@ -9,7 +9,7 @@ func TestRemoveProject_clearsQueuedAndPending(t *testing.T) {
 	pendingCh = make(chan job, 8)
 	pendingMu.Lock()
 	pending = map[string]job{
-		jobKey(job{file: "/tmp/p.go", projectPath: "/proj/del"}):   {file: "/tmp/p.go", projectPath: "/proj/del"},
+		jobKey(job{file: "/tmp/p.go", projectPath: "/proj/del"}):     {file: "/tmp/p.go", projectPath: "/proj/del"},
 		jobKey(job{file: "/tmp/keep.go", projectPath: "/proj/keep"}): {file: "/tmp/keep.go", projectPath: "/proj/keep"},
 	}
 	pendingChQueued = map[string]struct{}{

@@ -24,7 +24,7 @@ func TestHandleDeleteWatcherStopsReappearing(t *testing.T) {
 	home := dbtest.Init(t)
 
 	p := filepath.Join(home, "git", "deleteme")
-	if err := os.MkdirAll(p, 0755); err != nil {
+	if err := os.MkdirAll(p, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.TogglePinnedProject(p, true); err != nil {

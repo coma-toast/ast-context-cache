@@ -31,8 +31,8 @@ func TestHandleDashboardMCPTierJSONReportsRealConfig(t *testing.T) {
 	handleDashboardMCPTierJSON(rec, req)
 
 	var out struct {
-		Tier          string                                       `json:"tier"`
-		CodeMode      bool                                         `json:"code_mode"`
+		Tier          string `json:"tier"`
+		CodeMode      bool   `json:"code_mode"`
 		ToolOverrides map[string]struct {
 			Enabled bool   `json:"enabled"`
 			Tier    string `json:"tier"`

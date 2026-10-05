@@ -76,8 +76,8 @@ func main() {
 	logger.Info("Initializing")
 	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
 		logPath := db.DefaultLogPath()
-		_ = os.MkdirAll(filepath.Dir(logPath), 0755)
-		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 			logging.Setup(f)
 			logger.Info("Logging to file", "path", logPath)
 		}

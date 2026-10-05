@@ -45,7 +45,7 @@ func Init() error {
 	idxPath := indexDBPath()
 	ctxPath := contextDBPath()
 	usePath := usageDBPath()
-	if err := os.MkdirAll(cacheDir(), 0755); err != nil {
+	if err := os.MkdirAll(cacheDir(), 0o755); err != nil {
 		return err
 	}
 	// Once per process, before any pool opens: sweep zero-byte legacy DB files.

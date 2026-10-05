@@ -12,7 +12,7 @@ func TestGetStatusIncludesIndexedProjectWithoutWatcher(t *testing.T) {
 	dir := t.TempDir()
 	projectPath := NormalizeProjectPath(dir)
 	file := filepath.Join(dir, "sample.go")
-	if err := os.WriteFile(file, []byte("package sample\n"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("package sample\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.IndexDB.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, project_path) VALUES (?, ?, ?, ?, ?, ?)`,

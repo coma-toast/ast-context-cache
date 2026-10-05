@@ -24,10 +24,10 @@ func indexProject(t *testing.T, files map[string]string) string {
 	project := filepath.Join(home, "proj")
 	for name, body := range files {
 		p := filepath.Join(project, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

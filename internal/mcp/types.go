@@ -48,9 +48,9 @@ func ParseTier(s string) Tier {
 
 // ServerConfig holds runtime configuration for tool filtering and sandbox behavior.
 type ServerConfig struct {
-	ActiveTier  Tier // Which tier of tools to expose
-	CodeMode    bool // Whether execute_code is enabled (requires TierComplete)
-	SandboxSecs int  // Timeout for code sandbox execution
+	ActiveTier  Tier                   // Which tier of tools to expose
+	CodeMode    bool                   // Whether execute_code is enabled (requires TierComplete)
+	SandboxSecs int                    // Timeout for code sandbox execution
 	ToolConfigs map[string]*ToolConfig // Overrides for individual tools
 }
 
