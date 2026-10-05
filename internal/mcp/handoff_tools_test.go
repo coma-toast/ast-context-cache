@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -133,6 +134,24 @@ func TestHandoffToolsHiddenWhenFeatureOff(t *testing.T) {
 		require.Len(t, texts, 1)
 		assert.Contains(t, texts[0], "feature_disabled", name)
 	}
+}
+
+// AC30 / FF-7: turning feature_handoff off and on again deletes nothing; trees made before are
+// reachable afterwards.
+func TestHandoffDataSurvivesFlagToggle(t *testing.T) {
+	project := setupHandoffToolTest(t)
+	ref, child := openChild(t, project, "parent-toggle")
+	mustCall(t, toolScratchpad, map[string]any{"action": "post", "session_id": child, "type": "finding", "text": "load_model reads the config"})
+	setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": "false"})
+	texts, isErr := callToolTexts(t, toolOpenHandoff, map[string]any{"action": "resume", "handoff": ref, "session_id": child})
+	require.True(t, isErr)
+	assert.Contains(t, texts[0], "feature_disabled")
+	setFlagEnvs(t, map[string]string{"AST_FEATURE_HANDOFF": "true"})
+	resumed := mustCall(t, toolOpenHandoff, map[string]any{"action": "resume", "handoff": ref, "session_id": child})
+	assert.Equal(t, child, resumed["session_id"])
+	assert.Contains(t, resumed["brief"], "Investigate load_model")
+	read := mustCall(t, toolScratchpad, map[string]any{"action": "read", "session_id": child, "include_own": true})
+	assert.Contains(t, fmt.Sprint(read["entries"]), "load_model reads the config")
 }
 
 func TestScratchpadClaimsFlagGatesActions(t *testing.T) {
