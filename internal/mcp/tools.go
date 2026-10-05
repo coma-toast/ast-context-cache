@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 )
 
 type ToolConfig struct {
@@ -58,6 +60,7 @@ const (
 	denyDisabled
 	denyTier
 	denyCodeMode
+	denyFlag
 )
 
 func effectiveRequiredTier(t Tool, cfg ServerConfig) Tier {
@@ -67,7 +70,12 @@ func effectiveRequiredTier(t Tool, cfg ServerConfig) Tier {
 	return t.Tier
 }
 
+// toolAccess requires the tool's feature flags, tools.json, and the tier to all allow it (FF-8).
+// The flag is checked first so a call to a feature that is off reports feature_disabled.
 func toolAccess(t Tool, cfg ServerConfig) (bool, toolDenyReason) {
+	if !flags.ToolEnabled(t.Name) {
+		return false, denyFlag
+	}
 	if conf, ok := cfg.ToolConfigs[t.Name]; ok && !conf.Enabled {
 		return false, denyDisabled
 	}
@@ -83,6 +91,11 @@ func toolAccess(t Tool, cfg ServerConfig) (bool, toolDenyReason) {
 // ToolDenyMessage explains why a tool call was rejected.
 func ToolDenyMessage(toolName string, cfg ServerConfig, reason toolDenyReason) string {
 	switch reason {
+	case denyFlag:
+		if key := flags.ToolDisabledBy(toolName); key != "" {
+			return "feature_disabled: " + toolName + " is turned off by feature flag " + key
+		}
+		return "feature_disabled: " + toolName
 	case denyDisabled:
 		return "tool disabled in tools config: " + toolName
 	case denyTier:
@@ -621,9 +634,12 @@ func GetTools() []Tool {
 	}
 }
 
-// FilterTools returns only tools accessible at the given tier/config.
+// FilterTools returns only tools accessible at the given tier/config and current feature flags.
 func FilterTools(cfg ServerConfig) []Tool {
-	all := GetTools()
+	return filterTools(GetTools(), cfg)
+}
+
+func filterTools(all []Tool, cfg ServerConfig) []Tool {
 	filtered := make([]Tool, 0, len(all))
 	for _, t := range all {
 		ok, _ := toolAccess(t, cfg)
