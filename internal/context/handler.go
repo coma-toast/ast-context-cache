@@ -58,7 +58,8 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		stage = "capsule:hybrid"
 	}
 	scored, pipeMetrics, cacheHit := RankedHybrid(CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: 30, Filters: filters}, Emb)
-	returnedSymbols := GetReturnedSymbolKeys(sessionID)
+	returned := ReturnedKeys(sessionID)
+	var delivered []ReturnedSymbol
 	if len(scored) < limit {
 		limit = len(scored)
 	}
@@ -81,7 +82,8 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		name, _ := data["name"].(string)
 		startLine, endLine := hit.StartLine, hit.EndLine
 		owner := projectlinks.OwningProject(file, projectPath)
-		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
+		key := SymbolDedupKey(file, name, startLine)
+		if _, dup := returned[key]; dup {
 			skipped++
 			dedupTokens += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
@@ -101,8 +103,10 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		tokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
-		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
+		returned[key] = struct{}{}
+		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
 	}
+	MarkReturned(sessionID, delivered...)
 	fileBaseline := FileBaselineTokens(matchedFiles, fileCache)
 	savings := ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens)
 	savings.DedupedCount = skipped
@@ -134,7 +138,8 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		mode = "skeleton"
 	}
 	savings.Mode = mode
-	returnedSymbols := GetReturnedSymbolKeys(sessionID)
+	returned := ReturnedKeys(sessionID)
+	var delivered []ReturnedSymbol
 	if len(scored) < limit {
 		limit = len(scored)
 	}
@@ -152,7 +157,8 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		name, _ := data["name"].(string)
 		startLine, endLine := hit.StartLine, hit.EndLine
 		owner := projectlinks.OwningProject(file, projectPath)
-		if returnedSymbols != nil && returnedSymbols[SymbolDedupKey(file, name, startLine)] {
+		key := SymbolDedupKey(file, name, startLine)
+		if _, dup := returned[key]; dup {
 			savings.DedupedCount++
 			savings.DedupTokensSaved += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
 			continue
@@ -172,8 +178,10 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 		savings.TokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
-		LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
+		returned[key] = struct{}{}
+		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
 	}
+	MarkReturned(sessionID, delivered...)
 	savings.FileBaseline = FileBaselineTokens(matchedFiles, fileCache)
 	computed := ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, savings.FileBaseline, savings.DedupTokensSaved)
 	savings.TokensSaved = computed.TokensSaved

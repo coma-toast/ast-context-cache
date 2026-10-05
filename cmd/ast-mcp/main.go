@@ -476,6 +476,7 @@ func startBackgroundServices(ctx context.Context) {
 	db.StartFTSSelfCheck()
 	go runEvery(ctx, time.Hour, logretention.RunOnce)
 	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
+	ctxpkg.StartSessionStoreEviction(ctx)
 	seen := map[string]bool{}
 	if conn, err := db.IndexReader(); err == nil {
 		restoreRows, err := conn.Query(selectSymbolProjectsQuery)

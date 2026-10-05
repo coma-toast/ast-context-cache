@@ -530,7 +530,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 						if v, ok := stats["tokens_saved"].(float64); ok {
 							savings.TokensSaved = int(v)
 						}
-						if v, ok := stats["deduped_count"].(float64); ok {
+						if v, ok := stats["deduped"].(float64); ok {
 							savings.DedupedCount = int(v)
 						}
 					}

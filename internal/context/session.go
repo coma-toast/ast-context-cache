@@ -19,27 +19,29 @@ func SymbolDedupKey(file, name string, startLine int) string {
 	return file + "|" + name + "|" + strconv.Itoa(startLine)
 }
 
-func GetReturnedSymbolKeys(sessionID string) map[string]bool {
-	if sessionID == "" {
-		return nil
-	}
+// loadReturnedKeys reads the dedup keys persisted for sessionID. Rows still in the
+// write buffer are not visible here; the session store covers them in memory.
+func loadReturnedKeys(sessionID string) (map[string]struct{}, error) {
 	rows, err := db.DB.Query(selectReturnedSymbolsQuery, sessionID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
-	seen := map[string]bool{}
+	seen := map[string]struct{}{}
 	for rows.Next() {
 		var file, name string
 		var startLine int
-		rows.Scan(&file, &name, &startLine)
+		if err := rows.Scan(&file, &name, &startLine); err != nil {
+			return nil, err
+		}
 		if file != "" && name != "" {
-			seen[SymbolDedupKey(file, name, startLine)] = true
+			seen[SymbolDedupKey(file, name, startLine)] = struct{}{}
 		}
 	}
-	return seen
+	return seen, rows.Err()
 }
 
+// LookupSymbolID returns the index row id of a symbol, or 0 when it is not indexed.
 func LookupSymbolID(file, name, projectPath string, startLine int) int {
 	var id int
 	conn, err := db.IndexReader()
@@ -53,10 +55,7 @@ func LookupSymbolID(file, name, projectPath string, startLine int) int {
 	return id
 }
 
+// LogReturned records that one symbol was delivered to sessionID; see MarkReturned.
 func LogReturned(sessionID, file, name, projectPath string, startLine int, mode string, tokenCount int) {
-	if sessionID == "" {
-		return
-	}
-	symbolID := LookupSymbolID(file, name, projectPath, startLine)
-	db.EnqueueSessionReturned(sessionID, symbolID, name, startLine, file, mode, tokenCount)
+	MarkReturned(sessionID, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: tokenCount})
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,9 +36,15 @@ type RetrieveChunk struct {
 	QualifiedName string  `json:"qualified_name,omitempty"` // Class.method for a member
 	Kind          string  `json:"kind"`
 	File          string  `json:"file"`
+	StartLine     int     `json:"start_line,omitempty"`
 	Score         float64 `json:"score"`
 	Source        string  `json:"source"`
 	Content       string  `json:"content"`
+
+	// absFile and endLine locate a code chunk's symbol for dedup logging and
+	// baselines; File is project-relative for display.
+	absFile string
+	endLine int
 }
 
 type RetrieveStats struct {
@@ -57,7 +64,7 @@ type RetrieveStats struct {
 	DedupBudgetMs        float64 `json:"dedup_budget_ms,omitempty"`
 	SymbolBaselineTokens int     `json:"symbol_baseline_tokens,omitempty"`
 	DedupTokensSaved     int     `json:"dedup_tokens_saved,omitempty"`
-	DedupedCount         int     `json:"deduped_count,omitempty"`
+	DedupedCount         int     `json:"deduped,omitempty"`
 	TokensSaved          int     `json:"tokens_saved,omitempty"`
 	SavingsVsCandidates  int     `json:"savings_vs_candidates,omitempty"`
 	BudgetTokensSaved    int     `json:"budget_tokens_saved,omitempty"`
@@ -158,6 +165,7 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 	chunks, totalTokens := budgetChunks(chunks, tokenBudget)
 	dedupBudgetMs := float64(time.Since(tDedup).Milliseconds())
+	markDeliveredCode(sessionID, projectPath, mode, chunks)
 	symbolBaseline := baselineForChunks(chunks, projectPath)
 	budgetSaved := tokensEstAll - totalTokens
 	if budgetSaved < 0 {
@@ -207,6 +215,9 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 }
 
+// retrieveCode ranks code chunks for query, skipping symbols already returned to
+// sessionID and duplicates within the list. It records nothing: HandleRetrieve
+// marks only the chunks that survive the token budget as returned.
 func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics, codeRetrieveMeta, []map[string]interface{}) {
 	stage := "retrieve:bm25"
 	if emb != nil {
@@ -226,7 +237,7 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 			"file": db.RelPath(file, projectPath),
 		})
 	}
-	returnedSymbols := context.GetReturnedSymbolKeys(sessionID)
+	returned := context.ReturnedKeys(sessionID)
 	fileCache := map[string][]string{}
 	var chunks []RetrieveChunk
 	meta := codeRetrieveMeta{}
@@ -253,7 +264,8 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 				indexDB.QueryRow(selectSymbolLinesQuery, name, file, owner).Scan(&startLine, &endLine)
 			}
 		}
-		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
+		key := context.SymbolDedupKey(file, name, startLine)
+		if _, dup := returned[key]; dup {
 			meta.dedupCount++
 			meta.dedupTokens += context.WouldSendTokens(file, name, owner, mode, startLine, endLine, r.Score, maxScore, fullCount, fileCache)
 			continue
@@ -265,19 +277,35 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 		if includeSource || mode == "full" || (mode == "auto" && context.EffectiveMode("auto", r.Score, maxScore, fullCount) == "full") {
 			fullCount++
 		}
+		returned[key] = struct{}{}
 		chunks = append(chunks, RetrieveChunk{
 			Type:          "code",
 			Name:          name,
 			QualifiedName: qualified,
 			Kind:          kind,
 			File:          db.RelPath(file, projectPath),
+			StartLine:     startLine,
 			Score:         r.Score,
 			Source:        "code",
 			Content:       content,
+			absFile:       file,
+			endLine:       endLine,
 		})
-		context.LogReturned(sessionID, file, name, projectPath, startLine, mode, db.EstimateTokens(content))
 	}
 	return chunks, len(results), metrics, meta, hintRows
+}
+
+// markDeliveredCode records the code chunks actually sent as returned to sessionID.
+// Chunks cut by the token budget were never seen, so they stay eligible next call.
+func markDeliveredCode(sessionID, projectPath, mode string, chunks []RetrieveChunk) {
+	var delivered []context.ReturnedSymbol
+	for _, c := range chunks {
+		if c.Type != "code" || c.absFile == "" {
+			continue
+		}
+		delivered = append(delivered, context.ReturnedSymbol{File: c.absFile, Name: c.Name, ProjectPath: projectPath, StartLine: c.StartLine, Mode: mode, Tokens: db.EstimateTokens(c.Content)})
+	}
+	context.MarkReturned(sessionID, delivered...)
 }
 
 func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
@@ -288,16 +316,8 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 			total += db.EstimateTokens(c.Content)
 			continue
 		}
-		absFile := c.File
-		if projectPath != "" && !strings.HasPrefix(absFile, "/") {
-			absFile = projectPath + "/" + c.File
-		}
-		owner := projectlinks.OwningProject(absFile, projectPath)
-		var startLine, endLine int
-		if indexDB, err := db.IndexReader(); err == nil {
-			indexDB.QueryRow(selectSymbolLinesQuery, c.Name, absFile, owner).Scan(&startLine, &endLine)
-		}
-		total += context.FullSourceTokens(absFile, c.Name, owner, startLine, endLine, fileCache)
+		owner := projectlinks.OwningProject(c.absFile, projectPath)
+		total += context.FullSourceTokens(c.absFile, c.Name, owner, c.StartLine, c.endLine, fileCache)
 	}
 	return total
 }
@@ -338,7 +358,8 @@ func rankAndDedup(chunks []RetrieveChunk) []RetrieveChunk {
 	var unique []RetrieveChunk
 
 	for _, c := range chunks {
-		key := c.Type + "|" + c.File + "|" + c.Name
+		// StartLine tells same-named methods of different classes in one file apart.
+		key := c.Type + "|" + c.File + "|" + c.Name + "|" + strconv.Itoa(c.StartLine)
 		if seen[key] {
 			continue
 		}

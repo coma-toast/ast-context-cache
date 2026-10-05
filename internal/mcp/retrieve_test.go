@@ -3,6 +3,11 @@ package mcp
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
 // Golden shape for retrieve stats JSON (regression guard for observability fields).
@@ -30,4 +35,46 @@ func TestRetrieveStatsJSONGolden(t *testing.T) {
 	if string(b) != want {
 		t.Fatalf("stats JSON mismatch:\ngot:  %s\nwant: %s", b, want)
 	}
+}
+
+func retrieveFor(t *testing.T, project, sessionID string, budget int) RetrieveResult {
+	t.Helper()
+	args := map[string]interface{}{"query": "load_model", "include_docs": false, "token_budget": float64(budget)}
+	if sessionID != "" {
+		args["session_id"] = sessionID
+	}
+	out := HandleRetrieve(args, project)
+	raw, ok := out["result"].(json.RawMessage)
+	require.True(t, ok, "%v", out)
+	var r RetrieveResult
+	require.NoError(t, json.Unmarshal(raw, &r))
+	return r
+}
+
+func chunkKeys(r RetrieveResult) []string {
+	var out []string
+	for _, c := range r.Chunks {
+		out = append(out, c.QualifiedName)
+	}
+	return out
+}
+
+// Only chunks that fit the token budget are delivered, so only they are deduped
+// on the session's next call; a trimmed one must still be returned then.
+func TestRetrieveDedupsOnlyDeliveredChunks(t *testing.T) {
+	project, _ := indexedPython(t, "clients.py", twoClientsPy)
+	all := retrieveFor(t, project, "", 4000)
+	require.Len(t, all.Chunks, 2)
+	sid := t.Name()
+	first := retrieveFor(t, project, sid, db.EstimateTokens(all.Chunks[0].Content))
+	require.Len(t, first.Chunks, 1, "the budget fits one chunk")
+	assert.Positive(t, first.Chunks[0].StartLine)
+	delivered := first.Chunks[0].QualifiedName
+
+	next := retrieveFor(t, project, sid, 4000)
+	assert.NotContains(t, chunkKeys(next), delivered, "the delivered chunk is deduped")
+	assert.Len(t, next.Chunks, 1, "the budget-trimmed chunk is not")
+	assert.Equal(t, 1, next.Stats.DedupedCount)
+	raw, _ := json.Marshal(next.Stats)
+	assert.Contains(t, string(raw), `"deduped":1`)
 }

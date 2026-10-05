@@ -166,7 +166,8 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		return fileContextResult{JSON: string(data)}
 	}
 	defer rows.Close()
-	returnedSymbols := context.GetReturnedSymbolKeys(sessionID)
+	returned := context.ReturnedKeys(sessionID)
+	var delivered []context.ReturnedSymbol
 	fileCache := map[string][]string{}
 	var symbols []map[string]interface{}
 	symbolBaseline := 0
@@ -180,7 +181,8 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		var name, kind, skeleton, code, fqn string
 		var startLine, endLine int
 		rows.Scan(&name, &kind, &startLine, &endLine, &skeleton, &code, &fqn)
-		if returnedSymbols != nil && returnedSymbols[context.SymbolDedupKey(file, name, startLine)] {
+		key := context.SymbolDedupKey(file, name, startLine)
+		if _, dup := returned[key]; dup {
 			skipped++
 			dedupTokens += context.WouldSendTokens(file, name, projectPath, mode, startLine, endLine, maxScore, maxScore, fullCount, fileCache)
 			continue
@@ -207,8 +209,10 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		tokensUsed += resultTokens
 		symbols = append(symbols, sym)
-		context.LogReturned(sessionID, file, name, projectPath, startLine, mode, resultTokens)
+		returned[key] = struct{}{}
+		delivered = append(delivered, context.ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
 	}
+	context.MarkReturned(sessionID, delivered...)
 
 	lang := ""
 	ext := strings.ToLower(filepath.Ext(file))
