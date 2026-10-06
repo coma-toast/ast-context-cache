@@ -41,7 +41,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       TAG: ${{ inputs.tag }}
-      SNAPSHOT: ${{ github.event_name == 'pull_request' }}
+      # A dry run is the call without a tag (pull_request). Don't test github.event_name: under
+      # workflow_call it is the caller's event, and bump-version.yml runs on pull_request (closed).
+      SNAPSHOT: ${{ inputs.tag == '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,7 +76,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.event_name != 'pull_request'
+    if: inputs.tag != ''
     needs: build
     runs-on: ubuntu-latest
     env:
