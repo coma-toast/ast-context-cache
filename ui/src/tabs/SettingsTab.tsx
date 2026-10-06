@@ -35,6 +35,7 @@ import { DirectoryPicker } from '../components/DirectoryPicker'
 import { FeaturesSection } from '../components/FeaturesSection'
 import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
 import { InstallerSection } from '../components/InstallerSection'
+import { NetworkAccessSection } from '../components/NetworkAccessSection'
 
 const PROJECTS_PAGE_SIZE = 8
 
@@ -49,6 +50,7 @@ const SECTIONS = [
   { id: 'retention', label: 'Retention' },
   { id: 'projects', label: 'Projects' },
   { id: 'agents', label: 'Agent integration' },
+  { id: 'network', label: 'Network access' },
   { id: 'mcp', label: 'MCP tier' },
 ]
 
@@ -582,6 +584,8 @@ export function SettingsTab({
       </Card>
 
       <InstallerSection refreshKey={data} />
+
+      <NetworkAccessSection refreshKey={data} />
 
       {mcpTier && (
         <Card variant="outlined" id="settings-mcp">

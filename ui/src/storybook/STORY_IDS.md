@@ -9,6 +9,7 @@
 - `dashboard-settings--embedding-and-virtual`
 - `dashboard-settings--features`
 - `dashboard-settings--handoff`
+- `dashboard-settings--network-access`
 - `dashboard-installer--default`
 - `dashboard-installer--preview-open`
 - `dashboard-handoffs--overview`

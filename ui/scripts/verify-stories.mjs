@@ -31,6 +31,11 @@ const storiesToCheck = [
     textSignals: ["Tree TTL (days)", "Set by AST_HANDOFF_MAX_DEPTH"],
   },
   {
+    id: "dashboard-settings--network-access",
+    label: "Settings / Network access",
+    textSignals: ["Extra listen addresses", "Set by AST_TRUSTED_HOSTS in the environment"],
+  },
+  {
     id: "dashboard-handoffs--overview",
     label: "Handoffs / Overview",
     textSignals: ["Handoff trees", "Trace the auth middleware"],

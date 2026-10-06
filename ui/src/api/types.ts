@@ -477,6 +477,36 @@ export interface SetFlagResponse extends FlagsResponse {
   status: string
 }
 
+/** Settings keys of the network access section (`internal/netlisten`). */
+export type NetworkKey = 'listen_extra_addrs' | 'trusted_hosts' | 'remote_access_token'
+
+/** One extra listener's live state (`internal/netlisten.Status`). */
+export interface NetworkListener {
+  /** Which server: `mcp` or `dashboard`. */
+  server: string
+  addr: string
+  port: number
+  status: 'listening' | 'error'
+  error?: string
+}
+
+/** Network access settings and live extra listeners (`internal/netlisten.State`). Never carries the token. */
+export interface NetworkState {
+  listen_extra_addrs: string[] | null
+  trusted_hosts: string[] | null
+  token_set: boolean
+  /** Keys set by their env var, mapped to that var's name; read-only in the dashboard. */
+  locked: Partial<Record<NetworkKey, string>> | null
+  listeners: NetworkListener[] | null
+  /** The -listen / AST_LISTEN base address. */
+  base_listen: string
+  /** True when the base binds every interface, so extra addresses are skipped. */
+  base_wildcard: boolean
+}
+
+/** Partial update for POST /api/dashboard/network; lists are comma or newline separated, '' clears. */
+export type NetworkUpdate = Partial<Record<NetworkKey, string>>
+
 /** Handoff retention windows and caps (`internal/handoff.Limits`). */
 export interface HandoffLimits {
   ttl_days: number

@@ -15,6 +15,7 @@ import {
   fixtureInstallerBackups,
   fixtureInstallerErrorPlan,
   fixtureInstallerPlan,
+  fixtureNetwork,
 } from './fixtures'
 
 export function formatUptime(ns: number): string {
@@ -64,6 +65,9 @@ export const api = {
   // Read-only fixture so the Features section renders; toggling still hits `noop`.
   flags: async () => ({ flags: fixtureFlags }),
   setFlag: noop,
+  // Read-only fixture so the Network access section renders; saving still hits `noop`.
+  network: async () => fixtureNetwork,
+  setNetwork: noop,
   handoffTrees: async () => fixtureHandoffTrees,
   flushHandoffTree: noop,
   saveSetting: noop,

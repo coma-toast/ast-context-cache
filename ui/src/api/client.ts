@@ -15,6 +15,8 @@ import type {
   InstallerPlanRequest,
   MCPTier,
   MemoryData,
+  NetworkState,
+  NetworkUpdate,
   Project,
   PruneStatus,
   ReconcileSpacesResult,
@@ -47,6 +49,19 @@ export function apiUrl(path: string): string {
   return normalized
 }
 
+/** Where the server sends remote browsers without a session (`httpguard.LoginPath`). */
+export const LOGIN_PATH = '/login'
+
+/**
+ * A 401 means this browser reached the dashboard remotely and its session cookie is missing or
+ * stale (the access token was rotated): send it to the login form instead of showing API errors.
+ */
+function redirectOnUnauthorized(status: number) {
+  if (status === 401 && typeof window !== 'undefined' && window.location.pathname !== LOGIN_PATH) {
+    window.location.assign(LOGIN_PATH)
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
   const url = apiUrl(path)
   let r: Response
@@ -55,6 +70,7 @@ async function get<T>(path: string): Promise<T> {
   } catch (e) {
     throw new Error(`${path}: network error (${e instanceof Error ? e.message : 'fetch failed'})`)
   }
+  redirectOnUnauthorized(r.status)
   const text = await r.text()
   if (!r.ok) {
     throw new Error(`${path}: HTTP ${r.status}${text ? ` — ${text.slice(0, 120)}` : ''}`)
@@ -81,6 +97,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   } catch (e) {
     throw new Error(`${path}: network error (${e instanceof Error ? e.message : 'fetch failed'})`)
   }
+  redirectOnUnauthorized(r.status)
   const text = await r.text()
   let data: T & ErrorBody
   try {
@@ -155,6 +172,8 @@ export const api = {
   mcpTier: () => get<MCPTier>('/api/dashboard/mcp-tier'),
   flags: () => get<FlagsResponse>('/api/dashboard/flags'),
   setFlag: (key: string, enabled: boolean) => post<SetFlagResponse>('/api/dashboard/flags', { key, enabled }),
+  network: () => get<NetworkState>('/api/dashboard/network'),
+  setNetwork: (update: NetworkUpdate) => post<NetworkState>('/api/dashboard/network', update),
   handoffTrees: (limit = 20) => get<HandoffTreesResponse>(`/api/dashboard/handoff-trees?limit=${limit}`),
   flushHandoffTree: (treeId: string) =>
     post<FlushHandoffTreeResponse>('/api/dashboard/handoff-trees/flush', { tree_id: treeId }),

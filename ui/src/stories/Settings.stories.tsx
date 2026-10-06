@@ -3,6 +3,7 @@ import { StoryFrame } from '../storybook/StoryFrame'
 import { SettingsTab } from '../tabs/SettingsTab'
 import { FeaturesSection } from '../components/FeaturesSection'
 import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
+import { NetworkAccessSection } from '../components/NetworkAccessSection'
 import { fixtureMcpTier, fixtureSettings } from '../storybook/fixtures'
 
 const meta: Meta = {
@@ -35,6 +36,15 @@ export const Handoff: Story = {
   render: () => (
     <StoryFrame>
       <HandoffSettingsSection data={fixtureSettings} save={async () => {}} />
+    </StoryFrame>
+  ),
+}
+
+/** Network access card: extra addresses (one failing to bind), env-locked trusted hosts, no token yet. */
+export const NetworkAccess: Story = {
+  render: () => (
+    <StoryFrame>
+      <NetworkAccessSection />
     </StoryFrame>
   ),
 }
