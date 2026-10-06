@@ -28,6 +28,10 @@ tar -xzf ast-context-cache_<version>_darwin_arm64.tar.gz
 
 The binary needs no build tools. The local ONNX embedding backend also needs the onnxruntime library (`brew install onnxruntime`, or set `ONNXRUNTIME_LIB`) and the model files (`make download-model` in a clone, or point `MODEL_DIR` at them). A remote embedder (Ollama, or an OpenAI-compatible endpoint) needs neither; pick it in the dashboard's Embedding settings. Other platforms build from source below.
 
+### Updating
+
+Dashboard **Settings → Updates** compares the running build with the latest release. **Update** downloads the archive for this platform, checks it against `checksums.txt`, and replaces `ast-mcp` in place, keeping the old binary as `ast-mcp.prev`; **Restart now** then switches over. A build from source is offered the release too, with a warning, since its version number may not match its code. If a supervisor rebuilds ast-mcp from source on restart (for example an mcp-local `build_command`), remove that step, or it will overwrite the installed release.
+
 ## Manual steps
 
 ### 1. Install dependencies

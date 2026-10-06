@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/selfupdate"
 )
 
 func TestHandleUpdateCheckRejectsPost(t *testing.T) {
@@ -19,10 +20,21 @@ func TestHandleUpdateCheckRejectsPost(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateCheckReportsNotAGitCheckout(t *testing.T) {
-	// os.Executable() under `go test` resolves to the compiled test binary's
-	// own directory, not a git checkout — handleUpdateCheck should surface
-	// that as a clean error in the JSON body rather than panic or hang.
+// releasesDown points the updater at a server that fails every request, so
+// these tests never reach GitHub.
+func releasesDown(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	prev := selfupdate.LatestReleaseURL
+	selfupdate.LatestReleaseURL = srv.URL
+	t.Cleanup(func() { selfupdate.LatestReleaseURL = prev })
+}
+
+func TestHandleUpdateCheckReportsReleaseLookupFailure(t *testing.T) {
+	releasesDown(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/update/check", nil)
 	w := httptest.NewRecorder()
 	handleUpdateCheck(w, req)
@@ -34,7 +46,10 @@ func TestHandleUpdateCheckReportsNotAGitCheckout(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if s, _ := result["error"].(string); s == "" {
-		t.Fatalf("expected a non-empty 'error' field since the test binary's dir isn't a git checkout, got %+v", result)
+		t.Fatalf("expected a non-empty 'error' field when releases can't be fetched, got %+v", result)
+	}
+	if v, _ := result["current_version"].(string); v == "" {
+		t.Fatalf("expected the running version even when the lookup fails, got %+v", result)
 	}
 }
 
@@ -47,7 +62,8 @@ func TestHandleStartUpdateRejectsGet(t *testing.T) {
 	}
 }
 
-func TestHandleStartUpdateFailsCleanlyOutsideAGitCheckout(t *testing.T) {
+func TestHandleStartUpdateFailsCleanlyWhenReleasesAreUnreachable(t *testing.T) {
+	releasesDown(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/update/start", nil)
 	w := httptest.NewRecorder()
 	handleStartUpdate(w, req)

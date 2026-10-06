@@ -405,11 +405,14 @@ export interface DataDirMoveStatus {
 }
 
 export interface UpdateCheckResult {
-  branch: string
-  clean: boolean
-  current_commit: string
-  latest_commit: string
-  commits_behind: number
+  current_version: string
+  /** "release" for published builds, "source" for local `make build` builds. */
+  build: string
+  source_build: boolean
+  latest_version: string
+  release_url: string
+  published_at: string
+  asset_name: string
   update_available: boolean
   error?: string
 }
@@ -417,12 +420,13 @@ export interface UpdateCheckResult {
 export interface UpdateStatus {
   active: boolean
   done: boolean
+  /** downloading → verifying → installing → installed, or error. */
   phase: string
   error: string
   started_at: string
   finished_at: string
-  from_commit: string
-  to_commit: string
+  from_version: string
+  to_version: string
 }
 
 export interface PruneStatus {

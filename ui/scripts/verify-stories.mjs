@@ -46,6 +46,21 @@ const storiesToCheck = [
     textSignals: ["file_0.go", "file_9.go", "+3 more"],
   },
   {
+    id: "dashboard-updates--available",
+    label: "Updates / Available",
+    textSignals: ["Update to v4.0.7", "Latest release", "checksums.txt"],
+  },
+  {
+    id: "dashboard-updates--source-build",
+    label: "Updates / Source build",
+    textSignals: ["source build", "built from source"],
+  },
+  {
+    id: "dashboard-updates--installed",
+    label: "Updates / Installed",
+    textSignals: ["Installed v4.0.7 (was v4.0.6)", "Restart now"],
+  },
+  {
     id: "dashboard-installer--default",
     label: "Installer / Default",
     textSignals: ["Agent integration", "Modified by user"],

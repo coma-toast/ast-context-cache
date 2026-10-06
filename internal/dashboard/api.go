@@ -1507,15 +1507,14 @@ func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// selfUpdateRepoDir returns the directory ast-mcp's own source checkout lives in,
-// matching cmd/ast-mcp/main.go's exeDir convention (the executable is run in place
-// from the repo root, e.g. via the `ast-mcp` shell function or mcp-local).
-func selfUpdateRepoDir() (string, error) {
+// selfUpdateExePath returns the running ast-mcp, symlinks resolved, which an
+// update replaces in place so model/ and the .ortlib sidecar beside it still apply.
+func selfUpdateExePath() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Dir(exe), nil
+	return filepath.EvalSymlinks(exe)
 }
 
 func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
@@ -1525,18 +1524,15 @@ func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
 		return
 	}
-	repoDir, err := selfUpdateRepoDir()
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-	c := selfupdate.Check(repoDir)
+	c := selfupdate.Check()
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"branch":           c.Branch,
-		"clean":            c.Clean,
-		"current_commit":   c.CurrentCommit,
-		"latest_commit":    c.LatestCommit,
-		"commits_behind":   c.CommitsBehind,
+		"current_version":  c.CurrentVersion,
+		"build":            c.Build,
+		"source_build":     c.SourceBuild,
+		"latest_version":   c.LatestVersion,
+		"release_url":      c.ReleaseURL,
+		"published_at":     c.PublishedAt,
+		"asset_name":       c.AssetName,
 		"update_available": c.UpdateAvailable,
 		"error":            c.Error,
 	})
@@ -1549,12 +1545,12 @@ func handleStartUpdate(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
 		return
 	}
-	repoDir, err := selfUpdateRepoDir()
+	exe, err := selfUpdateExePath()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	started, errMsg := selfupdate.Start(repoDir)
+	started, errMsg := selfupdate.Start(exe)
 	if !started {
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
@@ -1572,20 +1568,20 @@ func handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	s := selfupdate.GetSnapshot()
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"active":      s.Active,
-		"done":        s.Done,
-		"phase":       s.Phase,
-		"error":       s.Error,
-		"started_at":  s.StartedAt,
-		"finished_at": s.FinishedAt,
-		"from_commit": s.FromCommit,
-		"to_commit":   s.ToCommit,
+		"active":       s.Active,
+		"done":         s.Done,
+		"phase":        s.Phase,
+		"error":        s.Error,
+		"started_at":   s.StartedAt,
+		"finished_at":  s.FinishedAt,
+		"from_version": s.FromVersion,
+		"to_version":   s.ToVersion,
 	})
 }
 
 // handleRestartNow is the explicit, user-initiated trigger for db.RestartProcess —
 // shared by the "Restart now" buttons on the Move-data-directory and Update cards.
-// Both flows finish (copy/pull+build) without restarting automatically; see
+// Both flows finish (copy/download+install) without restarting automatically; see
 // db.RestartProcess's doc comment for why an automatic restart isn't safe yet.
 func handleRestartNow(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

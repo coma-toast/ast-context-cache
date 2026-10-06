@@ -25,7 +25,7 @@ builds:
     goarch: [arm64]
     env: [CGO_ENABLED=1, GOWORK=off]
     flags: [-trimpath, -tags=sqlite_fts5]
-    ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }}"]
+    ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }} -X github.com/coma-toast/ast-context-cache/internal/version.Build=release"]
   - id: linux
     main: ./cmd/ast-mcp
     binary: ast-mcp
@@ -34,7 +34,7 @@ builds:
     goarch: [arm64]
     env: [CGO_ENABLED=1, GOWORK=off]
     flags: [-trimpath, -tags=sqlite_fts5]
-    ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }}"]
+    ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }} -X github.com/coma-toast/ast-context-cache/internal/version.Build=release"]
 
 archives:
   - formats: [tar.gz]
