@@ -41,6 +41,11 @@ const storiesToCheck = [
     textSignals: ["Handoff trees", "Trace the auth middleware"],
   },
   {
+    id: "dashboard-toasts--indexing-burst",
+    label: "Toasts / Indexing burst",
+    textSignals: ["file_0.go", "file_9.go", "+3 more"],
+  },
+  {
     id: "dashboard-installer--default",
     label: "Installer / Default",
     textSignals: ["Agent integration", "Modified by user"],

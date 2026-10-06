@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Autocomplete,
@@ -20,6 +20,7 @@ import { HealthBar } from './components/HealthBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
 import { panelsToKeys, useWebSocket } from './hooks/useWebSocket'
+import { shouldHoldIndexToast } from './lib/toastStack'
 import { useResizableSidebar } from './hooks/useResizableSidebar'
 import { OverviewTab } from './tabs/OverviewTab'
 import { IndexHealthSection } from './tabs/IndexHealthSection'
@@ -29,6 +30,9 @@ import { ActivityTab } from './tabs/ActivityTab'
 import { AnalyticsTab } from './tabs/AnalyticsTab'
 import { RecentTab } from './tabs/RecentTab'
 import { SettingsTab } from './tabs/SettingsTab'
+
+// How long an indexing toast held open for its queue lingers after the queue drains.
+const INDEX_DRAIN_CLOSE_MS = 1000
 
 const NAV = [
   { id: 'overview', label: 'Overview' },
@@ -51,7 +55,8 @@ const TAB_HINTS: Record<TabId, string> = {
 }
 
 function DashboardInner() {
-  const { showToast } = useToast()
+  const { showToast, releaseToastGroup } = useToast()
+  const indexDrainGens = useRef(new Map<string, number>())
   const { width: sidebarWidth, onPointerDown: onSidebarResize } = useResizableSidebar()
   const [tab, setTab] = useState<TabId>('overview')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -170,7 +175,16 @@ function DashboardInner() {
       if (keys.length) load(keys)
     },
     (data) => {
-      showToast(`${data.toolName}: ${data.query?.slice(0, 40)}`, 'info')
+      const message = `${data.toolName}: ${data.query?.slice(0, 40)}`
+      const project = data.project
+      if (!project) return showToast(message, 'info')
+      const pending = Number(data.pending) || 0
+      const hold = shouldHoldIndexToast(pending, Number(data.drainGen) || 0, indexDrainGens.current.get(project))
+      showToast(hold && pending > 1 ? `${message} · ${pending} pending` : message, 'info', { group: project, hold })
+    },
+    (data) => {
+      indexDrainGens.current.set(data.project, Number(data.drainGen) || 0)
+      releaseToastGroup(data.project, INDEX_DRAIN_CLOSE_MS)
     },
   )
 

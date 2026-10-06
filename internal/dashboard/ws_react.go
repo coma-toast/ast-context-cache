@@ -3,6 +3,7 @@ package dashboard
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -197,19 +198,33 @@ func handleToastWS(w http.ResponseWriter, r *http.Request) {
 	handleWS(w, r)
 }
 
-func broadcastToastWS(toolName, query, timeStr, savedText, durationMs, toolColor string) {
-	if hub != nil {
-		hub.broadcast <- wsMsg{
-			Type:      "toast",
-			Timestamp: timeStr,
-			Data: map[string]string{
-				"toolName":   toolName,
-				"query":      query,
-				"timeStr":    timeStr,
-				"savedText":  savedText,
-				"durationMs": durationMs,
-				"toolColor":  toolColor,
-			},
-		}
+func broadcastToastWS(toolName, query, timeStr, savedText, durationMs, toolColor string, extra map[string]string) {
+	if hub == nil {
+		return
+	}
+	data := map[string]string{
+		"toolName":   toolName,
+		"query":      query,
+		"timeStr":    timeStr,
+		"savedText":  savedText,
+		"durationMs": durationMs,
+		"toolColor":  toolColor,
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	hub.broadcast <- wsMsg{Type: "toast", Timestamp: timeStr, Data: data}
+}
+
+// broadcastIndexDrainedWS tells the dashboard a project's watcher queue is
+// empty, so it can close the indexing toast it held open.
+func broadcastIndexDrainedWS(projectPath string, gen uint64) {
+	if hub == nil {
+		return
+	}
+	hub.broadcast <- wsMsg{
+		Type:      "index-drained",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Data:      map[string]string{"project": projectPath, "drainGen": strconv.FormatUint(gen, 10)},
 	}
 }

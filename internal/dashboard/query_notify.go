@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
+	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
 
 func initQueryLogBridge() {
 	db.AfterQueryLogFlush = onQueryLogFlush
+	watcher.QueueDrainedHook = broadcastIndexDrainedWS
 }
 
 func onQueryLogFlush(rows []db.QueryLogSnapshot) {
@@ -69,10 +72,19 @@ func notifyQueryLogged(toolName, argsJSON, ts, projectPath string, saved int, du
 		}
 	}
 	toolColor := "inherit"
+	var extra map[string]string
 	if toolName == "file_watcher" {
 		toolColor = "#3fb950"
+		extra = indexQueueFields(projectPath)
 	}
-	broadcastToastWS(displayName, query, timeStr, savedText, durText, toolColor)
+	broadcastToastWS(displayName, query, timeStr, savedText, durText, toolColor, extra)
+}
+
+// indexQueueFields tags a watcher toast with the project's queue state so the
+// dashboard can hold its newest indexing toast open until the queue drains.
+func indexQueueFields(projectPath string) map[string]string {
+	pending, gen := watcher.Pending(projectPath)
+	return map[string]string{"project": projectPath, "pending": strconv.Itoa(pending), "drainGen": strconv.FormatUint(gen, 10)}
 }
 
 func formatWatcherToastQuery(parsed map[string]interface{}) string {
