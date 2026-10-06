@@ -29,6 +29,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/netlisten"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/purge"
@@ -54,11 +55,19 @@ const (
 )
 
 // listenAddr is the host both servers bind to (-listen / AST_LISTEN). Loopback by
-// default: neither server has authentication, and the MCP spec says local servers
-// SHOULD bind to 127.0.0.1. Docker sets 0.0.0.0 so published ports work.
+// default: loopback clients need no credentials, and the MCP spec says local servers
+// SHOULD bind to 127.0.0.1. Docker sets 0.0.0.0 so published ports work. Extra
+// addresses (a Tailscale IP) come from the listen_extra_addrs setting or
+// AST_LISTEN_EXTRA and are managed live by netlisten.
 var listenAddr = defaultListenAddr
 
-const defaultListenAddr = "127.0.0.1"
+const (
+	defaultListenAddr = "127.0.0.1"
+	ipv6LoopbackAddr  = "::1"
+)
+
+// extraListenRetry is how often extra listeners that failed to bind are retried.
+const extraListenRetry = 30 * time.Second
 
 // shutdownFlushTimeout bounds the final analytics flush so a wedged SQLite write
 // can't stop the process from exiting on SIGTERM.
@@ -110,6 +119,14 @@ func main() {
 	if !httpguard.IsLoopbackHost(listenAddr) {
 		logger.Warn("Listening on non-loopback address", "listen", listenAddr)
 	}
+	if listenAddr == defaultListenAddr {
+		netlisten.SetBase(listenAddr, ipv6LoopbackAddr)
+	} else {
+		netlisten.SetBase(listenAddr)
+	}
+	// Before db.Init only the env vars resolve, so an AST_ACCESS_TOKEN guards the very
+	// first request; the settings-backed values are applied once the databases open.
+	netlisten.Apply()
 
 	logger.Info("Initializing")
 	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
@@ -134,6 +151,7 @@ func main() {
 	// rather than at its ListenAndServe call further down, so that read has a clear
 	// happens-before edge and isn't a data race with this assignment.
 	dashSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(dashboardPort)), Handler: dashHandler}
+	dashListeners := netlisten.NewManager("dashboard", dashSrv, dashboardPort)
 	dbReady := make(chan error, 1)
 
 	go func() {
@@ -178,10 +196,16 @@ func main() {
 			json.NewEncoder(w).Encode(map[string]interface{}{"service": "AST MCP", "dashboard": serverURL(dashboardPort)})
 		})
 
-		mcpSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(mcpPort)), Handler: mcpMux}
+		// The health probe stays open so remote monitors and the installer can check liveness.
+		mcpSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(mcpPort)), Handler: httpguard.RequireMCPAuth(mcpMux, "/health")}
 		// Shutdown waits for idle connections, which open SSE streams never become.
 		mcpSrv.RegisterOnShutdown(mcp.CloseStreams)
 		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
+		netlisten.Register(netlisten.NewManager("mcp", mcpSrv, mcpPort), dashListeners)
+		if cfg := netlisten.Apply(); len(cfg.ExtraAddrs) > 0 && cfg.Token == "" {
+			logger.Warn("Extra listen addresses have no access token; anyone who can reach them can use the server", "extra", cfg.ExtraAddrs)
+		}
+		netlisten.StartRetry(ctx, extraListenRetry)
 
 		go func() {
 			logger.Info("Starting MCP server", "url", serverURL(mcpPort)+"/mcp")
@@ -201,6 +225,7 @@ func main() {
 		<-sig
 		logger.Info("Shutting down")
 		cancel()
+		netlisten.CloseAll()
 		db.RequestShutdown()
 		flushWriteBuffers(shutdownFlushTimeout)
 		embedqueue.EndRunLock()
@@ -234,6 +259,8 @@ func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 		embedqueue.PauseAllForMaintenance(2 * time.Minute)
 		logger.Info("Embed queue paused, shutting down servers")
 
+		// Closed first so the retry loop or a settings save can't reopen one mid-drain.
+		netlisten.CloseAll()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := mcpSrv.Shutdown(ctx); err != nil {
@@ -289,7 +316,7 @@ func listeners(port int) ([]net.Listener, error) {
 	if listenAddr != defaultListenAddr {
 		return []net.Listener{primary}, nil
 	}
-	v6, err := net.Listen("tcp", net.JoinHostPort("::1", p))
+	v6, err := net.Listen("tcp", net.JoinHostPort(ipv6LoopbackAddr, p))
 	if err != nil {
 		logger.Debug("Not listening on IPv6 loopback", "port", port, "error", err)
 		return []net.Listener{primary}, nil

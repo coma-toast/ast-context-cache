@@ -24,6 +24,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/netlisten"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/purge"
@@ -122,6 +123,8 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/prune", handlePrune)
 	mux.HandleFunc("/api/prune/status", handlePruneStatus)
 	mux.HandleFunc("/api/browse-dir", handleBrowseDir)
+	// Remote access login (only enforced for non-loopback clients when a token is set).
+	mux.HandleFunc(httpguard.LoginPath, httpguard.HandleLogin)
 
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
@@ -837,6 +840,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeFlagsError(w, http.StatusBadRequest, flagSettingKeyMsg)
 			return
 		}
+		if netlisten.IsKey(key) {
+			saveNetworkSetting(w, key, value)
+			return
+		}
 		if handoff.IsLimitSetting(key) {
 			n, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil || n < 1 {
@@ -987,6 +994,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		embedder.ProbeIntervalSettingKey: "10",
 		"dashboard_log_tail_lines":       "200",
 		"dashboard_log_line_chars":       "500",
+		netlisten.KeyExtraAddrs:          "",
+		netlisten.KeyTrustedHosts:        "",
 	}
 	for _, ls := range handoff.LimitSettings() {
 		defaults[ls.Key] = strconv.Itoa(ls.Default)
@@ -997,6 +1006,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			settings[k] = v
 		}
 	}
+	redactNetworkSettings(settings)
 	json.NewEncoder(w).Encode(settings)
 }
 

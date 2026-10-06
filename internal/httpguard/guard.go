@@ -1,8 +1,11 @@
 // Package httpguard rejects cross-origin and DNS-rebinding requests to the local
-// MCP and dashboard servers. Both servers have no authentication, so a browser tab
-// on any website could otherwise drive them: a foreign Origin header catches plain
-// cross-site requests, and a Host check catches DNS rebinding, where the attacker's
-// hostname resolves to 127.0.0.1 and the browser treats the request as same-origin.
+// MCP and dashboard servers, and enforces the optional remote access token. Loopback
+// clients need no credentials, so a browser tab on any website could otherwise drive
+// the servers: a foreign Origin header catches plain cross-site requests, and a Host
+// check catches DNS rebinding, where the attacker's hostname resolves to 127.0.0.1
+// and the browser treats the request as same-origin. Hosts the operator trusts
+// (extra listen addresses such as a Tailscale IP, and their MagicDNS names) pass both
+// checks; see SetTrusted.
 package httpguard
 
 import (
@@ -10,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 )
@@ -22,6 +26,33 @@ const (
 )
 
 var logger = logging.Tagged("httpguard")
+
+// trusted holds the normalized host names and IPs (see hostOnly) that pass the Host
+// and Origin checks besides loopback. It is replaced wholesale by SetTrusted.
+var trusted atomic.Pointer[map[string]struct{}]
+
+// SetTrusted replaces the set of extra hosts the Host and Origin checks accept: IPs
+// the server listens on beyond loopback, and hostnames that resolve to them. Each
+// entry is normalized like a Host header, so "Name.ts.net." matches "name.ts.net:7830".
+func SetTrusted(hosts []string) {
+	set := make(map[string]struct{}, len(hosts))
+	for _, h := range hosts {
+		if n := hostOnly(h); n != "" && !isWildcard(n) {
+			set[n] = struct{}{}
+		}
+	}
+	trusted.Store(&set)
+}
+
+// IsTrustedHost reports whether host (port and brackets allowed) is in the SetTrusted set.
+func IsTrustedHost(host string) bool {
+	set := trusted.Load()
+	if set == nil {
+		return false
+	}
+	_, ok := (*set)[hostOnly(host)]
+	return ok
+}
 
 // IsLoopbackHost reports whether host names this machine: localhost, *.localhost,
 // 127.0.0.0/8 or ::1. A port and IPv6 brackets are stripped first.
@@ -37,7 +68,8 @@ func IsLoopbackHost(host string) bool {
 // AllowOrigin reports whether a request carrying this Origin header may act on the
 // server. A missing Origin is allowed because native MCP clients, CLIs and curl
 // don't send one, while browsers always do on cross-origin writes. Otherwise only
-// loopback origins (any port, which covers the dashboard UI) are allowed.
+// loopback origins (any port, which covers the dashboard UI) and trusted hosts are
+// allowed.
 func AllowOrigin(origin string) bool {
 	if origin == "" {
 		return true
@@ -46,14 +78,16 @@ func AllowOrigin(origin string) bool {
 	if err != nil {
 		return false
 	}
-	return IsLoopbackHost(u.Hostname())
+	h := u.Hostname()
+	return IsLoopbackHost(h) || (h != "" && IsTrustedHost(h))
 }
 
 // AllowHost reports whether the Host header is one the server expects given the
 // address it listens on. Loopback names are always allowed. A wildcard listen
 // address ("", 0.0.0.0, ::), as in Docker, accepts any Host because the server is
 // deliberately reachable under names it can't know; Origin checks still apply.
-// A specific listen address additionally allows that address itself.
+// A specific listen address additionally allows that address itself, and any
+// trusted host (SetTrusted) is allowed too.
 func AllowHost(host, listen string) bool {
 	if IsLoopbackHost(host) {
 		return true
@@ -63,20 +97,23 @@ func AllowHost(host, listen string) bool {
 		return true
 	}
 	h := hostOnly(host)
-	return h != "" && h == l
+	return h != "" && (h == l || IsTrustedHost(h))
 }
 
 // Middleware guards the dashboard: writes (POST, PUT, PATCH, DELETE) and WebSocket
 // upgrades are rejected with 403 when the Origin is foreign or the Host isn't
 // expected for listen. Plain GET and HEAD pass through, so read-only scrapers
-// such as Prometheus keep working under any Host.
+// such as Prometheus keep working under any Host. When an access token is set,
+// non-loopback clients must also authenticate on every method (see Authorized):
+// HTML routes redirect to LoginPath, everything else gets a 401. LoginPath itself
+// is exempt so the form can be shown and submitted.
 func Middleware(listen string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isStateChanging(r) {
-			next.ServeHTTP(w, r)
+		if isStateChanging(r) && reject(w, r, listen, forbiddenOriginBody, forbiddenHostBody) {
 			return
 		}
-		if reject(w, r, listen, forbiddenOriginBody, forbiddenHostBody) {
+		if r.URL.Path != LoginPath && !Authorized(r) {
+			denyDashboard(w, r)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -86,7 +123,8 @@ func Middleware(listen string, next http.Handler) http.Handler {
 // MCPMiddleware guards the Streamable HTTP /mcp endpoint, applying the Origin and
 // Host checks to every method: the MCP spec requires Origin validation on all
 // incoming connections and a 403 for an invalid one. The body is a JSON-RPC error
-// without an id, as the spec allows.
+// without an id, as the spec allows. The access token is enforced separately for
+// the whole MCP port by RequireMCPAuth.
 func MCPMiddleware(listen string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if reject(w, r, listen, mcpForbiddenOriginBody, mcpForbiddenHostBody) {

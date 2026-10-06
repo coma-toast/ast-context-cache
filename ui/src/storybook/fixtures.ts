@@ -14,6 +14,7 @@ import type {
   InstallerPlan,
   MCPTier,
   MemoryData,
+  NetworkState,
   SettingsData,
   Stats,
   WeeklyDigest,
@@ -367,6 +368,37 @@ export const fixtureMcpTier: MCPTier = {
   tool_overrides: {},
   tools_json_path: '~/.astcache/tools.json',
   tools_json_exists: true,
+}
+
+/**
+ * Network access with one extra (tailnet-style, anonymized) address listening on both ports, one
+ * that failed to bind, an env-locked trusted hosts list, and no token, so the warning shows.
+ */
+export const fixtureNetwork: NetworkState = {
+  listen_extra_addrs: ['100.101.102.103', '100.101.102.200'],
+  trusted_hosts: ['demo-laptop.example-tailnet.ts.net'],
+  token_set: false,
+  locked: { trusted_hosts: 'AST_TRUSTED_HOSTS' },
+  listeners: [
+    { server: 'mcp', addr: '100.101.102.103', port: 7821, status: 'listening' },
+    {
+      server: 'mcp',
+      addr: '100.101.102.200',
+      port: 7821,
+      status: 'error',
+      error: 'failed to open extra listener: listen tcp 100.101.102.200:7821: bind: can\'t assign requested address',
+    },
+    { server: 'dashboard', addr: '100.101.102.103', port: 7830, status: 'listening' },
+    {
+      server: 'dashboard',
+      addr: '100.101.102.200',
+      port: 7830,
+      status: 'error',
+      error: 'failed to open extra listener: listen tcp 100.101.102.200:7830: bind: can\'t assign requested address',
+    },
+  ],
+  base_listen: '127.0.0.1',
+  base_wildcard: false,
 }
 
 /** Feature flags covering every source: defaults, a dashboard setting, and an env-locked flag. */
