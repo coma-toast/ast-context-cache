@@ -1,0 +1,59 @@
+# GoReleaser config for ast-context-cache.
+#
+# The server needs cgo (SQLite, tree-sitter, and the per-arch libtokenizers.a), so each platform
+# builds natively on its own runner: every build below is skipped unless it matches the runner's
+# OS. Each runner packages without publishing; the release workflow's publish job merges the
+# per-runner checksums and creates the GitHub release. (Merging split builds inside GoReleaser is
+# a Pro feature.)
+#
+# Local check:  go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean --skip=publish
+version: 2
+
+project_name: ast-context-cache
+
+before:
+  hooks:
+    # internal/version embeds this file; make normally copies it.
+    - cp VERSION internal/version/VERSION
+
+builds:
+  - id: darwin
+    main: ./cmd/ast-mcp
+    binary: ast-mcp
+    skip: '{{ ne .Runtime.Goos "darwin" }}'
+    goos: [darwin]
+    goarch: [arm64]
+    env: [CGO_ENABLED=1, GOWORK=off]
+    flags: [-trimpath, -tags=sqlite_fts5]
+    ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }}"]
+  - id: linux
+    main: ./cmd/ast-mcp
+    binary: ast-mcp
+    skip: '{{ ne .Runtime.Goos "linux" }}'
+    goos: [linux]
+    goarch: [arm64]
+    env: [CGO_ENABLED=1, GOWORK=off]
+    flags: [-trimpath, -tags=sqlite_fts5]
+    ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }}"]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - docs/INSTALL.md
+      - docs/handoff.md
+      - docs/host-integration.md
+
+checksum:
+  # One file per runner; the publish job concatenates them into checksums.txt.
+  name_template: "checksums_{{ .Runtime.Goos }}_{{ .Runtime.Goarch }}.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  disable: true
+
+release:
+  disable: true

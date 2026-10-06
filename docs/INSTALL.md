@@ -17,6 +17,17 @@ make run
 
 `make setup` installs the dependencies and builds the `ast-mcp` binary in the repo root. Then [connect your agents](#connect-your-agents).
 
+## Install from a release
+
+Every merge to `main` publishes a [GitHub release](https://github.com/coma-toast/ast-context-cache/releases) with prebuilt binaries for macOS (Apple Silicon) and Linux (arm64), plus `checksums.txt`. Each archive holds `ast-mcp` and these docs.
+
+```bash
+tar -xzf ast-context-cache_<version>_darwin_arm64.tar.gz
+./ast-mcp --version
+```
+
+The binary needs no build tools. The local ONNX embedding backend also needs the onnxruntime library (`brew install onnxruntime`, or set `ONNXRUNTIME_LIB`) and the model files (`make download-model` in a clone, or point `MODEL_DIR` at them). A remote embedder (Ollama, or an OpenAI-compatible endpoint) needs neither; pick it in the dashboard's Embedding settings. Other platforms build from source below.
+
 ## Manual steps
 
 ### 1. Install dependencies
