@@ -24,8 +24,6 @@ import type {
   Project,
   PruneStatus,
   SettingsData,
-  UpdateCheckResult,
-  UpdateStatus,
 } from '../api/types'
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
@@ -36,6 +34,8 @@ import { FeaturesSection } from '../components/FeaturesSection'
 import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
 import { InstallerSection } from '../components/InstallerSection'
 import { NetworkAccessSection } from '../components/NetworkAccessSection'
+import { UpdatesSection } from '../components/UpdatesSection'
+import { restartNow } from '../lib/restart'
 
 const PROJECTS_PAGE_SIZE = 8
 
@@ -814,141 +814,6 @@ function StorageSection({ data }: { data: SettingsData }) {
             </Alert>
           )}
         </Box>
-      </CardContent>
-    </Card>
-  )
-}
-
-function shortSha(sha: string): string {
-  return sha ? sha.slice(0, 7) : ''
-}
-
-// Shared by the Storage and Updates cards' "Restart now" buttons — the actual restart
-// (drain + exec) is deliberately a separate, explicit action rather than automatic; see
-// the backend's db.RestartProcess doc comment for why.
-async function restartNow(showToast: (message: string, severity?: 'success' | 'error' | 'info' | 'warning') => void, setRestarting: (v: boolean) => void) {
-  setRestarting(true)
-  try {
-    await api.restartNow()
-    showToast('Restarting ast-mcp — this page will reconnect once it\'s back', 'success')
-  } catch (e) {
-    showToast(String(e), 'error')
-    setRestarting(false)
-  }
-}
-
-function UpdatesSection() {
-  const { showToast } = useToast()
-  const [check, setCheck] = useState<UpdateCheckResult | null>(null)
-  const [checking, setChecking] = useState(false)
-  const [status, setStatus] = useState<UpdateStatus | null>(null)
-  const [starting, setStarting] = useState(false)
-  const [restarting, setRestarting] = useState(false)
-
-  const runCheck = async () => {
-    setChecking(true)
-    try {
-      setCheck(await api.updateCheck())
-    } catch (e) {
-      showToast(String(e), 'error')
-    } finally {
-      setChecking(false)
-    }
-  }
-
-  useEffect(() => {
-    runCheck()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    const poll = async () => {
-      try {
-        const s = await api.updateStatus()
-        if (!cancelled) setStatus(s)
-      } catch {
-        // transient poll failure — try again next tick
-      }
-    }
-    poll()
-    const id = setInterval(poll, 1500)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [])
-
-  const active = status?.active ?? false
-
-  const startTheUpdate = async () => {
-    setStarting(true)
-    try {
-      await api.startUpdate()
-      showToast('Update started', 'success')
-    } catch (e) {
-      showToast(String(e), 'error')
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  return (
-    <Card variant="outlined" id="settings-updates" sx={{ mb: 2 }}>
-      <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
-          Updates
-        </Typography>
-        {check?.error ? (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-            {check.error}
-          </Typography>
-        ) : (
-          check && (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              {check.update_available
-                ? `Update available — ${check.commits_behind} commit${check.commits_behind === 1 ? '' : 's'} behind (${shortSha(check.current_commit)} → ${shortSha(check.latest_commit)})`
-                : `Up to date (${shortSha(check.current_commit)})`}
-            </Typography>
-          )
-        )}
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
-          <Button variant="outlined" size="small" disabled={checking || active} onClick={runCheck}>
-            {checking ? 'Checking…' : 'Check for updates'}
-          </Button>
-          <Button
-            color="primary"
-            variant="outlined"
-            size="small"
-            disabled={active || starting || !check?.update_available}
-            onClick={startTheUpdate}
-          >
-            {active ? 'Updating…' : 'Update'}
-          </Button>
-        </Stack>
-        {active && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            {status?.phase || 'working'}…
-          </Typography>
-        )}
-        {!active && status?.done && (
-          <Alert
-            severity="success"
-            sx={{ mt: 1.5 }}
-            action={
-              <Button color="inherit" size="small" disabled={restarting} onClick={() => restartNow(showToast, setRestarting)}>
-                {restarting ? 'Restarting…' : 'Restart now'}
-              </Button>
-            }
-          >
-            Pulled and built {shortSha(status.to_commit)}. Restart ast-mcp to start using it.
-          </Alert>
-        )}
-        {!active && status?.error && (
-          <Alert severity="error" sx={{ mt: 1.5 }}>
-            {status.error}
-          </Alert>
-        )}
       </CardContent>
     </Card>
   )
