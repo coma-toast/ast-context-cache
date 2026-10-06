@@ -35,6 +35,8 @@ var (
 	lastActivity   = map[string]time.Time{}
 	debounceMu     sync.Mutex
 	debounceTimers = map[string]*time.Timer{}
+	drainGens      = map[string]uint64{} // guarded by debounceMu
+	runningScans   = map[string]int{}    // catch-ups in progress; guarded by debounceMu
 	catchUpSlots   = make(chan struct{}, 2)
 
 	// bg counts the goroutines watchers start — event loops, catch-ups, and
@@ -54,6 +56,10 @@ func init() {
 // PostIndexHook is called after a file is indexed or removed.
 // Set this from outside the package to add vector embedding, etc.
 var PostIndexHook func(filePath, projectPath string, removed bool)
+
+// QueueDrainedHook is called when a project's last debounced or running
+// re-index finishes, with the project's new drain generation.
+var QueueDrainedHook func(projectPath string, gen uint64)
 
 // NormalizeProjectPath returns a canonical absolute path for watcher map keys.
 func NormalizeProjectPath(projectPath string) string {
@@ -219,7 +225,7 @@ func StartWatcher(projectPath string) {
 
 	go func() {
 		defer bg.Done()
-		catchUp(projectPath)
+		trackedCatchUp(projectPath)
 	}()
 	logger.Info("File watcher started", "project", projectPath, "backend", w.Name())
 	realtime.Notify(realtime.WatchersChanged)
@@ -437,12 +443,13 @@ func handleFSEvent(event fsnotify.Event, projectPath string, w backend) {
 		}
 		// Stop is a no-op once a timer has fired, so an event that arrived
 		// while this ran may have queued a newer timer under key. Leave that
-		// one for cancelDebounceTimersForProject to find.
+		// one for cancelDebounceTimersForProject to find. t is read under
+		// debounceMu, which handleFSEvent held while assigning it.
 		debounceMu.Lock()
 		if debounceTimers[key] == t {
 			delete(debounceTimers, key)
 		}
-		debounceMu.Unlock()
+		settleLocked(projectPath)
 	})
 	debounceTimers[key] = t
 	debounceMu.Unlock()
@@ -606,6 +613,54 @@ func debounceKeyOwnedBy(key, projectPath string) bool {
 		return strings.TrimSuffix(key[:i], string(os.PathSeparator)) == projectPath
 	}
 	return key == projectPath || strings.HasPrefix(key, projectPath+string(os.PathSeparator))
+}
+
+// trackedCatchUp runs catchUp counted as pending work, so the files it
+// re-indexes keep the project's queue open until the scan ends.
+func trackedCatchUp(projectPath string) {
+	debounceMu.Lock()
+	runningScans[projectPath]++
+	debounceMu.Unlock()
+	catchUp(projectPath)
+	debounceMu.Lock()
+	if runningScans[projectPath]--; runningScans[projectPath] <= 0 {
+		delete(runningScans, projectPath)
+	}
+	settleLocked(projectPath)
+}
+
+// settleLocked unlocks debounceMu, first bumping the project's drain
+// generation when nothing is left pending, then calls QueueDrainedHook.
+func settleLocked(projectPath string) {
+	drained := pendingLocked(projectPath) == 0
+	var gen uint64
+	if drained {
+		drainGens[projectPath]++
+		gen = drainGens[projectPath]
+	}
+	debounceMu.Unlock()
+	if drained && QueueDrainedHook != nil {
+		QueueDrainedHook(projectPath, gen)
+	}
+}
+
+// Pending reports how many of a project's re-indexes are debounced or still
+// running, and its drain generation, which goes up each time that count
+// reaches zero.
+func Pending(projectPath string) (int, uint64) {
+	debounceMu.Lock()
+	defer debounceMu.Unlock()
+	return pendingLocked(projectPath), drainGens[projectPath]
+}
+
+func pendingLocked(projectPath string) int {
+	n := runningScans[projectPath]
+	for key := range debounceTimers {
+		if debounceKeyOwnedBy(key, projectPath) {
+			n++
+		}
+	}
+	return n
 }
 
 // IsActive reports whether a watcher is currently running for the project.

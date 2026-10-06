@@ -35,7 +35,7 @@ func scheduleCatchUp(projectPath string) {
 			return
 		}
 		logger.Info("Watcher rescanning (events lost, or a directory moved in or out)", "project", projectPath)
-		catchUp(projectPath)
+		trackedCatchUp(projectPath)
 	})
 	debounceTimers[key] = t
 }

@@ -40,9 +40,10 @@ import { NetworkAccessSection } from '../components/NetworkAccessSection'
 const PROJECTS_PAGE_SIZE = 8
 
 const SECTIONS = [
+  { id: 'updates', label: 'Updates' },
+  { id: 'storage', label: 'Storage' },
   { id: 'features', label: 'Features' },
   { id: 'performance', label: 'Performance' },
-  { id: 'storage', label: 'Storage' },
   { id: 'virtual', label: 'Virtual context' },
   { id: 'handoff', label: 'Handoff' },
   { id: 'embedding', label: 'Embedding' },
@@ -151,6 +152,10 @@ export function SettingsTab({
         ))}
       </Stack>
 
+      <UpdatesSection />
+
+      <StorageSection data={data} />
+
       <FeaturesSection refreshKey={data} />
 
       <Card variant="outlined" id="settings-performance" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
@@ -224,10 +229,6 @@ export function SettingsTab({
           </Typography>
         </CardContent>
       </Card>
-
-      <UpdatesSection />
-
-      <StorageSection data={data} />
 
       <Card variant="outlined" id="settings-virtual" sx={{ mb: 2 }}>
         <CardContent>

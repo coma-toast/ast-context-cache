@@ -14,11 +14,17 @@ const panelToQuery: Record<string, string[]> = {
   handoffs: ['handoffTrees'],
 }
 
-export function useWebSocket(onRefresh: (panels: string[]) => void, onToast?: (data: Record<string, string>) => void) {
+export function useWebSocket(
+  onRefresh: (panels: string[]) => void,
+  onToast?: (data: Record<string, string>) => void,
+  onIndexDrained?: (data: Record<string, string>) => void,
+) {
   const onRefreshRef = useRef(onRefresh)
   const onToastRef = useRef(onToast)
+  const onIndexDrainedRef = useRef(onIndexDrained)
   onRefreshRef.current = onRefresh
   onToastRef.current = onToast
+  onIndexDrainedRef.current = onIndexDrained
 
   const connect = useCallback(() => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -30,6 +36,8 @@ export function useWebSocket(onRefresh: (panels: string[]) => void, onToast?: (d
           onRefreshRef.current(msg.data.panels as string[])
         } else if (msg.type === 'toast' && msg.data) {
           onToastRef.current?.(msg.data as Record<string, string>)
+        } else if (msg.type === 'index-drained' && msg.data) {
+          onIndexDrainedRef.current?.(msg.data as Record<string, string>)
         }
       } catch {
         /* ignore */
