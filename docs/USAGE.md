@@ -42,6 +42,7 @@ Tool list must match `internal/mcp/tools.go` / `tools/list`. See [AGENTS.md — 
 | `cache_summary` | Cache your summaries for future queries |
 | `store_context` | Offload bulky notes → `ctx_*` (optional `kind=kv_repair`, `extract_memory`) |
 | `edit_context` | Edit a note in place, keeping its `ctx_*` ref (`append`/`replace`/`delete`/`rewrite`/`revert`) — [`docs/context-edit.md`](context-edit.md) |
+| `define_context_fn` / `apply_context_fn` | Define and re-invoke a named reusable transform over notes — [`docs/context-fn.md`](context-fn.md), off by default |
 | `flush_context` | Delete virtual context; free quota |
 | `store_memory` | Compact temporal fact or procedural rule → `mem_*` |
 | `forget_memory` | Invalidate structured memory |

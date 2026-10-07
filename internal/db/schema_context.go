@@ -73,6 +73,31 @@ const (
 		);
 		CREATE INDEX IF NOT EXISTS idx_context_note_revisions_ref ON context_note_revisions(ref);
 	`
+	// Reusable context functions: the model-defined half of Context Language Models
+	// (arXiv 2609.37725). The paper's agent writes a Python function into its own
+	// context file and invokes it dozens of times per trace; here the function is a
+	// named (pattern, replacement) pair in SQLite, which is the subset that is
+	// auditable and cannot smuggle executable code into the store.
+	createContextFnsTable = `
+		CREATE TABLE IF NOT EXISTS context_fns (
+			name TEXT PRIMARY KEY,
+			project_path TEXT,
+			session_id TEXT,
+			description TEXT DEFAULT '',
+			pattern TEXT NOT NULL,
+			replacement TEXT NOT NULL DEFAULT '',
+			pattern_hash TEXT NOT NULL DEFAULT '',
+			version INTEGER NOT NULL DEFAULT 1,
+			call_count INTEGER NOT NULL DEFAULT 0,
+			notes_touched INTEGER NOT NULL DEFAULT 0,
+			tokens_reclaimed INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT DEFAULT (datetime('now')),
+			updated_at TEXT DEFAULT (datetime('now')),
+			retired_at TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_context_fns_project ON context_fns(project_path);
+		CREATE INDEX IF NOT EXISTS idx_context_fns_session ON context_fns(session_id);
+	`
 	createKVRepairEventsTable = `
 		CREATE TABLE IF NOT EXISTS kv_repair_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -262,6 +287,8 @@ func initContextSchema(conn *sql.DB) {
 	conn.Exec(createContextNotesFTSTable)
 
 	conn.Exec(createContextNoteRevisionsTable)
+
+	conn.Exec(createContextFnsTable)
 
 	conn.Exec(createKVRepairEventsTable)
 

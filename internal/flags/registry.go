@@ -8,6 +8,7 @@ const (
 	KeyHandoffLiveTrail   = "feature_handoff_live_trail"
 	KeyHandoffHooks       = "feature_handoff_hooks"
 	KeyContextEdit        = "feature_context_edit"
+	KeyContextFn          = "feature_context_fn"
 	KeySharedQueryCache   = "feature_shared_query_cache"
 	handoffChildKeyPrefix = KeyHandoff + "_"
 )
@@ -59,5 +60,12 @@ var registry = []Flag{
 		Description: "In-place editing of stored virtual context: the edit_context tool, so an agent can rewrite a ctx_* note without losing its ref.",
 		Default:     true,
 		Tools:       []string{"edit_context"},
+	},
+	{
+		Key:         KeyContextFn,
+		Env:         "AST_FEATURE_CONTEXT_FN",
+		Description: "Model-defined reusable context functions: define_context_fn, apply_context_fn, list_context_fns. Off by default because an agent-authored context transform is a prompt-injection surface (arXiv 2609.37725 Discussion).",
+		Default:     false,
+		Tools:       []string{"define_context_fn", "apply_context_fn", "list_context_fns"},
 	},
 }

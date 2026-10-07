@@ -31,7 +31,10 @@ const (
 	deleteProjectNotesQuery        = `DELETE FROM context_notes WHERE project_path = ?`
 	// Revision bodies have no project_path of their own, so they are keyed by the
 	// note refs collected for the purge — the same order that clears the FTS mirrors.
-	deleteNoteRevisionsQuery         = `DELETE FROM context_note_revisions WHERE ref = ?`
+	deleteNoteRevisionsQuery = `DELETE FROM context_note_revisions WHERE ref = ?`
+	// Context functions carry project_path directly, so they purge in one statement —
+	// an unscoped function is shared and survives.
+	deleteProjectFnsQuery            = `DELETE FROM context_fns WHERE project_path = ?`
 	deleteMemoryFTSQuery             = `DELETE FROM structured_memory_fts WHERE ref = ?`
 	deleteProjectMemoryQuery         = `DELETE FROM structured_memory WHERE project_path = ?`
 	deleteProjectKVRepairEventsQuery = `DELETE FROM kv_repair_events WHERE project_path = ?`
@@ -222,6 +225,8 @@ func purgeContextData(projectPath string, refs contextRefs) {
 		db.ContextDB.Exec(deleteMemoryFTSQuery, ref)
 	}
 	db.ContextDB.Exec(deleteProjectMemoryQuery, projectPath)
+
+	db.ContextDB.Exec(deleteProjectFnsQuery, projectPath)
 
 	db.ContextDB.Exec(deleteProjectKVRepairEventsQuery, projectPath)
 

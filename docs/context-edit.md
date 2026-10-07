@@ -72,6 +72,6 @@ That number is the whole point of tracking it. A compaction loop that shrinks a 
 
 `feature_context_edit` / `AST_FEATURE_CONTEXT_EDIT`, on by default like `feature_handoff`. Dashboard **Settings → Features** toggles it live; disabling hides the tool and sends `tools/list_changed` without a rebuild.
 
-## Not included
+## Related
 
-The paper's actual novelty is that the model **defines its own** context-management functions and reuses them (`compact_turns`, invoked 37 times in one trace). That would be `define_context_fn` / `apply_context_fn` here: a named, reusable `(pattern, replacement)` transform the agent registers and applies across notes. It is not built, because a model-invoked regex-rewrite library applied at scale is precisely the injection surface above, and it deserves its own flag and its own review. See the task discussion.
+[`define_context_fn` / `apply_context_fn`](context-fn.md) build on this: a named reusable transform the agent registers once and re-invokes across notes or a whole session. Off by default (`feature_context_fn`).

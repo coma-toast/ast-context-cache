@@ -124,6 +124,7 @@ When working with codebases that have an MCP server available, **always prefer M
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
 | `store_context` | Offload arbitrary conversation/code notes before compaction; returns stable `ctx_*` refs. Supports `kind=kv_repair` and `extract_memory`. |
 | `edit_context` | Edit a stored note **in place**, keeping its `ctx_*` ref: `append`, `replace`, `delete`, `rewrite`, `revert`. Context-as-a-file; every edit is reversible — see [docs/context-edit.md](docs/context-edit.md). |
+| `define_context_fn` / `apply_context_fn` | Register and re-invoke a **named reusable transform** across notes or a whole session. Off by default (`feature_context_fn`) — see [docs/context-fn.md](docs/context-fn.md). |
 | `flush_context` | Delete stored virtual context (session, refs, or all). |
 | `store_memory` | Compact temporal facts / procedural rules → `mem_*` refs (auto-supersedes same subject+predicate). |
 | `forget_memory` | Invalidate structured memory (refs, subject+predicate, or all). |
