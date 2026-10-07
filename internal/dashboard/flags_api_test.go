@@ -67,7 +67,7 @@ func TestFlagsAPIListsEveryFlag(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	all := flags.All()
 	require.Len(t, out.Flags, len(all))
-	require.Len(t, out.Flags, 6)
+	require.Len(t, out.Flags, 8)
 	for i, f := range all {
 		st := out.Flags[i]
 		assert.Equal(t, f.Key, st.Key, "registry order")

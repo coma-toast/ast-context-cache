@@ -204,6 +204,14 @@ func handleContextTool(toolName string, toolArgs map[string]interface{}, args ma
 	switch toolName {
 	case "store_context":
 		return handleStoreContext(toolArgs, emb, start, cpuStart, args), true, nil
+	case "edit_context":
+		return handleEditContext(toolArgs, emb, start, cpuStart, args, projectPath), true, nil
+	case "define_context_fn":
+		return handleDefineContextFn(toolArgs, args, start, cpuStart, projectPath), true, nil
+	case "apply_context_fn":
+		return handleApplyContextFn(toolArgs, emb, args, start, cpuStart, projectPath), true, nil
+	case "list_context_fns":
+		return handleListContextFns(toolArgs, args, start, cpuStart, projectPath), true, nil
 	case "fetch_context":
 		return handleFetchContext(toolArgs, start, cpuStart, args, projectPath), true, nil
 	case "list_context":

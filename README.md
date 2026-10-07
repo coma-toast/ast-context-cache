@@ -81,7 +81,8 @@ Do not add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` a
 | | |
 |--|--|
 | **Token-efficient search** | Hybrid BM25 + vectors; modes `auto` / `skeleton` / `summary` / `full`; session `session_id` dedup; dashboard **Tokens saved** |
-| **Virtual context** | `store_context` / `fetch_context` / `search_context` / `flush_context` — local notes with stable `ctx_*` refs |
+| **Virtual context** | `store_context` / `fetch_context` / `search_context` / `edit_context` / `flush_context` — local notes with stable `ctx_*` refs, editable in place — [`docs/context-edit.md`](docs/context-edit.md) |
+| **Context functions** | `define_context_fn` / `apply_context_fn` / `list_context_fns` — model-defined reusable transforms over stored notes, default off — [`docs/context-fn.md`](docs/context-fn.md) |
 | **Subagent handoff** | `handoff` / `open_handoff` / `scratchpad` — snapshot-backed briefs for subagents, capped return summaries, shared scratchpad and advisory claims for parallel children, dashboard tree view — [`docs/handoff.md`](docs/handoff.md) |
 | **Agent installer** | `ast-mcp install` / dashboard: MCP, skills, rules, and opt-in Claude Code handoff hooks for 7 hosts; preview diff, backups, merge-only — [`docs/host-integration.md`](docs/host-integration.md) |
 | **Local-first** | No cloud account; index and docs stay on disk under `~/.astcache/` |
@@ -151,7 +152,7 @@ This repo ships **`ast-mcp`** only. For a unified local MCP supervisor (start/me
 | Tier | Typical tools |
 |------|----------------|
 | **core** | Search, maps, docs, `retrieve`, impact checks (`get_impact_graph`, `diff_impact`, `check_symbol_exists`, `check_deletion_safety`), context **read**, `recall_memory`, and the handoff tools `handoff` / `open_handoff` / `scratchpad` |
-| **extended** | + indexing, `store_context` / memory write, analysis, bundles, doc-source management |
+| **extended** | + indexing, `store_context` / `edit_context` / memory write, analysis, bundles, doc-source management (`define_context_fn` / `apply_context_fn` are extended too, behind `feature_context_fn`) |
 | **complete** | + `execute_code` |
 
 The handoff tools are core even though they write, so delegation works at every tier; turn them off with a feature flag instead.

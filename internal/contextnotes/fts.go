@@ -15,3 +15,11 @@ func indexNoteFTS(ref, sessionID, label, content string) {
 func deleteNoteFTS(ref string) {
 	db.ContextDB.Exec(deleteNoteFTSQuery, ref)
 }
+
+// reindexNoteFTS replaces a note's FTS row after an in-place content edit.
+// context_notes_fts is a bare fts5 table with no triggers, so an edit that only
+// updated context_notes would leave search matching the old body.
+func reindexNoteFTS(ref, sessionID, label, content string) {
+	deleteNoteFTS(ref)
+	indexNoteFTS(ref, sessionID, label, content)
+}

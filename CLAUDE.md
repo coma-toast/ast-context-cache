@@ -90,6 +90,8 @@ Never put credentials in a brief or scratchpad post. Full guide: [docs/handoff.m
 - **index_files** - Index a file or directory (starts file watcher)
 - **cache_summary** - Cache summaries for future queries
 - **store_context** - Offload conversation/code notes with stable `ctx_*` refs before compaction; `kind=kv_repair`, `extract_memory`
+- **edit_context** - Rewrite a stored note in place keeping its ref (`append`/`replace`/`delete`/`rewrite`/`revert`); reports `tokens_reclaimed`, reversible via revisions — [`docs/context-edit.md`](docs/context-edit.md)
+- **define_context_fn / apply_context_fn / list_context_fns** - Define a named reusable context transform and re-invoke it across refs or a session; `tokens_reclaimed` per apply; default off — [`docs/context-fn.md`](docs/context-fn.md)
 - **flush_context** - Delete stored virtual context to free quota
 - **store_memory** - Compact temporal facts / procedural rules → `mem_*` refs
 - **forget_memory** - Invalidate structured memory (refs, subject+predicate, or all)
