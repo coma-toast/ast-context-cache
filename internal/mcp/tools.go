@@ -262,6 +262,7 @@ func GetTools() []Tool {
 			},
 			Tier: TierExtended,
 		},
+		editContextTool(),
 		{
 			Name:        "fetch_context",
 			Description: "Retrieve stored virtual context by ref(s). Primary recovery path after compaction or KV cache miss. Pass repair_reason (cache_miss, quality, manual) when fetching a kv_repair archive for observability.",

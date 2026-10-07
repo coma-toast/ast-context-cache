@@ -204,6 +204,8 @@ func handleContextTool(toolName string, toolArgs map[string]interface{}, args ma
 	switch toolName {
 	case "store_context":
 		return handleStoreContext(toolArgs, emb, start, cpuStart, args), true, nil
+	case "edit_context":
+		return handleEditContext(toolArgs, emb, start, cpuStart, args, projectPath), true, nil
 	case "fetch_context":
 		return handleFetchContext(toolArgs, start, cpuStart, args, projectPath), true, nil
 	case "list_context":

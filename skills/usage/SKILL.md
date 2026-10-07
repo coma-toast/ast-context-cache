@@ -77,6 +77,7 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | Portable index | `export_bundle` / `import_bundle` | Extended tier |
 | Transform results in JS | `execute_code` | Complete tier; optional `script_id`; check `code_script_hints` first |
 | Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id`; bulky `ctx_*` notes |
+| Context-as-a-file editing | `edit_context` | Extended; in-place rewrite of a `ctx_*` note, reversible via revisions |
 | Prefs / rules (compact) | `store_memory` / `recall_memory` / `forget_memory` | Extended write; core read; `mem_*` — not bulky notes |
 | KV repair signal | `report_kv_repair_event` | Extended; before/after `fetch_context` on `kind=kv_repair` |
 | Delegate to a subagent | `handoff` (`create`, then `collect`) | Core; paste the stub into the subagent prompt |
@@ -112,6 +113,7 @@ This is **not** the same as code **`cache_summary`** (summaries of indexed symbo
 | Forgot what you stored; need refs + labels | **`list_context(session_id=...)`** | core |
 | Stubs were lost; search by topic/keyword | **`search_context(query=..., session_id=...)`** | core |
 | Thread done or quota error | **`flush_context(session_id=...)`** | extended |
+| A stored note is stale, too long, or has grown noise | **`edit_context(action="replace"\|\"delete", ref=...)`** | extended |
 
 **Store early:** Before compaction warnings or when the thread is ~70%+ full—not after content is already gone.
 
@@ -164,6 +166,7 @@ Operators configure via dashboard **Settings → Virtual context** or env (`AST_
 |------|-----------------|-----------|
 | `store_context` | `virtual_tokens_stored`, `stats.session_quota` | Virtual context card: inventory ↑ |
 | `fetch_context` / `search_context` | `stats.virtual_tokens_returned` | 30d accessed, utilization % |
+| `edit_context` | `tokens_before` / `tokens_after` / `tokens_reclaimed` | Virtual context card: tokens reclaimed |
 | `flush_context` | `flushed_refs`, freed tokens | inventory ↓, flushed 30d ↑ |
 
 Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`**, and **`execute_code`** — not virtual context stores.

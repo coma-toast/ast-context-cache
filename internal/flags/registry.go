@@ -7,6 +7,7 @@ const (
 	KeyHandoffClaims      = "feature_handoff_claims"
 	KeyHandoffLiveTrail   = "feature_handoff_live_trail"
 	KeyHandoffHooks       = "feature_handoff_hooks"
+	KeyContextEdit        = "feature_context_edit"
 	KeySharedQueryCache   = "feature_shared_query_cache"
 	handoffChildKeyPrefix = KeyHandoff + "_"
 )
@@ -51,5 +52,12 @@ var registry = []Flag{
 		Env:         "AST_FEATURE_SHARED_QUERY_CACHE",
 		Description: "Cross-session cache of search results shared between agents.",
 		Default:     true,
+	},
+	{
+		Key:         KeyContextEdit,
+		Env:         "AST_FEATURE_CONTEXT_EDIT",
+		Description: "In-place editing of stored virtual context: the edit_context tool, so an agent can rewrite a ctx_* note without losing its ref.",
+		Default:     true,
+		Tools:       []string{"edit_context"},
 	},
 }

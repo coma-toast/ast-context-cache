@@ -56,8 +56,24 @@ const (
 	`
 	addContextNotesKindColumn         = `ALTER TABLE context_notes ADD COLUMN kind TEXT DEFAULT ''`
 	addContextNotesMetadataJSONColumn = `ALTER TABLE context_notes ADD COLUMN metadata_json TEXT DEFAULT ''`
+	addContextNotesRevisionColumn     = `ALTER TABLE context_notes ADD COLUMN revision INTEGER DEFAULT 1`
 	createContextNotesFTSTable        = `CREATE VIRTUAL TABLE IF NOT EXISTS context_notes_fts USING fts5(ref, session_id, label, content)`
-	createKVRepairEventsTable         = `
+	// Superseded bodies only: context_notes holds the live revision, this table holds
+	// every body an edit replaced, so edit_context can revert without keeping the
+	// current copy twice.
+	createContextNoteRevisionsTable = `
+		CREATE TABLE IF NOT EXISTS context_note_revisions (
+			ref TEXT NOT NULL,
+			revision INTEGER NOT NULL,
+			content TEXT NOT NULL,
+			token_est INTEGER DEFAULT 0,
+			op TEXT DEFAULT '',
+			created_at TEXT DEFAULT (datetime('now')),
+			PRIMARY KEY (ref, revision)
+		);
+		CREATE INDEX IF NOT EXISTS idx_context_note_revisions_ref ON context_note_revisions(ref);
+	`
+	createKVRepairEventsTable = `
 		CREATE TABLE IF NOT EXISTS kv_repair_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			session_id TEXT,
@@ -241,8 +257,11 @@ func initContextSchema(conn *sql.DB) {
 	conn.Exec(createContextNotesTable)
 	conn.Exec(addContextNotesKindColumn)
 	conn.Exec(addContextNotesMetadataJSONColumn)
+	conn.Exec(addContextNotesRevisionColumn)
 
 	conn.Exec(createContextNotesFTSTable)
+
+	conn.Exec(createContextNoteRevisionsTable)
 
 	conn.Exec(createKVRepairEventsTable)
 

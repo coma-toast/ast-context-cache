@@ -19,16 +19,19 @@ import (
 )
 
 const (
-	deleteProjectQueriesQuery        = "DELETE FROM queries WHERE project_path = ?"
-	deleteProjectMemoryAccessQuery   = "DELETE FROM memory_access WHERE project_path = ?"
-	deleteSessionsUnderPathQuery     = "DELETE FROM sessions WHERE file_path LIKE ?"
-	selectSymbolCountsQuery          = `SELECT (SELECT count(*) FROM symbols WHERE project_path = ?), (SELECT count(*) FROM symbols)`
-	deleteProjectSymbolsQuery        = "DELETE FROM symbols WHERE project_path = ?"
-	selectNoteRefsQuery              = `SELECT ref FROM context_notes WHERE project_path = ? AND ref != ''`
-	selectMemoryRefsQuery            = `SELECT ref FROM structured_memory WHERE project_path = ? AND ref != ''`
-	deleteRefVectorQuery             = `DELETE FROM vectors WHERE doc_type = ? AND source_file = ?`
-	deleteNoteFTSQuery               = `DELETE FROM context_notes_fts WHERE ref = ?`
-	deleteProjectNotesQuery          = `DELETE FROM context_notes WHERE project_path = ?`
+	deleteProjectQueriesQuery      = "DELETE FROM queries WHERE project_path = ?"
+	deleteProjectMemoryAccessQuery = "DELETE FROM memory_access WHERE project_path = ?"
+	deleteSessionsUnderPathQuery   = "DELETE FROM sessions WHERE file_path LIKE ?"
+	selectSymbolCountsQuery        = `SELECT (SELECT count(*) FROM symbols WHERE project_path = ?), (SELECT count(*) FROM symbols)`
+	deleteProjectSymbolsQuery      = "DELETE FROM symbols WHERE project_path = ?"
+	selectNoteRefsQuery            = `SELECT ref FROM context_notes WHERE project_path = ? AND ref != ''`
+	selectMemoryRefsQuery          = `SELECT ref FROM structured_memory WHERE project_path = ? AND ref != ''`
+	deleteRefVectorQuery           = `DELETE FROM vectors WHERE doc_type = ? AND source_file = ?`
+	deleteNoteFTSQuery             = `DELETE FROM context_notes_fts WHERE ref = ?`
+	deleteProjectNotesQuery        = `DELETE FROM context_notes WHERE project_path = ?`
+	// Revision bodies have no project_path of their own, so they are keyed by the
+	// note refs collected for the purge — the same order that clears the FTS mirrors.
+	deleteNoteRevisionsQuery         = `DELETE FROM context_note_revisions WHERE ref = ?`
 	deleteMemoryFTSQuery             = `DELETE FROM structured_memory_fts WHERE ref = ?`
 	deleteProjectMemoryQuery         = `DELETE FROM structured_memory WHERE project_path = ?`
 	deleteProjectKVRepairEventsQuery = `DELETE FROM kv_repair_events WHERE project_path = ?`
@@ -211,6 +214,7 @@ func purgeContextData(projectPath string, refs contextRefs) {
 	}
 	for _, ref := range refs.notes {
 		db.ContextDB.Exec(deleteNoteFTSQuery, ref)
+		db.ContextDB.Exec(deleteNoteRevisionsQuery, ref)
 	}
 	db.ContextDB.Exec(deleteProjectNotesQuery, projectPath)
 
