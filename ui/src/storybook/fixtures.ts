@@ -17,6 +17,8 @@ import type {
   NetworkState,
   SettingsData,
   Stats,
+  UpdateCheckResult,
+  UpdateStatus,
   WeeklyDigest,
 } from '../api/types'
 
@@ -39,7 +41,7 @@ export const fixtureHealth: Health = {
   HeapMB: 412,
   CPUPercent: 18,
   Uptime: 3 * 3600 * 1e9,
-  Version: '3.4.0',
+  Version: '4.0.9',
   AbnormalPreviousRun: false,
 }
 
@@ -870,4 +872,26 @@ export const fixtureHandoffTreesEmpty: HandoffTreesResponse = {
   limits: handoffLimits,
   repeat_search_ratio_24h: 0,
   trees: [],
+}
+
+export const fixtureUpdateCheck: UpdateCheckResult = {
+  current_version: '4.0.9',
+  build: 'release',
+  source_build: false,
+  latest_version: '4.0.9',
+  release_url: 'https://github.com/coma-toast/ast-context-cache/releases/tag/v4.0.9',
+  published_at: '2026-10-07T12:00:00Z',
+  asset_name: 'ast-context-cache_4.0.9_darwin_arm64.tar.gz',
+  update_available: false,
+}
+
+export const fixtureUpdateStatus: UpdateStatus = {
+  active: false,
+  done: false,
+  phase: '',
+  error: '',
+  started_at: '',
+  finished_at: '',
+  from_version: '',
+  to_version: '',
 }

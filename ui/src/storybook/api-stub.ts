@@ -16,6 +16,8 @@ import {
   fixtureInstallerErrorPlan,
   fixtureInstallerPlan,
   fixtureNetwork,
+  fixtureUpdateCheck,
+  fixtureUpdateStatus,
 } from './fixtures'
 
 export function formatUptime(ns: number): string {
@@ -106,8 +108,8 @@ export const api = {
   adjustEmbedAuxWorkers: noop,
   setEmbedWorkers: noop,
   setEmbedAuxWorkers: noop,
-  updateCheck: noop,
+  updateCheck: async () => fixtureUpdateCheck,
   startUpdate: noop,
-  updateStatus: noop,
+  updateStatus: async () => fixtureUpdateStatus,
   restartNow: noop,
 }
