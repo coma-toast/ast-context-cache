@@ -42,6 +42,18 @@ Read `skills/<name>/SKILL.md` when not using Cursor project skills.
 
 Full guide: [skills/usage/SKILL.md](skills/usage/SKILL.md#virtual-context-compaction).
 
+#### Manage context as a file — avoid compaction at all costs
+
+Treat your virtual context as a **mutable file you own**, not a write-once snapshot. Once a note exists, change it with **`edit_context`** (extended) and keep the same `ctx_*` ref:
+
+- `append` to add new findings, `replace` / `delete` (regex or 1-indexed inclusive line range) to rewrite or shrink what is stale, `rewrite` when the structure changes, `revert` to undo a bad edit.
+- **Do not flush and re-store to make an edit.** That invalidates the stub you already wrote into chat, mints a new ref, and debits quota a second time. Edit in place instead.
+- Every edit returns **`tokens_before` / `tokens_after` / `tokens_reclaimed`**. Watch that number: shrinking is the goal, and an edit loop that grows a note is a cost.
+- Pass **`expect_revision`** when a note may be shared across a handoff tree; a racing edit fails with `revision_conflict` rather than clobbering.
+- If the same transform recurs every turn, register it once with **`define_context_fn`** and re-invoke it with **`apply_context_fn`** (off by default — dry-run anything wider than a couple of refs). [`docs/context-fn.md`](docs/context-fn.md)
+
+Host compaction is a last resort, not a routine step: reach for it only when refs are genuinely lost or the content cannot be reshaped by editing.
+
 ### Structured memory (agents)
 
 **Virtual context** (`ctx_*`) = bulky notes/plans. **Structured memory** (`mem_*`) = compact facts and procedures.
@@ -176,6 +188,8 @@ Search tools may return **`code_script_hints`**. If non-empty: `execute_code(scr
 **When to store:** Bulky thread content you may need later; before compaction or ~70% context fill. Requires **extended** tier (`store_context`).
 
 **When to recover:** After compaction — **`fetch_context(refs=[...])`** if you kept stubs; **`list_context`** to see what's stored; **`search_context(query=...)`** if refs were lost. Read tools are **core** tier.
+
+**When to edit instead of re-store:** Any change to stored content — **`edit_context(action="append"|"replace"|"delete"|"rewrite"|"revert", ref=...)`** (extended). Same ref, reversible via revisions, and it reports `tokens_reclaimed`. Avoid flush + re-store to make an edit; avoid compaction to make room. [`docs/context-edit.md`](docs/context-edit.md)
 
 **When to flush:** Thread done or quota exceeded — **`flush_context(session_id=...)`** (extended). Dashboard **Virtual context** card tracks inventory vs access (separate from code **Tokens saved**).
 

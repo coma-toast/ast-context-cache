@@ -34,7 +34,7 @@ Project skills under [`.cursor/skills/`](.cursor/skills/) load when the task mat
 
 | Skill | When it applies |
 |-------|-----------------|
-| `ast-context-cache-usage` | MCP search, RAG, modes, filters, **virtual context compaction**, **subagent handoff** |
+| `ast-context-cache-usage` | MCP search, RAG, modes, filters, **virtual context compaction**, **subagent handoff**, **context as a file** |
 | `ast-context-cache-install` | Install, MCP config, tool tiers, **virtual context tier requirements** |
 | `ast-context-cache-rebuild` | Rebuild or restart ast-mcp after code changes |
 | `ast-context-cache-operator` | Embeddings, dashboard settings, logs, **virtual context limits** |
@@ -73,6 +73,8 @@ Use MCP in this order for unfamiliar code (generate a stable **`session_id`** pe
 
 **Subagent handoff (delegation):** If your prompt contains **`[handoff hof_…]`**, call **`open_handoff`** before any search and use the child `session_id` it returns. To delegate, **`handoff`** `action=create` (brief, pointers) and paste the returned stub into the subagent prompt; the child ends with `handoff` `action=complete` and outputs the return stub. See [Subagent handoff](#subagent-handoff) below.
 
+**Context as a file (CLM):** When managing virtual context across turns, treat notes as **mutable files**: use **`edit_context`** to append, replace, delete, rewrite, or revert text in place while keeping the same `ctx_*` ref. Only re-store when necessary. Avoid compaction — let edits shrink the note and report `tokens_reclaimed`. See [Virtual context compaction](#virtual-context-compaction) and [`docs/context-edit.md`](docs/context-edit.md).
+
 **Defaults:** `get_context_capsule` → `auto`; `get_file_context` → **`skeleton`**; `search_semantic` → `skeleton`. Do not read whole source files when MCP can return structured symbols.
 
 **Operators** (embeddings, dashboard, log retention): [skills/operator/SKILL.md](skills/operator/SKILL.md) — dashboard http://localhost:7830 (embed queue gauge; tool performance with CPU/latency).
@@ -89,6 +91,7 @@ When working with codebases that have an MCP server available, **always prefer M
 - **search_docs** - Search cached library/framework documentation
 - **cache_summary** - Cache your own summaries for future queries
 - **handoff** / **open_handoff** / **scratchpad** - Delegate to subagents with a snapshot instead of re-exploring
+- **edit_context** - Manage virtual context in-place (append/replace/delete/rewrite/revert) without losing `ctx_*` refs
 
 ### All Tools
 
@@ -223,6 +226,33 @@ Dashboard **Virtual context** card: active inventory, 30d stored vs accessed, ut
 **Chat pattern:** After store, write `[ctx_…] label` in the thread instead of the full content. After compaction, fetch by ref.
 
 **Handoffs and compaction:** handoff snapshots and child results belong to the handoff tree, so `flush_context` on the parent does not delete them. If compaction loses a `hof_` ref, `handoff(action="list", session_id=...)` recovers it.
+
+### Context as a file (CLM) — **avoid compaction at all costs**
+
+Virtual context is normally write-once: `store_context` creates a new note with a fresh `ctx_*` ref. Every edit used to mean re-store, which mints a new ref and debits quota again. Now use **`edit_context`** to mutate the note in place while keeping the same ref.
+
+Treat context as a mutable file across turns:
+
+| Action | When to use |
+|--------|-------------|
+| `append` | Add new info (score list, budget counter) to an existing block |
+| `replace` | Rewrite text with regex or line range; shrink stale sections |
+| `delete` | Drop irrelevant rows/dead ends without touching the rest |
+| `rewrite` | Replace the entire note when structure changes |
+| `revert` | Undo a bad edit; revisions only increase so undo-undo is safe |
+
+Guardrails:
+
+- **Revisions:** every edit stores the prior body in `context_note_revisions` (bounded at 10 by default) and bumps `revision`. Use `edit_context(action="revert", ref=..., to_revision=N)` to restore.
+- **`expect_revision`:** notes can be shared across a handoff tree; pass the revision you read to fail with `revision_conflict` instead of clobbering.
+- **Quotas:** edits are charged against the same caps as store (`single_note_tokens`, `session_tokens`, `global_tokens`), so growth is bounded by delta.
+- **Search & vectors:** edits reindex FTS explicitly and swap vectors (old deleted before new inserted).
+
+Every edit reports **`tokens_before`**, **`tokens_after`**, and **`tokens_reclaimed`** — that number is the point of a compaction loop, since it tells you if shrinking paid for itself.
+
+**Do not compact unless necessary.** If chat still has `ctx_*` stubs and you need to update content, edit in place rather than re-store. Only flush or re-store when refs are lost or structure changed beyond editing.
+
+See [`docs/context-edit.md`](docs/context-edit.md) for full details and examples.
 
 ### Subagent handoff
 

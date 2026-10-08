@@ -142,8 +142,9 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 9. `search_docs` — search cached library/framework documentation; `no_match: true` means nothing relevant is cached → `fetch_doc`
 10. `store_context` — offload bulky thread text before host compaction (extended); keep `ctx_*` stubs
 11. `fetch_context` / `search_context` — recover offloaded notes after compaction (core)
-12. `open_handoff` — **first call** when your prompt contains `[handoff hof_…]`; then use the child `session_id` it returns
-13. `handoff` — `create` to delegate (paste the stub into the subagent prompt), `complete` to finish as a child, `collect` / `list` to fan in or recover refs
+12. `edit_context` — keep a stored note current or shrink it **in place**, same `ctx_*` ref (extended); manage context as a file rather than re-storing it, and avoid compaction to make room
+13. `open_handoff` — **first call** when your prompt contains `[handoff hof_…]`; then use the child `session_id` it returns
+14. `handoff` — `create` to delegate (paste the stub into the subagent prompt), `complete` to finish as a child, `collect` / `list` to fan in or recover refs
 
 ## Core Tools
 
@@ -176,6 +177,8 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 | `index_files` | Index a file or directory. Starts a file watcher for incremental re-indexing. |
 | `cache_summary` | Store a summary for a file/symbol for cheap future lookups. |
 | `store_context` | Offload conversation/code notes before compaction; returns stable `ctx_*` refs. |
+| `edit_context` | Edit a stored note in place, keeping its `ctx_*` ref (`append`/`replace`/`delete`/`rewrite`/`revert`); reports `tokens_reclaimed`. |
+| `define_context_fn` / `apply_context_fn` | Define a named reusable transform and re-invoke it across notes or a session. Default off. |
 | `flush_context` | Delete stored virtual context (session, refs, or all). Frees quota. |
 | `store_memory` / `forget_memory` | Write or invalidate structured memory (`mem_*`). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
@@ -228,7 +231,10 @@ Search tools may return **`code_script_hints`**. Workflow: hint `script_id` → 
 | `fetch_context` | core | Recover by `ctx_*` ref after compaction |
 | `list_context` | core | List refs/labels for a session |
 | `search_context` | core | Refs lost from chat; search by topic |
+| `edit_context` | extended | Any change to stored content — edit in place, same ref, reversible |
 | `flush_context` | extended | Thread done or quota exceeded |
+
+**Manage context as a file.** Once a note exists, keep it current with `edit_context` rather than flushing and re-storing: a re-store invalidates the stub already in chat, mints a new ref, and debits quota again. Watch `tokens_reclaimed` to confirm shrinking paid off, use `revert` instead of starting over, and avoid compaction as a way to make room.
 
 Use the **same `session_id`** as code search. Chat stub: `[ctx_a1b2c3d4e5f6] label`.
 
