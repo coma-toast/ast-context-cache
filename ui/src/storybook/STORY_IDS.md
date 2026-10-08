@@ -1,6 +1,7 @@
 # Story IDs (for Wave 2 capture script)
 
 - `dashboard-overview--hero`
+- `dashboard-overview--savings`
 - `dashboard-overview--index-runtime`
 - `dashboard-memory--healthy`
 - `dashboard-memory--empty-docs`
