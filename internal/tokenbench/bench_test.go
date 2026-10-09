@@ -151,8 +151,33 @@ func loadBaseline(t *testing.T) map[string]outcome {
 	return out
 }
 
-// newBench copies the fixture to a temp dir, indexes and embeds it with the hash embedder,
-// and starts the MCP server.
+// benchEmbedder is the deterministic hash embedder, or with AST_TOKENBENCH_EMBEDDER=onnx the
+// real local ONNX model (all-mpnet-base-v2) from MODEL_DIR or <repo>/model, as the server loads
+// it. The ONNX mode is opt-in and skips when the runtime or model files are missing.
+func benchEmbedder(t *testing.T) embedder.Interface {
+	t.Helper()
+	switch mode := os.Getenv("AST_TOKENBENCH_EMBEDDER"); mode {
+	case "", "hash":
+		return embedder.NewHashEmbedder(search.VectorDims)
+	case "onnx":
+		dir := os.Getenv("MODEL_DIR")
+		if dir == "" {
+			dir = filepath.Join("..", "..", "model")
+		}
+		emb, err := embedder.New(dir)
+		if err != nil {
+			t.Skipf("AST_TOKENBENCH_EMBEDDER=onnx: %v", err)
+		}
+		t.Cleanup(emb.Close)
+		return emb
+	default:
+		t.Fatalf("unknown AST_TOKENBENCH_EMBEDDER %q (use hash or onnx)", mode)
+		return nil
+	}
+}
+
+// newBench copies the fixture to a temp dir, indexes and embeds it with benchEmbedder, and
+// starts the MCP server.
 func newBench(t *testing.T) *bench {
 	t.Helper()
 	home := dbtest.Init(t)
@@ -174,7 +199,7 @@ func newBench(t *testing.T) *bench {
 	home, err = filepath.EvalSymlinks(home)
 	require.NoError(t, err)
 	prevEmb := mcp.GetEmbedder()
-	emb := embedder.NewHashEmbedder(search.VectorDims)
+	emb := benchEmbedder(t)
 	prevCtxEmb := astcontext.Emb
 	mcp.SetEmbedder(emb)
 	astcontext.Emb = emb
@@ -415,10 +440,20 @@ func printTable(got []outcome, base map[string]outcome) {
 	fmt.Printf("%-38s %-20s %7d %7d %+7d\n\n", "TOTAL", "", total, baseTotal, total-baseTotal)
 }
 
-// sweepGrid is the relevance threshold grid AST_RELEVANCE_SWEEP=1 runs.
-var sweepGrid = struct{ minRelative, vectorMin, coverageMin []float64 }{
+type grid struct{ minRelative, vectorMin, coverageMin []float64 }
+
+// sweepGrid is the relevance threshold grid AST_RELEVANCE_SWEEP=1 runs with the hash embedder.
+var sweepGrid = grid{
 	minRelative: []float64{0.35, 0.5, 0.6, 0.7, 0.75, 0.8},
 	vectorMin:   []float64{0.05, 0.1, 0.2, 0.22, 0.25, 0.45},
+	coverageMin: []float64{0.34, 0.5, 1},
+}
+
+// onnxSweepGrid reaches higher vector floors, since a real model's cosines run well above the
+// hash embedder's.
+var onnxSweepGrid = grid{
+	minRelative: []float64{0.5, 0.6, 0.7, 0.75, 0.8},
+	vectorMin:   []float64{0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6},
 	coverageMin: []float64{0.34, 0.5, 1},
 }
 
@@ -435,11 +470,15 @@ func (b *bench) sweep(scenarios []scenario, base map[string]outcome) {
 			code = append(code, sc)
 		}
 	}
+	g := sweepGrid
+	if os.Getenv("AST_TOKENBENCH_EMBEDDER") == "onnx" {
+		g = onnxSweepGrid
+	}
 	fmt.Printf("\n%-8s %-8s %-8s %9s %5s %9s %7s\n", "min_rel", "vec_min", "cov_min", "expected", "lost", "negatives", "tokens")
 	run := 0
-	for _, minRel := range sweepGrid.minRelative {
-		for _, vecMin := range sweepGrid.vectorMin {
-			for _, covMin := range sweepGrid.coverageMin {
+	for _, minRel := range g.minRelative {
+		for _, vecMin := range g.vectorMin {
+			for _, covMin := range g.coverageMin {
 				b.t.Setenv("AST_RELEVANCE_MIN_RELATIVE", fmt.Sprint(minRel))
 				b.t.Setenv("AST_RELEVANCE_VECTOR_MIN", fmt.Sprint(vecMin))
 				b.t.Setenv("AST_RELEVANCE_COVERAGE_MIN", fmt.Sprint(covMin))
