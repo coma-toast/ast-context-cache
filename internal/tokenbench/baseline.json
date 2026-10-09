@@ -131,7 +131,7 @@
     {
       "name": "retrieve_cache_eviction",
       "tool": "retrieve",
-      "tokens": 1486,
+      "tokens": 1479,
       "results": 10,
       "recall": 1,
       "deterministic": false
