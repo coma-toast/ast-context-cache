@@ -54,7 +54,7 @@ export function MetricStatCard({
   )
   if (!detail) return card
   return (
-    <Tooltip title={detail} placement="bottom-start">
+    <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{detail}</span>} placement="bottom-start">
       {card}
     </Tooltip>
   )

@@ -80,6 +80,7 @@ type WeeklyDigest struct {
 	TopTools         []WeeklyDigestTool           `json:"TopTools"`
 	EmbedReliability WeeklyDigestEmbedReliability `json:"EmbedReliability"`
 	Heuristic        ValueHeuristic               `json:"Heuristic"`
+	ledgerTotals
 }
 
 // ContextSessionStory is a compact per-session virtual-context summary.
@@ -237,6 +238,7 @@ func buildWeeklyDigest(projectID string) WeeklyDigest {
 		TopTools:         queryTopToolsWindow(projectID, days, 5),
 		EmbedReliability: buildEmbedReliability(),
 		Heuristic:        computeValueHeuristic(saved, returned, baseline, days),
+		ledgerTotals:     queryLedgerWindow(projectID, days),
 	}
 }
 

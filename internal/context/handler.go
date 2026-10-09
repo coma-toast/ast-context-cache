@@ -77,6 +77,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 	fileCache := map[string][]string{}
 	matchedFiles := map[string]bool{}
 	var results []map[string]interface{}
+	var spans []LineSpan
 	skipped := 0
 	tokensUsed := 0
 	symbolBaseline := 0
@@ -111,6 +112,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 			break
 		}
 		symbolBaseline += FullSourceTokens(file, name, owner, startLine, endLine, fileCache)
+		spans = append(spans, LineSpan{File: file, Start: startLine, End: endLine})
 		tokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
@@ -120,6 +122,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 	MarkReturned(sessionID, delivered...)
 	fileBaseline := FileBaselineTokens(matchedFiles, fileCache)
 	savings := ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens)
+	savings.ConservativeBaseline = ConservativeBaselineTokens(spans, fileCache)
 	savings.DedupedCount = skipped
 	savings.Mode = mode
 	savings.CacheHit = cacheHit
@@ -159,6 +162,7 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 	entry = SearchTrailEntry("", CandidateQuery{ProjectPath: projectPath}, mode, scored, limit)
 	fileCache := map[string][]string{}
 	matchedFiles := map[string]bool{}
+	var spans []LineSpan
 	fullCount := 0
 	maxScore := 0.0
 	if len(scored) > 0 {
@@ -189,6 +193,7 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 			break
 		}
 		savings.SymbolBaseline += FullSourceTokens(file, name, owner, startLine, endLine, fileCache)
+		spans = append(spans, LineSpan{File: file, Start: startLine, End: endLine})
 		savings.TokensUsed += resultTokens
 		matchedFiles[file] = true
 		results = append(results, data)
@@ -200,5 +205,6 @@ func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mod
 	computed := ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, savings.FileBaseline, savings.DedupTokensSaved)
 	savings.TokensSaved = computed.TokensSaved
 	savings.SavingsVsFiles = computed.SavingsVsFiles
+	savings.ConservativeBaseline = ConservativeBaselineTokens(spans, fileCache)
 	return results, savings, entry
 }

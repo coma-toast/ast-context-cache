@@ -8,6 +8,7 @@ import type {
   HandoffLimits,
   HandoffTreesResponse,
   Health,
+  HostUsageResponse,
   IndexHealth,
   InstallerBackup,
   InstallerOverview,
@@ -76,6 +77,32 @@ export const fixtureStats: Stats = {
   ApproxRoundsAvoided: 455.5,
   HeuristicApproximate: true,
   HeuristicLabel: 'approximate',
+  CompressionSaved: 1_610_000,
+  DedupSaved: 210_000,
+  ConservativeSaved: 1_120_000,
+  VirtualStoredTokens: 96_000,
+  VirtualFetchedTokens: 61_000,
+  VirtualRecalledTokens: 4_800,
+  EstimatedRows: 3_950,
+  BaselineDefinitions: {
+    compression: 'Full source of every returned symbol minus the tokens actually returned (search and read tools).',
+    dedup: 'Tokens not re-sent because the session already received those symbols.',
+    conservative: 'Each returned symbol plus 20 lines above and below, merged per file, minus the tokens returned.',
+    virtual: 'Tokens written to virtual context and memory, and tokens later fetched or recalled. Not counted as savings.',
+    estimated: 'Rows logged before the tokenizer counted tokens as bytes/4 estimates.',
+  },
+}
+
+export const fixtureHostUsage: HostUsageResponse = {
+  Enabled: true,
+  WindowDays: 30,
+  Days: Array.from({ length: 14 }, (_, i) => ({
+    Day: `2026-09-${String(i + 10).padStart(2, '0')}`,
+    Input: 40_000 + ((i * 7_919) % 30_000),
+    Output: 12_000 + ((i * 3_571) % 9_000),
+    CacheRead: 900_000 + ((i * 104_729) % 600_000),
+    CacheWrite: 60_000 + ((i * 15_485) % 40_000),
+  })),
 }
 
 export const fixtureWeeklyDigest: WeeklyDigest = {
@@ -104,6 +131,12 @@ export const fixtureWeeklyDigest: WeeklyDigest = {
     HeuristicLabel: 'approximate',
     WindowDays: 7,
   },
+  CompressionSaved: 362_000,
+  DedupSaved: 50_000,
+  ConservativeSaved: 251_000,
+  VirtualStoredTokens: 21_000,
+  VirtualFetchedTokens: 13_400,
+  VirtualRecalledTokens: 1_100,
 }
 
 export const fixtureContextSessions: ContextSessionsResponse = {
@@ -306,6 +339,7 @@ export const fixtureSettings: SettingsData = {
   WatcherIgnoreGlobs: '["**/node_modules/**","**/.git/**","**/dist/**"]',
   ProjectExcludePaths: '',
   IndexLogFiles: false,
+  TranscriptUsageIngest: false,
   LogRetentionEnabled: true,
   LogRetentionRoots: '/Users/demo/project/logs',
   LogRetentionMaxAgeDays: 14,
@@ -413,6 +447,7 @@ export const fixtureFlags: FlagState[] = [
     enabled: true,
     default: true,
     locked: false,
+    affects_tools: true,
   },
   {
     key: 'feature_handoff_scratchpad',
@@ -422,6 +457,7 @@ export const fixtureFlags: FlagState[] = [
     enabled: true,
     default: true,
     locked: false,
+    affects_tools: true,
   },
   {
     key: 'feature_handoff_claims',
@@ -431,6 +467,7 @@ export const fixtureFlags: FlagState[] = [
     enabled: false,
     default: true,
     locked: false,
+    affects_tools: true,
   },
   {
     key: 'feature_handoff_live_trail',
@@ -440,6 +477,7 @@ export const fixtureFlags: FlagState[] = [
     enabled: true,
     default: true,
     locked: false,
+    affects_tools: false,
   },
   {
     key: 'feature_handoff_hooks',
@@ -449,6 +487,7 @@ export const fixtureFlags: FlagState[] = [
     enabled: true,
     default: false,
     locked: true,
+    affects_tools: false,
   },
   {
     key: 'feature_shared_query_cache',
@@ -458,6 +497,7 @@ export const fixtureFlags: FlagState[] = [
     enabled: true,
     default: true,
     locked: false,
+    affects_tools: false,
   },
 ]
 

@@ -110,7 +110,6 @@ Never put credentials in a brief or scratchpad post. Full guide: [docs/handoff.m
 - **report_kv_repair_event** - Report KV cache miss/quality signal (observability)
 - **analyze_dead_code** - Find unused functions, classes, imports
 - **analyze_complexity** - Find hard-to-maintain code by cyclomatic complexity
-- **export_bundle** / **import_bundle** - Portable code bundles without re-indexing
 - **fetch_doc** - Fetch, cache, and return external documentation (prefer over WebFetch)
 - **add_doc_source** / **remove_doc_source** / **update_doc_source** - Track and manage cached doc URLs
 

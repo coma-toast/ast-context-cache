@@ -22,6 +22,9 @@ import (
 
 const (
 	selectSymbolLinesQuery = "SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1"
+	// retrieveConservativeBaselineKey carries the conservative baseline beside the result
+	// to the query log; it is never serialized into the tool response.
+	retrieveConservativeBaselineKey = "conservative_baseline"
 )
 
 type RetrieveResult struct {
@@ -182,6 +185,7 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 		budgetSaved = 0
 	}
 	savings := context.ComputeSavings(totalTokens, symbolBaseline, 0, codeMeta.dedupTokens)
+	savings.ConservativeBaseline = conservativeBaselineForChunks(chunks)
 	savings.DedupedCount = codeMeta.dedupCount
 	savings.Mode = mode
 
@@ -227,7 +231,8 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	recordSearch(sessionID, entry)
 	result.Handoff = annotateChunks(sessionID, entry, result.Chunks)
 	resultJSON, _ := json.Marshal(result)
-	return map[string]interface{}{"result": json.RawMessage(resultJSON)}
+	// conservative_baseline is for the query log only; it is not part of the response body.
+	return map[string]interface{}{"result": json.RawMessage(resultJSON), retrieveConservativeBaselineKey: savings.ConservativeBaseline}
 }
 
 // annotateChunks annotates a retrieve search for a handoff tree session, marking the code chunks
@@ -361,6 +366,21 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 		total += context.FullSourceTokens(c.absFile, c.Name, owner, c.StartLine, c.endLine, fileCache)
 	}
 	return total
+}
+
+// conservativeBaselineForChunks is the TL-3 baseline: code chunks widened by 20 lines and
+// merged per file, plus doc chunks as returned.
+func conservativeBaselineForChunks(chunks []RetrieveChunk) int {
+	var spans []context.LineSpan
+	total := 0
+	for _, c := range chunks {
+		if c.Type == "doc" {
+			total += db.EstimateTokens(c.Content)
+			continue
+		}
+		spans = append(spans, context.LineSpan{File: c.absFile, Start: c.StartLine, End: c.endLine})
+	}
+	return total + context.ConservativeBaselineTokens(spans, map[string][]string{})
 }
 
 func retrieveDocs(query string, limit int) ([]RetrieveChunk, int) {

@@ -1,0 +1,5 @@
+{"type":"user","timestamp":"2026-10-01T12:00:00Z","message":{"role":"user","content":"do not store this prompt text"}}
+{"type":"assistant","timestamp":"2026-10-01T12:00:05Z","requestId":"req_1","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"first block"}],"usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":1000,"cache_creation_input_tokens":50}}}
+{"type":"assistant","timestamp":"2026-10-01T12:00:06Z","requestId":"req_1","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}],"usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":1000,"cache_creation_input_tokens":50}}}
+not json but mentions "usage"
+{"type":"assistant","timestamp":"2026-10-02T12:00:00Z","requestId":"req_2","message":{"id":"msg_2","role":"assistant","content":"x","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}

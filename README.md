@@ -120,10 +120,10 @@ Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` an
 | **Context functions** | `define_context_fn` / `apply_context_fn` / `list_context_fns`: reusable transforms over stored notes, off by default ([docs](docs/context-fn.md)) |
 | **KV repair** | `report_kv_repair_event`, golden-text archives, success-rate stats on the dashboard |
 | **Tool tiers** | `core` / `extended` / `complete`, plus per-tool overrides in `~/.astcache/tools.json` |
-| **Feature flags** | Live switches (Settings → Features, `AST_FEATURE_*` env locks); clients are told with `tools/list_changed` |
+| **Feature flags** | Live switches (Settings → Features, `AST_FEATURE_*` env locks); modern clients get one coalesced `tools/list_changed`, and legacy sessions keep the tool list they started with until they reconnect |
 | **Code mode** | `execute_code` sandbox and repo scripts in `scripts/code-mode/` |
 | **Pinning and queue** | Bounded embed queue; pinned projects get priority |
-| **Analysis and bundles** | Dead code, complexity, `.astbundle` export/import |
+| **Analysis** | Dead code, complexity |
 | **Remote access** | Extra listen addresses, trusted hosts, and an optional access token, applied live ([docs](docs/INSTALL.md#remote-access-tailscale)) |
 | **Supervise / Docker** | `ast-mcp supervise` or [`docker/ast-mcp`](docker/ast-mcp/README.md) |
 | **Metrics** | Prometheus at `http://127.0.0.1:7830/metrics` (`astcache_` prefix) |
@@ -169,7 +169,7 @@ For a local supervisor that runs several MCP servers and merges their host confi
 | Tier | Typical tools |
 |------|----------------|
 | **core** | Search, maps, docs, `retrieve`, impact checks (`get_impact_graph`, `diff_impact`, `check_symbol_exists`, `check_deletion_safety`), context **read**, `recall_memory`, and the handoff tools `handoff` / `open_handoff` / `scratchpad` |
-| **extended** | + indexing, `store_context` / `edit_context` / memory write, analysis, bundles, doc-source management (`define_context_fn` / `apply_context_fn` are extended too, behind `feature_context_fn`) |
+| **extended** | + indexing, `store_context` / `edit_context` / memory write, analysis, doc-source management (`define_context_fn` / `apply_context_fn` are extended too, behind `feature_context_fn`) |
 | **complete** | + `execute_code` |
 
 The handoff tools are core even though they write, so delegation works at every tier; turn them off with a feature flag instead.

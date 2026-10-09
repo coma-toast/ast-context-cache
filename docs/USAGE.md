@@ -49,8 +49,6 @@ Tool list must match `internal/mcp/tools.go` / `tools/list`. See [AGENTS.md — 
 | `report_kv_repair_event` | Report KV cache miss/quality signal |
 | `analyze_dead_code` | Find unused functions/classes/imports |
 | `analyze_complexity` | Calculate cyclomatic complexity |
-| `export_bundle` | Export indexed code as portable bundle |
-| `import_bundle` | Import a previously exported bundle |
 | `fetch_doc` | Fetch, register, and return cached doc content |
 | `add_doc_source` | Track a doc URL for async background caching |
 | `remove_doc_source` | Remove a tracked documentation source |

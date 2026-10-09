@@ -15,7 +15,7 @@ import {
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import { api } from './api/client'
-import type { ContextSessionsResponse, HandoffTreesResponse, Health, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
+import type { ContextSessionsResponse, HandoffTreesResponse, Health, HostUsageResponse, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
 import { HealthBar } from './components/HealthBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
@@ -67,6 +67,7 @@ function DashboardInner() {
   const [weeklyDigest, setWeeklyDigest] = useState<WeeklyDigest | null>(null)
   const [contextSessions, setContextSessions] = useState<ContextSessionsResponse | null>(null)
   const [handoffTrees, setHandoffTrees] = useState<HandoffTreesResponse | null>(null)
+  const [hostUsage, setHostUsage] = useState<HostUsageResponse | null>(null)
   const [indexHealth, setIndexHealth] = useState<IndexHealth | null>(null)
   const [memory, setMemory] = useState<MemoryData | null>(null)
   const [settings, setSettings] = useState<SettingsData | null>(null)
@@ -103,6 +104,7 @@ function DashboardInner() {
         tasks.push(run('contextSessions', api.contextSessions(pid), setContextSessions))
       }
       if (keys.includes('handoffTrees')) tasks.push(run('handoffTrees', api.handoffTrees(), setHandoffTrees))
+      if (keys.includes('hostUsage')) tasks.push(run('hostUsage', api.hostUsage(), setHostUsage))
       if (keys.includes('indexHealth')) tasks.push(run('indexHealth', api.indexHealth(pid), setIndexHealth))
       if (keys.includes('memory')) tasks.push(run('memory', api.memory(pid, docSourcesPage), setMemory))
       if (keys.includes('settings')) tasks.push(run('settings', api.settings(), setSettings))
@@ -143,7 +145,7 @@ function DashboardInner() {
   )
 
   const loadAll = useCallback(() => {
-    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'handoffTrees', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
+    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'handoffTrees', 'hostUsage', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
   }, [load])
 
   useEffect(() => {
@@ -336,6 +338,7 @@ function DashboardInner() {
                 weeklyDigest={weeklyDigest}
                 contextSessions={contextSessions}
                 handoffTrees={handoffTrees}
+                hostUsage={hostUsage}
                 projectPath={pid}
                 onChanged={() => load(['stats', 'weeklyDigest', 'contextSessions', 'indexHealth'])}
                 onHandoffsChanged={() => load(['handoffTrees', 'stats'])}

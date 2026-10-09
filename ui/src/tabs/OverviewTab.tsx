@@ -20,11 +20,12 @@ import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { HandoffTreesCard } from '../components/HandoffTreesCard'
 import { RingGauge } from '../components/charts/RingGauge'
 import { useToast } from '../context/ToastContext'
-import type { ContextSessionStory, ContextSessionsResponse, HandoffTreesResponse, Stats, WeeklyDigest } from '../api/types'
+import type { ContextSessionStory, ContextSessionsResponse, HandoffTreesResponse, HostUsageResponse, Stats, WeeklyDigest } from '../api/types'
 import { formatStat } from '../components/HealthBar'
 import { MetricStatCard } from '../components/charts/MetricStatCard'
 import { chartColors } from '../lib/chartColors'
 import { fmtDailyAvg, meterFillSegments, todayMeterFill } from '../lib/statMeters'
+import { hostUsageBars, hostUsageTotals, ledgerSplit, showHostUsage, tokensSavedDetail, tokensSavedSub, virtualLedger } from '../lib/ledger'
 
 const SESSIONS_PREVIEW = 4
 const TOP_TOOLS_PREVIEW = 5
@@ -35,6 +36,7 @@ export function OverviewTab({
   weeklyDigest,
   contextSessions,
   handoffTrees,
+  hostUsage,
   projectPath,
   onChanged,
   onHandoffsChanged,
@@ -44,6 +46,8 @@ export function OverviewTab({
   contextSessions?: ContextSessionsResponse | null
   /** Handoff trees (OB-4); undefined hides the card, null shows it loading. */
   handoffTrees?: HandoffTreesResponse | null
+  /** Host transcript usage (TL-5); the card shows only when the ingest setting is on. */
+  hostUsage?: HostUsageResponse | null
   /** Dashboard project filter; scopes actions to the same set the stats describe. */
   projectPath?: string
   onChanged?: () => void
@@ -55,6 +59,7 @@ export function OverviewTab({
   const baseline = stats.ApproxBaselineTokens ?? 0
   const returned = stats.ApproxTokensReturned ?? 0
   const heuristicLabel = stats.HeuristicLabel || 'approximate'
+  const saved30d = ledgerSplit(stats).total
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -75,9 +80,9 @@ export function OverviewTab({
             title="Tokens saved"
             value={formatStat(stats.TodayTokens)}
             accent={chartColors.green}
-            fill={todayMeterFill(stats.TodayTokens, stats.TokensSaved)}
-            sub={`${formatStat(stats.TokensSaved)} in 30d · ${fmtDailyAvg(stats.TokensSaved)}/day`}
-            detail={`Dedup: ${formatStat(stats.DedupTokensSaved)} · vs whole files: ${formatStat(stats.SavingsVsFiles)}${stats.TotalChars ? ` · chars returned: ${formatStat(stats.TotalChars)}` : ''}`}
+            fill={todayMeterFill(stats.TodayTokens, saved30d)}
+            sub={tokensSavedSub(stats, fmtDailyAvg(saved30d))}
+            detail={`${tokensSavedDetail(stats)}${stats.TotalChars ? `\nChars returned: ${formatStat(stats.TotalChars)}` : ''}`}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -114,6 +119,11 @@ export function OverviewTab({
             onChanged={onChanged}
           />
         </Grid>
+        {showHostUsage(hostUsage) && (
+          <Grid size={{ xs: 12 }}>
+            <HostUsageCard data={hostUsage} />
+          </Grid>
+        )}
         {handoffTrees !== undefined && (
           <Grid size={{ xs: 12 }}>
             <HandoffTreesCard data={handoffTrees} onChanged={onHandoffsChanged} />
@@ -273,6 +283,7 @@ function VirtualContextCard({
   const visible = showAll ? rows : rows.slice(0, SESSIONS_PREVIEW)
   const max = stats.VirtualMaxTokensGlobal
   const capPct = max > 0 ? Math.round(Math.min(100, (stats.VirtualInventoryTokens / max) * 100)) : 0
+  const ledger = virtualLedger(stats)
   return (
     <Card variant="outlined" sx={{ height: '100%' }}>
       <CardContent sx={{ pb: '16px !important' }}>
@@ -305,6 +316,12 @@ function VirtualContextCard({
             {digest && (
               <InlineStat label="7d store / fetch" value={`${formatStat(digest.VirtualStored)} / ${formatStat(digest.VirtualAccessed)}`} />
             )}
+            {ledger && (
+              <InlineStat
+                label="30d ledger · stored / fetched / recalled"
+                value={`${formatStat(ledger.stored)} / ${formatStat(ledger.fetched)} / ${formatStat(ledger.recalled)}`}
+              />
+            )}
           </Box>
         </Stack>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
@@ -331,6 +348,41 @@ function VirtualContextCard({
               </Button>
             )}
           </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function HostUsageCard({ data }: { data: HostUsageResponse }) {
+  const totals = hostUsageTotals(data.Days)
+  const bars = hostUsageBars(data.Days)
+  return (
+    <Card variant="outlined">
+      <CardContent sx={{ pb: '16px !important' }}>
+        <Typography variant="subtitle2" gutterBottom>
+          Host token usage · {data.WindowDays}d
+        </Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 1, mb: 1.5 }}>
+          <InlineStat label="Input" value={formatStat(totals.Input)} />
+          <InlineStat label="Output" value={formatStat(totals.Output)} />
+          <InlineStat label="Cache read" value={formatStat(totals.CacheRead)} />
+          <InlineStat label="Cache write" value={formatStat(totals.CacheWrite)} />
+        </Box>
+        {bars.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No transcript usage ingested yet; the ingest runs hourly.
+          </Typography>
+        ) : (
+          <Stack direction="row" spacing={0.25} sx={{ alignItems: 'flex-end', height: 48 }}>
+            {bars.map((b) => (
+              <Box
+                key={b.day}
+                title={`${b.day}: ${formatStat(b.total)} tokens`}
+                sx={{ flex: 1, minWidth: 2, height: `${Math.max(2, b.pct)}%`, bgcolor: chartColors.accent, borderRadius: 0.5 }}
+              />
+            ))}
+          </Stack>
         )}
       </CardContent>
     </Card>

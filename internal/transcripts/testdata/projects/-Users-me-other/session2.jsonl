@@ -1,0 +1,1 @@
+{"type":"assistant","timestamp":"2026-10-01T12:30:00Z","requestId":"req_3","message":{"id":"msg_3","role":"assistant","content":"y","usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":200,"cache_creation_input_tokens":0}}}

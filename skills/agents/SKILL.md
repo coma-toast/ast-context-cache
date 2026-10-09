@@ -183,8 +183,6 @@ When working with this codebase, **always prefer MCP tools** over direct grep/re
 | `store_memory` / `forget_memory` | Write or invalidate structured memory (`mem_*`). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
-| `export_bundle` | Export indexed code as a portable `.astbundle` file. |
-| `import_bundle` | Import a previously exported bundle without re-indexing. |
 | `fetch_doc` | Fetch a doc URL, cache it, and return stored entries (prefer over WebFetch). |
 | `add_doc_source` | Track a doc URL for async background caching. |
 | `remove_doc_source` | Remove a tracked documentation source. |

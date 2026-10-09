@@ -51,6 +51,7 @@ export const api = {
   health: noop,
   stats: noop,
   weeklyDigest: noop,
+  hostUsage: noop,
   contextSessions: noop,
   indexHealth: noop,
   memory: noop,

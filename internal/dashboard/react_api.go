@@ -33,6 +33,7 @@ func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/mcp-tier", handleDashboardMCPTierJSON)
 	mux.HandleFunc("/api/dashboard/flags", handleDashboardFlagsJSON)
 	mux.HandleFunc("/api/dashboard/network", handleDashboardNetworkJSON)
+	mux.HandleFunc("/api/dashboard/host-usage", handleDashboardHostUsageJSON)
 	registerHandoffAPI(mux)
 	registerInstallerAPI(mux)
 }
@@ -98,6 +99,7 @@ func handleDashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 			Scan(&s.TotalQueries, &s.Sessions, &s.TotalChars, &s.AvgDurationMs, &s.TokensSaved, &s.DedupTokensSaved, &s.SavingsVsFiles)
 		fillTodayStats(pid, todayStart, tomorrowStart, &s)
 		fillVirtualContextStats(&s, pid)
+		fillLedgerStats(&s, pid)
 		returned, baseline := queryTokensReturnedAndBaseline(pid, StatsWindowDays)
 		h = computeValueHeuristic(s.TokensSaved, returned, baseline, StatsWindowDays)
 		s.SymbolBaseline = h.ApproxBaselineTokens

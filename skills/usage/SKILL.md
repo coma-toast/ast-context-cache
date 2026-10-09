@@ -14,7 +14,6 @@ Use this skill when the user asks to:
 - Search code by meaning/intent
 - Find unused or complex code
 - Search documentation for libraries/frameworks
-- Share indexed code with another machine (bundles)
 - Run code analysis against search results
 - Offload bulky conversation context before host compaction (virtual context)
 - Store or recall user prefs / coding conventions (structured memory)
@@ -74,7 +73,6 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | Best single-shot context | `retrieve` | Code + optional docs, reranked |
 | External library docs | `search_docs` then `fetch_doc` | Not WebFetch when MCP is up |
 | List doc URLs | `list_doc_sources` | Core tier |
-| Portable index | `export_bundle` / `import_bundle` | Extended tier |
 | Transform results in JS | `execute_code` | Complete tier; optional `script_id`; check `code_script_hints` first |
 | Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id`; bulky `ctx_*` notes |
 | Context-as-a-file editing | `edit_context` | Extended; in-place rewrite of a `ctx_*` note, reversible via revisions |
@@ -150,6 +148,10 @@ When finished:
 **Session isolation:** `fetch_context` with `session_id` rejects refs owned by other sessions (returns empty notes, not an error).
 
 **Quota errors:** Response includes `context_limit_exceeded` with `limit`, `current`, `max`. Fix by flushing old notes, raising limits (dashboard Settings), or enabling **`lru_session`** policy to evict oldest note in session.
+
+### Host context clearing
+
+When `feature_result_offload` is on, a search result over ~2k tokens comes back as its top results plus a stub line like `[ctx_… get_context_capsule auth flow, 9.4k tok — head shown, fetch_context for all]`. Keep that stub when the host clears tool output: `fetch_context(refs=["ctx_…"])` returns the full result. Offloads have their own budget (they never use your session quota) and expire 24h after their last fetch; an expired ref comes back from `fetch_context` under `expired` with the `tool` and `args` to re-run. Copy anything you need longer into your own `store_context` note. Pass `offload=false` to get a result inline. See [docs/USAGE.md](../../docs/USAGE.md#host-context-clearing).
 
 ### Defaults and limits
 

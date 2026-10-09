@@ -134,8 +134,6 @@ When working with codebases that have an MCP server available, **always prefer M
 | `report_kv_repair_event` | Report KV cache miss/quality signal before/after `fetch_context` (observability). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
-| `export_bundle` | Export indexed code as a portable `.astbundle` file. |
-| `import_bundle` | Import a previously exported bundle without re-indexing. |
 | `fetch_doc` | Fetch a documentation URL, store it in the local cache, and return entries (prefer over WebFetch). |
 | `add_doc_source` | Track a documentation URL for async background caching (markdown, html, webpage, json). |
 | `remove_doc_source` | Remove a tracked documentation source. |

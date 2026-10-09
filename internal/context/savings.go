@@ -2,18 +2,23 @@ package context
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/tokens"
 )
 
 const (
 	selectSymbolCodeQuery  = "SELECT COALESCE(code,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
 	selectSymbolKindQuery  = "SELECT COALESCE(kind,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
 	selectSymbolLinesQuery = "SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE file = ? AND name = ? AND project_path = ? LIMIT 1"
+	// conservativeContextLines widens each returned symbol for the conservative baseline:
+	// what an agent would plausibly have read instead (the symbol plus surrounding lines).
+	conservativeContextLines = 20
 )
 
 func coerceInt(v interface{}) int {
@@ -50,6 +55,9 @@ type SavingsMeta struct {
 	SavingsVsFiles   int
 	Mode             string
 	CacheHit         bool
+	// ConservativeBaseline is the symbol ± 20 lines baseline (TL-3). It goes to the query
+	// log only; ApplyTo never writes it into the response body.
+	ConservativeBaseline int
 }
 
 // ComputeSavings derives aggregate savings from component counts.
@@ -86,6 +94,55 @@ func (m SavingsMeta) ApplyTo(resp map[string]interface{}) {
 	if m.CacheHit {
 		resp["cache_hit"] = true
 	}
+}
+
+// LineSpan is one returned symbol's absolute file and line range.
+type LineSpan struct {
+	File       string
+	Start, End int
+}
+
+// ConservativeBaselineTokens counts the source an agent would have read without the tool:
+// each span widened by 20 lines on both sides, merged per file so overlapping context is
+// counted once.
+func ConservativeBaselineTokens(spans []LineSpan, fileCache map[string][]string) int {
+	byFile := map[string][]LineSpan{}
+	for _, sp := range spans {
+		if sp.File != "" && sp.Start > 0 && sp.End >= sp.Start {
+			byFile[sp.File] = append(byFile[sp.File], sp)
+		}
+	}
+	total := 0
+	for file, fs := range byFile {
+		if _, ok := fileCache[file]; !ok {
+			indexer.ReadSourceRange(file, 1, 1, fileCache)
+		}
+		lines := fileCache[file]
+		if len(lines) == 0 {
+			continue
+		}
+		for _, r := range mergeWidenedSpans(fs, len(lines)) {
+			total += tokens.Count(strings.Join(lines[r.Start-1:r.End], "\n"))
+		}
+	}
+	return total
+}
+
+func mergeWidenedSpans(spans []LineSpan, lineCount int) []LineSpan {
+	sort.Slice(spans, func(i, j int) bool { return spans[i].Start < spans[j].Start })
+	var out []LineSpan
+	for _, sp := range spans {
+		start, end := max(1, sp.Start-conservativeContextLines), min(lineCount, sp.End+conservativeContextLines)
+		if start > end {
+			continue
+		}
+		if n := len(out); n > 0 && start <= out[n-1].End+1 {
+			out[n-1].End = max(out[n-1].End, end)
+			continue
+		}
+		out = append(out, LineSpan{File: sp.File, Start: start, End: end})
+	}
+	return out
 }
 
 // FullSourceTokens estimates tokens for a symbol's full source body.

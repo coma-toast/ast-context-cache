@@ -16,8 +16,9 @@ const (
 		tokens_saved, file_baseline_tokens, full_baseline_tokens,
 		tokens_used, symbol_baseline_tokens, dedup_tokens_saved, savings_vs_files,
 		deduped_count, mode, cache_hit,
-		duration_ms, cpu_ms, interface, session_id, error, project_path, estimate_method
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		duration_ms, cpu_ms, interface, session_id, error, project_path, estimate_method,
+		conservative_baseline_tokens, ledger
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	insertSessionLogQuery = `INSERT INTO sessions (session_id, symbol_id, symbol_name, start_line, file_path, mode, token_count) VALUES (?, ?, ?, ?, ?, ?, ?)`
 	insertTrailQuery      = `INSERT INTO search_trail (
 		session_id, tool, query, query_norm, filters_key, mode, doc_type, project_path,
@@ -62,6 +63,10 @@ type QueryLogMetrics struct {
 	CpuMs            float64
 	// EstimateMethod is the token estimator behind these counts; empty means EstimateMethod().
 	EstimateMethod string
+	// ConservativeBaseline is the symbol ± 20 lines baseline (TL-3); 0 when not computed.
+	ConservativeBaseline int
+	// Ledger is compression, virtual or none (TL-2).
+	Ledger string
 }
 
 type queryLogRow struct {
@@ -217,6 +222,7 @@ func flushQueryLogBuffer() {
 			m.TokensUsed, m.SymbolBaseline, m.DedupTokensSaved, m.SavingsVsFiles,
 			m.DedupedCount, m.Mode, cacheHit,
 			m.DurationMs, m.CpuMs, "http", r.sessionID, r.errMsg, r.projectPath, m.EstimateMethod,
+			m.ConservativeBaseline, m.Ledger,
 		); err != nil {
 			logger.Warn("Failed to insert query log row", "error", err)
 		}

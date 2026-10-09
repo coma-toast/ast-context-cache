@@ -112,10 +112,12 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 
 // handleLegacy serves the handshake era. Requests are answered statelessly even when their
 // Mcp-Session-Id is unknown (say, after a restart): nothing a POST does depends on the
-// session, so forcing a re-initialize would only interrupt the client.
+// session, so forcing a re-initialize would only interrupt the client. A live session's
+// tools/list is frozen at first use.
 func handleLegacy(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest) {
-	if id := r.Header.Get(headerSessionID); id != "" {
-		hub.touch(id)
+	sessionID := r.Header.Get(headerSessionID)
+	if sessionID != "" && !hub.touch(sessionID) {
+		sessionID = ""
 	}
 	w.Header().Set("Content-Type", "application/json")
 	switch rpcReq.Method {
@@ -129,7 +131,7 @@ func handleLegacy(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest)
 	case "ping":
 		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{}))
 	default:
-		if !dispatch(w, rpcReq) {
+		if !dispatch(w, rpcReq, sessionID) {
 			writeRPC(w, http.StatusOK, rpcError(rpcReq.ID, &JSONRPCError{Code: MethodNotFound, Message: "Unknown method: " + rpcReq.Method}))
 		}
 	}
@@ -152,7 +154,7 @@ func handleModern(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest)
 		return
 	}
 	buf := newResponseBuffer()
-	if !dispatch(buf, rpcReq) {
+	if !dispatch(buf, rpcReq, "") {
 		writeRPC(w, http.StatusNotFound, rpcError(rpcReq.ID, &JSONRPCError{Code: MethodNotFound, Message: "Unknown method: " + rpcReq.Method}))
 		return
 	}
@@ -164,10 +166,11 @@ func handleModern(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest)
 }
 
 // dispatch answers the methods both eras share, reporting false for an unknown method.
-func dispatch(w http.ResponseWriter, rpcReq JSONRPCRequest) bool {
+// sessionID is a live legacy session, whose tools/list is frozen, or "" for the live list.
+func dispatch(w http.ResponseWriter, rpcReq JSONRPCRequest, sessionID string) bool {
 	switch rpcReq.Method {
 	case "tools/list":
-		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"tools": FilterTools(GetConfig())}))
+		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"tools": hub.toolsFor(sessionID)}))
 	case "prompts/list":
 		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"prompts": GetPrompts()}))
 	case "prompts/get":
@@ -476,10 +479,6 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		resultJSON, _ := json.Marshal(ec.Result)
 		logToolQuery(toolName, args, len(resultJSON), 0, ec.Savings.TokensUsed, ec.Savings, start, cpuStart, projectPath, "")
 		loggedToolCall = true
-	case "export_bundle":
-		result = handleExportBundle(toolArgs)
-	case "import_bundle":
-		result = handleImportBundle(toolArgs)
 	case "search_docs":
 		query, _ := toolArgs["query"].(string)
 		limit := 10
@@ -628,6 +627,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 						computed := context.ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, 0, savings.DedupTokensSaved)
 						savings.TokensSaved = computed.TokensSaved
 					}
+					savings.ConservativeBaseline, _ = retrieveResult[retrieveConservativeBaselineKey].(int)
 					logToolQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, savings, start, cpuStart, projectPath, "")
 					loggedToolCall = true
 				}
@@ -669,6 +669,28 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	})
 }
 
+// Ledgers (TL-2) for queries.ledger: compression is search/read savings, virtual is
+// stored and fetched context or memory; any other tool is none.
+const (
+	ledgerCompression = "compression"
+	ledgerVirtual     = "virtual"
+	ledgerNone        = "none"
+)
+
+var toolLedgers = map[string]string{
+	"get_context_capsule": ledgerCompression, "search_semantic": ledgerCompression, "get_file_context": ledgerCompression,
+	"retrieve": ledgerCompression, "execute_code": ledgerCompression,
+	"store_context": ledgerVirtual, "fetch_context": ledgerVirtual, "edit_context": ledgerVirtual, "store_memory": ledgerVirtual,
+	"recall_memory": ledgerVirtual, "apply_context_fn": ledgerVirtual, "handoff": ledgerVirtual,
+}
+
+func toolLedger(toolName string) string {
+	if l, ok := toolLedgers[toolName]; ok {
+		return l
+	}
+	return ledgerNone
+}
+
 func logToolQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens int, savings context.SavingsMeta, start time.Time, cpuStart sys.CPUSample, projectPath, errMsg string) {
 	db.LogQuery(toolName, args, db.QueryLogMetrics{
 		ResultChars:      resultChars,
@@ -685,5 +707,8 @@ func logToolQuery(toolName string, args map[string]interface{}, resultChars, inp
 		CacheHit:         savings.CacheHit,
 		DurationMs:       float64(time.Since(start).Milliseconds()),
 		CpuMs:            sys.DeltaMs(cpuStart, sys.SampleCPU()),
+		// The conservative baseline only means something on the compression ledger.
+		ConservativeBaseline: savings.ConservativeBaseline,
+		Ledger:               toolLedger(toolName),
 	}, projectPath, errMsg)
 }

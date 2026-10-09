@@ -64,4 +64,6 @@ type SettingsData struct {
 	// HandoffEnvLocked lists the handoff limit settings keys whose AST_HANDOFF_* env var is set:
 	// saving them from the dashboard has no effect.
 	HandoffEnvLocked []string
+	// TranscriptUsageIngest is the transcript_usage_ingest setting (TL-5, default off).
+	TranscriptUsageIngest bool
 }

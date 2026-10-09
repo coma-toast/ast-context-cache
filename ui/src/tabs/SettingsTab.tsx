@@ -154,7 +154,7 @@ export function SettingsTab({
 
       <UpdatesSection />
 
-      <StorageSection data={data} />
+      <StorageSection data={data} save={save} />
 
       <FeaturesSection refreshKey={data} />
 
@@ -614,7 +614,7 @@ export function SettingsTab({
   )
 }
 
-function StorageSection({ data }: { data: SettingsData }) {
+function StorageSection({ data, save }: { data: SettingsData; save: (key: string, value: string) => Promise<void> }) {
   const { showToast } = useToast()
   const [target, setTarget] = useState('')
   const [status, setStatus] = useState<DataDirMoveStatus | null>(null)
@@ -696,6 +696,15 @@ function StorageSection({ data }: { data: SettingsData }) {
         <Typography variant="body2" color="text.secondary">
           Current data directory: <code>{data.DataDir || '—'}</code> ({data.DataDirSize || '—'})
         </Typography>
+        <Box sx={{ mt: 2 }}>
+          <Button size="small" onClick={() => save('transcript_usage_ingest', data.TranscriptUsageIngest ? 'false' : 'true')}>
+            Transcript usage ingest: {data.TranscriptUsageIngest ? 'On' : 'Off'}
+          </Button>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            Hourly, reads token usage counts from ~/.claude/projects transcripts for the Overview host usage card. Only
+            per-day token totals are stored, never transcript text.
+          </Typography>
+        </Box>
         <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'warning.dark', borderRadius: 1 }}>
           <Typography variant="subtitle2" color="warning.main">
             Move data directory

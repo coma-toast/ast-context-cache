@@ -124,3 +124,55 @@ func TestDashboardStatsExcludesVirtual(t *testing.T) {
 	assert.Equal(t, 100, out.DedupTokensSaved)
 	assert.Equal(t, 300, out.SavingsVsFiles)
 }
+
+func TestDashboardStatsLedgers(t *testing.T) {
+	testEmbedDB(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	const insertQuery = `INSERT INTO queries (timestamp, tool_name, session_id, project_path, tokens_saved, dedup_tokens_saved,
+		tokens_used, conservative_baseline_tokens, ledger, estimate_method, duration_ms)
+		VALUES (?, ?, 'sess-l', '/proj-l', ?, ?, ?, ?, ?, ?, 1)`
+	for _, r := range []struct {
+		tool                             string
+		saved, dedup, used, conservative int
+		ledger, method                   string
+	}{
+		{"get_context_capsule", 1200, 200, 300, 700, "compression", "o200k_base"},
+		{"search_semantic", 500, 0, 100, 0, "", "bytes4"},
+		{"store_context", 9000, 0, 0, 0, "virtual", "o200k_base"},
+		{"store_memory", 40, 0, 0, 0, "virtual", "o200k_base"},
+		{"fetch_context", 0, 0, 800, 0, "virtual", "o200k_base"},
+		{"recall_memory", 0, 0, 60, 0, "virtual", "o200k_base"},
+	} {
+		_, err := db.DB.Exec(insertQuery, now, r.tool, r.saved, r.dedup, r.used, r.conservative, r.ledger, r.method)
+		require.NoError(t, err)
+	}
+	rec := httptest.NewRecorder()
+	handleDashboardStatsJSON(rec, httptest.NewRequest(http.MethodGet, "/api/dashboard/stats?project_id=/proj-l", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out struct {
+		TokensSaved           int
+		CompressionSaved      int
+		DedupSaved            int
+		ConservativeSaved     int
+		VirtualStoredTokens   int
+		VirtualFetchedTokens  int
+		VirtualRecalledTokens int
+		EstimatedRows         int
+		BaselineDefinitions   map[string]string
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, 1700, out.TokensSaved)
+	assert.Equal(t, 1500, out.CompressionSaved, "the legacy ledger-less search row counts as compression")
+	assert.Equal(t, 200, out.DedupSaved)
+	assert.Equal(t, out.TokensSaved, out.CompressionSaved+out.DedupSaved)
+	assert.Equal(t, 400, out.ConservativeSaved)
+	assert.Equal(t, 9040, out.VirtualStoredTokens)
+	assert.Equal(t, 800, out.VirtualFetchedTokens)
+	assert.Equal(t, 60, out.VirtualRecalledTokens)
+	assert.Equal(t, 1, out.EstimatedRows)
+	assert.Contains(t, out.BaselineDefinitions, "conservative")
+	digest := buildWeeklyDigest("/proj-l")
+	assert.Equal(t, 1500, digest.CompressionSaved)
+	assert.Equal(t, 400, digest.ConservativeSaved)
+	assert.Equal(t, 800, digest.VirtualFetchedTokens)
+}
