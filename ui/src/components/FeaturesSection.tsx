@@ -1,13 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { Alert, Box, Card, CardContent, Chip, Stack, Switch, Tooltip, Typography } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Stack,
+  Switch,
+  Tooltip,
+  Typography,
+} from '@mui/material'
 
 import type { FlagSource, FlagState } from '../api/types'
 
 import { useToast } from '../context/ToastContext'
 
 import { api } from '../api/client'
-import { buildFlagRows, withFlagEnabled, type FlagRow } from '../lib/flags'
+import { buildFlagRows, needsToolListWarning, TOOL_LIST_WARNING, withFlagEnabled, type FlagRow } from '../lib/flags'
 
 const SOURCE_COLOR: Record<FlagSource, 'default' | 'info' | 'warning'> = {
   default: 'default',
@@ -29,6 +45,8 @@ export const FeaturesSection = ({ refreshKey }: FeaturesSectionProps) => {
   const [flags, setFlags] = useState<FlagState[] | null>(null)
   const [loadError, setLoadError] = useState('')
   const [pendingKey, setPendingKey] = useState('')
+  // A toggle waiting on the tool-list confirmation (TS-4).
+  const [confirm, setConfirm] = useState<{ key: string; enabled: boolean } | null>(null)
   // A refetch landing mid-toggle would overwrite the optimistic value with the pre-toggle state.
   const pendingRef = useRef('')
 
@@ -66,6 +84,20 @@ export const FeaturesSection = ({ refreshKey }: FeaturesSectionProps) => {
     }
   }
 
+  const requestToggle = (key: string, enabled: boolean) => {
+    if (needsToolListWarning(flags?.find((f) => f.key === key), enabled)) {
+      setConfirm({ key, enabled })
+      return
+    }
+    void toggle(key, enabled)
+  }
+
+  const confirmToggle = () => {
+    if (!confirm) return
+    setConfirm(null)
+    void toggle(confirm.key, confirm.enabled)
+  }
+
   return (
     <Card variant="outlined" id="settings-features" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
       <CardContent>
@@ -84,11 +116,29 @@ export const FeaturesSection = ({ refreshKey }: FeaturesSectionProps) => {
         {flags && (
           <Stack spacing={1}>
             {buildFlagRows(flags).map((row) => (
-              <FlagRowView key={row.flag.key} row={row} pending={pendingKey !== ''} onToggle={toggle} />
+              <FlagRowView key={row.flag.key} row={row} pending={pendingKey !== ''} onToggle={requestToggle} />
             ))}
           </Stack>
         )}
       </CardContent>
+      <Dialog open={confirm !== null} onClose={() => setConfirm(null)} aria-labelledby="flag-tool-list-title">
+        <DialogTitle id="flag-tool-list-title">
+          Turn {confirm?.enabled ? 'on' : 'off'}{' '}
+          <Box component="span" sx={{ fontFamily: 'monospace' }}>
+            {confirm?.key}
+          </Box>
+          ?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>{TOOL_LIST_WARNING}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirm(null)}>Cancel</Button>
+          <Button onClick={confirmToggle} variant="contained" data-testid="flag-tool-list-confirm">
+            Change flag
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Card>
   )
 }

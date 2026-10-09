@@ -124,13 +124,13 @@ func GetTools() []Tool {
 	return []Tool{
 		{
 			Name:        "get_context_capsule",
-			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. May include code_script_hints when a bundled or repo JS script fits the query/results. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction), 'auto' (full for top 3 results, skeleton for rest). Supports Python, JS/TS, Go, Bash, Fish.",
+			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. May include code_script_hints when a bundled or repo JS script fits the query/results. Supports mode: 'auto' (default: full source for the top 3 hits, skeletons for the rest), 'full' (source for every hit), 'skeleton' (signatures only), 'summary' (cached summaries for navigation only; read source before editing). Supports Python, JS/TS, Go, Bash, Fish.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query":        map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":         map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
+					"mode":         map[string]string{"type": "string", "description": "Response mode: 'auto' (default: full source for the top 3 hits, skeletons for the rest), 'skeleton', 'summary' (navigation only), 'full'"},
 					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
 					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
 					"limit":        map[string]string{"type": "integer", "description": "Max candidate symbols to consider (default 30, max 100)."},
@@ -171,7 +171,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "get_impact_graph",
-			Description: "Find the blast radius of a symbol. Returns files that import or depend on the given symbol, enabling impact analysis before making changes. Requires project to be indexed first.",
+			Description: "Find the blast radius of a symbol. Returns files that import or depend on the given symbol, enabling impact analysis before making changes. Call this before changing or deleting an exported symbol. Requires project to be indexed first.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -185,7 +185,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "diff_impact",
-			Description: "Blast radius of a whole branch or pull request. Diffs base_ref...head_ref (or, with pr set, fetches that GitHub PR's changed files via gh without checking the branch out), collects the indexed symbols those files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included. Use pr to ask whether another open PR already touches a file or symbol you are about to change.",
+			Description: "Blast radius of a whole branch or pull request. Diffs base_ref...head_ref (or, with pr set, fetches that GitHub PR's changed files via gh without checking the branch out), collects the indexed symbols those files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included. Use pr to ask whether another open PR already touches a file or symbol you are about to change. Call this before opening or merging a branch that changes exported symbols.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -216,7 +216,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "check_deletion_safety",
-			Description: "Guardrail before removing code. Compares a file against base_ref, finds the symbols the change deletes, and reports which of them are still referenced by other files (unsafe) versus which have no remaining callers (safe). Sibling worktrees of the same repo are searched too.",
+			Description: "Guardrail before removing code. Compares a file against base_ref, finds the symbols the change deletes, and reports which of them are still referenced by other files (unsafe) versus which have no remaining callers (safe). Sibling worktrees of the same repo are searched too. Call this before committing a change that deletes functions, types, or other symbols.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -448,7 +448,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "get_file_context",
-			Description: "Get all symbols in a specific file with mode-aware output. Returns function signatures, source code, or cached summaries for every symbol in the file. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction).",
+			Description: "Get all symbols in a specific file with mode-aware output. Returns function signatures, source code, or cached summaries for every symbol in the file. Supports mode: 'full' (source code), 'skeleton' (signatures only), 'summary' (cached summaries for navigation only; read source before editing).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -507,32 +507,6 @@ func GetTools() []Tool {
 				"required": []string{"data"},
 			},
 			Tier: TierComplete,
-		},
-		{
-			Name:        "export_bundle",
-			Description: "Not yet implemented — calling this returns an error. Intended to export indexed code as a portable bundle file that can be shared or imported on other machines without re-indexing.",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project to export"},
-					"output_path":  map[string]string{"type": "string", "description": "Output file path for the bundle (.astbundle)"},
-				},
-				"required": []string{"project_path", "output_path"},
-			},
-			Tier:     TierExtended,
-			ReadOnly: true,
-		},
-		{
-			Name:        "import_bundle",
-			Description: "Not yet implemented — calling this returns an error. Intended to import a previously exported code bundle, loading all symbols, edges, and summaries without needing to re-index.",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"bundle_path": map[string]string{"type": "string", "description": "Path to the .astbundle file to import"},
-				},
-				"required": []string{"bundle_path"},
-			},
-			Tier: TierExtended,
 		},
 		{
 			Name:        "search_docs",

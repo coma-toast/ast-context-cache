@@ -173,6 +173,7 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 	var delivered []context.ReturnedSymbol
 	fileCache := map[string][]string{}
 	var symbols []map[string]interface{}
+	var spans []context.LineSpan
 	symbolBaseline := 0
 	tokensUsed := 0
 	dedupTokens := 0
@@ -220,6 +221,7 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 			continue
 		}
 		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
+		spans = append(spans, context.LineSpan{File: file, Start: startLine, End: endLine})
 		tokensUsed += resultTokens
 		symbols = append(symbols, sym)
 		returned[key] = struct{}{}
@@ -255,6 +257,7 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		fileBaselineTokens = db.EstimateTokens(strings.Join(lines, "\n"))
 	}
 	savings := context.ComputeSavings(tokensUsed, symbolBaseline, fileBaselineTokens, dedupTokens)
+	savings.ConservativeBaseline = context.ConservativeBaselineTokens(spans, fileCache)
 	savings.DedupedCount = skipped
 	savings.Mode = mode
 
@@ -521,37 +524,4 @@ func getDataCount(data interface{}) int {
 		}
 	}
 	return 0
-}
-
-// handleExportBundle and handleImportBundle used to return a success-shaped
-// {"message": "not yet implemented"} response with no "error" field — a
-// caller that checks for an error key (or, after the isError:true fix, the
-// protocol-level flag) would see this as a successful, if unhelpful, result.
-// Report it as the failure it actually is until this is implemented.
-func handleExportBundle(args map[string]interface{}) map[string]interface{} {
-	projectPath, _ := args["project_path"].(string)
-	outputPath, _ := args["output_path"].(string)
-
-	if projectPath == "" || outputPath == "" {
-		return map[string]interface{}{"error": "project_path and output_path are required"}
-	}
-
-	return map[string]interface{}{
-		"error":   "export_bundle is not yet implemented",
-		"project": projectPath,
-		"output":  outputPath,
-	}
-}
-
-func handleImportBundle(args map[string]interface{}) map[string]interface{} {
-	bundlePath, _ := args["bundle_path"].(string)
-
-	if bundlePath == "" {
-		return map[string]interface{}{"error": "bundle_path is required"}
-	}
-
-	return map[string]interface{}{
-		"error":       "import_bundle is not yet implemented",
-		"bundle_path": bundlePath,
-	}
 }

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -195,6 +196,28 @@ func TestToolDenyMessageFeatureDisabled(t *testing.T) {
 	assert.Contains(t, msg, "feature_disabled")
 	assert.Contains(t, msg, "scratchpad")
 	assert.Contains(t, msg, flags.KeyHandoffScratchpad)
+}
+
+// TS-3: tools/list bytes are a prompt-cache prefix, so the same config must always marshal to
+// the same bytes, including after the config is swapped out and back.
+func TestToolsListBytesStable(t *testing.T) {
+	orig := GetConfig()
+	t.Cleanup(func() { SetConfig(orig) })
+	cfg := ServerConfig{ActiveTier: TierComplete, CodeMode: true}
+	marshal := func() []byte {
+		b, err := json.Marshal(FilterTools(GetConfig()))
+		require.NoError(t, err)
+		return b
+	}
+	SetConfig(cfg)
+	first := marshal()
+	assert.Equal(t, first, marshal(), "two marshals of one config")
+	for _, other := range []ServerConfig{{ActiveTier: TierCore}, {ActiveTier: TierExtended, ToolConfigs: map[string]*ToolConfig{"retrieve": {Enabled: false}}}} {
+		SetConfig(other)
+		assert.NotEqual(t, first, marshal(), "a different config changes the list")
+		SetConfig(cfg)
+		assert.Equal(t, first, marshal(), "a SetConfig round trip restores the same bytes")
+	}
 }
 
 func TestGetPromptsNames(t *testing.T) {

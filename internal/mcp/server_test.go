@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
@@ -63,44 +65,24 @@ func TestHandleToolCallSetsIsErrorOnFailure(t *testing.T) {
 	}
 }
 
-// export_bundle/import_bundle are not yet implemented and must say so as a
-// real failure (isError:true), not a success-shaped {"message": "..."} a
-// caller could mistake for a completed export/import.
-func TestExportImportBundleReportIsError(t *testing.T) {
+// TS-6: export_bundle/import_bundle were never implemented, so they are gone from tools/list
+// and a call is rejected as an unknown tool.
+func TestBundleToolsRemoved(t *testing.T) {
 	origCfg := GetConfig()
 	SetConfig(DefaultConfig())
 	t.Cleanup(func() { SetConfig(origCfg) })
-
-	// project_path must not exist: handleToolCall starts a watcher on any
-	// project_path that does, which /tmp/proj on a dev machine might.
-	dir := t.TempDir()
-	for _, tc := range []struct {
-		tool string
-		args map[string]interface{}
-	}{
-		{"export_bundle", map[string]interface{}{"project_path": filepath.Join(dir, "proj"), "output_path": filepath.Join(dir, "out.astbundle")}},
-		{"import_bundle", map[string]interface{}{"bundle_path": filepath.Join(dir, "out.astbundle")}},
-	} {
-		req := JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      1,
-			Method:  "tools/call",
-			Params:  map[string]any{"name": tc.tool, "arguments": tc.args},
+	for _, tool := range []string{"export_bundle", "import_bundle"} {
+		for _, td := range GetTools() {
+			assert.NotEqual(t, tool, td.Name)
 		}
 		rec := httptest.NewRecorder()
-		handleToolCall(rec, req)
-
+		handleToolCall(rec, JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: map[string]any{"name": tool, "arguments": map[string]any{}}})
 		var resp JSONRPCResponse
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("%s: unmarshal response: %v (body=%s)", tc.tool, err, rec.Body.String())
-		}
-		result, ok := resp.Result.(map[string]interface{})
-		if !ok {
-			t.Fatalf("%s: result is not an object: %#v", tc.tool, resp.Result)
-		}
-		if isErr, _ := result["isError"].(bool); !isErr {
-			t.Fatalf("%s: isError=%v want true (not yet implemented)", tc.tool, result["isError"])
-		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp), rec.Body.String())
+		result, ok := resp.Result.(map[string]any)
+		require.True(t, ok, "result is not an object: %#v", resp.Result)
+		assert.Equal(t, true, result["isError"], tool)
+		assert.Contains(t, rec.Body.String(), "unknown tool: "+tool)
 	}
 }
 

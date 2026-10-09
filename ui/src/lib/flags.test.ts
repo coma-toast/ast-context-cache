@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { FlagState } from '../api/types'
 
-import { buildFlagRows, envLockReason, HANDOFF_MASTER_KEY, parentFlagKey, withFlagEnabled } from './flags'
+import { buildFlagRows, envLockReason, HANDOFF_MASTER_KEY, needsToolListWarning, parentFlagKey, withFlagEnabled } from './flags'
 
 const flag = (key: string, overrides: Partial<FlagState> = {}): FlagState => ({
   key,
@@ -12,6 +12,7 @@ const flag = (key: string, overrides: Partial<FlagState> = {}): FlagState => ({
   enabled: true,
   default: true,
   locked: false,
+  affects_tools: false,
   ...overrides,
 })
 
@@ -86,5 +87,20 @@ describe('withFlagEnabled', () => {
     expect(after[0]).toMatchObject({ enabled: false, source: 'setting' })
     expect(after[1]).toBe(before[1])
     expect(before[0].enabled).toBe(true)
+  })
+})
+
+describe('needsToolListWarning', () => {
+  it.each([
+    ['tool flag turned off', { affects_tools: true, enabled: true }, false, true],
+    ['tool flag turned on', { affects_tools: true, enabled: false }, true, true],
+    ['tool flag set to its current value', { affects_tools: true, enabled: true }, true, false],
+    ['flag that does not affect tools', { affects_tools: false, enabled: true }, false, false],
+  ])('%s', (_name, overrides, enabled, want) => {
+    expect(needsToolListWarning(flag('feature_x', overrides), enabled)).toBe(want)
+  })
+
+  it('is false for an unknown flag', () => {
+    expect(needsToolListWarning(undefined, false)).toBe(false)
   })
 })

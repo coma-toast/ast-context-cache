@@ -1,6 +1,7 @@
 package flags
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,6 +55,7 @@ func TestDefaults(t *testing.T) {
 		assert.False(t, states[i].Locked, f.Key)
 		assert.Equal(t, f.Env, states[i].Env, f.Key)
 		assert.NotEmpty(t, states[i].Description, f.Key)
+		assert.Equal(t, AffectsTools(f.Key), states[i].AffectsTools, f.Key)
 	}
 	assert.False(t, Enabled(KeyHandoffHooks))
 	assert.True(t, ToolEnabled("scratchpad"))
@@ -210,6 +212,11 @@ func TestAffectsTools(t *testing.T) {
 		{KeyHandoffLiveTrail, false},
 		{KeyHandoffHooks, false},
 		{KeySharedQueryCache, false},
+		{KeyStableResponses, false},
+		{KeyTextFormat, false},
+		{KeyRelevanceFloor, false},
+		{KeyModeV2, false},
+		{KeyResultOffload, false},
 		{"feature_nope", false},
 	}
 	for _, tt := range tests {
@@ -230,6 +237,17 @@ func TestActionEnabled(t *testing.T) {
 	require.NoError(t, Set(KeyHandoffClaims, true))
 	require.NoError(t, Set(KeyHandoffScratchpad, false))
 	assert.False(t, ActionEnabled("scratchpad", "append"), "a disabled tool disables all its actions")
+}
+
+func TestTokenSavingFlagsDefaultOn(t *testing.T) {
+	setup(t)
+	for _, key := range []string{KeyStableResponses, KeyTextFormat, KeyRelevanceFloor, KeyModeV2, KeyResultOffload} {
+		st := stateOf(t, key)
+		assert.True(t, st.Enabled, key)
+		assert.False(t, st.AffectsTools, key)
+		assert.Equal(t, "AST_FEATURE_"+strings.ToUpper(strings.TrimPrefix(key, "feature_")), st.Env, key)
+	}
+	assert.True(t, stateOf(t, KeyHandoff).AffectsTools)
 }
 
 func TestAllReturnsCopy(t *testing.T) {

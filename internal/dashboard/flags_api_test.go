@@ -67,7 +67,7 @@ func TestFlagsAPIListsEveryFlag(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	all := flags.All()
 	require.Len(t, out.Flags, len(all))
-	require.Len(t, out.Flags, 8)
+	require.Len(t, out.Flags, 13)
 	for i, f := range all {
 		st := out.Flags[i]
 		assert.Equal(t, f.Key, st.Key, "registry order")
@@ -76,7 +76,10 @@ func TestFlagsAPIListsEveryFlag(t *testing.T) {
 		assert.Equal(t, flags.SourceDefault, st.Source, f.Key)
 		assert.False(t, st.Locked, f.Key)
 		assert.NotEmpty(t, st.Description, f.Key)
+		assert.Equal(t, flags.AffectsTools(f.Key), st.AffectsTools, f.Key)
 	}
+	assert.True(t, flagByKey(t, out.Flags, flags.KeyHandoff).AffectsTools)
+	assert.False(t, flagByKey(t, out.Flags, flags.KeyResultOffload).AffectsTools)
 }
 
 func TestFlagsAPIToggle(t *testing.T) {
