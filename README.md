@@ -20,6 +20,7 @@ An agent without it reads whole files, greps, re-reads the same code after compa
 | Sending the same symbol twice in a conversation | Nothing: **session dedup** skips symbols already returned to that `session_id` | 100% of the repeat |
 | Grepping callers before an edit | **Impact checks** (`get_impact_graph`, `diff_impact`, `check_deletion_safety`) list exactly what depends on a symbol | One answer instead of many reads |
 | Losing a long plan to chat compaction, then rebuilding it | **Virtual context**: `store_context` keeps the plan on disk behind a short `ctx_*` ref; `fetch_context` brings it back | The plan costs a ref until it's needed |
+| Rewriting a stored note by flushing and re-storing it | **`edit_context`** edits it in place — same ref, reversible, and it reports `tokens_reclaimed` | The ref and the quota already paid for |
 | A subagent re-exploring what its parent already read | **Subagent handoff**: a snapshot of the parent's findings behind one `[handoff hof_…]` stub, and a capped summary back | No repeated exploration |
 | Fetching library docs from the web each time | **Doc cache**: `search_docs` / `fetch_doc` serve docs from a local full-text index | No repeated fetches |
 | Pasting raw search JSON into the chat | **Code mode**: `execute_code` runs a script over the results and returns only its output | Only the answer |
@@ -37,7 +38,7 @@ tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips
 | | |
 |--|--|
 | **Token-efficient code search** | `get_context_capsule`, `search_semantic`, and `get_file_context` over a symbol-level tree-sitter index; modes `auto` / `skeleton` / `summary` / `full`; per-session dedup; token budgets; filters by path, language, and symbol kind |
-| **Virtual context** | `store_context` / `fetch_context` / `search_context` / `edit_context` / `flush_context`: notes, plans, and diffs kept on disk behind stable `ctx_*` refs, so they survive host compaction and can be edited in place ([docs](docs/context-edit.md)) |
+| **Virtual context** | `store_context` / `fetch_context` / `search_context` / `edit_context` / `flush_context`: notes, plans, and diffs kept on disk behind stable `ctx_*` refs, so they survive host compaction. Manage them as files — `edit_context` appends, replaces, deletes, or rewrites a note in place and reverts by revision, so an update keeps the ref instead of forcing a re-store and another compaction ([docs](docs/context-edit.md)) |
 | **Subagent handoff** | `handoff` / `open_handoff` / `scratchpad`: snapshot-backed briefs for subagents, capped return summaries, and a shared scratchpad with advisory claims for up to 16 parallel children; trees shown on the dashboard ([docs](docs/handoff.md)) |
 | **Structured memory** | `store_memory` / `recall_memory` / `forget_memory`: compact temporal facts and procedural rules (`mem_*`), cheaper to recall than notes |
 | **Impact and safety checks** | `get_impact_graph`, `diff_impact` (a branch or a GitHub PR), `check_symbol_exists`, `check_deletion_safety`: blast radius before an edit |

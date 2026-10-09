@@ -122,6 +122,8 @@ This is **not** the same as code **`cache_summary`** (summaries of indexed symbo
 
 **Flush when done:** Stubs become invalid after flush. Orphans (stored, never fetched) show on the dashboard—flush stale sessions to free quota.
 
+**Edit, don't re-store:** A stored note is a file you own. Change it with **`edit_context`** (extended) and keep the same `ctx_*` ref—`append` to add, `replace`/`delete` (regex or 1-indexed inclusive line range) to reshape or shrink, `rewrite` to restructure, `revert` to undo. Never flush and re-store just to change content: that invalidates the stub already in chat, mints a new ref, and debits quota again. Every edit reports **`tokens_before` / `tokens_after` / `tokens_reclaimed`**, so you can see whether shrinking paid for itself; pass **`expect_revision`** when a note is shared across a handoff tree. Same transform every turn → define it once with **`define_context_fn`** and re-invoke with **`apply_context_fn`** (default off; dry-run anything wider than a couple of refs). **Avoid compaction as a way to make room** — reserve it for refs that are genuinely lost. See [docs/context-edit.md](../../docs/context-edit.md) and [docs/context-fn.md](../../docs/context-fn.md).
+
 ### Workflow
 
 ```

@@ -10,6 +10,16 @@ This is the [Context Language Models](https://arxiv.org/abs/2609.37725) idea ada
 
 Here the closest analogue of the paper's context file is a `ctx_*` note: bulky text the agent owns and will read back.
 
+## How agents should use it
+
+Treat stored context as a **mutable file you own**, across the whole thread — not a snapshot to rewrite and not a thing to compact away.
+
+- **Update in place.** `append` new findings, `replace` / `delete` the sections that went stale, `rewrite` when the structure changes. Every update keeps the same `ctx_*` ref, so the stub already written into chat stays valid and the ref never has to be re-announced.
+- **Avoid compaction at all costs.** Re-storing a note to change it invalidates the stub in chat, mints a new ref, debits quota a second time, and leaves the old note to be flushed. Host compaction is a last resort — for refs genuinely lost from the window, not as a routine way to shrink what an agent reads back.
+- **Shrink deliberately and check the number.** `tokens_reclaimed` is the only feedback that an edit loop is a saving rather than a shuffle. An `append` that grows a note every turn is a cost, not a saving.
+- **Undo rather than start over.** `revert` restores a prior body in one call; `expect_revision` catches a racing edit on a shared note instead of clobbering it.
+- **Hoist a repeated transform.** If the same compaction runs every turn, register it once with [`define_context_fn`](context-fn.md) rather than re-deriving the pattern each time.
+
 ## Tool
 
 | Tool | Tier | Role |

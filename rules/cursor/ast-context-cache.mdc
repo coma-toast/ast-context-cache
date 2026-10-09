@@ -1,5 +1,5 @@
 ---
-description: ast-context-cache MCP tools for token-efficient code context, virtual context across compaction, structured memory, and subagent handoffs
+description: ast-context-cache MCP tools for token-efficient code context, virtual context edited in place as a file, structured memory, and subagent handoffs
 alwaysApply: true
 ---
 
@@ -24,7 +24,8 @@ Generate one stable `session_id` per conversation (for example a UUID) and pass 
 ## Host compaction
 
 - Before host chat compaction (or about 70% context): `store_context` with the same `session_id`, and keep only the `[ctx_…]` stub in chat.
-- To update or shrink a stored note, edit it in place with `edit_context` (keeps the `ctx_*` ref, reversible with `revert`) instead of flush + re-store.
+- To update or shrink a stored note, edit it in place with `edit_context` (keeps the `ctx_*` ref, reversible with `revert`) instead of flush + re-store; each edit reports `tokens_reclaimed`, so check that shrinking actually paid off. Pass `expect_revision` when a note is shared across a handoff tree.
+- Never compact to make room. Editing a note in place preserves the `ctx_*` stub, the ref, and the quota already paid for.
 - If the same edit recurs every turn, define it once with `define_context_fn` and re-apply with `apply_context_fn` (default off; dry-run anything wider than a couple of refs).
 - After compaction: `fetch_context(refs)`, `list_context`, or `search_context`.
 - When done: `flush_context`.
