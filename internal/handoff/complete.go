@@ -174,6 +174,9 @@ func (s *realService) promoteResultMemory(parent SessionID, project, resultRef, 
 	refs := make([]string, 0, len(stored))
 	for _, r := range stored {
 		refs = append(refs, r.Ref)
+		if s.emb != nil {
+			go memory.EmbedEntry(r.Ref, string(parent), r.Line, s.emb)
+		}
 	}
 	return refs
 }
