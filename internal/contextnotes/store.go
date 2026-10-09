@@ -18,10 +18,10 @@ import (
 const (
 	insertNoteQuery = `INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	// LRU eviction never takes a handoff result or any note of a handoff child session: the
-	// handoff tree owns those and they expire with it.
+	// LRU eviction takes the least recently used note (last fetch, else store), never a handoff
+	// result or any note of a handoff child session: the handoff tree owns those and they expire with it.
 	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?` + notTreeOwnedClause + `
-		ORDER BY created_at ASC, access_count ASC LIMIT 1`
+		ORDER BY COALESCE(last_accessed_at, created_at) ASC, access_count ASC LIMIT 1`
 	selectNoteByRefQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE ref = ?`
@@ -286,6 +286,9 @@ func deleteRefs(refs []string, sessionID string) (tokensFreed int, count int, se
 	for _, t := range targets {
 		if _, err := db.ContextDB.Exec(deleteNoteQuery, t.ref); err != nil {
 			return tokensFreed, count, sessions, errs.WrapMessage("failed to delete note", err, "ref", t.ref)
+		}
+		if _, err := db.ContextDB.Exec(deleteRevisionsQuery, t.ref); err != nil {
+			return tokensFreed, count, sessions, errs.WrapMessage("failed to delete note revisions", err, "ref", t.ref)
 		}
 		deleteNoteFTS(t.ref)
 		tokensFreed += t.tok

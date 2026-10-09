@@ -157,7 +157,7 @@ func BuildStatsBlock(sessionID string, lim Limits) map[string]interface{} {
 }
 
 func bumpSessionStore(sessionID, projectPath string, tokenEst int) {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := db.SQLTime(time.Now())
 	db.DB.Exec(upsertSessionStoreQuery, sessionID, projectPath, tokenEst, now)
 }
 
@@ -172,7 +172,7 @@ func bumpSessionAccess(sessionID string, tokens int) {
 	if sessionID == "" {
 		return
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := db.SQLTime(time.Now())
 	db.DB.Exec(upsertSessionAccessQuery, sessionID, tokens, now)
 }
 
@@ -181,7 +181,7 @@ func RecordAccess(ref, sessionID, projectPath, toolName string, virtualTokens in
 		return
 	}
 	reason := normalizeRepairReason(repairReason)
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := db.SQLTime(time.Now())
 	db.ContextDB.Exec(updateNoteAccessQuery, virtualTokens, now, ref)
 	db.DB.Exec(insertNoteAccessQuery, ref, sessionID, projectPath, toolName, virtualTokens, reason, now)
 	bumpSessionAccess(sessionID, virtualTokens)
@@ -200,6 +200,8 @@ func DashboardStatsFor(projectPath string, windowDays int) DashboardStats {
 		Limits:                lim.AsMap(),
 		ByTool30d:             map[string]ToolWindow{},
 	}
+	// queries.timestamp is local RFC3339 (db.writebatch), so these cutoffs stay in that
+	// shape; the context tables compare in db.SQLTime form (see KvRepairDashboardStatsFor).
 	cutoff := time.Now().AddDate(0, 0, -windowDays).Format("2006-01-02") + "T00:00:00"
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
