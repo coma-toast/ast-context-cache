@@ -141,9 +141,14 @@ func liveTrailEntry(e trail.Entry) (text, refsJSON string, tokens int) {
 		query = trail.NormalizeQuery(e.Query)
 	}
 	text = trailEntryText(e.Tool, query, e.HitCount)
-	if over := len(text) - maxTrailTextTokens*4; over > 0 {
-		query = cutBytes(query, len(query)-over-len(truncationMark)) + truncationMark
-		text = trailEntryText(e.Tool, query, e.HitCount)
+	if db.EstimateTokens(text) > maxTrailTextTokens {
+		frame := db.EstimateTokens(trailEntryText(e.Tool, "", e.HitCount))
+		for budget := maxTrailTextTokens - frame; budget > 0; budget-- {
+			text = trailEntryText(e.Tool, truncateMarked(query, budget), e.HitCount)
+			if db.EstimateTokens(text) <= maxTrailTextTokens {
+				break
+			}
+		}
 	}
 	tokens = db.EstimateTokens(text)
 	hits, hitText := []string{}, ""

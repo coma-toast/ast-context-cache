@@ -3,33 +3,32 @@ package tokens
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/pkoukk/tiktoken-go"
-	"github.com/pkoukk/tiktoken-go-loader/assets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
-// o200kSHA256 is the published sha256 of o200k_base.tiktoken (openai/tiktoken load.py).
-const o200kSHA256 = "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d"
-
-// resetState clears the lazy encoder and memo so a test starts cold.
+// resetState clears the lazy vocabulary and memo so a test starts cold.
 func resetState(t *testing.T) {
 	t.Helper()
-	orig := loadEncoder
+	orig := loadRanks
 	initOnce = sync.Once{}
-	encoder = nil
+	ranks = nil
 	memo.reset()
 	t.Cleanup(func() {
-		loadEncoder = orig
+		loadRanks = orig
 		initOnce = sync.Once{}
-		encoder = nil
+		ranks = nil
 		memo.reset()
 	})
 }
@@ -40,7 +39,7 @@ func codeText(size int) string {
 }
 
 func TestVocabularySHA256(t *testing.T) {
-	data, err := assets.Assets.ReadFile(encodingName + ".tiktoken")
+	data, err := vocabulary()
 	require.NoError(t, err)
 	sum := sha256.Sum256(data)
 	assert.Equal(t, o200kSHA256, hex.EncodeToString(sum[:]))
@@ -66,7 +65,7 @@ func TestCountKnownStrings(t *testing.T) {
 
 func TestCountFallback(t *testing.T) {
 	resetState(t)
-	loadEncoder = func() (*tiktoken.Tiktoken, error) { return nil, errs.New("boom") }
+	loadRanks = func() (map[string]int, error) { return nil, errs.New("boom") }
 	assert.Equal(t, 2, Count("hello world"))
 	assert.Equal(t, 0, Count("abc"))
 	assert.Equal(t, methodBytes, Method())
@@ -129,4 +128,64 @@ func BenchmarkCount4k(b *testing.B) {
 		memo.reset()
 		Count(text)
 	}
+}
+
+func TestApproxCalibrated(t *testing.T) {
+	assert.Equal(t, 0, Approx(""))
+	assert.Equal(t, 100, Approx(strings.Repeat("x", 364)))
+	approx, exact := 0, 0
+	err := filepath.WalkDir("../..", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(p) != ".go" {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		approx += Approx(string(data))
+		exact += Count(string(data))
+		return nil
+	})
+	require.NoError(t, err)
+	require.Positive(t, exact)
+	assert.InEpsilon(t, exact, approx, 0.05, "approx=%d exact=%d", approx, exact)
+}
+
+func TestTruncate(t *testing.T) {
+	resetState(t)
+	words := strings.Repeat("alpha beta gamma delta ", 50)
+	tests := []struct {
+		name string
+		in   string
+		max  int
+	}{
+		{"words", words, 20},
+		{"code", codeText(4096), 100},
+		{"no spaces", strings.Repeat("x", 400), 10},
+		{"multibyte", strings.Repeat("é", 300), 10},
+		{"cjk", strings.Repeat("中文字符", 100), 25},
+		{"emoji", strings.Repeat("😀🎉", 100), 15},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Truncate(tc.in, tc.max)
+			assert.True(t, strings.HasPrefix(tc.in, got))
+			assert.True(t, utf8.ValidString(got))
+			assert.LessOrEqual(t, Count(got), tc.max)
+			assert.Greater(t, Count(got), tc.max*3/4, "the cut keeps most of the budget")
+		})
+	}
+	got := Truncate(words, 20)
+	assert.Equal(t, byte(' '), words[len(got)], "cut lands on a word boundary")
+	assert.Equal(t, "short text", Truncate("short text", 10))
+	assert.Equal(t, "", Truncate("short text", 0))
+	assert.Equal(t, "", Truncate("", 5))
+}
+
+func TestTruncateFallback(t *testing.T) {
+	resetState(t)
+	loadRanks = func() (map[string]int, error) { return nil, errs.New("boom") }
+	got := Truncate(strings.Repeat("abcd", 10), 2)
+	assert.LessOrEqual(t, len(got), 11)
+	assert.LessOrEqual(t, Count(got), 2)
 }

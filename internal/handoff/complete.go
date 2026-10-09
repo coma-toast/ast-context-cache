@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/tokens"
 )
 
 const (
@@ -27,11 +27,8 @@ const (
 	touchTreeQuery    = `UPDATE handoff_trees SET last_access_at = ? WHERE tree_id = ?`
 
 	resultLabelPrefix = "result: "
-	// truncationMark ends a summary cut at the cap; its bytes count toward the cap.
+	// truncationMark ends a summary cut at the cap; its tokens count toward the cap.
 	truncationMark = "…"
-	// A cut moves back at most 1/wordBoundarySlack of the cap to land between words, so one
-	// long unbroken run doesn't shrink the summary to nothing.
-	wordBoundarySlack = 4
 )
 
 // completingChild is the child row a completion updates, with its handoff's parent.
@@ -236,12 +233,12 @@ func deriveSummary(content string, maxTokens int) string {
 	for _, p := range ex.Procedures {
 		lines = append(lines, "RULE: "+p.Rule)
 	}
-	size, limit := 0, maxTokens*4
+	size := 0
 	for _, l := range lines {
-		size += len(l) + 1
+		size += db.EstimateTokens(l) + 1
 	}
 	for _, raw := range strings.Split(content, "\n") {
-		if size > limit {
+		if size > maxTokens {
 			break
 		}
 		line := strings.TrimSpace(raw)
@@ -249,7 +246,7 @@ func deriveSummary(content string, maxTokens int) string {
 			continue
 		}
 		lines = append(lines, line)
-		size += len(line) + 1
+		size += db.EstimateTokens(line) + 1
 	}
 	return strings.Join(lines, "\n")
 }
@@ -267,16 +264,17 @@ func truncateToTokens(s string, maxTokens int) (string, bool) {
 	if db.EstimateTokens(s) <= maxTokens {
 		return s, false
 	}
-	limit := maxTokens*4 - len(truncationMark)
-	if limit <= 0 {
-		return "", true
+	return truncateMarked(s, maxTokens), true
+}
+
+// truncateMarked cuts s to the longest prefix that, with truncationMark appended, fits
+// maxTokens. Tokens can merge across the join, so it re-checks and shrinks until it fits.
+func truncateMarked(s string, maxTokens int) string {
+	for budget := maxTokens - db.EstimateTokens(truncationMark); budget > 0; budget-- {
+		out := strings.TrimRight(tokens.Truncate(s, budget), " \n\t") + truncationMark
+		if db.EstimateTokens(out) <= maxTokens {
+			return out
+		}
 	}
-	for limit > 0 && !utf8.RuneStart(s[limit]) {
-		limit--
-	}
-	cut := s[:limit]
-	if i := strings.LastIndexAny(cut, " \n\t"); i > 0 && i >= limit-limit/wordBoundarySlack {
-		cut = cut[:i]
-	}
-	return strings.TrimRight(cut, " \n\t") + truncationMark, true
+	return ""
 }

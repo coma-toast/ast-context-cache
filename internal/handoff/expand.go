@@ -118,13 +118,14 @@ func (s *realService) expandItems(h *handoffRow, sid SessionID, section Section,
 }
 
 // cutToBudget shortens the response's only item until the response fits. JSON escaping makes
-// the encoded content longer than the raw text, so it cuts by the measured overflow and re-checks.
+// the encoded content cost more than the raw text, so it cuts by the measured overflow and
+// re-checks.
 func cutToBudget(resp *ExpandResponse, budget int) {
 	it := &resp.Items[0]
 	it.Truncated = true
 	for over := responseTokens(resp) - budget; over > 0 && it.Content != ""; over = responseTokens(resp) - budget {
-		it.Content = truncateBytes(it.Content, max(0, len(it.Content)-over*4-16))
-		if len(it.Content) <= len("…") {
+		it.Content = truncateMarked(it.Content, db.EstimateTokens(it.Content)-over)
+		if it.Content == truncationMark {
 			it.Content = ""
 		}
 	}

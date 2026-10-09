@@ -182,12 +182,14 @@ func TestExpandManifestAndBudget(t *testing.T) {
 	}
 	assert.Equal(t, []string{"svc.go#Alpha@3", "svc.go#Beta@7", "svc.go#Gamma@11"}, keys)
 
-	e := expand(t, s, ExpandRequest{Handoff: resp.Ref, SessionID: o.SessionID, Section: SectionPointer, TokenBudget: 80})
+	// One pointer item costs about 90 o200k tokens with the response envelope, so 120 fits one
+	// item but not two.
+	e := expand(t, s, ExpandRequest{Handoff: resp.Ref, SessionID: o.SessionID, Section: SectionPointer, TokenBudget: 120})
 	require.Len(t, e.Items, 1)
-	assert.LessOrEqual(t, e.TokensUsed, 80)
+	assert.LessOrEqual(t, e.TokensUsed, 120)
 	assert.True(t, e.Truncated)
 	assert.Equal(t, &PageCursor{Section: SectionPointer, Offset: 1}, e.Next)
-	e = expand(t, s, ExpandRequest{Handoff: resp.Ref, SessionID: o.SessionID, Section: SectionPointer, TokenBudget: 80, Next: e.Next})
+	e = expand(t, s, ExpandRequest{Handoff: resp.Ref, SessionID: o.SessionID, Section: SectionPointer, TokenBudget: 120, Next: e.Next})
 	require.Len(t, e.Items, 1)
 	assert.Equal(t, "svc.go|Beta", e.Items[0].Key)
 	assert.False(t, e.Truncated)
