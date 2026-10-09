@@ -111,19 +111,21 @@ func TestCapsuleReindexInvalidatesCache(t *testing.T) {
 func TestPackScoredResultsSkipsDuplicateWithinList(t *testing.T) {
 	project, file := indexedWidgets(t)
 	hit := func() search.ScoredResult {
-		return search.ScoredResult{Score: 1, Data: map[string]interface{}{"name": "WidgetAlpha", "kind": "function", "file": file, "start_line": 3, "end_line": 3}}
+		return search.ScoredResult{Score: 1, Data: map[string]interface{}{"name": "WidgetAlpha", "kind": "function", "file": file, "start_line": 3, "end_line": 3, "similarity": 1.0}}
 	}
 	sid := t.Name()
-	results, savings, entry := PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "skeleton", sid, 4000)
-	require.Len(t, results, 1)
-	assert.Equal(t, 1, savings.DedupedCount)
+	p, entry, err := PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "WidgetAlpha", "skeleton", sid, 4000, PrecisionArgs{Collapse: true})
+	require.NoError(t, err)
+	require.Len(t, p.Results, 1)
+	assert.Equal(t, 1, p.Savings.DedupedCount)
 	assert.Equal(t, 2, entry.HitCount, "the trail counts candidates before dedup")
 	assert.Equal(t, []string{"widgets.go#WidgetAlpha@3", "widgets.go#WidgetAlpha@3"}, entry.TopHits)
 	_, returned := ReturnedKeys(sid)[SymbolDedupKey(file, "WidgetAlpha", 3)]
 	assert.True(t, returned)
 
-	results, _, _ = PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "skeleton", "", 4000)
-	assert.Len(t, results, 1, "in-list dedup applies without a session")
+	p, _, err = PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "WidgetAlpha", "skeleton", "", 4000, PrecisionArgs{Collapse: true})
+	require.NoError(t, err)
+	assert.Len(t, p.Results, 1, "in-list dedup applies without a session")
 }
 
 // BF-14: the capsule honors the caller's limit for the candidate fetch.

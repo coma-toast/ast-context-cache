@@ -8,7 +8,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
-// Relevance floor settings and placeholder defaults (tuned by the threshold sweep).
+// Relevance floor settings and defaults. The defaults come from the tokenbench threshold sweep
+// (AST_RELEVANCE_SWEEP=1 make bench-tokens): the strictest MinRelative and VectorMin that lose
+// no expected hit while flagging every negative. CoverageMin did not change any fixture outcome.
 const (
 	settingRelevanceMinRelative = "relevance_min_relative"
 	settingRelevanceVectorMin   = "relevance_vector_min"
@@ -16,8 +18,8 @@ const (
 	envRelevanceMinRelative     = "AST_RELEVANCE_MIN_RELATIVE"
 	envRelevanceVectorMin       = "AST_RELEVANCE_VECTOR_MIN"
 	envRelevanceCoverageMin     = "AST_RELEVANCE_COVERAGE_MIN"
-	defaultMinRelative          = 0.35
-	defaultVectorMin            = 0.45
+	defaultMinRelative          = 0.7
+	defaultVectorMin            = 0.22
 	defaultCoverageMin          = 0.5
 )
 
@@ -61,11 +63,9 @@ func ApplyRelevanceFloor(scored []search.ScoredResult, cfg FloorConfig) (kept, w
 
 // WeakMatch reports whether the top hit is too weak to count as a match, and the best
 // evidence it has (the larger of its vector similarity and term coverage). The top hit is
-// strong when its vector similarity reaches VectorMin or its query term coverage reaches
-// CoverageMin. An empty list is weak with best 0.
-//
-// Fused hybrid results do not record which lists a hit came from: a hit's data map is the
-// first list's (BM25 when in both), so similarity is only present for vector-only hits.
+// strong when HybridSearch found it in both the BM25 and vector lists, its vector similarity
+// reaches VectorMin, or its query term coverage reaches CoverageMin. An empty list is weak
+// with best 0.
 func WeakMatch(scored []search.ScoredResult, query string, cfg FloorConfig) (bool, float64) {
 	top := topIndex(scored)
 	if top < 0 {
@@ -78,10 +78,23 @@ func WeakMatch(scored []search.ScoredResult, query string, cfg FloorConfig) (boo
 	if hasSim && sim > best {
 		best = sim
 	}
-	if hasSim && sim >= cfg.VectorMin {
+	inBM25, _ := data[search.KeyInBM25].(bool)
+	inVector, _ := data[search.KeyInVector].(bool)
+	if (inBM25 && inVector) || (hasSim && sim >= cfg.VectorMin) {
 		return false, best
 	}
 	return cov < cfg.CoverageMin, best
+}
+
+// WeakSemanticMatch is WeakMatch for vector-only results: the top hit is weak when its
+// similarity is below VectorMin. best is that similarity.
+func WeakSemanticMatch(scored []search.ScoredResult, cfg FloorConfig) (bool, float64) {
+	top := topIndex(scored)
+	if top < 0 {
+		return true, 0
+	}
+	sim, _ := similarity(scored[top].Data)
+	return sim < cfg.VectorMin, sim
 }
 
 // topIndex is the index of the highest-scoring hit (first on ties), or -1 when empty.

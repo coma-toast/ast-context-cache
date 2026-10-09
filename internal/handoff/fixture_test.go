@@ -111,10 +111,11 @@ func packedFor(t *testing.T, sid SessionID, project, name string) ([]map[string]
 	t.Helper()
 	r := fixtureSymbol(t, project, name)
 	scored := []search.ScoredResult{{Score: 1, Data: map[string]any{
-		"file": r.File, "name": r.Name, "kind": r.Kind, "start_line": r.StartLine, "end_line": r.EndLine,
+		"file": r.File, "name": r.Name, "kind": r.Kind, "start_line": r.StartLine, "end_line": r.EndLine, "similarity": 1.0,
 	}}}
-	results, savings, _ := astcontext.PackScoredResults(scored, 10, project, "auto", string(sid), 0)
-	return results, savings
+	p, _, err := astcontext.PackScoredResults(scored, 10, project, name, "auto", string(sid), 0, astcontext.PrecisionArgs{Collapse: true})
+	require.NoError(t, err)
+	return p.Results, p.Savings
 }
 
 // gitRepo makes project a git repository with one commit, skipping the test without git.

@@ -189,6 +189,41 @@ func TestHybridSearchTiesAreDeterministic(t *testing.T) {
 	assert.Equal(t, "zeta", names(first)[0], "a.go key sorts before the tied b.go BM25 hit")
 }
 
+// The fused hits record which lists they came from; a hit in both lists takes the vector
+// list's similarity, and StripFusionKeys restores the BM25 hit's own fields.
+func TestHybridSearchRecordsListMembership(t *testing.T) {
+	initIndex(t)
+	insertSymbol(t, "alpha", "b.go", 1)
+	insertSymbol(t, "alphabet", "d.go", 1)
+	vec := unitVec()
+	loadEntries(t, []VectorEntry{
+		{ID: 1, DocType: "code", SourceFile: "b.go", Name: "alpha", Kind: "function", ProjectPath: "/proj", Vector: vec},
+		{ID: 2, DocType: "code", SourceFile: "c.go", Name: "eta", Kind: "function", ProjectPath: "/proj", Vector: scaledVec(0.5)},
+	})
+	got, _ := HybridSearch("alpha", "/proj", fixedEmbedder{vec: vec}, 10, nil)
+	byName := map[string]map[string]interface{}{}
+	for _, r := range got {
+		byName[r.Data["name"].(string)] = r.Data
+	}
+	require.Len(t, byName, 3)
+	both, bm25, vector := byName["alpha"], byName["alphabet"], byName["eta"]
+	assert.Equal(t, true, both[KeyInBM25])
+	assert.Equal(t, true, both[KeyInVector])
+	assert.InDelta(t, 1, both["similarity"], 1e-6)
+	assert.Equal(t, true, bm25[KeyInBM25])
+	assert.NotContains(t, bm25, KeyInVector)
+	assert.NotContains(t, bm25, "similarity")
+	assert.NotContains(t, vector, KeyInBM25)
+	assert.Equal(t, true, vector[KeyInVector])
+	StripFusionKeys(both)
+	StripFusionKeys(vector)
+	assert.NotContains(t, both, "similarity", "fusion's similarity is dropped from a BM25 hit")
+	assert.NotContains(t, both, KeyInBM25)
+	assert.NotContains(t, both, KeyInVector)
+	assert.Contains(t, vector, "similarity", "a vector-only hit keeps its own similarity")
+	assert.NotContains(t, vector, KeyInVector)
+}
+
 func TestFallbackSearchTiesAreDeterministic(t *testing.T) {
 	initIndex(t)
 	insertSymbol(t, "handle", "b.go", 5)

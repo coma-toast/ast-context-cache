@@ -28,15 +28,15 @@ type Response struct {
 
 // Collapse is a group of distractor or duplicate hits folded under one result.
 type Collapse struct {
-	Into  string
-	Paths []string
-	Count int
+	Into  string   `json:"into"`
+	Paths []string `json:"paths"`
+	Count int      `json:"count"`
 }
 
 // NoMatch reports that the best hit was too weak to count as a match.
 type NoMatch struct {
-	BestScore float64
-	Hint      string
+	BestScore float64 `json:"best_score"`
+	Hint      string  `json:"hint"`
 }
 
 // bodyKeys are the result keys holding a symbol body, with the mode each implies.

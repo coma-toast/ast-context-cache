@@ -96,6 +96,16 @@ func (m SavingsMeta) ApplyTo(resp map[string]interface{}) {
 	}
 }
 
+// finish fills the file, savings and conservative baselines once m's tokens, symbol baseline
+// and dedup savings are counted.
+func (m *SavingsMeta) finish(matchedFiles map[string]bool, spans []LineSpan, fileCache map[string][]string) {
+	m.FileBaseline = FileBaselineTokens(matchedFiles, fileCache)
+	computed := ComputeSavings(m.TokensUsed, m.SymbolBaseline, m.FileBaseline, m.DedupTokensSaved)
+	m.TokensSaved = computed.TokensSaved
+	m.SavingsVsFiles = computed.SavingsVsFiles
+	m.ConservativeBaseline = ConservativeBaselineTokens(spans, fileCache)
+}
+
 // LineSpan is one returned symbol's absolute file and line range.
 type LineSpan struct {
 	File       string

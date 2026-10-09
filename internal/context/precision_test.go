@@ -70,6 +70,9 @@ func TestWeakMatch(t *testing.T) {
 		{name: "weak similarity and coverage", scored: []search.ScoredResult{hit("Widget", 1, "similarity", 0.3)}, query: "quantum flux", wantWeak: true, wantBest: 0.3},
 		{name: "uses top scored hit", scored: []search.ScoredResult{hit("Widget", 1), hit("Quantum", 5)}, query: "quantum", wantBest: 1},
 		{name: "file base name counts", scored: []search.ScoredResult{hit("x", 1, "file", "/p/other.go")}, query: "other", wantBest: 1},
+		{name: "in both lists strong", scored: []search.ScoredResult{hit("Widget", 1, search.KeyInBM25, true, search.KeyInVector, true, "similarity", 0.1)}, query: "quantum flux", wantBest: 0.1},
+		{name: "bm25 only weak", scored: []search.ScoredResult{hit("Widget", 1, search.KeyInBM25, true)}, query: "quantum flux", wantWeak: true},
+		{name: "vector only weak", scored: []search.ScoredResult{hit("Widget", 1, search.KeyInVector, true, "similarity", 0.2)}, query: "quantum flux", wantWeak: true, wantBest: 0.2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,6 +82,19 @@ func TestWeakMatch(t *testing.T) {
 			assert.InDelta(t, tt.wantBest, best, 1e-9)
 		})
 	}
+}
+
+func TestWeakSemanticMatch(t *testing.T) {
+	t.Parallel()
+	cfg := FloorConfig{VectorMin: 0.45, CoverageMin: 0.5}
+	weak, best := WeakSemanticMatch(nil, cfg)
+	assert.True(t, weak)
+	assert.Zero(t, best)
+	weak, best = WeakSemanticMatch([]search.ScoredResult{hit("LoadModel", 0.3, "similarity", 0.3)}, cfg)
+	assert.True(t, weak, "coverage does not rescue a vector-only hit")
+	assert.InDelta(t, 0.3, best, 1e-9)
+	weak, _ = WeakSemanticMatch([]search.ScoredResult{hit("x", 0.5, "similarity", 0.5)}, cfg)
+	assert.False(t, weak)
 }
 
 func TestLoadFloorConfig(t *testing.T) {

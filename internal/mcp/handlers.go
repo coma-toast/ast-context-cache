@@ -13,12 +13,17 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/codescripts"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/trail"
 	"github.com/dop251/goja"
 )
 
 const (
+	// maxFileBudgetMisses ends get_file_context's packing after this many consecutive symbols
+	// over the token budget; maxFileWithheldEstimates caps the withheld skeleton estimates.
+	maxFileBudgetMisses             = 5
+	maxFileWithheldEstimates        = 20
 	selectProjectMapQueryPrefix     = "SELECT file, name, kind FROM symbols WHERE "
 	orderByFileStartLineQuerySuffix = " ORDER BY file, start_line"
 	selectFileSymbolsQuery          = "SELECT name, kind, start_line, end_line, COALESCE(skeleton,''), COALESCE(code,''), COALESCE(fqn,'') FROM symbols WHERE file = ? AND project_path = ? ORDER BY start_line"
@@ -154,10 +159,28 @@ type fileContextResult struct {
 }
 
 func handleFileContext(file, projectPath, mode, sessionID string, tokenBudget int) string {
-	return handleFileContextWithMeta(file, projectPath, mode, sessionID, tokenBudget).JSON
+	return handleFileContextWithMeta(file, projectPath, mode, "", sessionID, tokenBudget).JSON
 }
 
-func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenBudget int) fileContextResult {
+// fileContextErr is a get_file_context error response.
+func fileContextErr(msg string) fileContextResult {
+	data, _ := json.Marshal(map[string]string{"error": msg})
+	return fileContextResult{JSON: string(data)}
+}
+
+// handleFileContextWithMeta lists file's symbols in mode. With feature_mode_v2 on, auto
+// is skeleton, and mode=edit returns symbol's exact source plus its callees' skeletons
+// (symbol, a name or fqn, is required); with the flag off edit is full.
+func handleFileContextWithMeta(file, projectPath, mode, symbol, sessionID string, tokenBudget int) fileContextResult {
+	v2 := flags.Enabled(flags.KeyModeV2)
+	switch {
+	case mode == "edit" && !v2:
+		mode = "full"
+	case mode == "edit" && symbol == "":
+		return fileContextErr("symbol is required for mode=edit (a name or fqn in the file)")
+	case mode == "auto" && v2:
+		mode = "skeleton"
+	}
 	indexDB, err := indexDBOrErr()
 	if err != nil {
 		return fileContextResult{JSON: indexDBErrJSON(err)}
@@ -165,24 +188,26 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 	owner := projectlinks.OwningProject(file, projectPath)
 	rows, err := indexDB.Query(selectFileSymbolsQuery, file, owner)
 	if err != nil {
-		data, _ := json.Marshal(map[string]string{"error": err.Error()})
-		return fileContextResult{JSON: string(data)}
+		return fileContextErr(err.Error())
 	}
 	defer rows.Close()
-	returned := context.ReturnedKeys(sessionID)
+	returned := context.ReturnedModes(sessionID)
 	var delivered []context.ReturnedSymbol
 	fileCache := map[string][]string{}
 	var symbols []map[string]interface{}
 	var spans []context.LineSpan
+	var withheld context.Withheld
+	var editTarget map[string]interface{}
 	symbolBaseline := 0
 	tokensUsed := 0
 	dedupTokens := 0
 	skipped := 0
 	fullCount := 0
+	misses := 0
+	estimated := 0
 	maxScore := 1.0
 	relFile := db.RelPath(file, projectPath)
 	entry := trail.Entry{Tool: "get_file_context", Query: relFile, Mode: mode, ProjectPath: projectPath}
-	overBudget := false
 
 	for rows.Next() {
 		var name, kind, skeleton, code, fqn string
@@ -191,15 +216,6 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		// The trail counts every symbol read, before dedup and the token budget.
 		entry.HitCount++
 		entry.CandidateHits = append(entry.CandidateHits, trail.HitRef(relFile, name, startLine))
-		if overBudget {
-			continue
-		}
-		key := context.SymbolDedupKey(file, name, startLine)
-		if _, dup := returned[key]; dup {
-			skipped++
-			dedupTokens += context.WouldSendTokens(file, name, projectPath, mode, startLine, endLine, maxScore, maxScore, fullCount, fileCache)
-			continue
-		}
 		sym := map[string]interface{}{
 			"name":       name,
 			"kind":       kind,
@@ -209,25 +225,60 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		if q := db.QualifiedName(fqn, file, name); q != name {
 			sym["qualified_name"] = q
 		}
-		effectiveMode := context.EffectiveMode(mode, maxScore, maxScore, fullCount)
-		context.ApplyMode(sym, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
-		if effectiveMode == "full" {
-			fullCount++
+		if mode == "edit" {
+			if q, _ := sym["qualified_name"].(string); editTarget == nil && (symbol == name || symbol == fqn || symbol == q) {
+				sym["file"] = file
+				editTarget = sym
+			}
+			continue
 		}
+		// After five consecutive budget misses the rest are withheld unread.
+		if misses >= maxFileBudgetMisses {
+			withheld.Count++
+			if estimated < maxFileWithheldEstimates {
+				estimated++
+				withheld.Tokens += context.WouldSendTokens(file, name, projectPath, "skeleton", startLine, endLine, 0, 0, 0, fileCache)
+			}
+			continue
+		}
+		effectiveMode := context.EffectiveMode(mode, maxScore, maxScore, fullCount)
+		key := context.SymbolDedupKey(file, name, startLine)
+		if context.DedupCovers(returned, key, effectiveMode) {
+			skipped++
+			dedupTokens += context.WouldSendTokens(file, name, projectPath, effectiveMode, startLine, endLine, 0, 0, 0, fileCache)
+			continue
+		}
+		context.ApplyMode(sym, effectiveMode, file, name, projectPath, startLine, endLine, fileCache)
 		resultJSON, _ := json.Marshal(sym)
 		resultTokens := db.EstimateTokens(string(resultJSON))
 		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
-			overBudget = true
+			misses++
+			withheld.Add(context.Withheld{Count: 1, Tokens: resultTokens})
 			continue
+		}
+		misses = 0
+		if effectiveMode == "full" {
+			fullCount++
 		}
 		symbolBaseline += context.FullSourceTokens(file, name, projectPath, startLine, endLine, fileCache)
 		spans = append(spans, context.LineSpan{File: file, Start: startLine, End: endLine})
 		tokensUsed += resultTokens
 		symbols = append(symbols, sym)
-		returned[key] = struct{}{}
-		delivered = append(delivered, context.ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
+		returned[key] = effectiveMode
+		delivered = append(delivered, context.ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: effectiveMode, Tokens: resultTokens})
 	}
 	context.MarkReturned(sessionID, delivered...)
+	var editSavings context.SavingsMeta
+	if mode == "edit" {
+		if editTarget == nil {
+			return fileContextErr("symbol " + strconv.Quote(symbol) + " not found in " + relFile)
+		}
+		p, err := context.PackEdit(editTarget, projectPath, sessionID, tokenBudget, fileCache)
+		if err != nil {
+			return fileContextErr(err.Error())
+		}
+		symbols, withheld, editSavings, tokensUsed = p.Results, p.Withheld, p.Savings, p.Savings.TokensUsed
+	}
 
 	lang := ""
 	ext := strings.ToLower(filepath.Ext(file))
@@ -252,13 +303,16 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		lang = "HCL"
 	}
 
-	fileBaselineTokens := 0
-	if lines, ok := fileCache[file]; ok {
-		fileBaselineTokens = db.EstimateTokens(strings.Join(lines, "\n"))
+	savings := editSavings
+	if mode != "edit" {
+		fileBaselineTokens := 0
+		if lines, ok := fileCache[file]; ok {
+			fileBaselineTokens = db.EstimateTokens(strings.Join(lines, "\n"))
+		}
+		savings = context.ComputeSavings(tokensUsed, symbolBaseline, fileBaselineTokens, dedupTokens)
+		savings.ConservativeBaseline = context.ConservativeBaselineTokens(spans, fileCache)
+		savings.DedupedCount = skipped
 	}
-	savings := context.ComputeSavings(tokensUsed, symbolBaseline, fileBaselineTokens, dedupTokens)
-	savings.ConservativeBaseline = context.ConservativeBaselineTokens(spans, fileCache)
-	savings.DedupedCount = skipped
 	savings.Mode = mode
 
 	resp := map[string]interface{}{
@@ -269,6 +323,7 @@ func handleFileContextWithMeta(file, projectPath, mode, sessionID string, tokenB
 		"total":    len(symbols),
 	}
 	savings.ApplyTo(resp)
+	withheld.ApplyTo(resp)
 	if tokenBudget > 0 {
 		resp["token_budget"] = tokenBudget
 		resp["tokens_remaining"] = tokenBudget - tokensUsed

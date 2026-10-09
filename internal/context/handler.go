@@ -7,7 +7,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/render"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/trail"
 )
@@ -68,143 +70,197 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 	}
 	q := CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: limit, Filters: filters}
 	scored, pipeMetrics, cacheHit := RankedHybrid(q, Emb)
-	returned := ReturnedKeys(sessionID)
-	var delivered []ReturnedSymbol
-	if len(scored) < limit {
-		limit = len(scored)
+	scored = scored[:min(limit, len(scored))]
+	entry := SearchTrailEntry("get_context_capsule", q, mode, scored, len(scored))
+	p, err := packRanked(scored, query, projectPath, mode, sessionID, tokenBudget, ParsePrecisionArgs(args), false)
+	if err != nil {
+		data, _ := json.Marshal(map[string]string{"error": err.Error()})
+		return getContextResult{JSON: string(data)}
 	}
-	entry := SearchTrailEntry("get_context_capsule", q, mode, scored, limit)
-	fileCache := map[string][]string{}
-	matchedFiles := map[string]bool{}
-	var results []map[string]interface{}
-	var spans []LineSpan
-	skipped := 0
-	tokensUsed := 0
-	symbolBaseline := 0
-	dedupTokens := 0
-	fullCount := 0
-	maxScore := 0.0
-	if len(scored) > 0 {
-		maxScore = scored[0].Score
-	}
-	for i := 0; i < limit; i++ {
-		hit := hitFromScored(scored[i], projectPath)
-		data := hit.Data
-		file, _ := data["file"].(string)
-		name, _ := data["name"].(string)
-		startLine, endLine := hit.StartLine, hit.EndLine
-		owner := projectlinks.OwningProject(file, projectPath)
-		key := SymbolDedupKey(file, name, startLine)
-		if _, dup := returned[key]; dup {
-			skipped++
-			dedupTokens += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
-			continue
-		}
-		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
-		ApplyMode(data, effectiveMode, file, name, owner, startLine, endLine, fileCache)
-		if effectiveMode == "full" {
-			fullCount++
-		}
-		data["file"] = db.RelPath(file, projectPath)
-		resultJSON, _ := json.Marshal(data)
-		resultTokens := db.EstimateTokens(string(resultJSON))
-		if tokenBudget > 0 && tokensUsed+resultTokens > tokenBudget {
-			break
-		}
-		symbolBaseline += FullSourceTokens(file, name, owner, startLine, endLine, fileCache)
-		spans = append(spans, LineSpan{File: file, Start: startLine, End: endLine})
-		tokensUsed += resultTokens
-		matchedFiles[file] = true
-		results = append(results, data)
-		returned[key] = struct{}{}
-		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
-	}
-	MarkReturned(sessionID, delivered...)
-	fileBaseline := FileBaselineTokens(matchedFiles, fileCache)
-	savings := ComputeSavings(tokensUsed, symbolBaseline, fileBaseline, dedupTokens)
-	savings.ConservativeBaseline = ConservativeBaselineTokens(spans, fileCache)
-	savings.DedupedCount = skipped
-	savings.Mode = mode
-	savings.CacheHit = cacheHit
+	p.Savings.Mode = mode
+	p.Savings.CacheHit = cacheHit
 	resp := map[string]interface{}{
 		"query":   query,
 		"mode":    mode,
-		"results": results,
+		"results": p.Results,
 		"pipeline": map[string]interface{}{
 			"bm25_candidates":   pipeMetrics.BM25Candidates,
 			"vector_candidates": pipeMetrics.VectorCandidates,
 			"hybrid_after_fuse": pipeMetrics.HybridAfterFuse,
 		},
 	}
-	savings.ApplyTo(resp)
+	p.ApplyTo(resp)
 	if tokenBudget > 0 {
 		resp["token_budget"] = tokenBudget
-		resp["tokens_remaining"] = tokenBudget - tokensUsed
+		resp["tokens_remaining"] = tokenBudget - p.Savings.TokensUsed
 	}
-	codescripts.AttachHints(resp, "get_context_capsule", query, projectPath, results)
+	codescripts.AttachHints(resp, "get_context_capsule", query, projectPath, p.Results)
 	finalData, _ := json.Marshal(resp)
-	return getContextResult{JSON: string(finalData), Savings: savings, CacheHit: cacheHit, Trail: entry}
+	return getContextResult{JSON: string(finalData), Savings: p.Savings, CacheHit: cacheHit, Trail: entry}
 }
 
-// PackScoredResults formats hybrid/vector search hits (used by search_semantic). entry carries
-// the pre-dedup hit count and hits for the search trail; the caller fills in the tool, query,
-// filters and doc type.
-func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, mode, sessionID string, tokenBudget int) (results []map[string]interface{}, savings SavingsMeta, entry trail.Entry) {
+// PackScoredResults formats hybrid/vector search hits (used by search_semantic) after the
+// precision pass for query (vector-only weak check). The entry carries the pre-dedup hit count
+// and hits for the search trail; the caller fills in the tool, query, filters and doc type.
+func PackScoredResults(scored []search.ScoredResult, limit int, projectPath, query, mode, sessionID string, tokenBudget int, args PrecisionArgs) (Packed, trail.Entry, error) {
 	if mode == "" {
 		mode = "skeleton"
 	}
-	savings.Mode = mode
-	returned := ReturnedKeys(sessionID)
-	var delivered []ReturnedSymbol
-	if len(scored) < limit {
-		limit = len(scored)
+	scored = scored[:min(limit, len(scored))]
+	entry := SearchTrailEntry("", CandidateQuery{ProjectPath: projectPath}, mode, scored, len(scored))
+	p, err := packRanked(scored, query, projectPath, mode, sessionID, tokenBudget, args, true)
+	p.Savings.Mode = mode
+	return p, entry, err
+}
+
+// Packed is a code search's packed response: the results, their savings, and what the
+// precision pass and token budget held back.
+type Packed struct {
+	Results   []map[string]interface{}
+	Savings   SavingsMeta
+	Withheld  Withheld
+	NoMatch   *render.NoMatch
+	Collapsed []render.Collapse
+}
+
+// ApplyTo writes the savings, withheld, no_match and collapsed fields into resp.
+func (p Packed) ApplyTo(resp map[string]interface{}) {
+	p.Savings.ApplyTo(resp)
+	p.Withheld.ApplyTo(resp)
+	if p.NoMatch != nil {
+		resp["no_match"] = p.NoMatch
 	}
-	entry = SearchTrailEntry("", CandidateQuery{ProjectPath: projectPath}, mode, scored, limit)
+	if len(p.Collapsed) > 0 {
+		resp["collapsed"] = p.Collapsed
+	}
+}
+
+// packRanked runs the precision pass over scored and packs what it keeps: the top hit's edit
+// view for mode=edit under feature_mode_v2 (full for every hit with the flag off), the token
+// budgeted hits otherwise.
+func packRanked(scored []search.ScoredResult, query, projectPath, mode, sessionID string, tokenBudget int, args PrecisionArgs, semantic bool) (Packed, error) {
+	prec := ApplyPrecision(scored, query, projectPath, args, semantic)
 	fileCache := map[string][]string{}
-	matchedFiles := map[string]bool{}
+	var p Packed
+	switch {
+	case mode == "edit" && flags.Enabled(flags.KeyModeV2):
+		if len(prec.Kept) > 0 {
+			hit := hitFromScored(prec.Kept[0], projectPath)
+			var err error
+			if p, err = PackEdit(hit.Data, projectPath, sessionID, tokenBudget, fileCache); err != nil {
+				return Packed{}, err
+			}
+			p.Withheld.Add(EstimateWithheld(prec.Kept[1:], projectPath, fileCache))
+		}
+	case mode == "edit":
+		p = packHits(prec.Kept, projectPath, "full", sessionID, tokenBudget, fileCache)
+	default:
+		p = packHits(prec.Kept, projectPath, mode, sessionID, tokenBudget, fileCache)
+	}
+	p.Withheld.Add(EstimateWithheld(prec.Withheld, projectPath, fileCache))
+	p.NoMatch, p.Collapsed = prec.NoMatch, prec.Collapsed
+	return p, nil
+}
+
+// packMode resolves the mode a hit is delivered in: by delivered rank (EffectiveModeV2) with
+// feature_mode_v2 on, by score ratio (EffectiveMode) otherwise.
+func packMode(mode string, v2 bool, rank int, score, maxScore float64, fullCount int) string {
+	if v2 {
+		return EffectiveModeV2(mode, rank)
+	}
+	return EffectiveMode(mode, score, maxScore, fullCount)
+}
+
+// packHits packs scored in rank order within tokenBudget. Hits the session already has in a
+// mode at least as rich are skipped (dedup); hits over the budget are skipped and withheld,
+// and packing stops after five consecutive budget misses, withholding the rest.
+func packHits(scored []search.ScoredResult, projectPath, mode, sessionID string, tokenBudget int, fileCache map[string][]string) Packed {
+	v2 := flags.Enabled(flags.KeyModeV2)
+	returned := ReturnedModes(sessionID)
+	var p Packed
+	var delivered []ReturnedSymbol
 	var spans []LineSpan
-	fullCount := 0
+	matchedFiles := map[string]bool{}
+	fullCount, misses := 0, 0
 	maxScore := 0.0
 	if len(scored) > 0 {
 		maxScore = scored[0].Score
 	}
-	for i := 0; i < limit; i++ {
-		hit := hitFromScored(scored[i], projectPath)
+	for i, r := range scored {
+		if misses >= maxBudgetMisses {
+			p.Withheld.Add(EstimateWithheld(scored[i:], projectPath, fileCache))
+			break
+		}
+		hit := hitFromScored(r, projectPath)
 		data := hit.Data
-		file, _ := data["file"].(string)
-		name, _ := data["name"].(string)
+		file, name := mapStr(data, "file"), mapStr(data, "name")
 		startLine, endLine := hit.StartLine, hit.EndLine
 		owner := projectlinks.OwningProject(file, projectPath)
+		effective := packMode(mode, v2, len(p.Results), hit.Score, maxScore, fullCount)
 		key := SymbolDedupKey(file, name, startLine)
-		if _, dup := returned[key]; dup {
-			savings.DedupedCount++
-			savings.DedupTokensSaved += WouldSendTokens(file, name, owner, mode, startLine, endLine, hit.Score, maxScore, fullCount, fileCache)
+		if DedupCovers(returned, key, effective) {
+			p.Savings.DedupedCount++
+			p.Savings.DedupTokensSaved += WouldSendTokens(file, name, owner, effective, startLine, endLine, 0, 0, 0, fileCache)
 			continue
 		}
-		effectiveMode := EffectiveMode(mode, hit.Score, maxScore, fullCount)
-		ApplyMode(data, effectiveMode, file, name, owner, startLine, endLine, fileCache)
-		if effectiveMode == "full" {
-			fullCount++
-		}
+		ApplyMode(data, effective, file, name, owner, startLine, endLine, fileCache)
+		search.StripFusionKeys(data)
 		data["file"] = db.RelPath(file, projectPath)
 		resultJSON, _ := json.Marshal(data)
 		resultTokens := db.EstimateTokens(string(resultJSON))
-		if tokenBudget > 0 && savings.TokensUsed+resultTokens > tokenBudget {
-			break
+		if tokenBudget > 0 && p.Savings.TokensUsed+resultTokens > tokenBudget {
+			misses++
+			p.Withheld.Add(Withheld{Count: 1, Tokens: resultTokens})
+			continue
 		}
-		savings.SymbolBaseline += FullSourceTokens(file, name, owner, startLine, endLine, fileCache)
+		misses = 0
+		if effective == "full" {
+			fullCount++
+		}
+		p.Savings.SymbolBaseline += FullSourceTokens(file, name, owner, startLine, endLine, fileCache)
 		spans = append(spans, LineSpan{File: file, Start: startLine, End: endLine})
-		savings.TokensUsed += resultTokens
+		p.Savings.TokensUsed += resultTokens
 		matchedFiles[file] = true
-		results = append(results, data)
-		returned[key] = struct{}{}
-		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mode, Tokens: resultTokens})
+		p.Results = append(p.Results, data)
+		mergeReturnedMode(returned, key, effective)
+		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: effective, Tokens: resultTokens})
 	}
 	MarkReturned(sessionID, delivered...)
-	savings.FileBaseline = FileBaselineTokens(matchedFiles, fileCache)
-	computed := ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, savings.FileBaseline, savings.DedupTokensSaved)
-	savings.TokensSaved = computed.TokensSaved
-	savings.SavingsVsFiles = computed.SavingsVsFiles
-	savings.ConservativeBaseline = ConservativeBaselineTokens(spans, fileCache)
-	return results, savings, entry
+	p.Savings.finish(matchedFiles, spans, fileCache)
+	return p
+}
+
+// PackEdit packs the edit view of target (a hit or symbol map with an absolute file and line
+// span): the target's exact source, then its callees' skeletons within tokenBudget (the
+// target is always sent). Every delivered symbol is marked returned in the mode it was sent.
+func PackEdit(target map[string]interface{}, projectPath, sessionID string, tokenBudget int, fileCache map[string][]string) (Packed, error) {
+	view, callees, err := EditView(projectlinks.OwningProject(mapStr(target, "file"), projectPath), target, fileCache)
+	if err != nil {
+		return Packed{}, err
+	}
+	search.StripFusionKeys(view)
+	var p Packed
+	var delivered []ReturnedSymbol
+	var spans []LineSpan
+	matchedFiles := map[string]bool{}
+	for i, sym := range append([]map[string]interface{}{view}, callees...) {
+		file, name := mapStr(sym, "file"), mapStr(sym, "name")
+		startLine, endLine := coerceInt(sym["start_line"]), coerceInt(sym["end_line"])
+		sym["file"] = db.RelPath(file, projectPath)
+		resultJSON, _ := json.Marshal(sym)
+		resultTokens := db.EstimateTokens(string(resultJSON))
+		if i > 0 && tokenBudget > 0 && p.Savings.TokensUsed+resultTokens > tokenBudget {
+			p.Withheld.Add(Withheld{Count: 1, Tokens: resultTokens})
+			continue
+		}
+		p.Savings.SymbolBaseline += FullSourceTokens(file, name, projectlinks.OwningProject(file, projectPath), startLine, endLine, fileCache)
+		spans = append(spans, LineSpan{File: file, Start: startLine, End: endLine})
+		p.Savings.TokensUsed += resultTokens
+		matchedFiles[file] = true
+		p.Results = append(p.Results, sym)
+		delivered = append(delivered, ReturnedSymbol{File: file, Name: name, ProjectPath: projectPath, StartLine: startLine, Mode: mapStr(sym, "mode"), Tokens: resultTokens})
+	}
+	MarkReturned(sessionID, delivered...)
+	p.Savings.finish(matchedFiles, spans, fileCache)
+	return p, nil
 }

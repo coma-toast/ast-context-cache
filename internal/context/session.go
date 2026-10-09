@@ -8,7 +8,7 @@ import (
 
 const (
 	selectReturnedSymbolsQuery = `
-		SELECT COALESCE(file_path,''), COALESCE(symbol_name,''), COALESCE(start_line,0)
+		SELECT COALESCE(file_path,''), COALESCE(symbol_name,''), COALESCE(start_line,0), COALESCE(mode,'')
 		FROM sessions
 		WHERE session_id = ? AND (symbol_name != '' OR file_path != '')`
 	selectSymbolIDQuery = "SELECT id FROM symbols WHERE file = ? AND name = ? AND project_path = ? AND start_line = ? LIMIT 1"
@@ -19,23 +19,24 @@ func SymbolDedupKey(file, name string, startLine int) string {
 	return file + "|" + name + "|" + strconv.Itoa(startLine)
 }
 
-// loadReturnedKeys reads the dedup keys persisted for sessionID. Rows still in the
-// write buffer are not visible here; the session store covers them in memory.
-func loadReturnedKeys(sessionID string) (map[string]struct{}, error) {
+// loadReturned reads the dedup keys persisted for sessionID with the richest mode each was
+// delivered in. Rows still in the write buffer are not visible here; the session store
+// covers them in memory.
+func loadReturned(sessionID string) (map[string]string, error) {
 	rows, err := db.DB.Query(selectReturnedSymbolsQuery, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	seen := map[string]struct{}{}
+	seen := map[string]string{}
 	for rows.Next() {
-		var file, name string
+		var file, name, mode string
 		var startLine int
-		if err := rows.Scan(&file, &name, &startLine); err != nil {
+		if err := rows.Scan(&file, &name, &startLine, &mode); err != nil {
 			return nil, err
 		}
 		if file != "" && name != "" {
-			seen[SymbolDedupKey(file, name, startLine)] = struct{}{}
+			mergeReturnedMode(seen, SymbolDedupKey(file, name, startLine), mode)
 		}
 	}
 	return seen, rows.Err()

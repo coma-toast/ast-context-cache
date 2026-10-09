@@ -88,12 +88,18 @@ type bench struct {
 	project string
 	home    string
 	nextID  int
+	// tag prefixes session ids, so repeated runs of a scenario (the sweep) start undeduped.
+	tag string
 }
 
 func TestTokenBench(t *testing.T) {
 	scenarios := loadScenarios(t)
 	b := newBench(t)
 	base := loadBaseline(t)
+	if os.Getenv("AST_RELEVANCE_SWEEP") == "1" {
+		b.sweep(scenarios, base)
+		return
+	}
 	var got []outcome
 	for _, sc := range scenarios {
 		got = append(got, b.run(sc))
@@ -199,7 +205,7 @@ func newBench(t *testing.T) *bench {
 // run measures one scenario: setup once, then the call twice under different session ids so
 // session dedup cannot change the second response.
 func (b *bench) run(sc scenario) outcome {
-	vars := map[string]string{"${project}": b.project, "${setup_session}": "tb-" + sc.Name + "-setup"}
+	vars := map[string]string{"${project}": b.project, "${setup_session}": "tb-" + b.tag + sc.Name + "-setup"}
 	for _, call := range sc.Setup {
 		out, isErr := b.call(call.Tool, expand(call.Args, vars))
 		require.False(b.t, isErr, "%s setup %s: %s", sc.Name, call.Tool, out)
@@ -216,7 +222,7 @@ func (b *bench) run(sc scenario) outcome {
 	}
 	var texts [2]string
 	for i, suffix := range []string{"a", "b"} {
-		sid := "tb-" + sc.Name + "-" + suffix
+		sid := "tb-" + b.tag + sc.Name + "-" + suffix
 		vars["${session}"] = sid
 		out, isErr := b.call(sc.Tool, expand(sc.Args, vars))
 		require.False(b.t, isErr, "%s: %s", sc.Name, out)
@@ -407,4 +413,57 @@ func printTable(got []outcome, base map[string]outcome) {
 		fmt.Printf("%-38s %-20s %7d %7s %7s %5d %6.2f %4v %s\n", o.Name, o.Tool, o.Tokens, baseCol, delta, o.Results, o.Recall, o.Deterministic, neg)
 	}
 	fmt.Printf("%-38s %-20s %7d %7d %+7d\n\n", "TOTAL", "", total, baseTotal, total-baseTotal)
+}
+
+// sweepGrid is the relevance threshold grid AST_RELEVANCE_SWEEP=1 runs.
+var sweepGrid = struct{ minRelative, vectorMin, coverageMin []float64 }{
+	minRelative: []float64{0.35, 0.5, 0.6, 0.7, 0.75, 0.8},
+	vectorMin:   []float64{0.05, 0.1, 0.2, 0.22, 0.25, 0.45},
+	coverageMin: []float64{0.34, 0.5, 1},
+}
+
+// sweepTools are the tools the relevance floor applies to.
+var sweepTools = map[string]bool{"get_context_capsule": true, "search_semantic": true, "retrieve": true}
+
+// sweep runs the code-search scenarios once per grid setting and prints, per setting, the
+// expected hits found, scenarios whose recall fell below the baseline (lost), negatives
+// flagged as no-match, and total tokens. Pick the setting with lost 0, then the fewest tokens.
+func (b *bench) sweep(scenarios []scenario, base map[string]outcome) {
+	var code []scenario
+	for _, sc := range scenarios {
+		if sweepTools[sc.Tool] && len(sc.Setup) == 0 {
+			code = append(code, sc)
+		}
+	}
+	fmt.Printf("\n%-8s %-8s %-8s %9s %5s %9s %7s\n", "min_rel", "vec_min", "cov_min", "expected", "lost", "negatives", "tokens")
+	run := 0
+	for _, minRel := range sweepGrid.minRelative {
+		for _, vecMin := range sweepGrid.vectorMin {
+			for _, covMin := range sweepGrid.coverageMin {
+				b.t.Setenv("AST_RELEVANCE_MIN_RELATIVE", fmt.Sprint(minRel))
+				b.t.Setenv("AST_RELEVANCE_VECTOR_MIN", fmt.Sprint(vecMin))
+				b.t.Setenv("AST_RELEVANCE_COVERAGE_MIN", fmt.Sprint(covMin))
+				run++
+				b.tag = fmt.Sprintf("sweep%d-", run)
+				found, expected, lost, flagged, negatives, total := 0.0, 0, 0, 0, 0, 0
+				for _, sc := range code {
+					o := b.run(sc)
+					total += o.Tokens
+					if sc.Negative {
+						negatives++
+						if *o.NoMatch {
+							flagged++
+						}
+						continue
+					}
+					found += o.Recall * float64(len(sc.Expect))
+					expected += len(sc.Expect)
+					if prev, ok := base[sc.Name]; ok && o.Recall < prev.Recall-1e-9 {
+						lost++
+					}
+				}
+				fmt.Printf("%-8g %-8g %-8g %5.0f/%-3d %5d %5d/%-3d %7d\n", minRel, vecMin, covMin, found, expected, lost, flagged, negatives, total)
+			}
+		}
+	}
 }

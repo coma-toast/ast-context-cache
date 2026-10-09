@@ -412,28 +412,32 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if tb, ok := toolArgs["token_budget"].(float64); ok && tb > 0 {
 					tokenBudget = int(tb)
 				}
-				results, packSavings, hits := context.PackScoredResults(scored, limit, projectPath, mode, sessionID, tokenBudget)
-				packSavings.CacheHit = cacheHit
+				packed, hits, packErr := context.PackScoredResults(scored, limit, projectPath, query, mode, sessionID, tokenBudget, context.ParsePrecisionArgs(toolArgs))
+				if packErr != nil {
+					result = map[string]string{"error": packErr.Error()}
+					break
+				}
+				packed.Savings.CacheHit = cacheHit
 				resp := map[string]interface{}{
 					"query":         query,
 					"mode":          mode,
-					"results":       results,
+					"results":       packed.Results,
 					"total_vectors": search.Cache.Count(projectPath),
 				}
-				packSavings.ApplyTo(resp)
+				packed.ApplyTo(resp)
 				if tokenBudget > 0 {
 					resp["token_budget"] = tokenBudget
-					resp["tokens_remaining"] = tokenBudget - packSavings.TokensUsed
+					resp["tokens_remaining"] = tokenBudget - packed.Savings.TokensUsed
 				}
-				codescripts.AttachHints(resp, "search_semantic", query, projectPath, results)
+				codescripts.AttachHints(resp, "search_semantic", query, projectPath, packed.Results)
 				entry := semanticTrail(hits, query, docType, projectPath, filters)
 				recordSearch(sessionID, entry)
-				if ann := annotateSearch(sessionID, entry, results); ann != nil {
+				if ann := annotateSearch(sessionID, entry, packed.Results); ann != nil {
 					resp["handoff"] = ann
 				}
 				respData, _ := json.Marshal(resp)
 				outTokens := db.EstimateTokens(string(respData))
-				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, packSavings, start, cpuStart, projectPath, "")
+				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, packed.Savings, start, cpuStart, projectPath, "")
 				loggedToolCall = true
 				result = json.RawMessage(respData)
 			}
@@ -462,7 +466,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if file == "" || projectPath == "" {
 			result = map[string]string{"error": "file and project_path required"}
 		} else {
-			fc := handleFileContextWithMeta(file, projectPath, mode, sessionID, tokenBudget)
+			symbol, _ := toolArgs["symbol"].(string)
+			fc := handleFileContextWithMeta(file, projectPath, mode, symbol, sessionID, tokenBudget)
 			outTokens := db.EstimateTokens(fc.JSON)
 			logToolQuery(toolName, args, len(fc.JSON), 0, outTokens, fc.Savings, start, cpuStart, projectPath, "")
 			recordSearch(sessionID, fc.Trail)
