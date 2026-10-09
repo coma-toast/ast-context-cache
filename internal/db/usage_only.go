@@ -23,6 +23,9 @@ func InitUsage() error {
 	if err := os.MkdirAll(cacheDir(), 0o755); err != nil {
 		return err
 	}
+	if err := snapshotPre50(usePath, "usage"); err != nil {
+		return err
+	}
 	conn, err := openPool(usePath)
 	if err != nil {
 		return fmtOpenErr("usage", usePath, err)
@@ -30,5 +33,5 @@ func InitUsage() error {
 	DB = conn
 	initUsageSchema(DB)
 	syncPoolsOpen()
-	return nil
+	return migrateDB(usePath, "usage", usageSteps)
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/tokens"
 )
 
 const (
@@ -14,14 +16,18 @@ const (
 		tokens_saved, file_baseline_tokens, full_baseline_tokens,
 		tokens_used, symbol_baseline_tokens, dedup_tokens_saved, savings_vs_files,
 		deduped_count, mode, cache_hit,
-		duration_ms, cpu_ms, interface, session_id, error, project_path
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		duration_ms, cpu_ms, interface, session_id, error, project_path, estimate_method
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	insertSessionLogQuery = `INSERT INTO sessions (session_id, symbol_id, symbol_name, start_line, file_path, mode, token_count) VALUES (?, ?, ?, ?, ?, ?, ?)`
 	insertTrailQuery      = `INSERT INTO search_trail (
 		session_id, tool, query, query_norm, filters_key, mode, doc_type, project_path,
 		hit_count, zero_hit, top_hits_json, created_at
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 )
+
+// EstimateMethod names the token estimator recorded in queries.estimate_method for rows
+// whose QueryLogMetrics.EstimateMethod is empty.
+var EstimateMethod = tokens.Method
 
 // Execer matches *sql.DB and *sql.Tx for Exec.
 type Execer interface {
@@ -54,6 +60,8 @@ type QueryLogMetrics struct {
 	CacheHit         bool
 	DurationMs       float64
 	CpuMs            float64
+	// EstimateMethod is the token estimator behind these counts; empty means EstimateMethod().
+	EstimateMethod string
 }
 
 type queryLogRow struct {
@@ -201,12 +209,14 @@ func flushQueryLogBuffer() {
 		if m.CacheHit {
 			cacheHit = 1
 		}
+		// full_baseline_tokens has always received SymbolBaseline (the same value as
+		// symbol_baseline_tokens). Nothing reads it for the savings ledgers; kept as is.
 		if _, err := stmt.Exec(
 			r.timestampRFC3339, r.toolName, r.argsJSON, m.ResultChars, m.InputTokens, m.OutputTokens,
 			m.TokensSaved, m.FileBaseline, m.SymbolBaseline,
 			m.TokensUsed, m.SymbolBaseline, m.DedupTokensSaved, m.SavingsVsFiles,
 			m.DedupedCount, m.Mode, cacheHit,
-			m.DurationMs, m.CpuMs, "http", r.sessionID, r.errMsg, r.projectPath,
+			m.DurationMs, m.CpuMs, "http", r.sessionID, r.errMsg, r.projectPath, m.EstimateMethod,
 		); err != nil {
 			logger.Warn("Failed to insert query log row", "error", err)
 		}
@@ -348,6 +358,9 @@ func extractSessionID(args map[string]interface{}) string {
 
 func enqueueQueryLog(toolName string, args map[string]interface{}, m QueryLogMetrics, projectPath, errMsg string) {
 	argsJSON, _ := json.Marshal(args)
+	if m.EstimateMethod == "" {
+		m.EstimateMethod = EstimateMethod()
+	}
 	r := queryLogRow{
 		toolName:         toolName,
 		argsJSON:         string(argsJSON),

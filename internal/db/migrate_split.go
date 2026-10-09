@@ -27,6 +27,7 @@ const (
 	selectSessionsMissingSymbolQuery    = `SELECT id, symbol_id FROM sessions WHERE symbol_id > 0 AND (symbol_name IS NULL OR symbol_name = '')`
 	selectSymbolForSessionBackfillQuery = `SELECT name, file, COALESCE(start_line,0) FROM symbols WHERE id=?`
 	updateSessionSymbolFieldsQuery      = `UPDATE sessions SET symbol_name=?, start_line=?, file_path=COALESCE(NULLIF(file_path,''), ?) WHERE id=?`
+	splitPoolDSNParams                  = "?_journal_mode=WAL&_busy_timeout=15000"
 )
 
 var indexTables = []string{
@@ -105,14 +106,14 @@ func migrateSplitDB(usagePath, indexPath, contextPath string) error {
 	logger.Info("Migrating monolithic database to index.db and context.db", "path", usagePath)
 	startup.SetMessage("Migrating database (index tables)…")
 
-	idx, err := openPool(indexPath)
+	idx, err := openSplitPool(indexPath)
 	if err != nil {
 		return fmtOpenErr("index", indexPath, err)
 	}
 	defer idx.Close()
 	initIndexSchema(idx)
 
-	ctxDB, err := openPool(contextPath)
+	ctxDB, err := openSplitPool(contextPath)
 	if err != nil {
 		return fmtOpenErr("context", contextPath, err)
 	}
@@ -134,7 +135,7 @@ func migrateSplitDB(usagePath, indexPath, contextPath string) error {
 	ctxDB.Exec(rebuildContextNotesFTSQuery)
 	ctxDB.Exec(rebuildStructuredMemoryFTSQuery)
 
-	usage, err := openPool(usagePath)
+	usage, err := openSplitPool(usagePath)
 	if err != nil {
 		return fmtOpenErr("usage", usagePath, err)
 	}
@@ -147,6 +148,13 @@ func migrateSplitDB(usagePath, indexPath, contextPath string) error {
 
 	logger.Info("Split migration complete", "index_path", indexPath, "context_path", contextPath)
 	return nil
+}
+
+// openSplitPool opens a pool on the plain "sqlite3" driver: with foreign keys enforced,
+// dropping doc_sources from the monolithic usage.db (trimMonolithicTables) would fail
+// while doc_content still references it, and copying orphaned doc_content would too.
+func openSplitPool(path string) (*sql.DB, error) {
+	return openPoolWith("sqlite3", path, splitPoolDSNParams, 4)
 }
 
 func copyTablesFromAttach(dest *sql.DB, srcPath string, tables []string) error {
