@@ -408,8 +408,21 @@ func rankAndDedup(chunks []RetrieveChunk) []RetrieveChunk {
 		unique = append(unique, c)
 	}
 
-	sort.Slice(unique, func(i, j int) bool {
-		return unique[i].Score > unique[j].Score
+	sort.SliceStable(unique, func(i, j int) bool {
+		a, b := unique[i], unique[j]
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		if a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		if a.StartLine != b.StartLine {
+			return a.StartLine < b.StartLine
+		}
+		return a.Name < b.Name
 	})
 
 	return unique

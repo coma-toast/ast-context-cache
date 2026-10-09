@@ -211,11 +211,21 @@ func fuseDocResults(fts, vector []ScoredDoc, limit int) []ScoredDoc {
 	for i, s := range vector {
 		add(i, s)
 	}
-	out := make([]ScoredDoc, 0, len(seen))
-	for _, e := range seen {
-		out = append(out, *e)
+	ids := make([]int, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	sort.Ints(ids)
+	out := make([]ScoredDoc, len(ids))
+	for i, id := range ids {
+		out[i] = *seen[id]
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		return out[i].Entry.ID < out[j].Entry.ID
+	})
 	if len(out) > limit {
 		out = out[:limit]
 	}
