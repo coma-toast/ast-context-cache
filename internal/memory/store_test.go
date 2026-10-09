@@ -128,14 +128,14 @@ func TestStoreFactInvalidatesPrevious(t *testing.T) {
 	testMemoryDB(t)
 	r1, err := Store(StoreInput{
 		Kind: KindFact, Scope: ScopeSession, SessionID: "s1",
-		Subject: "user.city", Predicate: "lives_in", Object: "Mumbai",
+		Subject: "user.city", Predicate: "lives_in", Object: "Mumbai", InvalidatePrevious: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r2, err := Store(StoreInput{
 		Kind: KindFact, Scope: ScopeSession, SessionID: "s1",
-		Subject: "user.city", Predicate: "lives_in", Object: "Bangalore",
+		Subject: "user.city", Predicate: "lives_in", Object: "Bangalore", InvalidatePrevious: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestStoreFactConcurrentSupersessionLeavesOneActiveFact(t *testing.T) {
 			defer wg.Done()
 			_, err := Store(StoreInput{
 				Kind: KindFact, Scope: ScopeSession, SessionID: "concurrent",
-				Subject: "user.city", Predicate: "lives_in", Object: fmt.Sprintf("City%d", i),
+				Subject: "user.city", Predicate: "lives_in", Object: fmt.Sprintf("City%d", i), InvalidatePrevious: true,
 			})
 			errs <- err
 		}(i)

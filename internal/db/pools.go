@@ -7,20 +7,40 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 const (
-	pragmaJournalModeWAL    = `PRAGMA journal_mode=WAL`
 	pragmaBusyTimeout       = `PRAGMA busy_timeout=15000`
 	pragmaSynchronousNormal = `PRAGMA synchronous=NORMAL`
 	pragmaCacheSize         = `PRAGMA cache_size=-32000`
 	pragmaWALAutocheckpoint = `PRAGMA wal_autocheckpoint=200`
-	poolDSNParams           = "?_journal_mode=WAL&_busy_timeout=15000"
+	pragmaForeignKeysOn     = `PRAGMA foreign_keys=ON`
+	poolDSNParams           = "?_journal_mode=WAL"
 	handoffTxLockParam      = "&_txlock=immediate"
+	// astcacheDriver is "sqlite3" plus connPragmas applied to every new connection, so the
+	// settings hold on each pooled connection rather than whichever one Exec happened to use.
+	astcacheDriver = "sqlite3_astcache"
 )
+
+var connPragmas = []string{
+	pragmaBusyTimeout, pragmaSynchronousNormal, pragmaCacheSize, pragmaWALAutocheckpoint, pragmaForeignKeysOn,
+}
+
+func init() {
+	sql.Register(astcacheDriver, &sqlite3.SQLiteDriver{ConnectHook: applyConnPragmas})
+}
+
+func applyConnPragmas(c *sqlite3.SQLiteConn) error {
+	for _, p := range connPragmas {
+		if _, err := c.Exec(p, nil); err != nil {
+			return errs.WrapMessage("failed to apply connection pragma", err, "pragma", p)
+		}
+	}
+	return nil
+}
 
 var (
 	// DB is the usage pool (queries, sessions, settings). Legacy name kept for callers.
@@ -61,34 +81,36 @@ func PoolsReady() bool {
 }
 
 func openPool(path string) (*sql.DB, error) {
-	return openPoolWith(path, poolDSNParams, 4)
+	return openPoolWith(astcacheDriver, path, poolDSNParams, 4)
 }
 
 // openHandoffWritePool opens HandoffWriteDB's single connection on the context database.
 func openHandoffWritePool(path string) (*sql.DB, error) {
-	return openPoolWith(path, poolDSNParams+handoffTxLockParam, 1)
+	return openPoolWith(astcacheDriver, path, poolDSNParams+handoffTxLockParam, 1)
 }
 
-func openPoolWith(path, params string, conns int) (*sql.DB, error) {
+// openStepPool opens a one-connection pool whose transactions begin IMMEDIATE, for runSteps.
+func openStepPool(path string) (*sql.DB, error) {
+	return openPoolWith(astcacheDriver, path, poolDSNParams+handoffTxLockParam, 1)
+}
+
+func openPoolWith(driver, path, params string, conns int) (*sql.DB, error) {
 	if err := os.MkdirAll(cacheDir(), 0o755); err != nil {
 		return nil, err
 	}
-	conn, err := sql.Open("sqlite3", path+params)
+	conn, err := sql.Open(driver, path+params)
 	if err != nil {
 		return nil, err
 	}
 	conn.SetMaxOpenConns(conns)
 	conn.SetMaxIdleConns(conns)
-	applyPragmas(conn)
+	// Connect now, as the pragma Execs used to: the file exists once the pool is open,
+	// and a connection the ConnectHook rejects fails here rather than on first use.
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, err
+	}
 	return conn, nil
-}
-
-func applyPragmas(conn *sql.DB) {
-	conn.Exec(pragmaJournalModeWAL)
-	conn.Exec(pragmaBusyTimeout)
-	conn.Exec(pragmaSynchronousNormal)
-	conn.Exec(pragmaCacheSize)
-	conn.Exec(pragmaWALAutocheckpoint)
 }
 
 // Close closes all database pools (tests and shutdown).

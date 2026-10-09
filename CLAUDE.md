@@ -143,7 +143,7 @@ Never put credentials in a brief or scratchpad post. Full guide: [docs/handoff.m
 ### Token savings tracking
 - **Formula:** `tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips`
 - **Tracked tools:** `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` (each response includes `tokens_saved`, `tokens_used`, `symbol_baseline_tokens` or `data_baseline_tokens`)
-- **Not tracked:** doc tools (`fetch_doc`, `search_docs`), indexing (`index_*`), maps/graphs — dashboard **Tokens saved** stays 0 on doc-only days
+- **Not tracked:** doc tools (`fetch_doc`, `search_docs`), indexing (`index_*`), maps/graphs, virtual context and memory writes (`store_context`, `store_memory`) — dashboard **Tokens saved** is compression + dedup from search/read tools only and stays 0 on doc-only days
 - **`mode=full`** saves ~nothing; prefer **`auto`** or **`skeleton`** for measurable savings
 - **`execute_code`:** `tokens_saved = max(0, data_baseline_tokens − tokens_used)` when shrinking search JSON via scripts
 

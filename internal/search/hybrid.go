@@ -73,13 +73,27 @@ func HybridSearch(query, projectPath string, emb embedder.Interface, limit int, 
 		}
 	}
 
-	merged := make([]ScoredResult, 0, len(seen))
-	for _, e := range seen {
-		merged = append(merged, ScoredResult{Data: e.data, Score: e.score})
+	// Fuse in sorted-key order and break score ties on the key, so tied hits
+	// come back in the same order on every run.
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
 	}
-	sort.Slice(merged, func(i, j int) bool {
-		return merged[i].Score > merged[j].Score
+	sort.Strings(keys)
+	fused := make([]*fusedEntry, len(keys))
+	for i, k := range keys {
+		fused[i] = seen[k]
+	}
+	sort.SliceStable(fused, func(i, j int) bool {
+		if fused[i].score != fused[j].score {
+			return fused[i].score > fused[j].score
+		}
+		return fused[i].key < fused[j].key
 	})
+	merged := make([]ScoredResult, len(fused))
+	for i, e := range fused {
+		merged[i] = ScoredResult{Data: e.data, Score: e.score}
+	}
 
 	metrics.HybridAfterFuse = len(merged)
 

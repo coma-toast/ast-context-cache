@@ -217,7 +217,7 @@ flush_context(session_id? | refs? | all=true, project_path?)
 
 | Event | Tracked as |
 |-------|------------|
-| `store_context` | `virtual_tokens_stored`; query log `tokens_saved` |
+| `store_context` | `virtual_tokens_stored` (not counted in dashboard **Tokens saved**) |
 | `fetch_context` / `search_context` | `virtual_tokens_returned`; query log `tokens_used` |
 | `flush_context` | freed tokens in flush stats |
 
@@ -313,11 +313,12 @@ Savings are measured vs **full source** for symbols actually returned:
 
 | Tools that increment dashboard **Tokens saved** | Tools that do not |
 |-------------------------------------------------|-------------------|
-| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, … |
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, `get_project_map`, `get_impact_graph`, `store_context`, `store_memory`, … |
 
 - Responses include **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, optional **`dedup_tokens_saved`**
 - **`mode=full`** → ~0 savings; use **`auto`** / **`skeleton`** for real reductions
 - Pass **`session_id`** on all four context tools for dedup credit
+- Dashboard **Tokens saved** = compression + dedup from search/read tools only, never virtual context or memory writes
 - Dashboard sublabel on **Tokens saved** shows 30d total, **avg/day**, **dedup**, and **vs files**
 
 ### Documentation Tools

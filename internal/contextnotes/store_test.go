@@ -13,6 +13,11 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
+const (
+	testBackdateNoteQuery   = `UPDATE context_notes SET created_at = datetime('now', ?) WHERE ref = ?`
+	testCountRevisionsQuery = `SELECT COUNT(*) FROM context_note_revisions WHERE ref = ?`
+)
+
 func testNotesDB(t *testing.T) {
 	t.Helper()
 	dbtest.Init(t)
@@ -104,26 +109,74 @@ func TestLRUEviction(t *testing.T) {
 	testNotesDB(t)
 	db.SetSetting("context_max_notes_session", "2")
 	db.SetSetting("context_limit_policy", "lru_session")
-	r1, err := Store("lru-s", "one", "1", "", nil, "", nil, nil)
-	if err != nil {
-		t.Fatal(err)
+	store := func(content, age string) string {
+		res, err := Store("lru-s", content, content, "", nil, "", nil, nil)
+		require.NoError(t, err)
+		_, err = db.ContextDB.Exec(testBackdateNoteQuery, age, res.Ref)
+		require.NoError(t, err)
+		return res.Ref
 	}
-	r2, err := Store("lru-s", "two", "2", "", nil, "", nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	oldFetched := store("one", "-2 hours")
+	oldUnfetched := store("two", "-1 hours")
+	_, err := Fetch([]string{oldFetched}, "lru-s", "")
+	require.NoError(t, err)
 	r3, err := Store("lru-s", "three", "3", "", nil, "", nil, nil)
-	if err != nil {
-		t.Fatal(err)
+	require.NoError(t, err)
+	assert.Equal(t, []string{oldUnfetched}, r3.EvictedRefs, "a recently fetched older note must outlive a stale newer one")
+	fetch, err := Fetch([]string{oldFetched, oldUnfetched, r3.Ref}, "lru-s", "")
+	require.NoError(t, err)
+	var got []string
+	for _, n := range fetch.Notes {
+		got = append(got, n.Ref)
 	}
-	if len(r3.EvictedRefs) != 1 || r3.EvictedRefs[0] != r1.Ref {
-		t.Fatalf("evicted=%v want %s", r3.EvictedRefs, r1.Ref)
+	assert.ElementsMatch(t, []string{oldFetched, r3.Ref}, got)
+}
+
+// TestFlushDeletesRevisions covers BF-6: flushing or evicting a note must not leave its
+// superseded bodies behind in context_note_revisions.
+func TestFlushDeletesRevisions(t *testing.T) {
+	tests := []struct {
+		name  string
+		flush func(t *testing.T, ref string)
+	}{
+		{name: "refs", flush: func(t *testing.T, ref string) {
+			_, err := Flush("rev-s", []string{ref}, "", false)
+			require.NoError(t, err)
+		}},
+		{name: "session", flush: func(t *testing.T, ref string) {
+			_, err := Flush("rev-s", nil, "", false)
+			require.NoError(t, err)
+		}},
+		{name: "all", flush: func(t *testing.T, ref string) {
+			_, err := Flush("", nil, "", true)
+			require.NoError(t, err)
+		}},
+		{name: "lru eviction", flush: func(t *testing.T, ref string) {
+			db.SetSetting("context_max_notes_session", "1")
+			db.SetSetting("context_limit_policy", "lru_session")
+			res, err := Store("rev-s", "replacement", "r", "", nil, "", nil, nil)
+			require.NoError(t, err)
+			require.Equal(t, []string{ref}, res.EvictedRefs)
+		}},
 	}
-	fetch, _ := Fetch([]string{r1.Ref, r2.Ref, r3.Ref}, "lru-s", "")
-	if len(fetch.Notes) != 2 {
-		t.Fatalf("expected 2 notes after eviction, got %d", len(fetch.Notes))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testNotesDB(t)
+			ref := mustStore(t, "rev-s", "v1")
+			for _, c := range []string{"v2", "v3"} {
+				_, err := Edit(EditInput{Action: EditAppend, Ref: ref, SessionID: "rev-s", Content: c}, nil)
+				require.NoError(t, err)
+			}
+			countRevisions := func() int {
+				var n int
+				require.NoError(t, db.ContextDB.QueryRow(testCountRevisionsQuery, ref).Scan(&n))
+				return n
+			}
+			require.Positive(t, countRevisions())
+			tc.flush(t, ref)
+			assert.Zero(t, countRevisions())
+		})
 	}
-	_ = r2
 }
 
 func TestDashboardStats(t *testing.T) {

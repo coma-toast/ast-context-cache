@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,7 +19,7 @@ import (
 )
 
 const (
-	selectAllVectorsQuery        = "SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors"
+	selectAllVectorsQuery        = "SELECT id, COALESCE(symbol_id,0), content_hash, vector, COALESCE(doc_type,'code'), COALESCE(source_file,''), COALESCE(name,''), COALESCE(kind,''), COALESCE(project_path,'') FROM vectors ORDER BY id"
 	selectSymbolRowByIDQuery     = "SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE id = ?"
 	selectSymbolRowByNameQuery   = "SELECT COALESCE(start_line,0), COALESCE(end_line,0), COALESCE(fqn,'') FROM symbols WHERE file = ? AND name = ? AND project_path = ? ORDER BY start_line LIMIT 1"
 	upsertVectorQuery            = `INSERT OR REPLACE INTO vectors (content_hash, vector, doc_type, source_file, name, kind, project_path, symbol_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -35,6 +36,10 @@ const (
 )
 
 const VectorDims = 768
+
+// memoryCandidatePool is the least number of memory vector candidates SearchMemory
+// returns when it skips the session filter.
+const memoryCandidatePool = 50
 
 type VectorEntry struct {
 	ID          int64
@@ -257,24 +262,25 @@ func (vc *VectorCache) topMatches(query []float32, projectPath string, scope pro
 		}
 		results = append(results, scoredIdx{idx: i, sim: cosineSimilarity(query, e.Vector)})
 	}
-	// Partial sort: find top-limit by score
-	if len(results) > limit {
-		for i := 0; i < limit; i++ {
-			maxIdx := i
-			for j := i + 1; j < len(results); j++ {
-				if results[j].sim > results[maxIdx].sim {
-					maxIdx = j
-				}
-			}
-			results[i], results[maxIdx] = results[maxIdx], results[i]
-		}
-		results = results[:limit]
-	}
+	// Sort whatever the length, so callers always get LessVector order.
+	sort.SliceStable(results, func(i, j int) bool {
+		return LessVector(&vc.entries[results[i].idx], results[i].sim, &vc.entries[results[j].idx], results[j].sim)
+	})
+	results = results[:min(max(limit, 0), len(results))]
 	out := make([]scoredEntry, len(results))
 	for i, r := range results {
 		out[i] = scoredEntry{entry: vc.entries[r.idx], sim: r.sim}
 	}
 	return out
+}
+
+// rankEntries sorts results into LessVector order, whatever their count, and
+// keeps the first limit.
+func rankEntries(results []scoredEntry, limit int) []scoredEntry {
+	sort.SliceStable(results, func(i, j int) bool {
+		return LessVector(&results[i].entry, results[i].sim, &results[j].entry, results[j].sim)
+	})
+	return results[:min(max(limit, 0), len(results))]
 }
 
 // symbolRowFromEntry returns the lines and fqn of the symbol a vector was
@@ -350,29 +356,14 @@ func (vc *VectorCache) SearchDoc(query []float32, limit int) []ScoredResult {
 	vc.ensureLoaded()
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
-	type scored struct {
-		entry VectorEntry
-		sim   float64
-	}
-	var results []scored
+	var results []scoredEntry
 	for _, e := range vc.entries {
 		if e.DocType != "doc" {
 			continue
 		}
-		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
+		results = append(results, scoredEntry{entry: e, sim: cosineSimilarity(query, e.Vector)})
 	}
-	if len(results) > limit {
-		for i := 0; i < limit; i++ {
-			maxIdx := i
-			for j := i + 1; j < len(results); j++ {
-				if results[j].sim > results[maxIdx].sim {
-					maxIdx = j
-				}
-			}
-			results[i], results[maxIdx] = results[maxIdx], results[i]
-		}
-		results = results[:limit]
-	}
+	results = rankEntries(results, limit)
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
 		out[i] = ScoredResult{
@@ -398,11 +389,7 @@ func (vc *VectorCache) SearchNote(query []float32, sessionID string, limit int) 
 	vc.ensureLoaded()
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
-	type scored struct {
-		entry VectorEntry
-		sim   float64
-	}
-	var results []scored
+	var results []scoredEntry
 	for _, e := range vc.entries {
 		if e.DocType != "note" {
 			continue
@@ -410,20 +397,9 @@ func (vc *VectorCache) SearchNote(query []float32, sessionID string, limit int) 
 		if sessionID != "" && e.ProjectPath != sessionID {
 			continue
 		}
-		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
+		results = append(results, scoredEntry{entry: e, sim: cosineSimilarity(query, e.Vector)})
 	}
-	if len(results) > limit {
-		for i := 0; i < limit; i++ {
-			maxIdx := i
-			for j := i + 1; j < len(results); j++ {
-				if results[j].sim > results[maxIdx].sim {
-					maxIdx = j
-				}
-			}
-			results[i], results[maxIdx] = results[maxIdx], results[i]
-		}
-		results = results[:limit]
-	}
+	results = rankEntries(results, limit)
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
 		ref := strings.TrimPrefix(r.entry.SourceFile, "note:")
@@ -441,9 +417,12 @@ func (vc *VectorCache) SearchNote(query []float32, sessionID string, limit int) 
 }
 
 // SearchMemory returns top structured-memory vector matches (doc_type=memory),
-// best first. Memory vectors carry the storing session in ProjectPath; an empty
-// one (stored without a session) passes only when includeSessionless is set.
-// Callers must still re-check validity and scope against the rows.
+// best first. Memory vectors carry the storing session in ProjectPath. With
+// includeSessionless (the caller's scope is not session-only) no session filter
+// applies and up to max(limit*5, memoryCandidatePool) candidates come back, since
+// the caller's SQL re-select is what scopes them. Otherwise only vectors stored by
+// sessionID (any session when it is empty) pass, up to limit. Callers must still
+// re-check validity and scope against the rows.
 func (vc *VectorCache) SearchMemory(query []float32, sessionID string, includeSessionless bool, limit int) []ScoredResult {
 	if len(query) != VectorDims {
 		return nil
@@ -451,36 +430,20 @@ func (vc *VectorCache) SearchMemory(query []float32, sessionID string, includeSe
 	vc.ensureLoaded()
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
-	type scored struct {
-		entry VectorEntry
-		sim   float64
-	}
-	var results []scored
+	var results []scoredEntry
 	for _, e := range vc.entries {
 		if e.DocType != "memory" {
 			continue
 		}
-		if e.ProjectPath == "" && !includeSessionless {
+		if !includeSessionless && (e.ProjectPath == "" || (sessionID != "" && e.ProjectPath != sessionID)) {
 			continue
 		}
-		if sessionID != "" && e.ProjectPath != sessionID && e.ProjectPath != "" {
-			continue
-		}
-		results = append(results, scored{entry: e, sim: cosineSimilarity(query, e.Vector)})
+		results = append(results, scoredEntry{entry: e, sim: cosineSimilarity(query, e.Vector)})
 	}
-	// Partial selection sort, run even when every result fits, so callers get
-	// similarity order.
-	n := min(max(limit, 0), len(results))
-	for i := 0; i < n; i++ {
-		maxIdx := i
-		for j := i + 1; j < len(results); j++ {
-			if results[j].sim > results[maxIdx].sim {
-				maxIdx = j
-			}
-		}
-		results[i], results[maxIdx] = results[maxIdx], results[i]
+	if includeSessionless {
+		limit = max(limit*5, memoryCandidatePool)
 	}
-	results = results[:n]
+	results = rankEntries(results, limit)
 	out := make([]ScoredResult, len(results))
 	for i, r := range results {
 		ref := strings.TrimPrefix(r.entry.SourceFile, "mem:")
