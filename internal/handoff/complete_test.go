@@ -15,10 +15,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 )
 
-// tokensOf returns text of exactly n estimated tokens, made of words, with no surrounding
-// space for Store to trim.
+// tokensOf returns text of exactly n o200k tokens ("word", n-2 " word", "."), with no
+// surrounding space for Store to trim.
 func tokensOf(n int) string {
-	return strings.Repeat("word ", n)[:n*4-1] + "."
+	return "word" + strings.Repeat(" word", n-2) + "."
 }
 
 func TestCompleteTruncatesChildSummary(t *testing.T) {
