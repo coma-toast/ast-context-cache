@@ -71,6 +71,16 @@ Tool list must match `internal/mcp/tools.go` / `tools/list`. See [AGENTS.md — 
 
 Use the same **`session_id`** for both. Prefer **`recall_memory`** over **`fetch_context`** for preferences.
 
+## Host context clearing
+
+Hosts clear old tool results from the chat window on their own (Claude Code context editing, compaction, Cursor summarization). ast-context-cache plans for that rather than fighting it:
+
+- **Self-offloading results.** With `feature_result_offload` on (`AST_FEATURE_RESULT_OFFLOAD`), a `get_context_capsule`, `get_file_context`, `search_semantic` or `retrieve` result over `result_offload_threshold` tokens (default 2000, `AST_RESULT_OFFLOAD_THRESHOLD`) is stored whole as a `ctx_*` note of kind `offload`. The response keeps the top results and starts with a stub such as `[ctx_1a2b3c4d5e6f get_context_capsule auth flow, 9.4k tok — head shown, fetch_context for all]`. Pass `offload=false` on the call to get the full result inline.
+- **The stub is what survives.** When the host clears the result, the stub line is enough to get it back: `fetch_context(refs=["ctx_…"])` returns the full text.
+- **Separate budget.** Offload notes do not count toward the session or global virtual-context quotas. They share their own cap, `context_offload_max_tokens_global` (default 500,000, `AST_CONTEXT_OFFLOAD_MAX_TOKENS_GLOBAL`); when it fills, the least recently used offloads are evicted first.
+- **24-hour TTL.** An offload note not fetched for `offload_ttl_hours` (default 24, `AST_OFFLOAD_TTL_HOURS`) is deleted by an hourly job. `fetch_context` on that ref then returns an `expired` entry with `status: "expired"` and the `tool` and `args` that produced it, so you can re-run the call instead of guessing. Expired refs are remembered for 30 days.
+- **Keep what matters.** An offload is a cache, not a note. If a result is worth keeping past the TTL, copy what you need into a `store_context` note (or a `store_memory` fact) of your own.
+
 ## Recommended Workflow
 
 ### 1. First Time With a Project

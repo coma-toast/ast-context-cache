@@ -11,8 +11,9 @@ const (
 	selectNoteInventoryQuery = "SELECT COUNT(*), COALESCE(SUM(token_est),0), COALESCE(SUM(CASE WHEN access_count=0 THEN 1 ELSE 0 END),0) FROM context_notes WHERE "
 	selectSessionStatsQuery  = `SELECT COALESCE(notes_count,0), COALESCE(virtual_tokens_stored,0), COALESCE(virtual_tokens_accessed,0)
 		FROM context_session_stats WHERE session_id = ?`
-	selectSessionNoteTotalsQuery = `SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?`
-	selectGlobalNoteTotalsQuery  = `SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes`
+	// Quota totals leave out offload and transcript archive notes: they have their own budget.
+	selectSessionNoteTotalsQuery = `SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE session_id = ?` + notOffloadClause
+	selectGlobalNoteTotalsQuery  = `SELECT COUNT(*), COALESCE(SUM(token_est),0) FROM context_notes WHERE 1=1` + notOffloadClause
 	upsertSessionStoreQuery      = `INSERT INTO context_session_stats (session_id, project_path, notes_count, virtual_tokens_stored, last_store_at)
 		VALUES (?, ?, 1, ?, ?)
 		ON CONFLICT(session_id) DO UPDATE SET
