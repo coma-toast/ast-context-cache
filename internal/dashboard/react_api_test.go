@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 )
 
@@ -94,4 +96,31 @@ func TestHandleDashboardMCPTierJSONToolsConfigPath(t *testing.T) {
 			assert.Equal(t, tt.wantExists, out.Exists)
 		})
 	}
+}
+
+// BF-10: Tokens saved counts compression + dedup from search/read tools only;
+// virtual context writes (store_context) are reported separately.
+func TestDashboardStatsExcludesVirtual(t *testing.T) {
+	testEmbedDB(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	const insertQuery = `INSERT INTO queries (timestamp, tool_name, session_id, project_path, tokens_saved, dedup_tokens_saved, savings_vs_files, duration_ms)
+		VALUES (?, ?, 'sess-v', '/proj-v', ?, ?, ?, 1)`
+	_, err := db.DB.Exec(insertQuery, now, "get_context_capsule", 1200, 100, 300)
+	require.NoError(t, err)
+	_, err = db.DB.Exec(insertQuery, now, "store_context", 9000, 900, 9000)
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	handleDashboardStatsJSON(rec, httptest.NewRequest(http.MethodGet, "/api/dashboard/stats?project_id=/proj-v", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out struct {
+		TotalQueries     int
+		TokensSaved      int
+		DedupTokensSaved int
+		SavingsVsFiles   int
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, 2, out.TotalQueries)
+	assert.Equal(t, 1200, out.TokensSaved)
+	assert.Equal(t, 100, out.DedupTokensSaved)
+	assert.Equal(t, 300, out.SavingsVsFiles)
 }

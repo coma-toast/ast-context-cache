@@ -2,6 +2,7 @@ package context
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -123,4 +124,20 @@ func TestPackScoredResultsSkipsDuplicateWithinList(t *testing.T) {
 
 	results, _, _ = PackScoredResults([]search.ScoredResult{hit(), hit()}, 10, project, "skeleton", "", 4000)
 	assert.Len(t, results, 1, "in-list dedup applies without a session")
+}
+
+// BF-14: the capsule honors the caller's limit for the candidate fetch.
+func TestCapsuleHonorsLimit(t *testing.T) {
+	dbtest.Init(t)
+	project := t.TempDir()
+	src := "package widgets\n"
+	for i := range 12 {
+		src += fmt.Sprintf("\nfunc Widget%d() int { return %d }\n", i, i)
+	}
+	writeAndIndex(t, filepath.Join(project, "widgets.go"), project, src)
+	r := HandleGetContextWithMeta(map[string]interface{}{"query": "Widget", "mode": "skeleton", "limit": float64(5)}, project)
+	var out capsuleReply
+	require.NoError(t, json.Unmarshal([]byte(r.JSON), &out), r.JSON)
+	assert.NotEmpty(t, out.Results)
+	assert.LessOrEqual(t, len(out.Results), 5)
 }

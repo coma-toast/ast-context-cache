@@ -133,6 +133,7 @@ func GetTools() []Tool {
 					"mode":         map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
 					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
 					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
+					"limit":        map[string]string{"type": "integer", "description": "Max candidate symbols to consider (default 30, max 100)."},
 					"path_prefix":  map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
 					"language":     map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, javascript, rust, ...). Uses file extensions."},
 					"kinds":        map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include (e.g. function,method)."},

@@ -13,7 +13,7 @@ import (
 
 const (
 	selectRecentQueriesBaseQuery = `SELECT timestamp, tool_name, result_chars, duration_ms, COALESCE(cpu_ms,0), project_path,
-	COALESCE(error,''), COALESCE(arguments,''), COALESCE(tokens_saved,0), COALESCE(dedup_tokens_saved,0) FROM queries`
+	COALESCE(error,''), COALESCE(arguments,''), ` + tokensSavedCol + `, ` + dedupTokensSavedCol + ` FROM queries`
 	recentOrderLimitClause = " ORDER BY timestamp DESC LIMIT ?"
 )
 

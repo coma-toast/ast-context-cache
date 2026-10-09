@@ -14,6 +14,12 @@ import (
 
 var Emb embedder.Interface
 
+// Capsule candidate limits: default when the caller omits limit, and the clamp ceiling.
+const (
+	defaultCapsuleLimit = 30
+	maxCapsuleLimit     = 100
+)
+
 type getContextResult struct {
 	JSON     string
 	Savings  SavingsMeta
@@ -35,9 +41,9 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 	query, _ := args["query"].(string)
 	mode, _ := args["mode"].(string)
 	sessionID, _ := args["session_id"].(string)
-	limit := 30
+	limit := defaultCapsuleLimit
 	if l, ok := args["limit"].(float64); ok && l > 0 {
-		limit = int(l)
+		limit = min(int(l), maxCapsuleLimit)
 	}
 	tokenBudget := 4000
 	if tb, ok := args["token_budget"].(float64); ok && tb > 0 {
@@ -60,7 +66,7 @@ func handleGetContext(args map[string]interface{}, projectPath string) getContex
 		embedqueue.EnsureProjectEmbeddings(projectPath)
 		stage = "capsule:hybrid"
 	}
-	q := CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: 30, Filters: filters}
+	q := CandidateQuery{Stage: stage, Query: query, ProjectPath: projectPath, Limit: limit, Filters: filters}
 	scored, pipeMetrics, cacheHit := RankedHybrid(q, Emb)
 	returned := ReturnedKeys(sessionID)
 	var delivered []ReturnedSymbol
