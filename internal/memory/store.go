@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
@@ -13,16 +14,32 @@ import (
 
 const (
 	insertEntryQuery = `INSERT INTO structured_memory
-			(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est,
+			 world_valid_at, world_invalid_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	selectActiveFactRefsQuery = `SELECT ref FROM structured_memory WHERE kind = 'fact' AND subject = ? AND predicate = ? AND (valid_until IS NULL OR valid_until = '')`
 	andSessionScopeClause     = ` AND scope = 'session' AND session_id = ?`
 	andProjectScopeClause     = ` AND scope = 'project' AND project_path = ?`
 	andGlobalScopeClause      = ` AND scope = 'global'`
-	supersedeEntryQuery       = `UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ? WHERE ref = ?`
-	selectEntryByRefQuery     = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+	// MEM-1: all invalidation routes record a reason (contradiction, user_forget,
+	// ttl, stale_anchor, quarantine, restored) — rows are never deleted on invalidate.
+	supersedeEntryQuery = `UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ?, invalidated_reason = ? WHERE ref = ?`
+	// Entry queries now select the v2 columns too. Old rows read as zero values.
+	selectEntryByRefQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at
 		FROM structured_memory WHERE ref = ?`
+)
+
+// Invalidation reasons (MEM-1). They are stored in invalidated_reason so the
+// history chain can explain why any row stopped being active.
+const (
+	ReasonContradiction = "contradiction"
+	ReasonUserForget    = "user_forget"
+	ReasonTTL           = "ttl"
+	ReasonStaleAnchor   = "stale_anchor"
+	ReasonQuarantine    = "quarantine"
+	ReasonRestored      = "restored"
 )
 
 // factSupersessionMu serializes the read-then-write fact-supersession sequence
@@ -33,6 +50,28 @@ const (
 var factSupersessionMu sync.Mutex
 
 // StoreInput is the payload for store_memory.
+// MEM-5/MEM-8: optional world-time and TTL fields. valid_at/invalid_at are world-time
+// anchors (when the fact was/is true in the world); ttl is an absolute TTL.
+// normalizeTime parses and normalizes a client value; an empty string means "use
+// system time" for that bound.
+func normalizeTime(v string) string {
+	if v == "" {
+		return ""
+	}
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return db.SQLTime(t.UTC())
+	}
+	// Fall back to naive parsing if RFC3339 failed.
+	if t, err := time.ParseInLocation("2006-01-02", v, time.Local); err == nil {
+		return db.SQLTime(t)
+	}
+	// Any other parseable datetime form via SQLite's datetime() compatibility.
+	if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+		return db.SQLTime(t.UTC())
+	}
+	return ""
+}
+
 type StoreInput struct {
 	Kind               Kind
 	Scope              Scope
@@ -44,6 +83,9 @@ type StoreInput struct {
 	Rule               string
 	SourceRef          string
 	InvalidatePrevious bool
+	WorldValidAt       string // MEM-5: world_valid_at; normalized, default system time
+	WorldInvalidAt     string // MEM-5: world_invalid_at; normalized, default system time
+	TTL                int    // MEM-8: TTL in days (Nd); >0 writes expires_at
 }
 
 // StoreResult is returned from Store.
@@ -135,11 +177,24 @@ func Store(in StoreInput) (*StoreResult, error) {
 	}
 	entry.Ref = ref
 	entry.TokenEst = estimateEntryTokens(entry)
+
+	// MEM-5/MEM-8: normalize world time and compute expires_at from TTL.
+	worldValidAt := normalizeTime(in.WorldValidAt)
+	worldInvalidAt := normalizeTime(in.WorldInvalidAt)
+	var expiresAt string
+	if in.TTL > 0 {
+		expiresAt = db.SQLTime(time.Now().UTC().AddDate(0, 0, in.TTL))
+	}
+
 	insert := func() error {
 		_, err := db.ContextDB.Exec(insertEntryQuery,
 			ref, string(entry.Kind), string(scope), nullIfEmpty(in.SessionID), nullIfEmpty(in.ProjectPath),
 			nullIfEmpty(entry.Subject), nullIfEmpty(entry.Predicate), nullIfEmpty(entry.Object), nullIfEmpty(entry.Rule),
-			nullIfEmpty(entry.SourceRef), entry.TokenEst)
+			nullIfEmpty(entry.SourceRef), entry.TokenEst,
+			nil, // invalidated_reason: the new row is active
+			nullIfEmpty(worldValidAt),
+			nullIfEmpty(worldInvalidAt),
+			nullIfEmpty(expiresAt))
 		return err
 	}
 	var invalidated []string
@@ -169,37 +224,6 @@ func nullIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
-}
-
-func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predicate, newRef string) ([]string, error) {
-	q := selectActiveFactRefsQuery
-	args := []any{subject, predicate}
-	switch scope {
-	case ScopeSession:
-		q += andSessionScopeClause
-		args = append(args, sessionID)
-	case ScopeProject:
-		q += andProjectScopeClause
-		args = append(args, projectPath)
-	case ScopeGlobal:
-		q += andGlobalScopeClause
-	}
-	rows, err := db.ContextDB.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var refs []string
-	for rows.Next() {
-		var ref string
-		if rows.Scan(&ref) == nil && ref != "" && ref != newRef {
-			refs = append(refs, ref)
-		}
-	}
-	for _, ref := range refs {
-		db.ContextDB.Exec(supersedeEntryQuery, newRef, ref)
-	}
-	return refs, nil
 }
 
 // StoreExtracted saves all extracted facts/procedures from text.

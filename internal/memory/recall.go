@@ -20,8 +20,8 @@ const (
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
 		FROM structured_memory WHERE ref IN (`
 	selectActiveEntryTokensQuery    = `SELECT ref, token_est FROM structured_memory WHERE (valid_until IS NULL OR valid_until = '')`
-	invalidateEntryQuery            = `UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ?`
-	invalidateActiveEntryQuery      = `UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`
+	invalidateEntryQuery            = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`
+	invalidateActiveEntryQuery      = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`
 	updateEntryAccessQuery          = `UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`
 	insertMemoryAccessQuery         = `INSERT INTO memory_access (ref, session_id, project_path, tool_name, tokens_returned) VALUES (?, ?, ?, ?, ?)`
 	validAsOfClause                 = ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`
