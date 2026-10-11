@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +13,36 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
+
+func parseTTL(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	var n int
+	var unit string
+	_, err := fmt.Sscanf(s, "%d%s", &n, &unit)
+	if err != nil {
+		if parsed, err := strconv.Atoi(s); err == nil {
+			return parsed, nil
+		}
+		return 0, fmt.Errorf("invalid ttl: %s", s)
+	}
+	switch strings.ToLower(unit) {
+	case "d", "day", "days":
+		return n, nil
+	case "h", "hr", "hrs", "hour", "hours":
+		days := (n + 23) / 24
+		if days < 1 {
+			days = 1
+		}
+		return days, nil
+	case "m", "min", "mins":
+		return 1, nil
+	default:
+		return n, nil
+	}
+}
 
 func handleMemoryTool(toolName string, toolArgs map[string]interface{}, args map[string]interface{}, emb embedder.Interface, start time.Time, cpuStart sys.CPUSample, projectPath string) (interface{}, bool, error) {
 	switch toolName {
@@ -49,6 +81,13 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 	}
 	if ttl, ok := toolArgs["ttl"].(float64); ok && ttl > 0 {
 		in.TTL = int(ttl)
+	} else if ttlS, ok := toolArgs["ttl"].(string); ok && ttlS != "" {
+		d, err := parseTTL(ttlS)
+		if err != nil {
+			logToolQuery("store_memory", args, 0, 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
+			return map[string]string{"error": err.Error()}
+		}
+		in.TTL = d
 	}
 	if expiresAt := strArg(toolArgs, "expires_at"); expiresAt != "" {
 		in.ExpiresAt = expiresAt
@@ -63,40 +102,50 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		logToolQuery("store_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
 		return out
 	}
-	if emb != nil && in.Kind == memory.KindFact {
+	if emb != nil {
 		go func() {
-			_, err := memory.EmbedEntryWithVector(res.Ref, sessionID, res.Line, emb)
-			if err != nil {
-				return
-			}
-			entry := memory.Entry{
-				Ref:            res.Ref,
-				Kind:           in.Kind,
-				Scope:          in.Scope,
-				SessionID:      sessionID,
-				ProjectPath:    in.ProjectPath,
-				Subject:        in.Subject,
-				Predicate:      in.Predicate,
-				Object:         in.Object,
-				Rule:           in.Rule,
-				SourceRef:      in.SourceRef,
-				TokenEst:       res.VirtualTokensStored,
-				AccessCount:    1,
-				LastAccessedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
-				CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
-			}
-			conflicts, method := memory.ConflictCandidates(entry, emb, 300*time.Millisecond)
-			if len(conflicts) > 0 {
-				_ = method
-			}
+			_, _ = memory.EmbedEntryWithVector(res.Ref, sessionID, res.Line, emb)
 		}()
 	}
+
 	out := map[string]interface{}{
 		"ref":                   res.Ref,
 		"kind":                  res.Kind,
 		"line":                  res.Line,
 		"virtual_tokens_stored": res.VirtualTokensStored,
 		"invalidated_refs":      res.InvalidatedRefs,
+	}
+
+	if in.Kind == memory.KindFact {
+		entry := memory.Entry{
+			Ref:            res.Ref,
+			Kind:           in.Kind,
+			Scope:          in.Scope,
+			SessionID:      sessionID,
+			ProjectPath:    in.ProjectPath,
+			Subject:        in.Subject,
+			Predicate:      in.Predicate,
+			Object:         in.Object,
+			Rule:           in.Rule,
+			SourceRef:      in.SourceRef,
+			TokenEst:       res.VirtualTokensStored,
+			AccessCount:    1,
+			LastAccessedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
+			CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
+		}
+		conflicts, method := memory.ConflictCandidates(entry, emb, 300*time.Millisecond)
+		if len(conflicts) > 0 {
+			var confSlice []map[string]interface{}
+			for _, c := range conflicts {
+				confSlice = append(confSlice, map[string]interface{}{
+					"ref":        c.Ref,
+					"fact":       c.Line,
+					"similarity": c.Similarity,
+				})
+			}
+			out["possible_conflicts"] = confSlice
+			out["conflict_method"] = method
+		}
 	}
 	resultJSON, _ := json.Marshal(out)
 	logToolQuery("store_memory", args, len(resultJSON), res.VirtualTokensStored, 0, context.SavingsMeta{TokensSaved: res.VirtualTokensStored}, start, cpuStart, pp, "")

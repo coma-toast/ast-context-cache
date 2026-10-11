@@ -12,8 +12,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
-const KindPinned = "pinned"
-const pinnedMaxTokens = 500
+const (
+	KindPinned      = "pinned"
+	pinnedMaxTokens = 500
+)
 
 // PinnedNote is a project-scoped pinned note.
 type PinnedNote struct {

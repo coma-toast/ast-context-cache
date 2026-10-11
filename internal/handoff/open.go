@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	astcontext "github.com/coma-toast/ast-context-cache/internal/context"
+	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
@@ -60,6 +61,8 @@ const (
 )
 
 // digestSections are the pageable open-digest sections, in priority order (OP-3).
+// Pinned notes are loaded directly from the project's context_notes (PIN-2), not the handoff
+// snapshot, so they are not in digestSections but appended before the scratchpad.
 var digestSections = []Section{SectionPointer, SectionNote, SectionMemory, SectionTrail}
 
 // handoffRow is a handoff joined with its tree's last access.
@@ -282,6 +285,25 @@ func (s *realService) seedChild(h *handoffRow, sid SessionID, project string) {
 	}
 }
 
+func loadProjectPathsForPinned(sid SessionID) ([]string, error) {
+	rows, err := db.ContextDB.Query(
+		`SELECT DISTINCT project_path FROM context_notes WHERE session_id = ? AND COALESCE(project_path,'') != ''`,
+		sid,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err == nil && p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
 // openDigest assembles the digest in priority order within budget: brief, child and mode,
 // pointers, notes, memory, trail, then the scratchpad. It stops at the first item that doesn't
 // fit and says where to continue (OP-3); next resumes there and omits the brief.
@@ -294,6 +316,30 @@ func (s *realService) openDigest(h *handoffRow, sid SessionID, resumed bool, bud
 	// them in afterwards can't overflow.
 	resp.TokensUsed = budget
 	limit := budget - pagingReserveTokens
+
+	// Load pinned notes per project (PIN-2). Each distinct project_path gets the most recent pinned note.
+	projectPaths, err := loadProjectPathsForPinned(sid)
+	if err != nil {
+		return nil, err
+	}
+	for _, pp := range projectPaths {
+		pinned, err := contextnotes.Pinned(pp)
+		if err != nil {
+			continue
+		}
+		if pinned == nil {
+			continue
+		}
+		resp.Pinned = append(resp.Pinned, PinnedDigest{
+			ProjectPath: pp,
+			Content:     pinned.Content,
+			TokenEst:    pinned.TokenEst,
+		})
+		if responseTokens(resp) > limit {
+			break
+		}
+	}
+
 	start := 0
 	if next != nil {
 		for i, sec := range digestSections {
