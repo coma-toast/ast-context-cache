@@ -42,7 +42,7 @@ export const fixtureHealth: Health = {
   HeapMB: 412,
   CPUPercent: 18,
   Uptime: 3 * 3600 * 1e9,
-  Version: '4.0.9',
+  Version: '5.0.0',
   AbnormalPreviousRun: false,
 }
 
@@ -915,13 +915,13 @@ export const fixtureHandoffTreesEmpty: HandoffTreesResponse = {
 }
 
 export const fixtureUpdateCheck: UpdateCheckResult = {
-  current_version: '4.0.9',
+  current_version: '5.0.0',
   build: 'release',
   source_build: false,
-  latest_version: '4.0.9',
-  release_url: 'https://github.com/coma-toast/ast-context-cache/releases/tag/v4.0.9',
+  latest_version: '5.0.0',
+  release_url: 'https://github.com/coma-toast/ast-context-cache/releases/tag/v5.0.0',
   published_at: '2026-10-07T12:00:00Z',
-  asset_name: 'ast-context-cache_4.0.9_darwin_arm64.tar.gz',
+  asset_name: 'ast-context-cache_5.0.0_darwin_arm64.tar.gz',
   update_available: false,
 }
 

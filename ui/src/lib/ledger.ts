@@ -41,9 +41,9 @@ export const tokensSavedDetail = (s: Stats): string => {
   return lines.join('\n')
 }
 
-/** Tokens saved card sub-line: 30d total plus the conservative figure and footnote. */
+/** Tokens saved card sub-line: 30d total plus the conservative figure; the estimated-rows note is in the tooltip. */
 export const tokensSavedSub = (s: Stats, dailyAvg: string): string =>
-  [`${formatNum(ledgerSplit(s).total)} in 30d · ${dailyAvg}/day`, conservativeLine(s), estimatedRowsNote(s)].filter(Boolean).join(' · ')
+  [`${formatNum(ledgerSplit(s).total)} in 30d · ${dailyAvg}/day`, conservativeLine(s)].filter(Boolean).join(' · ')
 
 /** Virtual ledger stats for the Virtual context card, or null on servers without ledgers. */
 export const virtualLedger = (s: Stats): { stored: number; fetched: number; recalled: number } | null =>

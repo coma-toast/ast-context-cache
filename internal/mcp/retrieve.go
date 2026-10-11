@@ -27,6 +27,11 @@ const (
 	// retrieveConservativeBaselineKey carries the conservative baseline beside the result
 	// to the query log; it is never serialized into the tool response.
 	retrieveConservativeBaselineKey = "conservative_baseline"
+	// retrieveTimingsKey and retrieveViewKey carry the call's timings and its full chunks beside
+	// the result to handleToolCall, which places the timings (_meta or body) and renders the
+	// chunks; neither is serialized as is.
+	retrieveTimingsKey = "timings"
+	retrieveViewKey    = "view"
 	// maxRetrieveBudgetMisses ends budgetChunks after this many consecutive chunks over budget.
 	maxRetrieveBudgetMisses = 5
 )
@@ -54,42 +59,61 @@ type RetrieveChunk struct {
 	Kind          string  `json:"kind"`
 	File          string  `json:"file"`
 	StartLine     int     `json:"start_line,omitempty"`
+	EndLine       int     `json:"end_line,omitempty"`
 	Score         float64 `json:"score"`
 	Source        string  `json:"source"`
-	Content       string  `json:"content"`
+	// Content is cleared unless include_chunks is true; the assembled context carries it.
+	Content string `json:"content,omitempty"`
 	// ParentExplored marks a code chunk the session's handoff parent was already returned (OP-10).
 	ParentExplored bool `json:"parent_explored,omitempty"`
 
-	// absFile and endLine locate a code chunk's symbol for dedup logging and
-	// baselines; File is project-relative for display. mode is the mode it was packed in.
+	// absFile locates a code chunk's symbol for dedup logging and baselines; File is
+	// project-relative for display. mode is the mode it was packed in.
 	absFile string
-	endLine int
 	mode    string
 }
 
 type RetrieveStats struct {
-	CodeResults  int     `json:"code_results"`
-	DocResults   int     `json:"doc_results"`
-	TotalTokens  int     `json:"total_tokens"`
-	SearchTimeMs float64 `json:"search_time_ms"`
+	CodeResults int `json:"code_results"`
+	DocResults  int `json:"doc_results"`
+	TotalTokens int `json:"total_tokens"`
 	// Pipeline observability (hybrid search + assembly)
-	BM25Candidates       int     `json:"bm25_candidates,omitempty"`
-	VectorCandidates     int     `json:"vector_candidates,omitempty"`
-	HybridAfterFuse      int     `json:"hybrid_after_fuse,omitempty"`
-	AfterDedup           int     `json:"after_dedup,omitempty"`
-	ChunksInBudget       int     `json:"chunks_in_budget,omitempty"`
-	TokensEstAllChunks   int     `json:"tokens_est_all_chunks,omitempty"`
-	CodeRetrieveMs       float64 `json:"code_retrieve_ms,omitempty"`
-	DocsRetrieveMs       float64 `json:"docs_retrieve_ms,omitempty"`
-	DedupBudgetMs        float64 `json:"dedup_budget_ms,omitempty"`
-	SymbolBaselineTokens int     `json:"symbol_baseline_tokens,omitempty"`
-	DedupTokensSaved     int     `json:"dedup_tokens_saved,omitempty"`
-	DedupedCount         int     `json:"deduped,omitempty"`
-	TokensSaved          int     `json:"tokens_saved,omitempty"`
-	SavingsVsCandidates  int     `json:"savings_vs_candidates,omitempty"`
-	BudgetTokensSaved    int     `json:"budget_tokens_saved,omitempty"`
-	MemoryTokens         int     `json:"memory_tokens,omitempty"`
-	MemoryLines          int     `json:"memory_lines,omitempty"`
+	BM25Candidates       int `json:"bm25_candidates,omitempty"`
+	VectorCandidates     int `json:"vector_candidates,omitempty"`
+	HybridAfterFuse      int `json:"hybrid_after_fuse,omitempty"`
+	AfterDedup           int `json:"after_dedup,omitempty"`
+	ChunksInBudget       int `json:"chunks_in_budget,omitempty"`
+	TokensEstAllChunks   int `json:"tokens_est_all_chunks,omitempty"`
+	SymbolBaselineTokens int `json:"symbol_baseline_tokens,omitempty"`
+	DedupTokensSaved     int `json:"dedup_tokens_saved,omitempty"`
+	DedupedCount         int `json:"deduped,omitempty"`
+	TokensSaved          int `json:"tokens_saved,omitempty"`
+	SavingsVsCandidates  int `json:"savings_vs_candidates,omitempty"`
+	BudgetTokensSaved    int `json:"budget_tokens_saved,omitempty"`
+	MemoryTokens         int `json:"memory_tokens,omitempty"`
+	MemoryLines          int `json:"memory_lines,omitempty"`
+}
+
+// retrieveTimings are a retrieve call's stage timings. They vary run to run, so with
+// feature_stable_responses they go to _meta, and to the body as "timings" only with debug=true.
+type retrieveTimings struct {
+	SearchTimeMs   float64 `json:"search_time_ms"`
+	CodeRetrieveMs float64 `json:"code_retrieve_ms,omitempty"`
+	DocsRetrieveMs float64 `json:"docs_retrieve_ms,omitempty"`
+	DedupBudgetMs  float64 `json:"dedup_budget_ms,omitempty"`
+}
+
+// retrieveView is what rendering a retrieve result needs beyond its body: the delivered chunks
+// with their content, and the memory preamble and format the context was assembled from, so a
+// head of the first n chunks can be reassembled.
+type retrieveView struct {
+	chunks           []RetrieveChunk
+	preamble, format string
+}
+
+// context is the assembled context for the first n chunks.
+func (v *retrieveView) context(n int) string {
+	return v.preamble + assembleContext(v.chunks[:n], v.format)
 }
 
 type codeRetrieveMeta struct {
@@ -131,6 +155,7 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	if is, ok := args["include_source"].(bool); ok {
 		includeSource = is
 	}
+	includeChunks, _ := args["include_chunks"].(bool)
 
 	format := "markdown"
 	if f, ok := args["format"].(string); ok {
@@ -214,16 +239,12 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 			CodeResults:          codeCount,
 			DocResults:           docCount,
 			TotalTokens:          totalTokens,
-			SearchTimeMs:         float64(time.Since(tStart).Milliseconds()),
 			BM25Candidates:       hybridMetrics.BM25Candidates,
 			VectorCandidates:     hybridMetrics.VectorCandidates,
 			HybridAfterFuse:      hybridMetrics.HybridAfterFuse,
 			AfterDedup:           afterDedup,
 			ChunksInBudget:       len(chunks),
 			TokensEstAllChunks:   tokensEstAll,
-			CodeRetrieveMs:       codeMs,
-			DocsRetrieveMs:       docsMs,
-			DedupBudgetMs:        dedupBudgetMs,
 			SymbolBaselineTokens: symbolBaseline,
 			DedupTokensSaved:     codeMeta.dedupTokens,
 			DedupedCount:         codeMeta.dedupCount,
@@ -254,9 +275,21 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 	recordSearch(sessionID, entry)
 	result.Handoff = annotateChunks(sessionID, entry, result.Chunks)
+	view := &retrieveView{chunks: result.Chunks, preamble: memoryPreamble, format: format}
+	if !includeChunks {
+		result.Chunks = make([]RetrieveChunk, len(view.chunks))
+		for i, c := range view.chunks {
+			c.Content = ""
+			result.Chunks[i] = c
+		}
+	}
+	timings := retrieveTimings{SearchTimeMs: float64(time.Since(tStart).Milliseconds()), CodeRetrieveMs: codeMs, DocsRetrieveMs: docsMs, DedupBudgetMs: dedupBudgetMs}
 	resultJSON, _ := json.Marshal(result)
 	// conservative_baseline is for the query log only; it is not part of the response body.
-	return map[string]interface{}{"result": json.RawMessage(resultJSON), retrieveConservativeBaselineKey: savings.ConservativeBaseline}
+	return map[string]interface{}{
+		"result": json.RawMessage(resultJSON), retrieveConservativeBaselineKey: savings.ConservativeBaseline,
+		retrieveTimingsKey: timings, retrieveViewKey: view,
+	}
 }
 
 // annotateChunks annotates a retrieve search for a handoff tree session, marking the code chunks
@@ -375,8 +408,8 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 			Score:         r.Score,
 			Source:        "code",
 			Content:       content,
+			EndLine:       endLine,
 			absFile:       file,
-			endLine:       endLine,
 			mode:          effective,
 		})
 	}
@@ -421,7 +454,7 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 			continue
 		}
 		owner := projectlinks.OwningProject(c.absFile, projectPath)
-		total += context.FullSourceTokens(c.absFile, c.Name, owner, c.StartLine, c.endLine, fileCache)
+		total += context.FullSourceTokens(c.absFile, c.Name, owner, c.StartLine, c.EndLine, fileCache)
 	}
 	return total
 }
@@ -436,7 +469,7 @@ func conservativeBaselineForChunks(chunks []RetrieveChunk) int {
 			total += db.EstimateTokens(c.Content)
 			continue
 		}
-		spans = append(spans, context.LineSpan{File: c.absFile, Start: c.StartLine, End: c.endLine})
+		spans = append(spans, context.LineSpan{File: c.absFile, Start: c.StartLine, End: c.EndLine})
 	}
 	return total + context.ConservativeBaselineTokens(spans, map[string][]string{})
 }
@@ -541,7 +574,7 @@ func assembleContext(chunks []RetrieveChunk, format string) string {
 			sb.WriteString(fmt.Sprintf("## %d. %s (%s)\n\n", i+1, c.Name, c.Type))
 			if c.Type == "code" {
 				sb.WriteString(fmt.Sprintf("**File:** `%s` | **Kind:** `%s` | **Score:** %.3f\n\n", c.File, c.Kind, c.Score))
-				sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n\n", langFromExt(c.File), c.Content))
+				sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n\n", render.LangFromExt(c.File), c.Content))
 			} else {
 				sb.WriteString(fmt.Sprintf("**Source:** Documentation | **Score:** %.3f\n\n", c.Score))
 				sb.WriteString(c.Content + "\n\n")
@@ -565,37 +598,6 @@ func assembleContext(chunks []RetrieveChunk, format string) string {
 	}
 
 	return sb.String()
-}
-
-func langFromExt(file string) string {
-	ext := strings.ToLower(file)
-	if idx := strings.LastIndex(ext, "."); idx >= 0 {
-		ext = ext[idx:]
-	}
-	switch ext {
-	case ".go":
-		return "go"
-	case ".py":
-		return "python"
-	case ".ts", ".tsx":
-		return "typescript"
-	case ".js", ".jsx":
-		return "javascript"
-	case ".rs":
-		return "rust"
-	case ".rb":
-		return "ruby"
-	case ".java":
-		return "java"
-	case ".sh":
-		return "bash"
-	case ".fish":
-		return "fish"
-	case ".yaml", ".yml":
-		return "yaml"
-	default:
-		return ""
-	}
 }
 
 func escapeXML(s string) string {

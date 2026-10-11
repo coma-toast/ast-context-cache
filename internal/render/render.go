@@ -56,6 +56,12 @@ func Text(r Response) string {
 
 // Locations renders r as a summary line followed by one `file:start-end kind name score` line per hit.
 func Locations(r Response) string {
+	lines := LocationLines(r)
+	return Header(r, lines) + lines
+}
+
+// LocationLines renders one `file:start-end kind name score` line per hit, without the summary line.
+func LocationLines(r Response) string {
 	var body strings.Builder
 	for _, res := range r.Results {
 		line := location(r.Root, res) + " " + str(res, "kind") + " " + displayName(res)
@@ -64,7 +70,13 @@ func Locations(r Response) string {
 		}
 		body.WriteString(strings.TrimRight(line, " ") + "\n")
 	}
-	return header(r, tokens.Count(body.String())) + body.String()
+	return body.String()
+}
+
+// Header is r's summary line (counting body's tokens) plus any hint and notes, for a caller
+// that renders its own body.
+func Header(r Response, body string) string {
+	return header(r, tokens.Count(body))
 }
 
 // LangFromExt maps a file's extension to its fenced-code language, or "" when unknown.

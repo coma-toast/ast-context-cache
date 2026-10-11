@@ -38,6 +38,8 @@ const (
 	// counting tokens and comparing runs, so the numbers do not depend on the temp path.
 	projectToken = "<project>"
 	homeToken    = "<home>"
+	// hashVectorMin is the relevance_vector_min the hash embedder runs with (AST_RELEVANCE_SWEEP=1).
+	hashVectorMin = "0.22"
 )
 
 // handleToolCall starts a watcher on project_path; stop it before dbtest closes the pools.
@@ -181,6 +183,11 @@ func benchEmbedder(t *testing.T) embedder.Interface {
 func newBench(t *testing.T) *bench {
 	t.Helper()
 	home := dbtest.Init(t)
+	if os.Getenv("AST_TOKENBENCH_EMBEDDER") != "onnx" {
+		// The relevance floor's VectorMin default is tuned for real embedders; the hash
+		// embedder's cosines need the floor the hash sweep picked.
+		require.NoError(t, db.SetSetting("relevance_vector_min", hashVectorMin))
+	}
 	search.Cache.Unload()
 	t.Cleanup(search.Cache.Unload)
 	root := filepath.Join(t.TempDir(), "fixture")
@@ -323,9 +330,17 @@ func (b *bench) normalize(text, sid string) string {
 	})
 }
 
+// textHit matches a rendered text or locations line: `### file:start-end kind name` or
+// `file:start-end kind name score`, capturing the file and name.
+var textHit = regexp.MustCompile(`^(?:### )?(\S+):\d+-\d+ \S+ (\S+)`)
+
 // hits returns "relpath:name" keys for the response's results, and how many results it has.
-// Results are the first array found under results, chunks, symbols, or lines.
+// JSON results are the first array found under results, chunks, symbols, or lines; text
+// output is parsed line by line with textHits.
 func (b *bench) hits(text string) (map[string]bool, int) {
+	if !json.Valid([]byte(text)) {
+		return textHits(text)
+	}
 	obj := decodeObject(text)
 	out := map[string]bool{}
 	for _, key := range []string{"results", "chunks", "symbols", "lines"} {
@@ -353,6 +368,26 @@ func (b *bench) hits(text string) (map[string]bool, int) {
 		return out, len(arr)
 	}
 	return out, 0
+}
+
+// textHits returns "relpath:name" keys (plus "relpath:bare" for a qualified name's part after
+// the last '.') for each rendered result line, and how many lines matched.
+func textHits(text string) (map[string]bool, int) {
+	out := map[string]bool{}
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		m := textHit.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		n++
+		file := strings.TrimPrefix(strings.TrimPrefix(m[1], projectToken), "/")
+		out[file+":"+m[2]] = true
+		if i := strings.LastIndex(m[2], "."); i >= 0 {
+			out[file+":"+m[2][i+1:]] = true
+		}
+	}
+	return out, n
 }
 
 // recall is the share of expect found. "text:<s>" expects match a substring of the response;

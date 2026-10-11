@@ -120,11 +120,22 @@ func toolAccessByName(toolName string, cfg ServerConfig) (bool, toolDenyReason) 
 	return false, denyUnknown
 }
 
+// Arguments shared by the four code tools (get_context_capsule, search_semantic,
+// get_file_context, retrieve).
+var (
+	codeOutputSchema = map[string]any{
+		"type": "string", "enum": []string{outputText, outputJSON, outputLocations},
+		"description": "Response format: 'text' (default: a summary line, then a heading and fenced block per symbol), 'json' (the structured body), 'locations' (one file:lines kind name score line per hit)",
+	}
+	codeDebugSchema   = map[string]string{"type": "boolean", "description": "Keep timings, pipeline counts and cache stats in the body instead of _meta (default false)"}
+	codeOffloadSchema = map[string]string{"type": "boolean", "description": "Store a result over the offload threshold as a ctx_* note and return a head plus the ref (default true); false returns it whole"}
+)
+
 func GetTools() []Tool {
 	return []Tool{
 		{
 			Name:        "get_context_capsule",
-			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. May include code_script_hints when a bundled or repo JS script fits the query/results. Supports mode: 'auto' (default: full source for the top 3 hits, skeletons for the rest), 'full' (source for every hit), 'skeleton' (signatures only), 'summary' (cached summaries for navigation only; read source before editing), 'edit' (the top hit's exact source plus skeletons of the functions it calls). Weak queries return no_match instead of loose hits; withheld counts hits held back. Supports Python, JS/TS, Go, Bash, Fish.",
+			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. May include code_script_hints (output=json; _meta.hints otherwise) when a bundled or repo JS script fits the query/results. Supports mode: 'auto' (default: full source for the top 3 hits, skeletons for the rest), 'full' (source for every hit), 'skeleton' (signatures only), 'summary' (cached summaries for navigation only; read source before editing), 'edit' (the top hit's exact source plus skeletons of the functions it calls). Weak queries return no_match instead of loose hits; withheld counts hits held back. Supports Python, JS/TS, Go, Bash, Fish.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -140,6 +151,9 @@ func GetTools() []Tool {
 					"kind":               map[string]string{"type": "string", "description": "Optional: single symbol kind filter (same as one entry in kinds)."},
 					"min_relative_score": map[string]string{"type": "number", "description": "Optional: withhold hits scoring below this fraction of the top hit's score (default from settings)."},
 					"collapse":           map[string]string{"type": "boolean", "description": "Fold test, mock, vendored, generated and duplicate hits into a collapsed list (default true; skipped when the query is about tests)."},
+					"output":             codeOutputSchema,
+					"debug":              codeDebugSchema,
+					"offload":            codeOffloadSchema,
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -414,7 +428,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "search_semantic",
-			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Responses may include code_script_hints when a script fits. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
+			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Responses may include code_script_hints (output=json; _meta.hints otherwise) when a script fits. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -430,6 +444,9 @@ func GetTools() []Tool {
 					"kind":               map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
 					"min_relative_score": map[string]string{"type": "number", "description": "Optional: withhold hits scoring below this fraction of the top hit's score (default from settings)."},
 					"collapse":           map[string]string{"type": "boolean", "description": "Fold test, mock, vendored, generated and duplicate hits into a collapsed list (default true; skipped when the query is about tests)."},
+					"output":             codeOutputSchema,
+					"debug":              codeDebugSchema,
+					"offload":            codeOffloadSchema,
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -462,6 +479,9 @@ func GetTools() []Tool {
 					"symbol":       map[string]string{"type": "string", "description": "Symbol name or fqn to edit; required with mode=edit"},
 					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup — skip symbols already returned in this session"},
 					"token_budget": map[string]string{"type": "integer", "description": "Max tokens for symbol list (optional)"},
+					"output":       codeOutputSchema,
+					"debug":        codeDebugSchema,
+					"offload":      codeOffloadSchema,
 				},
 				"required": []string{"file", "project_path"},
 			},
@@ -598,7 +618,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "retrieve",
-			Description: "RAG-style retrieval: hybrid search across code + docs, reranks results, assembles context within token budget. May include code_script_hints for code hits. Returns formatted context ready for LLM consumption. Supports markdown, xml, json output formats.",
+			Description: "RAG-style retrieval: hybrid search across code + docs, reranks results, assembles context within token budget. May include code_script_hints for code hits (output=json; _meta.hints otherwise). Returns context ready for LLM consumption, assembled as markdown, xml or json (format).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -611,13 +631,17 @@ func GetTools() []Tool {
 					"mode":               map[string]string{"type": "string", "description": "Code chunk mode when include_source is false: 'skeleton' (default), 'auto' (full for the top 3), 'full'. 'edit' is not supported here."},
 					"session_id":         map[string]string{"type": "string", "description": "Session ID for dedup — skip symbols already returned"},
 					"include_memory":     map[string]string{"type": "boolean", "description": "Prepend compact recall_memory facts/procedures (~20% of token_budget)"},
-					"format":             map[string]string{"type": "string", "description": "Output format: 'markdown', 'xml', 'json' (default 'markdown')"},
+					"include_chunks":     map[string]string{"type": "boolean", "description": "Keep each chunk's content in the chunks list (default false; the assembled context already carries it)"},
+					"format":             map[string]string{"type": "string", "description": "Format the context is assembled in: 'markdown', 'xml', 'json' (default 'markdown'); output picks the response format"},
 					"path_prefix":        map[string]string{"type": "string", "description": "Optional: only code symbols under this path (project-relative or absolute prefix)."},
 					"language":           map[string]string{"type": "string", "description": "Optional: filter by language (go, typescript, ...)."},
 					"kinds":              map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
 					"kind":               map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
 					"min_relative_score": map[string]string{"type": "number", "description": "Optional: withhold hits scoring below this fraction of the top hit's score (default from settings)."},
 					"collapse":           map[string]string{"type": "boolean", "description": "Fold test, mock, vendored, generated and duplicate hits into a collapsed list (default true; skipped when the query is about tests)."},
+					"output":             codeOutputSchema,
+					"debug":              codeDebugSchema,
+					"offload":            codeOffloadSchema,
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -685,7 +709,7 @@ func GetPrompts() []Prompt {
 
 ### Token savings tracking
 - tokens_saved = max(0, full_source_baseline - tokens_returned) + dedup_skips
-- Tracked: get_context_capsule, get_file_context, search_semantic, retrieve, execute_code (see tokens_saved, tokens_used, symbol_baseline_tokens in JSON)
+- Tracked: get_context_capsule, get_file_context, search_semantic, retrieve, execute_code (see tokens_saved, tokens_used, symbol_baseline_tokens with output=json)
 - Not tracked: fetch_doc, search_docs, index_*, get_project_map — dashboard Tokens saved can be 0 on doc-only days
 - mode=full saves ~nothing; use auto or skeleton for real savings
 

@@ -170,14 +170,16 @@ func fileContextErr(msg string) fileContextResult {
 
 // handleFileContextWithMeta lists file's symbols in mode. With feature_mode_v2 on, auto
 // is skeleton, and mode=edit returns symbol's exact source plus its callees' skeletons
-// (symbol, a name or fqn, is required); with the flag off edit is full.
+// (symbol, a name or fqn, is required); with the flag off edit returns symbol in full and
+// the other symbols as skeletons.
 func handleFileContextWithMeta(file, projectPath, mode, symbol, sessionID string, tokenBudget int) fileContextResult {
 	v2 := flags.Enabled(flags.KeyModeV2)
+	fullSymbol := ""
 	switch {
-	case mode == "edit" && !v2:
-		mode = "full"
 	case mode == "edit" && symbol == "":
 		return fileContextErr("symbol is required for mode=edit (a name or fqn in the file)")
+	case mode == "edit" && !v2:
+		mode, fullSymbol = "skeleton", symbol
 	case mode == "auto" && v2:
 		mode = "skeleton"
 	}
@@ -242,6 +244,9 @@ func handleFileContextWithMeta(file, projectPath, mode, symbol, sessionID string
 			continue
 		}
 		effectiveMode := context.EffectiveMode(mode, maxScore, maxScore, fullCount)
+		if q, _ := sym["qualified_name"].(string); fullSymbol != "" && (fullSymbol == name || fullSymbol == fqn || fullSymbol == q) {
+			effectiveMode = "full"
+		}
 		key := context.SymbolDedupKey(file, name, startLine)
 		if context.DedupCovers(returned, key, effectiveMode) {
 			skipped++

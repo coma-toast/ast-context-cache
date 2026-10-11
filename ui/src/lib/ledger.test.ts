@@ -54,7 +54,7 @@ describe('tokensSaved text', () => {
       'dedup: D',
       '3 earlier rows estimated',
     ])
-    expect(tokensSavedSub(s, '50')).toBe('1.5k in 30d · 50/day · conservative: 700 · 3 earlier rows estimated')
+    expect(tokensSavedSub(s, '50')).toBe('1.5k in 30d · 50/day · conservative: 700')
   })
 })
 

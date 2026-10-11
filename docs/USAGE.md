@@ -73,7 +73,7 @@ Use the same **`session_id`** for both. Prefer **`recall_memory`** over **`fetch
 
 Hosts clear old tool results from the chat window on their own (Claude Code context editing, compaction, Cursor summarization). ast-context-cache plans for that rather than fighting it:
 
-- **Self-offloading results.** With `feature_result_offload` on (`AST_FEATURE_RESULT_OFFLOAD`), a `get_context_capsule`, `get_file_context`, `search_semantic` or `retrieve` result over `result_offload_threshold` tokens (default 2000, `AST_RESULT_OFFLOAD_THRESHOLD`) is stored whole as a `ctx_*` note of kind `offload`. The response keeps the top results and starts with a stub such as `[ctx_1a2b3c4d5e6f get_context_capsule auth flow, 9.4k tok — head shown, fetch_context for all]`. Pass `offload=false` on the call to get the full result inline.
+- **Self-offloading results.** With `feature_result_offload` on (`AST_FEATURE_RESULT_OFFLOAD`), a `get_context_capsule`, `get_file_context`, `search_semantic` or `retrieve` result over `result_offload_threshold` tokens (default 2000, `AST_RESULT_OFFLOAD_THRESHOLD`) is stored whole as a `ctx_*` note of kind `offload`. The response keeps the top results and starts with a stub such as `[ctx_1a2b3c4d5e6f get_context_capsule auth flow, 9.4k tok — head shown, fetch_context for all]`. With `output=json` the stub is the body's first field, `offloaded`, so the head stays valid JSON. Pass `offload=false` on the call to get the full result inline. Stub grammars: [stubs.md](stubs.md).
 - **The stub is what survives.** When the host clears the result, the stub line is enough to get it back: `fetch_context(refs=["ctx_…"])` returns the full text.
 - **Separate budget.** Offload notes do not count toward the session or global virtual-context quotas. They share their own cap, `context_offload_max_tokens_global` (default 500,000, `AST_CONTEXT_OFFLOAD_MAX_TOKENS_GLOBAL`); when it fills, the least recently used offloads are evicted first.
 - **24-hour TTL.** An offload note not fetched for `offload_ttl_hours` (default 24, `AST_OFFLOAD_TTL_HOURS`) is deleted by an hourly job. `fetch_context` on that ref then returns an `expired` entry with `status: "expired"` and the `tool` and `args` that produced it, so you can re-run the call instead of guessing. Expired refs are remembered for 30 days.
@@ -165,12 +165,39 @@ Use `mode="fork"` only when the host spawned a fork that inherited the parent's 
 
 ## Mode Selection
 
-| Mode | Token Usage | Best For |
-|------|-------------|----------|
-| `auto` | ~20% | Most searches (default) |
-| `skeleton` | ~10% | Exploring unfamiliar code |
-| `summary` | ~6% | High-level overviews |
-| `full` | 100% | Complete implementation details |
+| Mode | Returns | Best For |
+|------|---------|----------|
+| `auto` | Full source for the top 3 hits, skeletons for the rest | Most searches (capsule default) |
+| `skeleton` | Signatures and types only | Exploring unfamiliar code (`search_semantic` / `get_file_context` default) |
+| `summary` | Your cached summaries | High-level overviews; read source before editing |
+| `full` | Source for every hit | Complete implementation details |
+| `edit` | The top hit's exact source plus skeletons of the functions it calls (`get_file_context`: the `symbol` you name) | Right before editing one symbol |
+
+With `feature_mode_v2` off, `auto` falls back to the 4.x score-ratio rule, and `edit` returns full source for the top hit (or `symbol`) and skeletons for the rest.
+
+## Relevance floor
+
+With `feature_relevance_floor` on, `get_context_capsule`, `search_semantic` and `retrieve` drop hits that are not worth their tokens:
+
+- **Relative cut.** Hits scoring below `min_relative_score` of the top hit's score are withheld and counted in `withheld` (`{count, tokens}`; the summary line shows `withheld N (X tok)`).
+- **No match.** When even the top hit is weak, the response has no results and `no_match` (`{best_score, hint}`). A hybrid top hit is strong when both BM25 and the vector search found it, its vector similarity reaches the vector floor, or it covers enough of the query's terms. A `search_semantic` top hit needs the vector floor.
+- **Collapse.** Test, mock, vendored, generated and same-signature duplicate hits fold into `collapsed` under the result they repeat, unless the query is about tests or the call passes `collapse=false`.
+
+| Setting | Env override | Default |
+|---------|--------------|---------|
+| `relevance_min_relative` | `AST_RELEVANCE_MIN_RELATIVE` | `0.7` (per call: `min_relative_score`) |
+| `relevance_vector_min` | `AST_RELEVANCE_VECTOR_MIN` | `0.45` with the local ONNX model (`EMBED_BACKEND=onnx`); `0.30` with any other embedding backend |
+| `relevance_coverage_min` | `AST_RELEVANCE_COVERAGE_MIN` | `0.5` |
+
+The vector floor depends on the embedder because cosine scales differ between models: `0.45` is the token benchmark sweep's value for all-mpnet-base-v2, and `0.30` is a looser floor for backends that have not been swept. An env value wins over the setting, and the setting over the default.
+
+To tune for your embedder, run the benchmark's threshold sweep. It reruns the fixture's code-search scenarios for each setting in a grid and prints the expected hits found, scenarios that lost recall against the baseline (`lost`), negative queries flagged as no-match, and total tokens. Pick the row with `lost 0` and every negative flagged, then the fewest tokens:
+
+```bash
+make bench-tokens                                              # hash embedder (tests run it with relevance_vector_min=0.22)
+AST_TOKENBENCH_EMBEDDER=onnx make bench-tokens                 # the real ONNX model from MODEL_DIR or ./model
+AST_TOKENBENCH_EMBEDDER=onnx AST_RELEVANCE_SWEEP=1 make bench-tokens   # threshold sweep with the ONNX model
+```
 
 ## Token savings tracking
 
@@ -178,7 +205,18 @@ Measured on **`get_context_capsule`**, **`get_file_context`**, **`search_semanti
 
 `tokens_saved = max(0, full_source_baseline − tokens_returned) + session_dedup` (search tools); `execute_code` uses `data_baseline_tokens − tokens_used`.
 
-Each response includes **`tokens_saved`**, **`tokens_used`**, and baseline fields. Doc tools (`fetch_doc`, `search_docs`) and indexing calls do not increment dashboard totals. Use **`mode=auto`** or **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all context tools for dedup credit.
+For the four code tools, the query log and dashboard count `tokens_returned` on the text actually sent (after rendering as text, locations or JSON, and after offload), not on the JSON body. The dashboard splits the total into ledgers:
+
+| Ledger | Meaning |
+|--------|---------|
+| Compression | Full source of every returned symbol minus the tokens actually returned |
+| Dedup | Tokens not re-sent because the session already received those symbols |
+| Conservative | Each returned symbol plus 20 lines above and below, merged per file, minus the tokens returned: a floor for the compression figure |
+| Virtual | Tokens written to virtual context and memory, and later fetched or recalled; not counted as savings |
+
+**Tokens saved** on the Overview is compression + dedup. Rows logged before 5.0 counted tokens as bytes/4 and are shown as estimated.
+
+The `output=json` body includes **`tokens_saved`**, **`tokens_used`**, and baseline fields. Doc tools (`fetch_doc`, `search_docs`) and indexing calls do not increment dashboard totals. Use **`mode=auto`** or **`skeleton`**; **`mode=full`** saves ~nothing. Pass **`session_id`** on all context tools for dedup credit.
 
 **Code-mode scripts:** Search tools may return **`code_script_hints`**. See [AGENTS.md](../AGENTS.md#code-mode-scripts) and [scripts/code-mode/README.md](../scripts/code-mode/README.md).
 

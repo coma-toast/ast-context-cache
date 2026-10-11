@@ -8,6 +8,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -99,7 +100,8 @@ func TestWeakSemanticMatch(t *testing.T) {
 
 func TestLoadFloorConfig(t *testing.T) {
 	dbtest.Init(t)
-	defaults := FloorConfig{MinRelative: defaultMinRelative, VectorMin: defaultVectorMin, CoverageMin: defaultCoverageMin}
+	vecMin := defaultVectorMin(embedder.GetActiveBackend())
+	defaults := FloorConfig{MinRelative: defaultMinRelative, VectorMin: vecMin, CoverageMin: defaultCoverageMin}
 	tests := []struct {
 		name     string
 		env      map[string]string
@@ -108,7 +110,7 @@ func TestLoadFloorConfig(t *testing.T) {
 	}{
 		{name: "defaults", want: defaults},
 		{name: "settings", settings: map[string]string{settingRelevanceMinRelative: "0.2", settingRelevanceVectorMin: "0.7", settingRelevanceCoverageMin: "0.9"}, want: FloorConfig{MinRelative: 0.2, VectorMin: 0.7, CoverageMin: 0.9}},
-		{name: "env wins", env: map[string]string{envRelevanceMinRelative: "0.1"}, settings: map[string]string{settingRelevanceMinRelative: "0.2"}, want: FloorConfig{MinRelative: 0.1, VectorMin: defaultVectorMin, CoverageMin: defaultCoverageMin}},
+		{name: "env wins", env: map[string]string{envRelevanceMinRelative: "0.1"}, settings: map[string]string{settingRelevanceMinRelative: "0.2"}, want: FloorConfig{MinRelative: 0.1, VectorMin: vecMin, CoverageMin: defaultCoverageMin}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,6 +121,26 @@ func TestLoadFloorConfig(t *testing.T) {
 				require.NoError(t, db.SetSetting(k, tt.settings[k]))
 			}
 			assert.Equal(t, tt.want, LoadFloorConfig())
+		})
+	}
+}
+
+func TestDefaultVectorMin(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		backend string
+		want    float64
+	}{
+		{backend: "onnx", want: 0.45},
+		{backend: "ollama", want: 0.30},
+		{backend: "openai", want: 0.30},
+		{backend: "http", want: 0.30},
+		{backend: "docker", want: 0.30},
+	}
+	for _, tt := range tests {
+		t.Run(tt.backend, func(t *testing.T) {
+			t.Parallel()
+			assert.InDelta(t, tt.want, defaultVectorMin(tt.backend), 1e-9)
 		})
 	}
 }

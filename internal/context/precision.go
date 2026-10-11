@@ -5,12 +5,17 @@ import (
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 // Relevance floor settings and defaults. The defaults come from the tokenbench threshold sweep
 // (AST_RELEVANCE_SWEEP=1 make bench-tokens): the strictest MinRelative and VectorMin that lose
 // no expected hit while flagging every negative. CoverageMin did not change any fixture outcome.
+// VectorMin depends on the embedder, since cosine scales differ: onnxVectorMin is the sweep's
+// value for the local ONNX model (all-mpnet-base-v2), and remoteVectorMin a looser floor for
+// the other backends, which have not been swept. The hash embedder the tests use needs 0.22,
+// which they set explicitly.
 const (
 	settingRelevanceMinRelative = "relevance_min_relative"
 	settingRelevanceVectorMin   = "relevance_vector_min"
@@ -19,7 +24,8 @@ const (
 	envRelevanceVectorMin       = "AST_RELEVANCE_VECTOR_MIN"
 	envRelevanceCoverageMin     = "AST_RELEVANCE_COVERAGE_MIN"
 	defaultMinRelative          = 0.7
-	defaultVectorMin            = 0.22
+	onnxVectorMin               = 0.45
+	remoteVectorMin             = 0.30
 	defaultCoverageMin          = 0.5
 )
 
@@ -33,13 +39,23 @@ type FloorConfig struct {
 	CoverageMin float64
 }
 
-// LoadFloorConfig reads the floor thresholds from env, then settings, then defaults.
+// LoadFloorConfig reads the floor thresholds from env, then settings, then defaults. The
+// VectorMin default follows the active embedder backend (defaultVectorMin).
 func LoadFloorConfig() FloorConfig {
 	return FloorConfig{
 		MinRelative: db.SettingFloat(settingRelevanceMinRelative, envRelevanceMinRelative, defaultMinRelative),
-		VectorMin:   db.SettingFloat(settingRelevanceVectorMin, envRelevanceVectorMin, defaultVectorMin),
+		VectorMin:   db.SettingFloat(settingRelevanceVectorMin, envRelevanceVectorMin, defaultVectorMin(embedder.GetActiveBackend())),
 		CoverageMin: db.SettingFloat(settingRelevanceCoverageMin, envRelevanceCoverageMin, defaultCoverageMin),
 	}
+}
+
+// defaultVectorMin is the VectorMin default for an embedder backend: onnxVectorMin for the
+// local ONNX model, remoteVectorMin for any other backend.
+func defaultVectorMin(backend string) float64 {
+	if backend == "onnx" {
+		return onnxVectorMin
+	}
+	return remoteVectorMin
 }
 
 // ApplyRelevanceFloor splits scored into hits at or above MinRelative of the top score and

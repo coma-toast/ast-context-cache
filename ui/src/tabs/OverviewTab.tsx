@@ -317,10 +317,12 @@ function VirtualContextCard({
               <InlineStat label="7d store / fetch" value={`${formatStat(digest.VirtualStored)} / ${formatStat(digest.VirtualAccessed)}`} />
             )}
             {ledger && (
-              <InlineStat
-                label="30d ledger · stored / fetched / recalled"
-                value={`${formatStat(ledger.stored)} / ${formatStat(ledger.fetched)} / ${formatStat(ledger.recalled)}`}
-              />
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <InlineStat
+                  label="30d store / fetch / recall"
+                  value={`${formatStat(ledger.stored)} / ${formatStat(ledger.fetched)} / ${formatStat(ledger.recalled)}`}
+                />
+              </Box>
             )}
           </Box>
         </Stack>

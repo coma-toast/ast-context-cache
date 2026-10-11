@@ -156,9 +156,14 @@ func TestEditModeTargetAndCallees(t *testing.T) {
 
 	setFlag(t, flags.KeyModeV2, false)
 	off := capsuleWith(t, project, map[string]any{"query": "Target", "mode": "edit", "min_relative_score": 0.01})
-	require.NotEmpty(t, off.Results)
-	assert.Contains(t, off.Results[0], "source", "edit falls back to full with the flag off")
+	require.Greater(t, len(off.Results), 1)
+	assert.Equal(t, "Target", off.Results[0]["name"])
+	assert.Contains(t, off.Results[0], "source", "edit falls back to full for the top hit with the flag off")
 	assert.NotContains(t, off.Results[0], "mode")
+	for _, r := range off.Results[1:] {
+		assert.Contains(t, r, "skeleton", "%s: the other hits stay skeletons", r["name"])
+		assert.NotContains(t, r, "source", "%s", r["name"])
+	}
 }
 
 // PR-6: a hit over the budget is skipped, not the end of packing; five misses in a row end it.
@@ -188,7 +193,7 @@ func TestPackHitsSkipsOverBudget(t *testing.T) {
 				scored = append(scored, big())
 			}
 			scored = append(scored, search.ScoredResult{Score: 1, Data: map[string]any{"name": "Small", "kind": "function", "file": file, "start_line": 7, "end_line": 7}})
-			p := packHits(scored, project, "full", "", 200, map[string][]string{})
+			p := packHits(scored, project, "full", "", "", 200, map[string][]string{})
 			assert.Equal(t, tt.wantResults, resultNames(p.Results))
 			assert.Equal(t, tt.wantWithheld, p.Withheld.Count)
 			assert.Positive(t, p.Withheld.Tokens)

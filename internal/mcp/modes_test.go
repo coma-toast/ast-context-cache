@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/coma-toast/ast-context-cache/internal/context"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 )
 
 const editTargetGo = `package widgets
@@ -58,6 +59,26 @@ func TestFileContextEditMode(t *testing.T) {
 
 	assert.Contains(t, fileContext(t, file, project, "edit", "", 0).Error, "symbol is required")
 	assert.Contains(t, fileContext(t, file, project, "edit", "Missing", 0).Error, "not found")
+}
+
+// MO-2: with feature_mode_v2 off, get_file_context mode=edit returns the named symbol in full
+// and the other symbols as skeletons.
+func TestFileContextEditModeFlagOff(t *testing.T) {
+	project, file := indexedPython(t, "widgets.go", editTargetGo)
+	require.NoError(t, flags.Set(flags.KeyModeV2, false))
+	t.Cleanup(func() { require.NoError(t, flags.Set(flags.KeyModeV2, true)) })
+	got := fileContext(t, file, project, "edit", "Target", 0)
+	require.Empty(t, got.Error)
+	require.Equal(t, []string{"helper", "Target", "Unrelated"}, symbolNames(got.Symbols))
+	for _, s := range got.Symbols {
+		if s["name"] == "Target" {
+			assert.Contains(t, s["source"], "return helper(1)")
+			continue
+		}
+		assert.Contains(t, s, "skeleton", s["name"])
+		assert.NotContains(t, s, "source", s["name"])
+	}
+	assert.Contains(t, fileContext(t, file, project, "edit", "", 0).Error, "symbol is required")
 }
 
 // MO-1: get_file_context auto is skeleton under mode v2.

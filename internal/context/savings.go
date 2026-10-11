@@ -3,6 +3,7 @@ package context
 import (
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -248,6 +249,10 @@ func hitFromScored(r search.ScoredResult, projectPath string) PackHit {
 		}
 		data["start_line"] = startLine
 		data["end_line"] = endLine
+	}
+	if _, ok := data["score"]; !ok {
+		// Four significant digits keep the score short; fused scores can be tiny.
+		data["score"], _ = strconv.ParseFloat(strconv.FormatFloat(r.Score, 'g', 4, 64), 64)
 	}
 	return PackHit{Data: data, Score: r.Score, StartLine: startLine, EndLine: endLine}
 }

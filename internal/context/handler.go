@@ -136,8 +136,9 @@ func (p Packed) ApplyTo(resp map[string]interface{}) {
 }
 
 // packRanked runs the precision pass over scored and packs what it keeps: the top hit's edit
-// view for mode=edit under feature_mode_v2 (full for every hit with the flag off), the token
-// budgeted hits otherwise.
+// view for mode=edit under feature_mode_v2, the token budgeted hits otherwise. With the flag
+// off, edit falls back to full for the top hit and skeletons for the rest, the edit view's
+// shape without callee resolution.
 func packRanked(scored []search.ScoredResult, query, projectPath, mode, sessionID string, tokenBudget int, args PrecisionArgs, semantic bool) (Packed, error) {
 	prec := ApplyPrecision(scored, query, projectPath, args, semantic)
 	fileCache := map[string][]string{}
@@ -153,9 +154,9 @@ func packRanked(scored []search.ScoredResult, query, projectPath, mode, sessionI
 			p.Withheld.Add(EstimateWithheld(prec.Kept[1:], projectPath, fileCache))
 		}
 	case mode == "edit":
-		p = packHits(prec.Kept, projectPath, "full", sessionID, tokenBudget, fileCache)
+		p = packHits(prec.Kept, projectPath, "skeleton", "full", sessionID, tokenBudget, fileCache)
 	default:
-		p = packHits(prec.Kept, projectPath, mode, sessionID, tokenBudget, fileCache)
+		p = packHits(prec.Kept, projectPath, mode, "", sessionID, tokenBudget, fileCache)
 	}
 	p.Withheld.Add(EstimateWithheld(prec.Withheld, projectPath, fileCache))
 	p.NoMatch, p.Collapsed = prec.NoMatch, prec.Collapsed
@@ -171,10 +172,11 @@ func packMode(mode string, v2 bool, rank int, score, maxScore float64, fullCount
 	return EffectiveMode(mode, score, maxScore, fullCount)
 }
 
-// packHits packs scored in rank order within tokenBudget. Hits the session already has in a
-// mode at least as rich are skipped (dedup); hits over the budget are skipped and withheld,
-// and packing stops after five consecutive budget misses, withholding the rest.
-func packHits(scored []search.ScoredResult, projectPath, mode, sessionID string, tokenBudget int, fileCache map[string][]string) Packed {
+// packHits packs scored in rank order within tokenBudget, in mode, or in topMode for the top
+// hit when topMode is set. Hits the session already has in a mode at least as rich are
+// skipped (dedup); hits over the budget are skipped and withheld, and packing stops after
+// five consecutive budget misses, withholding the rest.
+func packHits(scored []search.ScoredResult, projectPath, mode, topMode, sessionID string, tokenBudget int, fileCache map[string][]string) Packed {
 	v2 := flags.Enabled(flags.KeyModeV2)
 	returned := ReturnedModes(sessionID)
 	var p Packed
@@ -197,6 +199,9 @@ func packHits(scored []search.ScoredResult, projectPath, mode, sessionID string,
 		startLine, endLine := hit.StartLine, hit.EndLine
 		owner := projectlinks.OwningProject(file, projectPath)
 		effective := packMode(mode, v2, len(p.Results), hit.Score, maxScore, fullCount)
+		if i == 0 && topMode != "" {
+			effective = topMode
+		}
 		key := SymbolDedupKey(file, name, startLine)
 		if DedupCovers(returned, key, effective) {
 			p.Savings.DedupedCount++
