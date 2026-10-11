@@ -86,6 +86,7 @@ type StoreInput struct {
 	WorldValidAt       string // MEM-5: world_valid_at; normalized, default system time
 	WorldInvalidAt     string // MEM-5: world_invalid_at; normalized, default system time
 	TTL                int    // MEM-8: TTL in days (Nd); >0 writes expires_at
+	ExpiresAt          string // MEM-8: absolute expires_at; if set overrides TTL
 }
 
 // StoreResult is returned from Store.
@@ -182,7 +183,16 @@ func Store(in StoreInput) (*StoreResult, error) {
 	worldValidAt := normalizeTime(in.WorldValidAt)
 	worldInvalidAt := normalizeTime(in.WorldInvalidAt)
 	var expiresAt string
-	if in.TTL > 0 {
+	if in.ExpiresAt != "" {
+		parsed, err := db.NormalizeSQLTime(in.ExpiresAt)
+		if err == nil {
+			expiresAt = parsed
+		} else {
+			// ignore bad expires_at; fall through to TTL below
+			expiresAt = ""
+		}
+	}
+	if expiresAt == "" && in.TTL > 0 {
 		expiresAt = db.SQLTime(time.Now().UTC().AddDate(0, 0, in.TTL))
 	}
 

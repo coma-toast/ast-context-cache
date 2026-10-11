@@ -11,15 +11,20 @@ func memoryVectorKey(ref string) string {
 
 // EmbedEntry embeds structured memory for semantic recall_memory.
 func EmbedEntry(ref string, sessionID string, line string, emb embedder.Interface) {
+	_, _ = EmbedEntryWithVector(ref, sessionID, line, emb)
+}
+
+// EmbedEntryWithVector embeds structured memory and returns the vector.
+func EmbedEntryWithVector(ref string, sessionID string, line string, emb embedder.Interface) ([]float32, error) {
 	if emb == nil || ref == "" || line == "" {
-		return
+		return nil, nil
 	}
 	if len(line) > 400 {
 		line = line[:400]
 	}
 	vec, err := emb.EmbedSingle(line)
 	if err != nil {
-		return
+		return nil, err
 	}
 	entry := search.VectorEntry{
 		ContentHash: search.ContentHash("memory:" + ref + ":" + line),
@@ -31,4 +36,5 @@ func EmbedEntry(ref string, sessionID string, line string, emb embedder.Interfac
 		Vector:      vec,
 	}
 	_ = search.Cache.Upsert([]search.VectorEntry{entry})
+	return vec, nil
 }

@@ -47,6 +47,12 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		// caller opts out.
 		InvalidatePrevious: true,
 	}
+	if ttl, ok := toolArgs["ttl"].(float64); ok && ttl > 0 {
+		in.TTL = int(ttl)
+	}
+	if expiresAt := strArg(toolArgs, "expires_at"); expiresAt != "" {
+		in.ExpiresAt = expiresAt
+	}
 	if v, ok := toolArgs["invalidate_previous"].(bool); ok {
 		in.InvalidatePrevious = v
 	}
@@ -57,8 +63,33 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		logToolQuery("store_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
 		return out
 	}
-	if emb != nil {
-		go memory.EmbedEntry(res.Ref, sessionID, res.Line, emb)
+	if emb != nil && in.Kind == memory.KindFact {
+		go func() {
+			_, err := memory.EmbedEntryWithVector(res.Ref, sessionID, res.Line, emb)
+			if err != nil {
+				return
+			}
+			entry := memory.Entry{
+				Ref:              res.Ref,
+				Kind:             in.Kind,
+				Scope:            in.Scope,
+				SessionID:        sessionID,
+				ProjectPath:      in.ProjectPath,
+				Subject:          in.Subject,
+				Predicate:        in.Predicate,
+				Object:           in.Object,
+				Rule:             in.Rule,
+				SourceRef:        in.SourceRef,
+				TokenEst:         res.VirtualTokensStored,
+				AccessCount:      1,
+				LastAccessedAt:   time.Now().UTC().Format("2006-01-02 15:04:05"),
+				CreatedAt:        time.Now().UTC().Format("2006-01-02 15:04:05"),
+			}
+			conflicts, method := memory.ConflictCandidates(entry, emb, 300*time.Millisecond)
+			if len(conflicts) > 0 {
+				_ = method
+			}
+		}()
 	}
 	out := map[string]interface{}{
 		"ref":                   res.Ref,
@@ -124,6 +155,9 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 	if scope, ok := toolArgs["scope"].(string); ok && scope != "" {
 		in.Scope = memory.Scope(strings.ToLower(scope))
 	}
+	if v, ok := toolArgs["history"].(bool); ok && v {
+		return recallHistory(toolArgs, start, cpuStart, args, pp)
+	}
 	res, err := memory.Recall(in, emb)
 	if err != nil {
 		out := map[string]string{"error": err.Error()}
@@ -140,6 +174,38 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 	}
 	resultJSON, _ := json.Marshal(out)
 	logToolQuery("recall_memory", args, len(resultJSON), db.EstimateTokens(in.Query), res.TokensUsed, context.SavingsMeta{TokensUsed: res.TokensUsed, TokensSaved: res.TokensSavedEst}, start, cpuStart, pp, "")
+	return out
+}
+
+// recallHistory handles recall_memory with history=true, returning the full version chain.
+func recallHistory(toolArgs map[string]interface{}, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
+	ref := strArg(toolArgs, "ref")
+	query := strArg(toolArgs, "query")
+	includeWorld := boolArg(toolArgs, "include_world")
+	if ref == "" && query == "" {
+		out := map[string]string{"error": "history requires either a ref or a query"}
+		resultJSON, _ := json.Marshal(out)
+		logToolQuery("recall_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, "")
+		return out
+	}
+	hist, err := memory.History(memory.HistoryInput{
+		Ref:          ref,
+		Query:        query,
+		IncludeWorld: includeWorld,
+	})
+	if err != nil {
+		out := map[string]string{"error": err.Error()}
+		resultJSON, _ := json.Marshal(out)
+		logToolQuery("recall_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, err.Error())
+		return out
+	}
+	out := map[string]interface{}{
+		"entries":   hist.Entries,
+		"formatted": hist.Formatted,
+		"tokens_used": hist.TokensUsed,
+	}
+	resultJSON, _ := json.Marshal(out)
+	logToolQuery("recall_memory", args, len(resultJSON), 0, hist.TokensUsed, context.SavingsMeta{TokensUsed: hist.TokensUsed}, start, cpuStart, projectPath, "")
 	return out
 }
 
@@ -171,6 +237,33 @@ func handleForgetMemory(toolArgs map[string]interface{}, start time.Time, cpuSta
 	}
 	if refsRaw != nil {
 		in.Refs = parseStringList(refsRaw)
+	}
+	if v, ok := toolArgs["action"].(string); ok && v == "restore" {
+		ref := strArg(toolArgs, "ref")
+		if ref == "" {
+			out := map[string]string{"error": "restore action requires a ref parameter"}
+			resultJSON, _ := json.Marshal(out)
+			logToolQuery("forget_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, "")
+			return out
+		}
+		res, err := memory.Restore(memory.RestoreInput{Refs: []string{ref}})
+		if err != nil {
+			out := map[string]string{"error": err.Error()}
+			resultJSON, _ := json.Marshal(out)
+			logToolQuery("forget_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
+			return out
+		}
+		tokensUsed := 0
+		if res.RestoredRefs != nil {
+			tokensUsed = len(res.RestoredRefs)
+		}
+		out := map[string]interface{}{
+			"restored_refs": res.RestoredRefs,
+			"conflicts":     res.Conflicts,
+		}
+		resultJSON, _ := json.Marshal(out)
+		logToolQuery("forget_memory", args, len(resultJSON), tokensUsed, 0, context.SavingsMeta{TokensUsed: tokensUsed}, start, cpuStart, pp, "")
+		return out
 	}
 	res, err := memory.Forget(in)
 	if err != nil {

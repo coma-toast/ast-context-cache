@@ -49,3 +49,27 @@ func nonNegativeFloatOr(v string, def float64) float64 {
 	}
 	return f
 }
+
+// SettingBool resolves a boolean setting with the same precedence as SettingInt:
+// the envKey environment variable, then the settings table row for key, then def.
+// Accepts "true", "1", "yes" (case-insensitive) as true.
+func SettingBool(key, envKey string, def bool) bool {
+	if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
+		return parseBoolOr(v, def)
+	}
+	if v := strings.TrimSpace(GetSetting(key, "")); v != "" {
+		return parseBoolOr(v, def)
+	}
+	return def
+}
+
+func parseBoolOr(v string, def bool) bool {
+	v = strings.ToLower(v)
+	if v == "true" || v == "1" || v == "yes" {
+		return true
+	}
+	if v == "false" || v == "0" || v == "no" {
+		return false
+	}
+	return def
+}

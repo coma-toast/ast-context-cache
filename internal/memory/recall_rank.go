@@ -1,10 +1,14 @@
 package memory
 
 import (
+	"math"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -43,7 +47,87 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, map[string]
 		}
 	}
 	entries, scores := fuseEntries(fts, like, vec)
+	entries = applyDecay(entries, scores, in)
+	entries = applyTTLExpiry(entries, in)
 	return entries, scores, nil
+}
+
+// decayFactor returns the recency multiplier for an entry, clamped to 0.3–1.5x (MEM-6).
+// Procedures are exempt by default (MEM-7). Half-lives: 1 day session, 30 days project, none global.
+func decayFactor(e Entry, in RecallInput) float64 {
+	if e.Kind == KindProcedure {
+		if !db.SettingBool("memory_decay_procedures", "AST_FEATURE_MEMORY_DECAY_PROCEDURES", false) {
+			return 1.0
+		}
+	}
+	if e.Scope == ScopeGlobal {
+		return 1.0
+	}
+	halfLifeDays := 1.0
+	if e.Scope == ScopeProject {
+		halfLifeDays = 30.0
+	}
+	ageDays := 0.0
+	if e.LastAccessedAt != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05", e.LastAccessedAt); err == nil {
+			ageDays = time.Since(t).Hours() / 24.0
+		}
+	}
+	decay := 0.5
+	if e.AccessCount > 1 {
+		decay = 0.5 * (1.0 + 1.0/float64(e.AccessCount))
+	}
+	factor := math.Pow(decay, ageDays/halfLifeDays)
+	if factor < 0.3 {
+		factor = 0.3
+	}
+	if factor > 1.5 {
+		factor = 1.5
+	}
+	return factor
+}
+
+// applyDecay multiplies each fused score by its recency factor and re-sorts.
+func applyDecay(entries []Entry, scores map[string]float64, in RecallInput) []Entry {
+	if !flags.Enabled(flags.KeyMemoryV2) {
+		return entries
+	}
+	for i := range entries {
+		if f := decayFactor(entries[i], in); f != 1.0 {
+			scores[entries[i].Ref] *= f
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if si, sj := scores[entries[i].Ref], scores[entries[j].Ref]; si != sj {
+			return si > sj
+		}
+		return entries[i].Ref < entries[j].Ref
+	})
+	return entries
+}
+
+// applyTTLExpiry invalidates entries past their TTL (MEM-8) and removes them from output.
+func applyTTLExpiry(entries []Entry, in RecallInput) []Entry {
+	if !flags.Enabled(flags.KeyMemoryV2) {
+		return entries
+	}
+	now := time.Now().UTC()
+	out := entries[:0]
+	for _, e := range entries {
+		if e.ExpiresAt != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", e.ExpiresAt); err == nil && t.Before(now) {
+				memoryInvalidateTTL(e.Ref)
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func memoryInvalidateTTL(ref string) {
+	db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`, ReasonTTL, ref)
+	deleteFTS(ref)
 }
 
 // fuseEntries merges ranked entry lists with RRF, ordered by fused score descending then ref.

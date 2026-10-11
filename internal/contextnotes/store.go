@@ -129,6 +129,10 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 	if sessionID == "" || content == "" {
 		return nil, errs.NewCode(errs.CodeInvalidInput, "session_id and content required")
 	}
+	kind = strings.TrimSpace(kind)
+	if kind == KindPinned {
+		return storePinned(projectPath, content)
+	}
 	tokenEst := db.EstimateTokens(content)
 	lim := LoadLimits()
 	if strings.TrimSpace(kind) != KindOffload && tokenEst > lim.MaxTokensSession {
@@ -182,6 +186,21 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 		SessionID:           sessionID,
 		EvictedRefs:         evicted,
 		Stats:               stats,
+	}, nil
+}
+
+// storePinned routes a store_context(kind=pinned) call to StorePinned.
+func storePinned(projectPath, content string) (*StoreResult, error) {
+	pinned, err := StorePinned(projectPath, content, "store_context")
+	if err != nil {
+		return nil, err
+	}
+	return &StoreResult{
+		Ref:                 pinned.Ref,
+		Label:               "pinned",
+		VirtualTokensStored: pinned.TokenEst,
+		SessionID:           "pinned",
+		Stats:               map[string]interface{}{},
 	}, nil
 }
 
