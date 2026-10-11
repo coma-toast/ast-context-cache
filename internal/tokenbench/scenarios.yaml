@@ -1,0 +1,158 @@
+# Token benchmark scenarios, run by TestTokenBench against testdata/fixture.
+#
+# name:     unique id (also the session id stem and the baseline.json key)
+# tool:     MCP tool to call
+# args:     tool arguments; ${project}, ${session}, ${setup_session}, and setup-saved
+#           variables are substituted into strings
+# expect:   hits that must appear: "relpath:symbol" (a result's file and name or
+#           qualified_name) or "text:<substring>" (anywhere in the response)
+# negative: the query has no relevant answer in the fixture; the report notes whether
+#           it came back empty
+# setup:    calls run once before the measured calls; save maps a variable name to a
+#           top-level string field of the response
+
+# get_context_capsule
+- name: capsule_symbol_load
+  tool: get_context_capsule
+  args: {query: Load config file, project_path: "${project}", session_id: "${session}"}
+  expect: [config/loader.go:Load, config/loader.go:NewLoader]
+- name: capsule_overloaded_validate
+  tool: get_context_capsule
+  args: {query: Validate, project_path: "${project}", session_id: "${session}"}
+  expect: [config/config.go:Validate, config/loader.go:Validate]
+- name: capsule_rate_limiter
+  tool: get_context_capsule
+  args: {query: RateLimiter Allow, project_path: "${project}", session_id: "${session}"}
+  expect: [server/middleware.go:RateLimiter, server/middleware.go:Allow]
+- name: capsule_skeleton_cache_get
+  tool: get_context_capsule
+  args: {query: cache Get Put, project_path: "${project}", session_id: "${session}", mode: skeleton}
+  expect: [cache/lru.go:Get, cache/ttl.go:Get]
+- name: capsule_python_total
+  tool: get_context_capsule
+  args: {query: compute_total, project_path: "${project}", session_id: "${session}", language: python}
+  expect: [py/billing/invoice.py:compute_total]
+
+# search_semantic
+- name: semantic_rate_limit
+  tool: search_semantic
+  args: {query: rate limiter that allows a request, project_path: "${project}", session_id: "${session}"}
+  expect: [server/middleware.go:Allow, server/middleware.go:NewRateLimiter]
+- name: semantic_sales_tax
+  tool: search_semantic
+  args: {query: sales tax for a region, project_path: "${project}", session_id: "${session}"}
+  expect: [py/billing/tax.py:calculate_tax]
+- name: semantic_currency_format
+  tool: search_semantic
+  args: {query: format cents as currency, project_path: "${project}", session_id: "${session}"}
+  expect: [web/src/utils/format.ts:formatCurrency]
+- name: semantic_env_overrides
+  tool: search_semantic
+  args: {query: apply environment variable overrides to config, project_path: "${project}", session_id: "${session}"}
+  expect: [config/loader.go:applyEnvOverrides]
+
+# get_file_context
+- name: file_go_loader
+  tool: get_file_context
+  args: {file: "${project}/config/loader.go", project_path: "${project}", session_id: "${session}"}
+  expect: [config/loader.go:Load, config/loader.go:mergeDefaults]
+- name: file_python_invoice
+  tool: get_file_context
+  args: {file: "${project}/py/billing/invoice.py", project_path: "${project}", session_id: "${session}"}
+  expect: [py/billing/invoice.py:compute_total, py/billing/invoice.py:Invoice]
+- name: file_ts_client_full
+  tool: get_file_context
+  args: {file: "${project}/web/src/api/client.ts", project_path: "${project}", session_id: "${session}", mode: full}
+  expect: [web/src/api/client.ts:ApiClient, web/src/api/client.ts:retryRequest]
+- name: file_yaml_service
+  tool: get_file_context
+  args: {file: "${project}/deploy/service.yaml", project_path: "${project}", session_id: "${session}"}
+
+# retrieve
+- name: retrieve_config_loading
+  tool: retrieve
+  args: {query: load the config file and validate it, project_path: "${project}", session_id: "${session}", include_docs: false}
+  expect: [config/loader.go:Load]
+- name: retrieve_payments
+  tool: retrieve
+  args: {query: charge a customer card and refund, project_path: "${project}", session_id: "${session}", include_docs: false}
+  expect: [py/billing/payments.py:charge, py/billing/payments.py:refund]
+- name: retrieve_session_login
+  tool: retrieve
+  args: {query: login session token, project_path: "${project}", session_id: "${session}", include_docs: false, format: json}
+  expect: [web/src/store/session.ts:login]
+- name: retrieve_cache_eviction
+  tool: retrieve
+  args: {query: evict oldest cache entry, project_path: "${project}", session_id: "${session}", include_docs: false, mode: auto}
+  expect: [cache/lru.go:evictOldest]
+
+# recall_memory (seeded with project-scoped store_memory facts and rules). Scenarios run in
+# order and share the project's memory, so later recalls also see earlier seeds.
+- name: recall_test_framework
+  tool: recall_memory
+  setup:
+    - tool: store_memory
+      args: {kind: fact, scope: project, session_id: "${setup_session}", project_path: "${project}", subject: python.tests, predicate: use, object: pytest with plain asserts}
+    - tool: store_memory
+      args: {kind: fact, scope: project, session_id: "${setup_session}", project_path: "${project}", subject: web.tests, predicate: use, object: jest with __mocks__ for the api client}
+  args: {query: which test framework, session_id: "${session}", project_path: "${project}", scope: project}
+  expect: ["text:pytest", "text:jest"]
+- name: recall_error_rule
+  tool: recall_memory
+  setup:
+    - tool: store_memory
+      args: {kind: procedure, scope: project, session_id: "${setup_session}", project_path: "${project}", rule: Wrap Go errors with the errs package, never fmt.Errorf}
+  args: {query: error handling, session_id: "${session}", project_path: "${project}", scope: project}
+  expect: ["text:errs package"]
+- name: recall_superseded_fact
+  tool: recall_memory
+  setup:
+    - tool: store_memory
+      args: {kind: fact, scope: project, session_id: "${setup_session}", project_path: "${project}", subject: deploy.replicas, predicate: is, object: "2"}
+    - tool: store_memory
+      args: {kind: fact, scope: project, session_id: "${setup_session}", project_path: "${project}", subject: deploy.replicas, predicate: is, object: "4"}
+  args: {query: deploy replicas, session_id: "${session}", project_path: "${project}", scope: project}
+  expect: ["text:deploy.replicas is 4"]
+- name: recall_list_recent
+  tool: recall_memory
+  args: {session_id: "${session}", project_path: "${project}", scope: project, token_budget: 200}
+  expect: ["text:pytest"]
+
+# handoff
+- name: handoff_create
+  tool: handoff
+  setup:
+    - tool: get_context_capsule
+      args: {query: RateLimiter, project_path: "${project}", session_id: "${setup_session}"}
+  args: {action: create, session_id: "${setup_session}", project_path: "${project}", brief: Add per-customer rate limits to the server middleware}
+  expect: ["text:hof_"]
+- name: open_handoff_digest
+  tool: open_handoff
+  setup:
+    - tool: get_context_capsule
+      args: {query: compute_total, project_path: "${project}", session_id: "${setup_session}"}
+    - tool: get_file_context
+      args: {file: "${project}/py/billing/invoice.py", project_path: "${project}", session_id: "${setup_session}"}
+    - tool: handoff
+      args: {action: create, session_id: "${setup_session}", project_path: "${project}", brief: Add a refund line to invoices}
+      save: {ref: handoff}
+  args: {handoff: "${ref}", project_path: "${project}"}
+  expect: ["text:Add a refund line to invoices", "text:compute_total"]
+
+# negative: nothing in the fixture answers these
+- name: negative_capsule_kubernetes_operator
+  tool: get_context_capsule
+  args: {query: ReconcileKubernetesOperator, project_path: "${project}", session_id: "${session}"}
+  negative: true
+- name: negative_semantic_image_resize
+  tool: search_semantic
+  args: {query: resize jpeg thumbnails with lanczos filter, project_path: "${project}", session_id: "${session}"}
+  negative: true
+- name: negative_retrieve_graphql
+  tool: retrieve
+  args: {query: graphql subscription resolver websocket, project_path: "${project}", session_id: "${session}", include_docs: false}
+  negative: true
+- name: negative_recall_unrelated
+  tool: recall_memory
+  args: {query: favorite espresso grind size, session_id: "${session}", project_path: "${project}", scope: project}
+  negative: true

@@ -173,7 +173,7 @@ Operators configure via dashboard **Settings → Virtual context** or env (`AST_
 | `apply_context_fn` | `tokens_reclaimed`, per-ref `revision` | Virtual context card: tokens reclaimed by a sweep |
 | `flush_context` | `flushed_refs`, freed tokens | inventory ↓, flushed 30d ↑ |
 
-Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`**, and **`execute_code`** — not virtual context stores.
+Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`**, and **`execute_code`** — compression + session dedup only, not virtual context or memory writes (`store_context`, `store_memory`, …).
 
 ### Tier requirements
 
@@ -371,10 +371,10 @@ KV repair notes share **virtual context quotas** (same as compaction notes). Sep
 
 | Counted | Not counted |
 |---------|-------------|
-| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, maps, impact graph, … |
+| `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, maps, impact graph, `store_context`, `store_memory`, … |
 
 - Context tool JSON includes **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**
-- Dashboard **Tokens saved** = sum of those MCP calls only (doc-only days → **0** is normal)
+- Dashboard **Tokens saved** = compression + dedup from those five search/read tools only; virtual context and memory writes never count (doc-only days → **0** is normal)
 - **`mode=full`** ≈ no savings; **`auto`** / **`skeleton`** / **`summary`** are where savings come from
 - Same **`session_id`** on all four context tools for dedup credit
 - **`execute_code`:** `tokens_saved = max(0, data_baseline_tokens − tokens_used)`

@@ -43,6 +43,9 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		Object:      strArg(toolArgs, "object"),
 		Rule:        strArg(toolArgs, "rule"),
 		SourceRef:   strArg(toolArgs, "source_ref"),
+		// A new fact supersedes the active one for its subject and predicate unless the
+		// caller opts out.
+		InvalidatePrevious: true,
 	}
 	if v, ok := toolArgs["invalidate_previous"].(bool); ok {
 		in.InvalidatePrevious = v
@@ -83,11 +86,22 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 	if b, ok := toolArgs["token_budget"].(float64); ok && b > 0 {
 		budget = int(b)
 	}
+	asOf := strArg(toolArgs, "as_of")
+	if asOf != "" {
+		normalized, err := db.NormalizeSQLTime(asOf)
+		if err != nil {
+			out := map[string]string{"error": err.Error()}
+			resultJSON, _ := json.Marshal(out)
+			logToolQuery("recall_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
+			return out
+		}
+		asOf = normalized
+	}
 	in := memory.RecallInput{
 		Query:       strArg(toolArgs, "query"),
 		SessionID:   sessionID,
 		ProjectPath: pp,
-		AsOf:        strArg(toolArgs, "as_of"),
+		AsOf:        asOf,
 		Limit:       limit,
 		TokenBudget: budget,
 		// Project memories describe the repo, not the checkout, so a note taken in
@@ -141,6 +155,12 @@ func handleForgetMemory(toolArgs map[string]interface{}, start time.Time, cpuSta
 		Subject:     strArg(toolArgs, "subject"),
 		Predicate:   strArg(toolArgs, "predicate"),
 		All:         boolArg(toolArgs, "all"),
+		Confirm:     boolArg(toolArgs, "confirm"),
+	}
+	// all=true is scoped only by an explicit project_path, never the server's default
+	// project, so a bare all=true still needs confirm=true.
+	if in.All {
+		in.ProjectPath = strArg(toolArgs, "project_path")
 	}
 	if scope, ok := toolArgs["scope"].(string); ok {
 		in.Scope = memory.Scope(strings.ToLower(strings.TrimSpace(scope)))

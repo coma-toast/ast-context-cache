@@ -25,7 +25,7 @@ const (
 		COALESCE(SUM(CASE WHEN tool_name='store_context' THEN tokens_saved ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN tool_name IN ('fetch_context','search_context') THEN tokens_used ELSE 0 END),0)
 		FROM queries WHERE `
-	selectTopToolsBaseQuery = `SELECT tool_name, COUNT(*), COALESCE(SUM(tokens_saved),0), COALESCE(AVG(duration_ms),0)
+	selectTopToolsBaseQuery = `SELECT tool_name, COUNT(*), ` + tokensSavedSum + `, COALESCE(AVG(duration_ms),0)
 		FROM queries WHERE `
 	topToolsGroupOrderLimitClause  = ` GROUP BY tool_name ORDER BY COUNT(*) DESC LIMIT ?`
 	selectContextSessionsBaseQuery = `SELECT session_id, COALESCE(project_path,''), COALESCE(notes_count,0),

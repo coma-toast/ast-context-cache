@@ -38,7 +38,7 @@ else
   ORT_DYLIB := $(ORT_DYLIB_LINUX)
 endif
 
-.PHONY: help setup deps generate build run clean install uninstall test race bench fmt lint ui-test storybook build-storybook dashboard-screenshot verify-stories ui-build ui-dev
+.PHONY: help setup deps generate build run clean install uninstall test race bench bench-tokens bench-tokens-update fmt lint ui-test storybook build-storybook dashboard-screenshot verify-stories ui-build ui-dev
 
 ui-build:
 	cd ui && npm ci && npm run build
@@ -58,6 +58,8 @@ help:
 	@echo "  make test     — run unit tests"
 	@echo "  make race     — run unit tests with -race"
 	@echo "  make bench    — run benchmarks (BENCH_PKGS, default ./internal/...)"
+	@echo "  make bench-tokens        — token benchmark table vs internal/tokenbench/baseline.json"
+	@echo "  make bench-tokens-update — rerun the token benchmark and rewrite its baseline.json"
 	@echo "  make fmt      — format Go code with gofumpt"
 	@echo "  make lint     — go vet + gofumpt check"
 	@echo "  make ui-test  — run ui/ Vitest suite"
@@ -190,10 +192,20 @@ run-safe: build
 	AST_EMBED_WORKERS=0 ONNXRUNTIME_LIB=$(ORT_DYLIB) ./$(BINARY)
 
 # TEST_PKGS narrows the run, e.g. make test TEST_PKGS=./internal/errs/...
+# TEST_FLAGS adds go test flags, e.g. make test TEST_FLAGS=-v
 TEST_PKGS ?= ./...
+TEST_FLAGS ?=
 
 test: download-tokenizer-lib internal/version/VERSION
-	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 $(TEST_PKGS)
+	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 $(TEST_FLAGS) $(TEST_PKGS)
+
+# bench-tokens prints the token benchmark table (tokens, results, recall, determinism)
+# against internal/tokenbench/baseline.json; bench-tokens-update rewrites that baseline.
+bench-tokens:
+	AST_TOKENBENCH_VERBOSE=1 $(MAKE) test TEST_PKGS=./internal/tokenbench/... TEST_FLAGS="-v -run TestTokenBench"
+
+bench-tokens-update:
+	AST_TOKENBENCH_VERBOSE=1 AST_TOKENBENCH_UPDATE=1 $(MAKE) test TEST_PKGS=./internal/tokenbench/... TEST_FLAGS="-v -run TestTokenBench"
 
 race: download-tokenizer-lib internal/version/VERSION
 	$(CGO_FLAGS) CGO_ENABLED=1 go test -tags sqlite_fts5 -count=1 -race $(TEST_PKGS)

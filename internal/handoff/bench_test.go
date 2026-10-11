@@ -22,9 +22,9 @@ const (
 	perfTrailEntries = snapshotTrailLimit
 	perfManifestKeys = 600
 	perfNotes        = 4
-	// perfNoteBytes fills the rest of the cap; each note author holds two notes, inside the
-	// 32k-token per-session note quota.
-	perfNoteBytes = 46000
+	// perfNoteBytes fills the rest of the cap (each "retry note " is 2 o200k tokens); each
+	// note author holds two notes, inside the 32k-token per-session note quota.
+	perfNoteBytes = 55000
 	// perfChildren is how many children the scratchpad and collect fixtures open.
 	perfChildren = 16
 	// perfResultWords sizes a child's result (~1.2k tokens), so 16 of them fit one tree.

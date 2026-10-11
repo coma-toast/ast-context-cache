@@ -1,0 +1,224 @@
+{
+  "scenarios": [
+    {
+      "name": "capsule_symbol_load",
+      "tool": "get_context_capsule",
+      "tokens": 2660,
+      "results": 30,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "capsule_overloaded_validate",
+      "tool": "get_context_capsule",
+      "tokens": 2488,
+      "results": 30,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "capsule_rate_limiter",
+      "tool": "get_context_capsule",
+      "tokens": 2735,
+      "results": 30,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "capsule_skeleton_cache_get",
+      "tool": "get_context_capsule",
+      "tokens": 2540,
+      "results": 30,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "capsule_python_total",
+      "tool": "get_context_capsule",
+      "tokens": 2410,
+      "results": 24,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "semantic_rate_limit",
+      "tool": "search_semantic",
+      "tokens": 1051,
+      "results": 10,
+      "recall": 0.5,
+      "deterministic": false
+    },
+    {
+      "name": "semantic_sales_tax",
+      "tool": "search_semantic",
+      "tokens": 1124,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "semantic_currency_format",
+      "tool": "search_semantic",
+      "tokens": 1080,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "semantic_env_overrides",
+      "tool": "search_semantic",
+      "tokens": 1068,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "file_go_loader",
+      "tool": "get_file_context",
+      "tokens": 297,
+      "results": 6,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "file_python_invoice",
+      "tool": "get_file_context",
+      "tokens": 427,
+      "results": 6,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "file_ts_client_full",
+      "tool": "get_file_context",
+      "tokens": 837,
+      "results": 7,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "file_yaml_service",
+      "tool": "get_file_context",
+      "tokens": 184,
+      "results": 4,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "retrieve_config_loading",
+      "tool": "retrieve",
+      "tokens": 1416,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "retrieve_payments",
+      "tool": "retrieve",
+      "tokens": 1703,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "retrieve_session_login",
+      "tool": "retrieve",
+      "tokens": 2040,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "retrieve_cache_eviction",
+      "tool": "retrieve",
+      "tokens": 1479,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "recall_test_framework",
+      "tool": "recall_memory",
+      "tokens": 122,
+      "results": 2,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "recall_error_rule",
+      "tool": "recall_memory",
+      "tokens": 169,
+      "results": 3,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "recall_superseded_fact",
+      "tool": "recall_memory",
+      "tokens": 208,
+      "results": 4,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "recall_list_recent",
+      "tool": "recall_memory",
+      "tokens": 168,
+      "results": 4,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "handoff_create",
+      "tool": "handoff",
+      "tokens": 100,
+      "results": 0,
+      "recall": 1,
+      "deterministic": true
+    },
+    {
+      "name": "open_handoff_digest",
+      "tool": "open_handoff",
+      "tokens": 114,
+      "results": 0,
+      "recall": 1,
+      "deterministic": false
+    },
+    {
+      "name": "negative_capsule_kubernetes_operator",
+      "tool": "get_context_capsule",
+      "tokens": 3606,
+      "results": 30,
+      "recall": 1,
+      "deterministic": false,
+      "no_match": false
+    },
+    {
+      "name": "negative_semantic_image_resize",
+      "tool": "search_semantic",
+      "tokens": 980,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false,
+      "no_match": false
+    },
+    {
+      "name": "negative_retrieve_graphql",
+      "tool": "retrieve",
+      "tokens": 1350,
+      "results": 10,
+      "recall": 1,
+      "deterministic": false,
+      "no_match": false
+    },
+    {
+      "name": "negative_recall_unrelated",
+      "tool": "recall_memory",
+      "tokens": 208,
+      "results": 4,
+      "recall": 1,
+      "deterministic": true,
+      "no_match": false
+    }
+  ]
+}

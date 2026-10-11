@@ -24,7 +24,7 @@ func PruneSuperseded(maxAgeDays int) (int64, error) {
 	if maxAgeDays <= 0 {
 		maxAgeDays = 90
 	}
-	cutoff := time.Now().AddDate(0, 0, -maxAgeDays).Format("2006-01-02") + "T00:00:00"
+	cutoff := db.SQLTime(time.Now().UTC().AddDate(0, 0, -maxAgeDays))
 	rows, err := db.ContextDB.Query(selectExpiredEntryRefsQuery, cutoff)
 	if err != nil {
 		return 0, err

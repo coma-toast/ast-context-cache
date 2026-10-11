@@ -11,6 +11,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
+	"github.com/coma-toast/ast-context-cache/internal/tokens"
 )
 
 const (
@@ -52,6 +53,13 @@ func Init() error {
 			return err
 		}
 	}
+	// Before any pool opens or schema step runs: copy 4.x databases aside, once.
+	if err := snapshotPre50(ctxPath, "context"); err != nil {
+		return err
+	}
+	if err := snapshotPre50(usePath, "usage"); err != nil {
+		return err
+	}
 	startup.SetMessage("Opening databases…")
 	// Not ready while the pools are reassigned; re-checked on every return below,
 	// including the errors, which leave some of them open.
@@ -79,6 +87,9 @@ func Init() error {
 	initIndexSchema(IndexDB)
 	initUsageSchema(DB)
 	initContextSchema(ContextDB)
+	if err := migrateSchemas(idxPath, ctxPath, usePath); err != nil {
+		return err
+	}
 	if err := createFTSTriggers(IndexDB); err != nil {
 		// Not fatal: StartFTSSelfCheck retries, and search still works on whatever
 		// the indexes already hold.
@@ -129,8 +140,9 @@ func LogQuery(toolName string, args map[string]interface{}, m QueryLogMetrics, p
 	enqueueQueryLog(toolName, args, m, projectPath, errMsg)
 }
 
+// EstimateTokens returns the o200k token count of text (len/4 if the tokenizer is unavailable).
 func EstimateTokens(text string) int {
-	return len(text) / 4
+	return tokens.Count(text)
 }
 
 // RelPath strips the projectPath prefix from an absolute file path, returning

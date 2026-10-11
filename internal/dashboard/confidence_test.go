@@ -74,8 +74,8 @@ func TestWeeklyDigestAndContextSessionsAPI(t *testing.T) {
 	if digest.WindowDays != 7 {
 		t.Fatalf("WindowDays=%d", digest.WindowDays)
 	}
-	if digest.TokensSaved < 4000 {
-		t.Fatalf("TokensSaved=%d", digest.TokensSaved)
+	if digest.TokensSaved != 4000 {
+		t.Fatalf("TokensSaved=%d want 4000 (store_context must not count)", digest.TokensSaved)
 	}
 	if digest.VirtualStored < 800 || digest.VirtualAccessed < 750 {
 		t.Fatalf("VC stored=%d accessed=%d", digest.VirtualStored, digest.VirtualAccessed)

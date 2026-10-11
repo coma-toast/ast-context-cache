@@ -137,7 +137,7 @@ func TestPostRejects(t *testing.T) {
 		{"claim type", PostRequest{SessionID: child, Type: EntryTypeClaim, Text: "x"}, errs.CodeInvalidInput},
 		{"trail type", PostRequest{SessionID: child, Type: EntryTypeTrail, Text: "x"}, errs.CodeInvalidInput},
 		{"empty text", PostRequest{SessionID: child, Type: EntryTypeFinding, Text: "  "}, errs.CodeInvalidInput},
-		{"over 500 tokens", PostRequest{SessionID: child, Type: EntryTypeFinding, Text: strings.Repeat("x", 2004)}, errs.CodeInvalidInput},
+		{"over 500 tokens", PostRequest{SessionID: child, Type: EntryTypeFinding, Text: strings.Repeat("x ", 1100)}, errs.CodeInvalidInput},
 		{"too many refs", PostRequest{SessionID: child, Type: EntryTypeFinding, Text: "x", Refs: manyRefs}, errs.CodeInvalidInput},
 	}
 	for _, tc := range tests {

@@ -10,25 +10,16 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
-	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 const (
 	selectActiveEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
 		FROM structured_memory WHERE 1=1`
-	searchEntriesLikeQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
-		FROM structured_memory WHERE (subject LIKE ? OR predicate LIKE ? OR object LIKE ? OR rule LIKE ?)`
-	searchEntriesFTSQuery = `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
-		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at
-		FROM structured_memory_fts f
-		JOIN structured_memory sm ON sm.ref = f.ref
-		WHERE structured_memory_fts MATCH ?`
 	selectEntriesByRefsQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
 		FROM structured_memory WHERE ref IN (`
-	selectActiveEntryTokensQuery    = `SELECT ref, token_est FROM structured_memory WHERE valid_until IS NULL OR valid_until = ''`
+	selectActiveEntryTokensQuery    = `SELECT ref, token_est FROM structured_memory WHERE (valid_until IS NULL OR valid_until = '')`
 	invalidateEntryQuery            = `UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ?`
 	invalidateActiveEntryQuery      = `UPDATE structured_memory SET valid_until = datetime('now') WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`
 	updateEntryAccessQuery          = `UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`
@@ -39,9 +30,9 @@ const (
 	smValidAsOfClause               = ` AND sm.valid_from <= ? AND (sm.valid_until IS NULL OR sm.valid_until = '' OR sm.valid_until > ?)`
 	smValidFromAsOfClause           = ` AND sm.valid_from <= ?`
 	smValidNowClause                = ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
-	orderByAccessCreatedLimitClause = ` ORDER BY access_count DESC, created_at DESC LIMIT ?`
-	orderByAccessLimitClause        = ` ORDER BY access_count DESC LIMIT ?`
-	orderBySMAccessLimitClause      = ` ORDER BY sm.access_count DESC LIMIT ?`
+	orderByAccessCreatedLimitClause = ` ORDER BY access_count DESC, created_at DESC, ref LIMIT ?`
+	andKindInClause                 = ` AND kind IN (`
+	andSMKindInClause               = ` AND sm.kind IN (`
 	// Fragments that scopeClauseFor and projectMatch join around caller-chosen column names.
 	andFragment          = ` AND `
 	orFragment           = ` OR `
@@ -100,16 +91,19 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 		in.TokenBudget = 800
 	}
 	var entries []Entry
+	var scores map[string]float64
 	var err error
 	if in.Query != "" {
-		entries, err = searchEntries(in, emb)
+		entries, scores, err = searchEntries(in, emb)
 	} else {
 		entries, err = listActiveEntries(in)
 	}
 	if err != nil {
 		return nil, err
 	}
-	entries = filterKinds(entries, in.Kinds)
+	if len(entries) > in.Limit {
+		entries = entries[:in.Limit]
+	}
 	budgeted, tokensUsed, savedEst := applyTokenBudget(entries, in.TokenBudget)
 	lines := make([]CompactLine, 0, len(budgeted))
 	for _, e := range budgeted {
@@ -118,7 +112,7 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 			continue
 		}
 		RecordAccess(e.Ref, in.SessionID, in.ProjectPath, "recall_memory", estimateEntryTokens(e))
-		lines = append(lines, CompactLine{Ref: e.Ref, Kind: e.Kind, Line: line})
+		lines = append(lines, CompactLine{Ref: e.Ref, Kind: e.Kind, Line: line, Score: scores[e.Ref]})
 	}
 	return &RecallResult{
 		Entries:        budgeted,
@@ -128,23 +122,6 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 		TokensSavedEst: savedEst,
 		RefsAccessed:   len(lines),
 	}, nil
-}
-
-func filterKinds(entries []Entry, kinds []Kind) []Entry {
-	if len(kinds) == 0 {
-		return entries
-	}
-	want := map[Kind]bool{}
-	for _, k := range kinds {
-		want[k] = true
-	}
-	out := make([]Entry, 0, len(entries))
-	for _, e := range entries {
-		if want[e.Kind] {
-			out = append(out, e)
-		}
-	}
-	return out
 }
 
 func applyTokenBudget(entries []Entry, budget int) ([]Entry, int, int) {
@@ -252,121 +229,35 @@ func scopeClauseFor(in RecallInput, prefix string) (string, []any) {
 	return andFragment + "(" + strings.Join(parts, orFragment) + ")", args
 }
 
+// kindClause builds the kind filter; prefix qualifies the column for joins.
+func kindClause(kinds []Kind, prefix string) (string, []any) {
+	if len(kinds) == 0 {
+		return "", nil
+	}
+	clause := andKindInClause
+	if prefix != "" {
+		clause = andSMKindInClause
+	}
+	args := make([]any, len(kinds))
+	for i, k := range kinds {
+		args[i] = string(k)
+	}
+	return clause + strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + ")", args
+}
+
+// filterClauses joins the validity, scope and kind filters every recall query applies;
+// prefix qualifies columns for joins and v must match it.
+func filterClauses(in RecallInput, prefix string, v validityClauses) (string, []any) {
+	validity, args := validityClause(in, v)
+	scope, scopeArgs := scopeClauseFor(in, prefix)
+	kind, kindArgs := kindClause(in.Kinds, prefix)
+	args = append(append(args, scopeArgs...), kindArgs...)
+	return validity + scope + kind, args
+}
+
 func listActiveEntries(in RecallInput) ([]Entry, error) {
-	q := selectActiveEntriesQuery
-	var args []any
-	if clause, a := validityClause(in, entryValidity); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	if clause, a := scopeClause(in); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	q += orderByAccessCreatedLimitClause
-	args = append(args, in.Limit*2)
-	return queryEntries(q, args...)
-}
-
-func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, error) {
-	fts, _ := searchFTS(in)
-	if len(fts) > 0 {
-		return fts, nil
-	}
-	likeQ := `%` + in.Query + `%`
-	q := searchEntriesLikeQuery
-	args := []any{likeQ, likeQ, likeQ, likeQ}
-	if clause, a := validityClause(in, entryValidity); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	if clause, a := scopeClause(in); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	q += orderByAccessLimitClause
-	args = append(args, in.Limit*2)
-	entries, err := queryEntries(q, args...)
-	if err != nil || len(entries) > 0 || emb == nil {
-		return entries, err
-	}
-	return vectorSearch(in, emb)
-}
-
-func searchFTS(in RecallInput) ([]Entry, error) {
-	ftsQuery := search.BuildFTSQuery(search.QueryTerms(in.Query))
-	if ftsQuery == "" {
-		return nil, nil
-	}
-	q := searchEntriesFTSQuery
-	args := []any{ftsQuery}
-	if clause, a := validityClause(in, smEntryValidity); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	if clause, a := scopeClauseFor(in, "sm."); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	q += orderBySMAccessLimitClause
-	args = append(args, in.Limit*2)
-	return queryEntries(q, args...)
-}
-
-func vectorSearch(in RecallInput, emb embedder.Interface) ([]Entry, error) {
-	vec, err := emb.EmbedSingle(in.Query)
-	if err != nil {
-		return nil, err
-	}
-	// Session-less vectors only hold project or global entries, which a
-	// session-scoped recall can never return.
-	scored := search.Cache.SearchMemory(vec, in.SessionID, in.Scope != ScopeSession, in.Limit*2)
-	var refs []string
-	for _, s := range scored {
-		if ref, _ := s.Data["ref"].(string); ref != "" {
-			refs = append(refs, ref)
-		}
-	}
-	if len(refs) == 0 {
-		return nil, nil
-	}
-	// Vectors only know the storing session, so the re-select applies the same
-	// validity and scope filters as the FTS and LIKE paths.
-	q := selectEntriesByRefsQuery + strings.TrimSuffix(strings.Repeat("?,", len(refs)), ",") + ")"
-	args := make([]any, 0, len(refs))
-	for _, r := range refs {
-		args = append(args, r)
-	}
-	if clause, a := validityClause(in, entryValidity); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	if clause, a := scopeClause(in); clause != "" {
-		q += clause
-		args = append(args, a...)
-	}
-	entries, err := queryEntries(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	return orderByRefs(entries, refs), nil
-}
-
-// orderByRefs returns entries in refs order (the vector similarity rank),
-// dropping duplicate refs.
-func orderByRefs(entries []Entry, refs []string) []Entry {
-	byRef := make(map[string]Entry, len(entries))
-	for _, e := range entries {
-		byRef[e.Ref] = e
-	}
-	out := make([]Entry, 0, len(entries))
-	for _, r := range refs {
-		if e, ok := byRef[r]; ok {
-			out = append(out, e)
-			delete(byRef, r)
-		}
-	}
-	return out
+	clause, args := filterClauses(in, "", entryValidity)
+	return queryEntries(selectActiveEntriesQuery+clause+orderByAccessCreatedLimitClause, append(args, in.Limit*2)...)
 }
 
 func queryEntries(q string, args ...any) ([]Entry, error) {
@@ -395,6 +286,9 @@ type ForgetInput struct {
 	Predicate   string
 	Scope       Scope
 	All         bool
+	// Confirm allows all=true with no scope, session or project, which invalidates every
+	// active entry across all sessions and projects.
+	Confirm bool
 }
 
 // ForgetResult reports invalidated entries. For refs mode the per-ref lists
@@ -419,25 +313,7 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		return nil, errs.NewCode(errs.CodeInvalidInput, fmt.Sprintf("invalid scope: %s (want session, project, or global)", in.Scope), "scope", in.Scope)
 	}
 	if in.All {
-		rows, err := db.ContextDB.Query(selectActiveEntryTokensQuery)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		var refs []string
-		tokens := 0
-		for rows.Next() {
-			var ref string
-			var tok int
-			rows.Scan(&ref, &tok)
-			refs = append(refs, ref)
-			tokens += tok
-		}
-		for _, ref := range refs {
-			invalidateRef(ref)
-		}
-		logger.Info("Invalidated all structured memory across every session and project", "invalidated", len(refs), "tokens", tokens)
-		return &ForgetResult{InvalidatedRefs: len(refs), VirtualTokensFreed: tokens}, nil
+		return forgetAll(in)
 	}
 	if len(in.Refs) > 0 {
 		return forgetRefs(in)
@@ -455,6 +331,59 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		return &ForgetResult{InvalidatedRefs: len(refs)}, nil
 	}
 	return nil, errs.NewCode(errs.CodeInvalidInput, "refs, subject, or all=true required")
+}
+
+// forgetAll invalidates every active entry in the given scope, session or project. With none
+// of them it needs Confirm, since it then wipes memory across every session and project.
+func forgetAll(in ForgetInput) (*ForgetResult, error) {
+	clause, args := forgetScopeClause(in)
+	if clause == "" && !in.Confirm {
+		return nil, errs.NewCode(errs.CodeInvalidInput, "all=true without scope requires confirm=true")
+	}
+	rows, err := db.ContextDB.Query(selectActiveEntryTokensQuery+clause, args...)
+	if err != nil {
+		return nil, errs.WrapMessage("failed to select memory to forget", err)
+	}
+	var refs []string
+	tokens := 0
+	for rows.Next() {
+		var ref string
+		var tok int
+		if rows.Scan(&ref, &tok) == nil {
+			refs = append(refs, ref)
+			tokens += tok
+		}
+	}
+	rows.Close()
+	for _, ref := range refs {
+		invalidateRef(ref)
+	}
+	logger.Info("Invalidated all structured memory in scope", "invalidated", len(refs), "tokens", tokens,
+		"scope", in.Scope, "session_id", in.SessionID, "project_path", in.ProjectPath)
+	return &ForgetResult{InvalidatedRefs: len(refs), VirtualTokensFreed: tokens}, nil
+}
+
+// forgetScopeClause limits forget all=true. An explicit scope uses the recall scope filter;
+// otherwise it matches the given session's and project's entries but never global ones.
+func forgetScopeClause(in ForgetInput) (string, []any) {
+	rin := RecallInput{Scope: in.Scope, SessionID: in.SessionID, ProjectPath: in.ProjectPath}
+	if in.Scope != "" {
+		return scopeClause(rin)
+	}
+	var parts []string
+	var args []any
+	if in.SessionID != "" {
+		parts = append(parts, "(scope"+scopeSessionFragment+"session_id"+eqParamFragment+")")
+		args = append(args, in.SessionID)
+	}
+	if in.ProjectPath != "" {
+		parts = append(parts, "(scope"+scopeProjectFragment+andFragment+"project_path"+eqParamFragment+")")
+		args = append(args, in.ProjectPath)
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return andFragment + "(" + strings.Join(parts, orFragment) + ")", args
 }
 
 func invalidateRef(ref string) {

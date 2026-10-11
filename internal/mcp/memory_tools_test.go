@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
@@ -210,4 +213,56 @@ FACT: too-short`
 	if n != 4 {
 		t.Fatalf("structured_memory rows=%d want 4", n)
 	}
+}
+
+// BF-5: as_of is normalized to SQLite's datetime form, and a bad value is an error rather than
+// a text comparison that silently matches the wrong rows.
+func TestRecallMemoryAsOf(t *testing.T) {
+	setupMemoryToolTest(t)
+	storeSessionRules(t, "s-asof", 1)
+	out, isErr := callTool(t, "recall_memory", map[string]interface{}{"session_id": "s-asof", "as_of": "not a time"})
+	assert.True(t, isErr)
+	assert.Contains(t, out["error"], "invalid timestamp")
+	out, isErr = callTool(t, "recall_memory", map[string]interface{}{"session_id": "s-asof", "as_of": "2999-01-01T00:00:00Z"})
+	require.False(t, isErr, out)
+	assert.Len(t, out["lines"], 1)
+	out, isErr = callTool(t, "recall_memory", map[string]interface{}{"session_id": "s-asof", "as_of": "2000-01-01"})
+	require.False(t, isErr, out)
+	assert.Empty(t, out["lines"])
+}
+
+// BF-4: store_memory supersedes by default and keeps both facts when told not to.
+func TestStoreMemoryInvalidatePreviousDefault(t *testing.T) {
+	setupMemoryToolTest(t)
+	fact := func(object string, extra map[string]interface{}) map[string]interface{} {
+		args := map[string]interface{}{"kind": "fact", "session_id": "s-inv", "subject": "editor", "object": object}
+		for k, v := range extra {
+			args[k] = v
+		}
+		out, isErr := callTool(t, "store_memory", args)
+		require.False(t, isErr, out)
+		return out
+	}
+	first := fact("vim", nil)
+	out := fact("emacs", nil)
+	assert.Equal(t, []string{first["ref"].(string)}, toStrings(out["invalidated_refs"]))
+	out = fact("helix", map[string]interface{}{"invalidate_previous": false})
+	assert.Empty(t, toStrings(out["invalidated_refs"]))
+}
+
+// BF-13: forget_memory all=true needs a scope or confirm=true; the server's default project
+// does not count as a scope.
+func TestForgetMemoryAllRequiresScopeOrConfirm(t *testing.T) {
+	setupMemoryToolTest(t)
+	mine := storeSessionRules(t, "s-all-mine", 2)
+	other := storeSessionRules(t, "s-all-other", 1)
+	out, isErr := callTool(t, "forget_memory", map[string]interface{}{"all": true})
+	assert.True(t, isErr)
+	assert.Contains(t, out["error"], "all=true without scope requires confirm=true")
+	out, isErr = callTool(t, "forget_memory", map[string]interface{}{"all": true, "session_id": "s-all-mine"})
+	require.False(t, isErr, out)
+	assert.Equal(t, float64(len(mine)), out["invalidated_refs"])
+	out, isErr = callTool(t, "forget_memory", map[string]interface{}{"all": true, "confirm": true})
+	require.False(t, isErr, out)
+	assert.Equal(t, float64(len(other)), out["invalidated_refs"])
 }

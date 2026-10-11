@@ -82,7 +82,8 @@ func normalizeScope(s Scope, sessionID, projectPath string) (Scope, error) {
 	}
 }
 
-// Store saves a fact or procedure with optional temporal invalidation of prior facts.
+// Store saves a fact or procedure. With InvalidatePrevious a fact supersedes the active facts
+// sharing its subject, predicate and scope.
 func Store(in StoreInput) (*StoreResult, error) {
 	in.SessionID = strings.TrimSpace(in.SessionID)
 	in.ProjectPath = strings.TrimSpace(in.ProjectPath)
@@ -142,7 +143,7 @@ func Store(in StoreInput) (*StoreResult, error) {
 		return err
 	}
 	var invalidated []string
-	if in.Kind == KindFact {
+	if in.Kind == KindFact && in.InvalidatePrevious {
 		factSupersessionMu.Lock()
 		invalidated, _ = invalidateConflicting(scope, in.SessionID, in.ProjectPath, in.Subject, in.Predicate, ref)
 		err = insert()

@@ -1,0 +1,7 @@
+listen_addr: ":8080"
+database_url: "postgres://shop@db:5432/shop"
+cache_ttl: 5m
+rate_limit_rps: 50
+feature_flags:
+  new_checkout: true
+  gift_cards: false

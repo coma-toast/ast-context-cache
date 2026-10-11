@@ -19,7 +19,7 @@ import (
 const (
 	// pagingReserveTokens is room kept for "truncated" and "next", which are set only after the
 	// item that didn't fit is taken back out.
-	pagingReserveTokens = 16
+	pagingReserveTokens = 20
 	// headlineMaxBytes caps a scratchpad headline in the open digest.
 	headlineMaxBytes = 100
 	// digestLatestEntries is how many latest headlines and dead ends the scratchpad digest shows.
@@ -270,6 +270,7 @@ func (s *realService) seedChild(h *handoffRow, sid SessionID, project string) {
 		res, err := memory.Store(memory.StoreInput{
 			Kind: mc.Kind, Scope: memory.ScopeSession, SessionID: string(sid), ProjectPath: mc.ProjectPath,
 			Subject: mc.Subject, Predicate: mc.Predicate, Object: mc.Object, Rule: mc.Rule, SourceRef: it.key,
+			InvalidatePrevious: true,
 		})
 		if err != nil {
 			s.logger.Warn("Failed to clone snapshot memory into child", h.ref.Attr(), sid.Attr(), "ref", it.key, "error", err)

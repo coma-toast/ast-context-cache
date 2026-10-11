@@ -148,6 +148,13 @@ func kvRepairNoteWhere(projectPath string) (where string, args []any) {
 	return where, args
 }
 
+// localDayStart is local midnight offset days from today; callers convert it with db.SQLTime
+// so it compares correctly against the UTC created_at/accessed_at columns.
+func localDayStart(offset int) time.Time {
+	y, m, d := time.Now().Date()
+	return time.Date(y, m, d+offset, 0, 0, 0, 0, time.Local)
+}
+
 // KvRepairDashboardStatsFor returns rollup metrics for kv_repair archives and repairs.
 func KvRepairDashboardStatsFor(projectPath string, windowDays int) KvRepairDashboardStats {
 	if windowDays <= 0 {
@@ -157,9 +164,9 @@ func KvRepairDashboardStatsFor(projectPath string, windowDays int) KvRepairDashb
 	where, args := kvRepairNoteWhere(projectPath)
 	db.ContextDB.QueryRow(selectKvRepairArchivesQuery+where, args...).
 		Scan(&ds.ArchivesActive, &ds.RepairOrphans)
-	cutoff := time.Now().AddDate(0, 0, -windowDays).Format("2006-01-02") + "T00:00:00"
-	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
-	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
+	cutoff := db.SQLTime(localDayStart(-windowDays))
+	todayStart := db.SQLTime(localDayStart(0))
+	tomorrowStart := db.SQLTime(localDayStart(1))
 	storeWhere := where + createdSinceClause
 	storeArgs := append(append([]any{}, args...), cutoff)
 	db.ContextDB.QueryRow(countNotesWhereQuery+storeWhere, storeArgs...).Scan(&ds.ArchivesStored30d)

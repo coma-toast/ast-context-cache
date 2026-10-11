@@ -46,7 +46,7 @@ func TestVectorRecallValidityScopeAndRank(t *testing.T) {
 	emb := stubEmbedder{vectorOnlyQuery: unitVector(1)}
 	store := func(in StoreInput) string {
 		t.Helper()
-		in.Kind = KindFact
+		in.Kind, in.InvalidatePrevious = KindFact, true
 		res, err := Store(in)
 		require.NoError(t, err)
 		return res.Ref
@@ -101,6 +101,52 @@ func TestVectorRecallValidityScopeAndRank(t *testing.T) {
 			}
 			assert.Equal(t, tc.want, refs)
 			assert.NotContains(t, refs, otherSession)
+		})
+	}
+}
+
+// TestVectorRecallCrossSessionProjectMemory covers BF-8: a project memory's vector is keyed
+// by the session that stored it, so recall from another session used to drop it before the
+// SQL re-select could apply the project scope.
+func TestVectorRecallCrossSessionProjectMemory(t *testing.T) {
+	dbtest.Init(t)
+	search.Cache.Unload()
+	t.Cleanup(search.Cache.Unload)
+	emb := stubEmbedder{vectorOnlyQuery: unitVector(1)}
+	store := func(in StoreInput, storingSession string, sim float64) string {
+		t.Helper()
+		in.Kind = KindFact
+		res, err := Store(in)
+		require.NoError(t, err)
+		key := "vec-" + res.Ref
+		emb[key] = unitVector(sim)
+		EmbedEntry(res.Ref, storingSession, key, emb)
+		return res.Ref
+	}
+	project := store(StoreInput{Scope: ScopeProject, SessionID: "S1", ProjectPath: "/proj", Subject: "build.cmd", Object: "make"}, "S1", 0.9)
+	otherProject := store(StoreInput{Scope: ScopeProject, SessionID: "S1", ProjectPath: "/other", Subject: "build.cmd", Object: "just"}, "S1", 0.95)
+	otherSession := store(StoreInput{Scope: ScopeSession, SessionID: "S1", Subject: "scratch", Object: "x"}, "S1", 0.8)
+	tests := []struct {
+		name string
+		in   RecallInput
+		want []string
+	}{
+		{name: "unscoped from another session", in: RecallInput{SessionID: "S2", ProjectPath: "/proj"}, want: []string{project}},
+		{name: "project scope from another session", in: RecallInput{SessionID: "S2", ProjectPath: "/proj", Scope: ScopeProject}, want: []string{project}},
+		{name: "session scope stays in session", in: RecallInput{SessionID: "S2", ProjectPath: "/proj", Scope: ScopeSession}},
+		{name: "storing session sees its own entries", in: RecallInput{SessionID: "S1", ProjectPath: "/proj"}, want: []string{project, otherSession}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.in.Query = vectorOnlyQuery
+			got, err := Recall(tc.in, emb)
+			require.NoError(t, err)
+			var refs []string
+			for _, e := range got.Entries {
+				refs = append(refs, e.Ref)
+			}
+			assert.Equal(t, tc.want, refs)
+			assert.NotContains(t, refs, otherProject)
 		})
 	}
 }

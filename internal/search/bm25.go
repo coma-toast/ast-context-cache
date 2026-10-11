@@ -18,7 +18,7 @@ const (
 			WHERE `
 	ftsMatchClause   = ` AND symbols_fts MATCH ?`
 	ftsOrderByClause = `
-			ORDER BY f.rank
+			ORDER BY f.rank, s.id
 			LIMIT 100`
 	selectTrigramSymbolsQuery = `
 		SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,''), t.rank
@@ -27,11 +27,11 @@ const (
 		WHERE `
 	trigramMatchClause   = ` AND symbols_trigram MATCH ?`
 	trigramOrderByClause = `
-		ORDER BY t.rank
+		ORDER BY t.rank, s.id
 		LIMIT 100`
 	selectFallbackSymbolsQuery = "SELECT s.name, s.kind, s.file, s.start_line, s.end_line, COALESCE(s.fqn,'') FROM symbols s WHERE "
 	fallbackTermClause         = "(LOWER(s.name) LIKE ? OR LOWER(s.fqn) LIKE ? OR LOWER(s.code) LIKE ?)"
-	fallbackLimitClause        = " LIMIT 100"
+	fallbackLimitClause        = " ORDER BY s.id LIMIT 100"
 	sqlAnd                     = " AND "
 	sqlOr                      = " OR "
 )
@@ -215,9 +215,7 @@ func FallbackSearch(terms []string, projectPath string, filters *SearchFilters) 
 			Score: s,
 		})
 	}
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].Score > scored[j].Score
-	})
+	sort.SliceStable(scored, func(i, j int) bool { return LessScored(scored[i], scored[j]) })
 	return scored
 }
 

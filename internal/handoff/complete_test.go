@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
@@ -11,14 +12,15 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 )
 
-// tokensOf returns text of exactly n estimated tokens, made of words, with no surrounding
-// space for Store to trim.
+// tokensOf returns text of exactly n o200k tokens ("word", n-2 " word", "."), with no
+// surrounding space for Store to trim.
 func tokensOf(n int) string {
-	return strings.Repeat("word ", n)[:n*4-1] + "."
+	return "word" + strings.Repeat(" word", n-2) + "."
 }
 
 func TestCompleteTruncatesChildSummary(t *testing.T) {
@@ -186,4 +188,19 @@ func TestTruncateToTokens(t *testing.T) {
 			assert.Greater(t, db.EstimateTokens(got), tt.max/2, "a cut keeps most of the cap")
 		})
 	}
+}
+
+const testCountMemoryVectorsQuery = "SELECT COUNT(*) FROM vectors WHERE source_file = ?"
+
+func TestCompletePromotedMemoryIsEmbedded(t *testing.T) {
+	s := newFanInService(t)
+	s.emb = embedder.NewHashEmbedder(embedder.Dimensions)
+	h := seedHandoff(t, handoffSeed{root: "parent", children: 1})
+	res, err := s.Complete(context.Background(), CompleteRequest{SessionID: h.children[0], Content: "FACT: retry | uses | exponential backoff"})
+	require.NoError(t, err)
+	require.Len(t, res.PromotedMemory, 1)
+	require.Eventually(t, func() bool {
+		var n int
+		return db.IndexDB.QueryRow(testCountMemoryVectorsQuery, "mem:"+res.PromotedMemory[0]).Scan(&n) == nil && n == 1
+	}, 5*time.Second, 20*time.Millisecond, "promoted memory gets a vector like any other memory")
 }
