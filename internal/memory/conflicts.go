@@ -83,10 +83,7 @@ func ftsConflictCandidates(e Entry) []Conflict {
 	if ftsQuery == "" {
 		return nil
 	}
-	kinds := []Kind{}
-	if e.Scope == ScopeProject {
-		kinds = []Kind{KindFact}
-	}
+	kinds := []Kind{KindFact}
 	clause, args := filterClauses(RecallInput{
 		SessionID:           e.SessionID,
 		ProjectPath:         e.ProjectPath,

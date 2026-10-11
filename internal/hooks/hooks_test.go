@@ -128,10 +128,11 @@ func decodeOutput(t *testing.T, stdout string) Output {
 }
 
 func TestSessionStart(t *testing.T) {
+	parentSID := "82de5123-70a6-4982-b7cc-aa839be2cd89"
 	want := "ast-context-cache: use session_id=" + parentSID + " for all ast-context-cache tool calls in this conversation."
 	list := handoff.ListResponse{Handoffs: []handoff.HandoffSummary{
-		{Ref: refB, Label: "Review auth", Children: 2, StatusCounts: map[handoff.Status]int{handoff.StatusOpen: 1, handoff.StatusDone: 1}},
-		{Ref: refA, Label: "", Children: 0},
+		{Ref: "hof_b", Label: "Review auth", Children: 2, StatusCounts: map[handoff.Status]int{handoff.StatusOpen: 1, handoff.StatusDone: 1}},
+		{Ref: "hof_a", Label: "", Children: 0},
 	}}
 	tests := []struct {
 		name     string
@@ -140,24 +141,98 @@ func TestSessionStart(t *testing.T) {
 		wantText string
 		wantList bool
 	}{
-		{name: "startup", fixture: "SessionStart.startup", reply: noCalls, wantText: want},
-		{name: "resume", fixture: "SessionStart.resume", reply: noCalls, wantText: want},
+		{name: "startup", fixture: "SessionStart.startup", reply: func(t *testing.T) func(toolCall) (any, bool) {
+			// CH-3: SessionStart at startup should include pinned note, recent ctx/mem index (no checkpoint)
+			return func(c toolCall) (any, bool) {
+				if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+					// Return pinned note for the project
+					return map[string]any{"notes": []map[string]any{
+						{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell. It has better tab completion and features than bash."},
+					}, "total": 1}, false
+				}
+				if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+					// Return recent ctx_* entries and one compaction_checkpoint
+					return map[string]any{"notes": []map[string]any{
+						{"ref": "ctx_a1b2c3", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "plan", "kind": "compaction_checkpoint", "content": "session plan"},
+						{"ref": "ctx_plan1", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "plan", "kind": "plan", "content": "plan content"},
+						{"ref": "ctx_note1", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "note", "kind": "transcript_archive", "content": "some transcript"},
+					}, "total": 3}, false
+				}
+				if c.Tool == "recall_memory" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+					// Return recent mem_* entries
+					return map[string]any{"formatted": "mem_goal1: always use fish\nmem_style1: prefer skeleton mode"}, false
+				}
+				return map[string]any{"error": "unexpected tool"}, true
+			}
+		}, wantText: want + "\nPinned note: pinned: Always use fish as your shell. It has better tab completion and features than bash.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan] [ctx_note1 note]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode", wantList: true},
+		{name: "resume", fixture: "SessionStart.resume", reply: func(t *testing.T) func(toolCall) (any, bool) {
+			return func(c toolCall) (any, bool) {
+				if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+					return map[string]any{"notes": []map[string]any{
+						{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell."},
+					}, "total": 1}, false
+				}
+				if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+					return map[string]any{"notes": []map[string]any{
+						{"ref": "ctx_a1b2c3", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "plan", "kind": "compaction_checkpoint", "content": "session plan"},
+						{"ref": "ctx_plan1", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "plan", "kind": "plan", "content": "plan content"},
+					}, "total": 2}, false
+				}
+				if c.Tool == "recall_memory" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+					return map[string]any{"formatted": "mem_goal1: always use fish\nmem_style1: prefer skeleton mode"}, false
+				}
+				return map[string]any{"error": "unexpected tool"}, true
+			}
+		}, wantText: want + "\nPinned note: pinned: Always use fish as your shell.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode", wantList: true},
 		{
 			name: "compact lists handoffs", fixture: "SessionStart.compact", wantList: true,
 			reply: func(t *testing.T) func(toolCall) (any, bool) {
-				return func(toolCall) (any, bool) { return list, false }
+				return func(c toolCall) (any, bool) {
+					if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"notes": []map[string]any{
+							{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell. It has better tab completion and features than bash."},
+						}, "total": 1}, false
+					}
+					if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"notes": []map[string]any{
+							{"ref": "ctx_a1b2c3", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "plan", "kind": "compaction_checkpoint", "content": "session plan"},
+							{"ref": "ctx_plan1", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "plan", "kind": "plan", "content": "plan content"},
+							{"ref": "ctx_note1", "session_id": parentSID, "project_path": "/tmp/hook-spike/work", "label": "note", "kind": "transcript_archive", "content": "some transcript"},
+						}, "total": 3}, false
+					}
+					if c.Tool == "recall_memory" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"formatted": "mem_goal1: always use fish\nmem_style1: prefer skeleton mode"}, false
+					}
+					if c.Tool == "handoff" && c.Args["action"] == "list" && c.Args["session_id"] == parentSID {
+						return list, false
+					}
+					return map[string]any{"error": "unexpected tool"}, true
+				}
 			},
-			wantText: want + "\nHandoffs this session created before compaction (newest first):\n" +
-				"- " + refB + ` "Review auth": 1 open, 1 done` + "\n" +
-				"- " + refA + ": no child opened yet\n" +
-				"Use `handoff` action `collect` with session_id=" + parentSID + " to read results.",
+			wantText: want + "\nPinned note: pinned: Always use fish as your shell. It has better tab completion and features than bash.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan] [ctx_note1 note]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode\nHandoffs this session created before compaction (newest first):\n- hof_b \"Review auth\": 1 open, 1 done\n- hof_a: no child opened yet\nUse `handoff` action `collect` with session_id=" + parentSID + " to read results.",
 		},
 		{
 			name: "compact with list failing still injects the session id", fixture: "SessionStart.compact", wantList: true,
 			reply: func(t *testing.T) func(toolCall) (any, bool) {
-				return func(toolCall) (any, bool) { return map[string]string{"error": "boom"}, true }
+				return func(c toolCall) (any, bool) {
+					if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"notes": []map[string]any{
+							{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell. It has better tab completion and features than bash."},
+						}, "total": 1}, false
+					}
+					if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"notes": []map[string]any{}, "total": 0}, false
+					}
+					if c.Tool == "recall_memory" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"formatted": ""}, false
+					}
+					if c.Tool == "handoff" && c.Args["action"] == "list" && c.Args["session_id"] == parentSID {
+						return map[string]any{"handoffs": []handoff.HandoffSummary{}}, true
+					}
+					return map[string]any{"error": "unexpected tool"}, true
+				}
 			},
-			wantText: want,
+			wantText: want + "\nPinned note: pinned: Always use fish as your shell. It has better tab completion and features than bash.",
 		},
 	}
 	for _, tt := range tests {
@@ -167,12 +242,20 @@ func TestSessionStart(t *testing.T) {
 			out := decodeOutput(t, run(t, h, EventSessionStart, encode(t, fixture(t, tt.fixture))))
 			assert.Equal(t, "SessionStart", out.HookSpecificOutput.HookEventName)
 			assert.Equal(t, tt.wantText, out.HookSpecificOutput.AdditionalContext)
-			if !tt.wantList {
-				assert.Empty(t, srv.Calls())
-				return
+			// CH-3: every source with a CWD gets the pinned/ctx/mem briefing; compact adds handoff list.
+			expectedCalls := []toolCall{
+				{Tool: "list_context", Args: map[string]any{"session_id": "pinned", "project_path": "/tmp/hook-spike/work", "limit": float64(1)}},
+				{Tool: "list_context", Args: map[string]any{"session_id": parentSID, "project_path": "/tmp/hook-spike/work", "limit": float64(20)}},
+				{Tool: "recall_memory", Args: map[string]any{"session_id": parentSID, "project_path": "/tmp/hook-spike/work", "token_budget": float64(400), "limit": float64(10)}},
 			}
-			require.Len(t, srv.Calls(), 1)
-			assert.Equal(t, toolCall{Tool: "handoff", Args: map[string]any{"action": "list", "session_id": parentSID}}, srv.Calls()[0])
+			if strings.HasPrefix(tt.name, "compact") {
+				expectedCalls = append(expectedCalls, toolCall{Tool: "handoff", Args: map[string]any{"action": "list", "session_id": parentSID}})
+			}
+			require.Len(t, srv.Calls(), len(expectedCalls))
+			for i, expected := range expectedCalls {
+				assert.Equal(t, expected.Tool, srv.Calls()[i].Tool, "call %d tool", i)
+				assert.Equal(t, expected.Args, srv.Calls()[i].Args, "call %d args", i)
+			}
 		})
 	}
 }
