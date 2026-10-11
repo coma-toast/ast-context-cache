@@ -70,20 +70,20 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 				return
 			}
 			entry := memory.Entry{
-				Ref:              res.Ref,
-				Kind:             in.Kind,
-				Scope:            in.Scope,
-				SessionID:        sessionID,
-				ProjectPath:      in.ProjectPath,
-				Subject:          in.Subject,
-				Predicate:        in.Predicate,
-				Object:           in.Object,
-				Rule:             in.Rule,
-				SourceRef:        in.SourceRef,
-				TokenEst:         res.VirtualTokensStored,
-				AccessCount:      1,
-				LastAccessedAt:   time.Now().UTC().Format("2006-01-02 15:04:05"),
-				CreatedAt:        time.Now().UTC().Format("2006-01-02 15:04:05"),
+				Ref:            res.Ref,
+				Kind:           in.Kind,
+				Scope:          in.Scope,
+				SessionID:      sessionID,
+				ProjectPath:    in.ProjectPath,
+				Subject:        in.Subject,
+				Predicate:      in.Predicate,
+				Object:         in.Object,
+				Rule:           in.Rule,
+				SourceRef:      in.SourceRef,
+				TokenEst:       res.VirtualTokensStored,
+				AccessCount:    1,
+				LastAccessedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
+				CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
 			}
 			conflicts, method := memory.ConflictCandidates(entry, emb, 300*time.Millisecond)
 			if len(conflicts) > 0 {
@@ -200,8 +200,8 @@ func recallHistory(toolArgs map[string]interface{}, start time.Time, cpuStart sy
 		return out
 	}
 	out := map[string]interface{}{
-		"entries":   hist.Entries,
-		"formatted": hist.Formatted,
+		"entries":     hist.Entries,
+		"formatted":   hist.Formatted,
 		"tokens_used": hist.TokensUsed,
 	}
 	resultJSON, _ := json.Marshal(out)

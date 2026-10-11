@@ -17,27 +17,27 @@ const (
 
 // HistoryEntry is a version of a memory entry with its invalidation reason and timestamps.
 type HistoryEntry struct {
-	Ref              string `json:"ref"`
-	Kind             Kind   `json:"kind"`
-	Scope            Scope  `json:"scope"`
-	SessionID        string `json:"session_id,omitempty"`
-	ProjectPath      string `json:"project_path,omitempty"`
-	Subject          string `json:"subject,omitempty"`
-	Predicate        string `json:"predicate,omitempty"`
-	Object           string `json:"object,omitempty"`
-	Rule             string `json:"rule,omitempty"`
-	ValidFrom        string `json:"valid_from,omitempty"`
-	ValidUntil       string `json:"valid_until,omitempty"`
-	SupersededBy     string `json:"superseded_by,omitempty"`
-	SourceRef        string `json:"source_ref,omitempty"`
-	TokenEst         int    `json:"token_est,omitempty"`
-	AccessCount      int    `json:"access_count,omitempty"`
-	LastAccessedAt   string `json:"last_accessed_at,omitempty"`
-	CreatedAt        string `json:"created_at,omitempty"`
+	Ref               string `json:"ref"`
+	Kind              Kind   `json:"kind"`
+	Scope             Scope  `json:"scope"`
+	SessionID         string `json:"session_id,omitempty"`
+	ProjectPath       string `json:"project_path,omitempty"`
+	Subject           string `json:"subject,omitempty"`
+	Predicate         string `json:"predicate,omitempty"`
+	Object            string `json:"object,omitempty"`
+	Rule              string `json:"rule,omitempty"`
+	ValidFrom         string `json:"valid_from,omitempty"`
+	ValidUntil        string `json:"valid_until,omitempty"`
+	SupersededBy      string `json:"superseded_by,omitempty"`
+	SourceRef         string `json:"source_ref,omitempty"`
+	TokenEst          int    `json:"token_est,omitempty"`
+	AccessCount       int    `json:"access_count,omitempty"`
+	LastAccessedAt    string `json:"last_accessed_at,omitempty"`
+	CreatedAt         string `json:"created_at,omitempty"`
 	InvalidatedReason string `json:"invalidated_reason,omitempty"`
-	WorldValidAt     string `json:"world_valid_at,omitempty"`
-	WorldInvalidAt   string `json:"world_invalid_at,omitempty"`
-	ExpiresAt        string `json:"expires_at,omitempty"`
+	WorldValidAt      string `json:"world_valid_at,omitempty"`
+	WorldInvalidAt    string `json:"world_invalid_at,omitempty"`
+	ExpiresAt         string `json:"expires_at,omitempty"`
 }
 
 // HistoryResult is the result of a recall_memory history query.

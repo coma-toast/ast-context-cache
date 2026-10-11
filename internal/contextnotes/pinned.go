@@ -17,11 +17,11 @@ const pinnedMaxTokens = 500
 
 // PinnedNote is a project-scoped pinned note.
 type PinnedNote struct {
-	Ref       string `json:"ref"`
+	Ref         string `json:"ref"`
 	ProjectPath string `json:"project_path"`
-	Content   string `json:"content"`
-	TokenEst  int    `json:"token_est"`
-	CreatedAt string `json:"created_at"`
+	Content     string `json:"content"`
+	TokenEst    int    `json:"token_est"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // StorePinned stores or updates a pinned note for a project. It enforces a 500-token
