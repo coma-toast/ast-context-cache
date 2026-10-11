@@ -110,6 +110,30 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return data
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const url = apiUrl(path)
+  let r: Response
+  try {
+    r = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (e) {
+    throw new Error(`${path}: network error (${e instanceof Error ? e.message : 'fetch failed'})`)
+  }
+  redirectOnUnauthorized(r.status)
+  const text = await r.text()
+  let data: T & ErrorBody
+  try {
+    data = JSON.parse(text) as T & ErrorBody
+  } catch {
+    throw new Error(`${path}: invalid JSON (HTTP ${r.status})`)
+  }
+  if (!r.ok || data.error) throw apiError(data.error || `${path}: HTTP ${r.status}`, data)
+  return data
+}
+
 interface ErrorBody {
   error?: string
   code?: string
@@ -184,7 +208,7 @@ export const api = {
     post<{ status?: string; error?: string }>('/api/settings/embed', { settings }),
   pinProject: (project_path: string, pinned: boolean) => post('/api/pin-project', { project_path, pinned }),
   getPinnedNote: (project: string) => get<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>(`/api/pinned-note?project=${encodeURIComponent(project)}`),
-  savePinnedNote: (project_path: string, content: string, origin?: string) => post<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>('/api/pinned-note', { project_path, content, origin }),
+  savePinnedNote: (project_path: string, content: string, origin?: string) => put<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>('/api/pinned-note', { project_path, content, origin }),
   countTokens: (text: string) => post<{ token_est: number }>('/api/count-tokens', { text }),
   resetProject: (project_path: string) => post('/api/reset-project', { project_path }),
   deleteWatcher: (project_path: string) => post('/api/delete-watcher', { project_path }),

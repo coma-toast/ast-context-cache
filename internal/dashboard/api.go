@@ -302,7 +302,7 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 			"path": p, "name": filepath.Base(p), "query_count": c,
 			"symbol_count": sc.symbols, "file_count": sc.files,
 			"pinned":      db.IsPinnedProject(p),
-			"pinned_note": getPinnedNoteContent(p),
+			"PinnedNote":  getPinnedNoteContent(p),
 		})
 	}
 	if ps == nil {
