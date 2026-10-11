@@ -267,7 +267,8 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	var e Entry
 	var kind, scope string
 	var sessionID, projectPath, subject, predicate, object, rule, sourceRef, validFrom, validUntil, supersededBy, lastAccessed, createdAt interface{}
-	err := row.Scan(&e.Ref, &kind, &scope, &sessionID, &projectPath, &subject, &predicate, &object, &rule, &validFrom, &validUntil, &supersededBy, &sourceRef, &e.TokenEst, &e.AccessCount, &lastAccessed, &createdAt)
+	var invalidatedReason, worldValidAt, worldInvalidAt, expiresAt interface{}
+	err := row.Scan(&e.Ref, &kind, &scope, &sessionID, &projectPath, &subject, &predicate, &object, &rule, &validFrom, &validUntil, &supersededBy, &sourceRef, &e.TokenEst, &e.AccessCount, &lastAccessed, &createdAt, &invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
 	if err != nil {
 		return e, err
 	}
@@ -285,6 +286,10 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	e.SourceRef = strVal(sourceRef)
 	e.LastAccessedAt = strVal(lastAccessed)
 	e.CreatedAt = strVal(createdAt)
+	e.InvalidatedReason = strVal(invalidatedReason)
+	e.WorldValidAt = strVal(worldValidAt)
+	e.WorldInvalidAt = strVal(worldInvalidAt)
+	e.ExpiresAt = strVal(expiresAt)
 	return e, nil
 }
 

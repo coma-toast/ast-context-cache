@@ -37,7 +37,7 @@ const (
 	// stale_anchor, quarantine, restored) so history output can explain the chain.
 	addStructuredMemoryInvalidatedReasonColumn = `ALTER TABLE structured_memory ADD COLUMN invalidated_reason TEXT`
 	// MEM-5: world time — when a fact is true in the world, not when the system learned it.
-	addStructuredMemoryWorldValidAtColumn = `ALTER TABLE structured_memory ADD COLUMN world_valid_at TEXT`
+	addStructuredMemoryWorldValidAtColumn   = `ALTER TABLE structured_memory ADD COLUMN world_valid_at TEXT`
 	addStructuredMemoryWorldInvalidAtColumn = `ALTER TABLE structured_memory ADD COLUMN world_invalid_at TEXT`
 	// MEM-8: TTL expiry. The hourly memory expiry job and PruneArchived read this column.
 	addStructuredMemoryExpiresAtColumn = `ALTER TABLE structured_memory ADD COLUMN expires_at TEXT`

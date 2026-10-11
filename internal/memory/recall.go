@@ -14,10 +14,12 @@ import (
 
 const (
 	selectActiveEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at
 		FROM structured_memory WHERE 1=1`
 	selectEntriesByRefsQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at
 		FROM structured_memory WHERE ref IN (`
 	selectActiveEntryTokensQuery    = `SELECT ref, token_est FROM structured_memory WHERE (valid_until IS NULL OR valid_until = '')`
 	invalidateEntryQuery            = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`
@@ -356,7 +358,7 @@ func forgetAll(in ForgetInput) (*ForgetResult, error) {
 	}
 	rows.Close()
 	for _, ref := range refs {
-		invalidateRef(ref)
+		invalidateRef(ref, ReasonUserForget)
 	}
 	logger.Info("Invalidated all structured memory in scope", "invalidated", len(refs), "tokens", tokens,
 		"scope", in.Scope, "session_id", in.SessionID, "project_path", in.ProjectPath)
@@ -386,8 +388,8 @@ func forgetScopeClause(in ForgetInput) (string, []any) {
 	return andFragment + "(" + strings.Join(parts, orFragment) + ")", args
 }
 
-func invalidateRef(ref string) {
-	db.ContextDB.Exec(invalidateEntryQuery, ref)
+func invalidateRef(ref, reason string) {
+	db.ContextDB.Exec(invalidateEntryQuery, reason, ref)
 }
 
 // forgetRefs invalidates exactly the named refs. Each ref's scope comes from its
@@ -419,7 +421,7 @@ func forgetRefs(in ForgetInput) (*ForgetResult, error) {
 			res.ScopeMismatch = append(res.ScopeMismatch, ref)
 			continue
 		}
-		if _, err := db.ContextDB.Exec(invalidateActiveEntryQuery, ref); err != nil {
+		if _, err := db.ContextDB.Exec(invalidateActiveEntryQuery, ReasonUserForget, ref); err != nil {
 			return nil, errs.WrapMessage("failed to invalidate memory", err, "ref", ref)
 		}
 		res.Invalidated = append(res.Invalidated, ref)
