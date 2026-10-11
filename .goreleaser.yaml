@@ -2,9 +2,9 @@
 #
 # The server needs cgo (SQLite, tree-sitter, and the per-arch libtokenizers.a), so each platform
 # builds natively on its own runner: every build below is skipped unless it matches the runner's
-# OS. Each runner packages without publishing; the release workflow's publish job merges the
-# per-runner checksums and creates the GitHub release. (Merging split builds inside GoReleaser is
-# a Pro feature.)
+# OS and arch. Each runner packages without publishing; the release workflow's publish job merges
+# the per-runner checksums and creates the GitHub release. (Merging split builds inside GoReleaser
+# is a Pro feature.)
 #
 # Local check:  go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean --skip=publish
 version: 2
@@ -29,9 +29,18 @@ builds:
   - id: linux
     main: ./cmd/ast-mcp
     binary: ast-mcp
-    skip: '{{ ne .Runtime.Goos "linux" }}'
+    skip: '{{ or (ne .Runtime.Goos "linux") (ne .Runtime.Goarch "arm64") }}'
     goos: [linux]
     goarch: [arm64]
+    env: [CGO_ENABLED=1, GOWORK=off]
+    flags: [-trimpath, -tags=sqlite_fts5]
+    ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }} -X github.com/coma-toast/ast-context-cache/internal/version.Build=release"]
+  - id: linux-amd64
+    main: ./cmd/ast-mcp
+    binary: ast-mcp
+    skip: '{{ or (ne .Runtime.Goos "linux") (ne .Runtime.Goarch "amd64") }}'
+    goos: [linux]
+    goarch: [amd64]
     env: [CGO_ENABLED=1, GOWORK=off]
     flags: [-trimpath, -tags=sqlite_fts5]
     ldflags: ["-s -w -X github.com/coma-toast/ast-context-cache/internal/version.Version={{ .Version }} -X github.com/coma-toast/ast-context-cache/internal/version.Build=release"]
