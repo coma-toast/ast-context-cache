@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -57,7 +58,7 @@ type VectorCache struct {
 	mu       sync.RWMutex
 	entries  []VectorEntry
 	loaded   bool
-	lastUsed time.Time
+	lastUsed atomic.Int64
 	stopIdle chan struct{}
 }
 
@@ -77,7 +78,7 @@ func (vc *VectorCache) ensureLoaded() {
 	}
 	vc.mu.RLock()
 	if vc.loaded {
-		vc.lastUsed = time.Now()
+		vc.lastUsed.Store(time.Now().UnixNano())
 		vc.mu.RUnlock()
 		return
 	}
@@ -86,7 +87,7 @@ func (vc *VectorCache) ensureLoaded() {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	if vc.loaded {
-		vc.lastUsed = time.Now()
+		vc.lastUsed.Store(time.Now().UnixNano())
 		return
 	}
 	if db.IndexReadQuiesced() || db.IndexDB == nil {
@@ -120,7 +121,7 @@ func (vc *VectorCache) loadFromDB() {
 
 	vc.entries = entries
 	vc.loaded = true
-	vc.lastUsed = time.Now()
+	vc.lastUsed.Store(time.Now().UnixNano())
 	logger.Info("Loaded vectors into memory", "vectors", len(entries), "mb", math.Round(float64(len(entries)*VectorDims*4)/(1024*1024)*10)/10)
 }
 
@@ -187,7 +188,7 @@ func (vc *VectorCache) idleTick() {
 		return
 	}
 	vc.mu.Lock()
-	if vc.loaded && time.Since(vc.lastUsed) > timeout {
+	if vc.loaded && time.Since(time.Unix(0, vc.lastUsed.Load())) > timeout {
 		n := len(vc.entries)
 		vc.entries = nil
 		vc.loaded = false

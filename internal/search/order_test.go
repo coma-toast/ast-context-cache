@@ -61,7 +61,8 @@ func TestLessVector(t *testing.T) {
 // loadEntries swaps the vector cache contents for a test and restores it after.
 func loadEntries(t *testing.T, entries []VectorEntry) {
 	Cache.mu.Lock()
-	Cache.entries, Cache.loaded, Cache.lastUsed = entries, true, time.Now()
+	Cache.entries, Cache.loaded = entries, true
+	Cache.lastUsed.Store(time.Now().UnixNano())
 	Cache.mu.Unlock()
 	t.Cleanup(Cache.Unload)
 }

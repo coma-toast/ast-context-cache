@@ -49,7 +49,8 @@ func TestScopedCountAndSearchResolveScopeOnce(t *testing.T) {
 		VectorEntry{ID: n + 1, ContentHash: "miss", Vector: vec, DocType: "code", SourceFile: "miss.go", Name: "miss", ProjectPath: other},
 	)
 	Cache.mu.Lock()
-	Cache.entries, Cache.loaded, Cache.lastUsed = entries, true, time.Now()
+	Cache.entries, Cache.loaded = entries, true
+	Cache.lastUsed.Store(time.Now().UnixNano())
 	Cache.mu.Unlock()
 	defer Cache.Unload()
 
