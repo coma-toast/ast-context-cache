@@ -269,3 +269,26 @@ func TestRecallTokenBudget(t *testing.T) {
 		t.Fatalf("expected budget to limit lines, got %d", len(rec.Lines))
 	}
 }
+
+// TestStoreEntryNullInvalidatedReason verifies that a new active entry has
+// NULL (empty) invalidated_reason in the database, fixing the bug where
+// a stray nil argument was passed to the SQL query.
+func TestStoreEntryNullInvalidatedReason(t *testing.T) {
+	testMemoryDB(t)
+	ref, err := Store(StoreInput{
+		Kind: KindFact, Scope: ScopeSession, SessionID: "test-null-reason",
+		Subject: "test", Predicate: "has", Object: "null invalidated reason",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var invalidatedReason string
+	err = db.ContextDB.QueryRow(`SELECT invalidated_reason FROM structured_memory WHERE ref = ?`, ref).Scan(&invalidatedReason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invalidatedReason != "" {
+		t.Fatalf("expected empty invalidated_reason for active entry, got %q", invalidatedReason)
+	}
+}
