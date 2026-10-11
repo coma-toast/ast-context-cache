@@ -271,7 +271,7 @@ func GetTools() []Tool {
 					"label":          map[string]string{"type": "string", "description": "Short title for the note"},
 					"project_path":   map[string]string{"type": "string", "description": "Optional project association"},
 					"tags":           map[string]string{"type": "string", "description": "Optional comma-separated tags or JSON array (include kv_repair for repair archives)"},
-					"kind":           map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair)"},
+					"kind":           map[string]string{"type": "string", "description": "Optional note kind (kv_repair for golden text archives used on KV cache miss/quality repair; pinned for a per-project pinned note that survives compaction and is returned by open_handoff and SessionStart — change rarely, changes move the host's cached prefix)"},
 					"metadata":       map[string]string{"type": "object", "description": "Optional metadata object (model_id, kv_quant, token_count, trigger_hint, chunk_offset)"},
 					"extract_memory": map[string]string{"type": "boolean", "description": "Also save explicitly marked lines as session-scoped mem_* entries: only lines starting with FACT: (subject | predicate | object, or subject predicate object...) or RULE: (free text). Headings, prose, and fenced code are ignored; text is kept as written. Response: memory_extracted (ref, kind, line) and memory_skipped (marked lines that could not be parsed, e.g. a FACT: under 3 words)."},
 				},
@@ -365,7 +365,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "store_memory",
-			Description: "Store a compact temporal fact or procedural rule (mem_* ref). Facts auto-invalidate prior same subject+predicate in scope (Mem0/Zep-style). Much smaller than store_context for preferences and behavior. Supports TTL duration and kind=pinned routing (PIN-1).",
+			Description: "Store a compact temporal fact or procedural rule (mem_* ref). Facts auto-invalidate prior same subject+predicate in scope (Mem0/Zep-style). Much smaller than store_context for preferences and behavior. Supports TTL duration. kind=pinned stores the per-project pinned note — change rarely, changes move the host's cached prefix.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
