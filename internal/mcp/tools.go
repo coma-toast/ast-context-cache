@@ -365,11 +365,11 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "store_memory",
-			Description: "Store a compact temporal fact or procedural rule (mem_* ref). Facts auto-invalidate prior same subject+predicate in scope (Mem0/Zep-style). Much smaller than store_context for preferences and behavior.",
+			Description: "Store a compact temporal fact or procedural rule (mem_* ref). Facts auto-invalidate prior same subject+predicate in scope (Mem0/Zep-style). Much smaller than store_context for preferences and behavior. Supports TTL duration and kind=pinned routing (PIN-1).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"kind":                map[string]string{"type": "string", "description": "fact or procedure"},
+					"kind":                map[string]string{"type": "string", "description": "fact, procedure, or pinned"},
 					"session_id":          map[string]string{"type": "string", "description": "Required for session scope"},
 					"scope":               map[string]string{"type": "string", "description": "session (default), project, or global"},
 					"project_path":        map[string]string{"type": "string", "description": "Required for project scope"},
@@ -379,6 +379,7 @@ func GetTools() []Tool {
 					"rule":                map[string]string{"type": "string", "description": "Procedural rule text (LangMem procedural)"},
 					"invalidate_previous": map[string]string{"type": "boolean", "description": "For facts: supersede prior same subject+predicate (default true)"},
 					"source_ref":          map[string]string{"type": "string", "description": "Optional ctx_* ref this was extracted from"},
+					"ttl":                 map[string]string{"type": "string", "description": "Time-to-live duration: numeric days (e.g. '30') or suffixed unit ('30d', '12h', default 0 = never expires)"},
 				},
 				"required": []string{"kind", "session_id"},
 			},

@@ -15,6 +15,11 @@ type Conflict struct {
 	Similarity float64 `json:"similarity"`
 }
 
+type embedResult struct {
+	conflicts []Conflict
+	err       error
+}
+
 // ConflictCandidates finds active memory entries that might conflict with the given entry (MEM-12–14).
 // It embeds FormatLine(e) in a goroutine with a timeout (default 300ms), searches vector cache,
 // and falls back to FTS if it times out or embedder is nil.
@@ -26,12 +31,12 @@ func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) 
 		return ftsConflictCandidates(e), "fts"
 	}
 
-	resCh := make(chan []Conflict, 1)
+	resCh := make(chan embedResult, 1)
 	go func() {
 		line := FormatLine(e)
 		vec, err := emb.EmbedSingle(line)
 		if err != nil {
-			resCh <- nil
+			resCh <- embedResult{err: err}
 			return
 		}
 		// Search memory cache with scope/session filter
@@ -54,22 +59,22 @@ func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) 
 				Similarity: float64(s.Score),
 			})
 		}
-		resCh <- conflicts
+		resCh <- embedResult{conflicts: conflicts}
 	}()
 
 	select {
-	case conflicts := <-resCh:
-		if conflicts == nil {
+	case r := <-resCh:
+		if r.err != nil {
 			return ftsConflictCandidates(e), "fts"
 		}
-		return conflicts, "embed"
+		return r.conflicts, "embed"
 	case <-time.After(timeout):
 		return ftsConflictCandidates(e), "fts"
 	}
 }
 
 func ftsConflictCandidates(e Entry) []Conflict {
-	// Fallback FTS search over subject/object terms
+	// Fallback FTS search over subject/object terms; limit to active facts only.
 	terms := search.QueryTerms(e.Subject + " " + e.Object)
 	if len(terms) == 0 {
 		return nil
@@ -78,10 +83,16 @@ func ftsConflictCandidates(e Entry) []Conflict {
 	if ftsQuery == "" {
 		return nil
 	}
+	kinds := []Kind{}
+	if e.Scope == ScopeProject {
+		kinds = []Kind{KindFact}
+	}
 	clause, args := filterClauses(RecallInput{
-		SessionID:   e.SessionID,
-		ProjectPath: e.ProjectPath,
-		Scope:       e.Scope,
+		SessionID:           e.SessionID,
+		ProjectPath:         e.ProjectPath,
+		Scope:               e.Scope,
+		Kinds:               kinds,
+		IncludeRepoSiblings: e.Scope == ScopeProject,
 	}, "sm.", smEntryValidity)
 	q := `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
 		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,

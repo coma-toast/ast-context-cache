@@ -183,6 +183,9 @@ export const api = {
   saveEmbedSettings: (settings: Record<string, string>) =>
     post<{ status?: string; error?: string }>('/api/settings/embed', { settings }),
   pinProject: (project_path: string, pinned: boolean) => post('/api/pin-project', { project_path, pinned }),
+  getPinnedNote: (project: string) => get<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>(`/api/pinned-note?project=${encodeURIComponent(project)}`),
+  savePinnedNote: (project_path: string, content: string, origin?: string) => post<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>('/api/pinned-note', { project_path, content, origin }),
+  countTokens: (text: string) => post<{ token_est: number }>('/api/count-tokens', { text }),
   resetProject: (project_path: string) => post('/api/reset-project', { project_path }),
   deleteWatcher: (project_path: string) => post('/api/delete-watcher', { project_path }),
   startWatcher: (project_path: string) => post<{ status?: string }>('/api/start-watcher', { project_path }),

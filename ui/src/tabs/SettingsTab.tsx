@@ -68,9 +68,10 @@ export function SettingsTab({
   const [linkChild, setLinkChild] = useState<Record<string, string>>({})
   const [projectSearch, setProjectSearch] = useState('')
   const [projectPage, setProjectPage] = useState(1)
-  const [renaming, setRenaming] = useState<Record<string, string>>({})
-  const [pendingPaths, setPendingPaths] = useState<Record<string, boolean>>({})
-  const [editingExcludes, setEditingExcludes] = useState<Record<string, string>>({})
+const [renaming, setRenaming] = useState<Record<string, string>>({})
+	const [pendingPaths, setPendingPaths] = useState<Record<string, boolean>>({})
+	const [editingExcludes, setEditingExcludes] = useState<Record<string, string>>({})
+	const [editingPinned, setEditingPinned] = useState<Record<string, string>>({})
 
   if (!data) return <Typography color="text.secondary">Loading settings…</Typography>
 
@@ -113,6 +114,20 @@ export function SettingsTab({
         await api.setProjectExcludes(path, patterns)
         closeExcludes(path)
         showToast(patterns.length ? 'Excludes saved; matching indexed files are being purged' : 'Excludes cleared', 'success')
+        onRefresh()
+      } catch (e) {
+        showToast(String(e), 'error')
+      }
+    })
+  const savePinnedNote = (path: string) =>
+    withPending(path, async () => {
+      try {
+        await api.savePinnedNote(path, editingPinned[path] || '', 'user')
+        setEditingPinned((prev) => {
+          const { [path]: _drop, ...rest } = prev
+          return rest
+        })
+        showToast('Pinned note saved', 'success')
         onRefresh()
       } catch (e) {
         showToast(String(e), 'error')
@@ -465,6 +480,32 @@ export function SettingsTab({
                     })}>
                       {p.Pinned ? 'Unpin' : 'Pin'}
                     </Button>
+
+                    {p.Pinned && (
+                      <Box sx={{ mt: 1.5 }}>
+                        <TextField
+                          label="Pinned note"
+                          value={editingPinned[p.Path] || p.PinnedNote || ''}
+                          onChange={(e) => setEditingPinned({ ...editingPinned, [p.Path]: e.target.value })}
+                          multiline
+                          rows={2}
+                          sx={{ mt: 1 }}
+                          helperText="Max 500 tokens"
+                        />
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                          <Button size="small" variant="contained" disabled={!!pendingPaths[p.Path]} onClick={() => savePinnedNote(p.Path)}>
+                            Save
+                          </Button>
+                          <Button size="small" variant="outlined" onClick={() => setEditingPinned((prev) => {
+                            const { [p.Path]: _drop, ...rest } = prev
+                            return rest
+                          })}>
+                            Cancel
+                          </Button>
+                        </Stack>
+                      </Box>
+                    )}
+
                     <Button
                       size="small"
                       disabled={!!pendingPaths[p.Path]}
