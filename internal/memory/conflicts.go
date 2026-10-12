@@ -21,11 +21,12 @@ type embedResult struct {
 }
 
 // ConflictCandidates finds active memory entries that might conflict with the given entry (MEM-12–14).
-// It embeds FormatLine(e) in a goroutine with a timeout (default 300ms), searches vector cache,
-// and falls back to FTS if it times out or embedder is nil.
+// It embeds FormatLine(e) in a goroutine with a timeout (default 300ms, configured via AST_CONFLICT_TIMEOUT_MS),
+// searches vector cache, and falls back to FTS if it times out or embedder is nil.
 func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) ([]Conflict, string) {
 	if timeout <= 0 {
-		timeout = 300 * time.Millisecond
+		timeoutMs := db.SettingInt("conflict_timeout_ms", "AST_CONFLICT_TIMEOUT_MS", 300)
+		timeout = time.Duration(timeoutMs) * time.Millisecond
 	}
 	if emb == nil {
 		return ftsConflictCandidates(e), "fts"

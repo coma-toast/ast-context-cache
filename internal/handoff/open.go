@@ -285,10 +285,10 @@ func (s *realService) seedChild(h *handoffRow, sid SessionID, project string) {
 	}
 }
 
-func loadProjectPathsForPinned(sid SessionID) ([]string, error) {
+func loadProjectPathsForPinned(h *handoffRow) ([]string, error) {
 	rows, err := db.ContextDB.Query(
-		`SELECT DISTINCT project_path FROM context_notes WHERE session_id = ? AND COALESCE(project_path,'') != ''`,
-		sid,
+		`SELECT DISTINCT project_path FROM context_notes WHERE kind = ? AND COALESCE(project_path,'') != '' AND project_path = ?`,
+		contextnotes.KindPinned, h.project,
 	)
 	if err != nil {
 		return nil, err
@@ -318,7 +318,7 @@ func (s *realService) openDigest(h *handoffRow, sid SessionID, resumed bool, bud
 	limit := budget - pagingReserveTokens
 
 	// Load pinned notes per project (PIN-2). Each distinct project_path gets the most recent pinned note.
-	projectPaths, err := loadProjectPathsForPinned(sid)
+	projectPaths, err := loadProjectPathsForPinned(h)
 	if err != nil {
 		return nil, err
 	}

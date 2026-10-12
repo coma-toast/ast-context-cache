@@ -158,7 +158,7 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 			LastAccessedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
 			CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
 		}
-		conflicts, method := memory.ConflictCandidates(entry, emb, 300*time.Millisecond)
+		conflicts, method := memory.ConflictCandidates(entry, emb, 0)
 		if len(conflicts) > 0 {
 			var confSlice []map[string]interface{}
 			for _, c := range conflicts {

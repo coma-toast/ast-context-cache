@@ -183,12 +183,18 @@ func (h *Handler) sessionStart(ctx context.Context, in *Input) (*Output, error) 
 			pinned := pinnedResult.Notes[0]
 			text += "\nPinned note: " + pinned.Label
 			if len(pinned.Content) > 0 {
-				// Show first line of content for brevity
-				firstLine := strings.SplitN(pinned.Content, "\n", 2)[0]
-				if len(firstLine) > 100 {
-					firstLine = firstLine[:97] + "..."
+				// Include full pinned note content (up to 500 tokens, PIN-2).
+				// StorePinned already enforces the 500-token cap, so content
+				// arriving here fits; the belt-and-suspenders trim guards a
+				// server that returned more than it should have.
+				content := pinned.Content
+				if pinned.TokenEst > 500 {
+					words := strings.Fields(content)
+					if len(words) > 500 {
+						content = strings.Join(words[:500], " ") + "..."
+					}
 				}
-				text += ": " + firstLine
+				text += ": " + content
 			}
 		}
 

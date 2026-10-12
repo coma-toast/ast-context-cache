@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -156,6 +157,37 @@ func TestConflictCandidatesEmbedFindsConflict(t *testing.T) {
 	cand, err := entryByRef(makeEntry.Ref)
 	require.NoError(t, err)
 	assert.Empty(t, cand.ValidUntil)
+}
+
+// TestConflictCandidatesTimeoutSetting reads the conflict timeout from the
+// AST_CONFLICT_TIMEOUT_MS setting (MEM-13): a 1ms timeout with a slow embedder
+// falls back to FTS and reports conflict_method=fts.
+func TestConflictCandidatesTimeoutSetting(t *testing.T) {
+	testMemoryDB(t)
+	t.Setenv("AST_CONFLICT_TIMEOUT_MS", "1")
+	e := Entry{
+		Kind:      KindFact,
+		Scope:     ScopeProject,
+		Subject:   "build system",
+		Predicate: "is",
+		Object:    "make",
+		Ref:       "ref-timeout",
+	}
+	_, method := ConflictCandidates(e, &slowEmbedder{}, 0)
+	assert.Equal(t, "fts", method, "a 1ms timeout must fall back to FTS")
+}
+
+// slowEmbedder blocks forever so the 1ms conflict timeout fires.
+type slowEmbedder struct{}
+
+func (s *slowEmbedder) Embed(texts []string) ([][]float32, error) {
+	time.Sleep(2 * time.Second)
+	return nil, nil
+}
+
+func (s *slowEmbedder) EmbedSingle(string) ([]float32, error) {
+	time.Sleep(2 * time.Second)
+	return nil, nil
 }
 
 var fakeEmbedder = &fakeEmbedderType{}

@@ -27,8 +27,9 @@ type PinnedNote struct {
 }
 
 // StorePinned stores or updates a pinned note for a project. It enforces a 500-token
-// cap (AC19) and keeps one note per project (PIN-1). The change is applied as
-// EditRewrite (PIN-1) so the ref and revisions are kept.
+// cap (AC19) and keeps one note per project (PIN-1). Each update is applied as a
+// revision write (PIN-1) so the superseded body lands in context_note_revisions
+// and the ref stays stable.
 func StorePinned(projectPath, content, origin string) (*PinnedNote, error) {
 	projectPath = strings.TrimSpace(projectPath)
 	if projectPath == "" {
@@ -55,8 +56,8 @@ func StorePinned(projectPath, content, origin string) (*PinnedNote, error) {
 		hash := search.ContentHash(content)
 
 		_, err = db.ContextDB.Exec(
-			`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est, last_accessed_at)
-			 VALUES (?, 'pinned', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+			`INSERT INTO context_notes (ref, session_id, project_path, label, content, content_hash, tags, kind, metadata_json, token_est, revision, last_accessed_at)
+			 VALUES (?, 'pinned', ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))`,
 			ref, projectPath, "pinned", content, hash, "", KindPinned, "{}", tokenEst,
 		)
 		if err != nil {
@@ -72,33 +73,32 @@ func StorePinned(projectPath, content, origin string) (*PinnedNote, error) {
 		}, nil
 	}
 
-	// Update existing pinned note using edit logic (PIN-1: keep ref/revisions)
+	// Update existing pinned note using revision logic (PIN-1: keep ref + revisions)
 	var note Note
+	var currentRevision int
 	err = db.ContextDB.QueryRow(
 		`SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
-			COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+			COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,''),
+			COALESCE(revision, 1)
 			FROM context_notes WHERE kind = ? AND project_path = ?`,
 		KindPinned, projectPath,
 	).Scan(&note.Ref, &note.SessionID, &note.ProjectPath, &note.Label, &note.Content,
 		&note.Tags, &note.Kind, &note.MetadataJSON, &note.TokenEst, &note.AccessCount,
-		&note.CreatedAt, &note.LastAccessed)
+		&note.CreatedAt, &note.LastAccessed, &currentRevision)
 	if err != nil {
 		return nil, err
 	}
 
-	// Apply EditRewrite logic - replace content while keeping ref
-	_, err = db.ContextDB.Exec(
-		`UPDATE context_notes SET content = ?, content_hash = ?, token_est = ?,
-			last_accessed_at = datetime('now') WHERE ref = ?`,
-		content, search.ContentHash(content), tokenEst, note.Ref,
-	)
-	if err != nil {
-		return nil, err
+	// Write the superseded body as a revision before overwriting (PIN-1).
+	if err := writeRevision(note.Ref, currentRevision, note.Content, "pinned-update", note.TokenEst); err != nil {
+		return nil, errs.WrapMessage("failed to record pinned note revision", err, "ref", note.Ref)
 	}
-
-	// Update FTS index (PIN-1)
-	deleteNoteFTS(note.Ref)
-	indexNoteFTS(note.Ref, note.SessionID, note.Label, content)
+	hash := search.ContentHash(content)
+	if _, err := db.ContextDB.Exec(updateNoteContentQuery, content, hash, tokenEst, currentRevision+1, note.Ref); err != nil {
+		return nil, errs.WrapMessage("failed to update pinned note content", err, "ref", note.Ref)
+	}
+	reindexNoteFTS(note.Ref, note.SessionID, note.Label, content)
+	pruneRevisions(note.Ref)
 
 	return &PinnedNote{
 		Ref:         note.Ref,

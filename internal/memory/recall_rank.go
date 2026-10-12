@@ -55,6 +55,15 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, map[string]
 // decayFactor returns the recency multiplier for an entry, clamped to 0.3–1.5x (MEM-6).
 // Procedures are exempt by default (MEM-7). Half-lives are settings: session scope
 // defaults to 24 hours, project scope to 30 days, and global scope has no decay.
+//
+// The factor is the product of three independent terms, each clamped to [0.3, 1.5]
+// before the final clamp:
+//
+//	recency  = 0.5^(sinceLastAccess / halfLife)       — decays with time since last access
+//	frequency = 1 + log2(1+accessCount) / k            — grows with more accesses, never decays
+//	age      = 0.5^(age / (halfLife * 4))             — mild decay for stale entries
+//
+// k is chosen so frequency tops out near 1.5 (log2(1+16)/k ≈ 1.5 → k ≈ 4.0).
 func decayFactor(e Entry, in RecallInput) float64 {
 	if e.Kind == KindProcedure {
 		if !db.SettingBool("memory_decay_procedures", "AST_FEATURE_MEMORY_DECAY_PROCEDURES", false) {
@@ -79,17 +88,34 @@ func decayFactor(e Entry, in RecallInput) float64 {
 			halfLifeDays = float64(d)
 		}
 	}
-	ageDays := 0.0
+	// recency: half-life since the last access.
+	recency := 1.0
 	if e.LastAccessedAt != "" {
 		if t, err := time.Parse("2006-01-02 15:04:05", e.LastAccessedAt); err == nil {
-			ageDays = time.Since(t).Hours() / 24.0
+			sinceLast := time.Since(t).Hours() / 24.0
+			if sinceLast < 0 {
+				sinceLast = 0
+			}
+			recency = math.Pow(0.5, sinceLast/halfLifeDays)
 		}
 	}
-	decay := 0.5
-	if e.AccessCount > 1 {
-		decay = 0.5 * (1.0 + 1.0/float64(e.AccessCount))
+	// frequency: more accesses raise the factor, never lower it. k=4 tops out near 1.5.
+	frequency := 1.0
+	if e.AccessCount > 0 {
+		frequency = 1.0 + math.Log2(1.0+float64(e.AccessCount))/4.0
 	}
-	factor := math.Pow(decay, ageDays/halfLifeDays)
+	// age: mild decay for entries created long ago, independent of access recency.
+	age := 1.0
+	if e.CreatedAt != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05", e.CreatedAt); err == nil {
+			ageDays := time.Since(t).Hours() / 24.0
+			if ageDays < 0 {
+				ageDays = 0
+			}
+			age = math.Pow(0.5, ageDays/(halfLifeDays*4.0))
+		}
+	}
+	factor := recency * frequency * age
 	if factor < 0.3 {
 		factor = 0.3
 	}
