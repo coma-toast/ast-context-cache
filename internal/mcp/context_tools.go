@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
@@ -103,6 +105,10 @@ func handleListContext(toolArgs map[string]interface{}, start time.Time, cpuStar
 	if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
 		limit = int(l)
 	}
+	if limit > 50 {
+		limit = 50 // hard cap
+	}
+	expand := boolArg(toolArgs, "expand")
 	res, err := contextnotes.List(sessionID, projectPath, limit)
 	if err != nil {
 		out := map[string]string{"error": err.Error()}
@@ -110,7 +116,31 @@ func handleListContext(toolArgs map[string]interface{}, start time.Time, cpuStar
 		logToolQuery("list_context", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, err.Error())
 		return out
 	}
-	out := map[string]interface{}{"notes": res.Notes, "total": res.Total}
+	// MEM-10 & MEM-11: default to one line per entry under a hard cap unless expand=true
+	// gated by feature_memory_v2.
+	v2 := flags.Enabled(flags.KeyMemoryV2)
+	notes := res.Notes
+	out := map[string]interface{}{"total": res.Total}
+	if v2 && !expand {
+		var lines []map[string]interface{}
+		for _, n := range notes {
+			label := n.Label
+			if label == "" {
+				label = n.Kind
+			}
+			line := fmt.Sprintf("[%s] %s", n.Ref, label)
+			lines = append(lines, map[string]interface{}{
+				"ref":            n.Ref,
+				"line":           line,
+				"label":          n.Label,
+				"kind":           n.Kind,
+				"virtual_tokens": n.TokenEst,
+			})
+		}
+		out["lines"] = lines
+	} else {
+		out["notes"] = notes
+	}
 	resultJSON, _ := json.Marshal(out)
 	logToolQuery("list_context", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, "")
 	return out

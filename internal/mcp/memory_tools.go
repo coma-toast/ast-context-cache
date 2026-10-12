@@ -212,6 +212,12 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		AsOfSystem:  boolArg(toolArgs, "as_of_system"),
 		Limit:       limit,
 		TokenBudget: budget,
+		// MEM-9: debug=true lists entries that matched but were demoted below the
+		// budget, with their scores and the reason.
+		Debug: boolArg(toolArgs, "debug"),
+		// MEM-10: expand=true returns full bodies instead of compact one-line
+		// summaries (the default).
+		Expand: boolArg(toolArgs, "expand"),
 		// Project memories describe the repo, not the checkout, so a note taken in
 		// one WTG worktree should come back in a sibling worktree on another branch.
 		IncludeRepoSiblings: true,
@@ -248,6 +254,12 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		"tokens_used":      res.TokensUsed,
 		"tokens_saved_est": res.TokensSavedEst,
 		"refs_accessed":    res.RefsAccessed,
+	}
+	if len(res.Demoted) > 0 {
+		out["demoted"] = res.Demoted
+	}
+	if in.Expand {
+		out["entries"] = res.Entries
 	}
 	resultJSON, _ := json.Marshal(out)
 	logToolQuery("recall_memory", args, len(resultJSON), db.EstimateTokens(in.Query), res.TokensUsed, context.SavingsMeta{TokensUsed: res.TokensUsed, TokensSaved: res.TokensSavedEst}, start, cpuStart, pp, "")

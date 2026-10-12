@@ -53,7 +53,8 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, map[string]
 }
 
 // decayFactor returns the recency multiplier for an entry, clamped to 0.3–1.5x (MEM-6).
-// Procedures are exempt by default (MEM-7). Half-lives: 1 day session, 30 days project, none global.
+// Procedures are exempt by default (MEM-7). Half-lives are settings: session scope
+// defaults to 24 hours, project scope to 30 days, and global scope has no decay.
 func decayFactor(e Entry, in RecallInput) float64 {
 	if e.Kind == KindProcedure {
 		if !db.SettingBool("memory_decay_procedures", "AST_FEATURE_MEMORY_DECAY_PROCEDURES", false) {
@@ -66,6 +67,17 @@ func decayFactor(e Entry, in RecallInput) float64 {
 	halfLifeDays := 1.0
 	if e.Scope == ScopeProject {
 		halfLifeDays = 30.0
+	}
+	// MEM-6: half-lives are settings. The session half-life is in hours, the
+	// project half-life in days; both fall back to the defaults above.
+	if e.Scope == ScopeSession {
+		if h := db.SettingInt("memory_halflife_session_hours", "AST_MEMORY_HALFLIFE_SESSION_HOURS", 24); h > 0 {
+			halfLifeDays = float64(h) / 24.0
+		}
+	} else if e.Scope == ScopeProject {
+		if d := db.SettingInt("memory_halflife_project_days", "AST_MEMORY_HALFLIFE_PROJECT_DAYS", 30); d > 0 {
+			halfLifeDays = float64(d)
+		}
 	}
 	ageDays := 0.0
 	if e.LastAccessedAt != "" {

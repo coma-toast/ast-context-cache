@@ -144,7 +144,7 @@ func TestStoreFactInvalidatesPrevious(t *testing.T) {
 	if len(r2.InvalidatedRefs) != 1 || r2.InvalidatedRefs[0] != r1.Ref {
 		t.Fatalf("invalidated=%v want %s", r2.InvalidatedRefs, r1.Ref)
 	}
-	rec, err := Recall(RecallInput{SessionID: "s1", Query: "city", TokenBudget: 400}, nil)
+	rec, err := Recall(RecallInput{SessionID: "s1", Query: "city", TokenBudget: 400, Expand: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
