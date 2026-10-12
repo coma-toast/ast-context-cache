@@ -42,6 +42,9 @@ const (
 	// MEM-8: TTL expiry. The hourly memory expiry job and PruneArchived read this column.
 	addStructuredMemoryExpiresAtColumn = `ALTER TABLE structured_memory ADD COLUMN expires_at TEXT`
 	createStructuredMemoryExpiresIndex = `CREATE INDEX IF NOT EXISTS idx_struct_mem_expires ON structured_memory(expires_at)`
+	// MEM-1/TR-3: quarantine state. A quarantined entry is excluded from default recall/search
+	// and invalidated with reason quarantine when rejected (RejectQuarantined).
+	addStructuredMemoryQuarantinedColumn = `ALTER TABLE structured_memory ADD COLUMN quarantined INTEGER DEFAULT 0`
 )
 
 var indexSteps []schemaStep
@@ -51,6 +54,7 @@ var contextSteps = []schemaStep{
 	{version: 2, name: "context_note_tombstones", run: execSteps(createContextNoteTombstonesTable)},
 	{version: 3, name: "recount_token_est", run: recountTokenEstimates},
 	{version: 4, name: "structured_memory_invalidation", run: execSteps(addStructuredMemoryInvalidatedReasonColumn, addStructuredMemoryWorldValidAtColumn, addStructuredMemoryWorldInvalidAtColumn, addStructuredMemoryExpiresAtColumn, createStructuredMemoryExpiresIndex)},
+	{version: 5, name: "structured_memory_quarantine", run: execSteps(addStructuredMemoryQuarantinedColumn)},
 }
 
 var usageSteps = []schemaStep{

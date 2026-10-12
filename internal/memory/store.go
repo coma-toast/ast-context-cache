@@ -15,8 +15,8 @@ import (
 const (
 	insertEntryQuery = `INSERT INTO structured_memory
 			(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est,
-			 world_valid_at, world_invalid_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			 world_valid_at, world_invalid_at, expires_at, quarantined)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	selectActiveFactRefsQuery = `SELECT ref FROM structured_memory WHERE kind = 'fact' AND subject = ? AND predicate = ? AND (valid_until IS NULL OR valid_until = '')`
 	andSessionScopeClause     = ` AND scope = 'session' AND session_id = ?`
 	andProjectScopeClause     = ` AND scope = 'project' AND project_path = ?`
@@ -27,7 +27,7 @@ const (
 	// Entry queries now select the v2 columns too. Old rows read as zero values.
 	selectEntryByRefQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
 		FROM structured_memory WHERE ref = ?`
 )
 
@@ -86,6 +86,8 @@ type StoreInput struct {
 	WorldValidAt       string // MEM-5: world_valid_at; normalized, default system time
 	WorldInvalidAt     string // MEM-5: world_invalid_at; normalized, default system time
 	TTL                int    // MEM-8: TTL in days (Nd); >0 writes expires_at
+	TTLHours           int    // MEM-8: TTL hours (Nh); preserved with minute precision
+	TTLMinutes         int    // MEM-8: TTL minutes (Nm); preserved with minute precision
 	ExpiresAt          string // MEM-8: absolute expires_at; if set overrides TTL
 }
 
@@ -193,7 +195,10 @@ func Store(in StoreInput) (*StoreResult, error) {
 		}
 	}
 	if expiresAt == "" && in.TTL > 0 {
-		expiresAt = db.SQLTime(time.Now().UTC().AddDate(0, 0, in.TTL))
+		d := time.Duration(in.TTL) * 24 * time.Hour
+		d += time.Duration(in.TTLHours) * time.Hour
+		d += time.Duration(in.TTLMinutes) * time.Minute
+		expiresAt = db.SQLTime(time.Now().UTC().Add(d))
 	}
 
 	insert := func() error {
@@ -203,7 +208,9 @@ func Store(in StoreInput) (*StoreResult, error) {
 			nullIfEmpty(entry.SourceRef), entry.TokenEst,
 			nullIfEmpty(worldValidAt),
 			nullIfEmpty(worldInvalidAt),
-			nullIfEmpty(expiresAt))
+			nullIfEmpty(expiresAt),
+			0, // quarantined = 0 (not quarantined) by default
+		)
 		return err
 	}
 	var invalidated []string
@@ -277,7 +284,8 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	var kind, scope string
 	var sessionID, projectPath, subject, predicate, object, rule, sourceRef, validFrom, validUntil, supersededBy, lastAccessed, createdAt interface{}
 	var invalidatedReason, worldValidAt, worldInvalidAt, expiresAt interface{}
-	err := row.Scan(&e.Ref, &kind, &scope, &sessionID, &projectPath, &subject, &predicate, &object, &rule, &validFrom, &validUntil, &supersededBy, &sourceRef, &e.TokenEst, &e.AccessCount, &lastAccessed, &createdAt, &invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
+	var quarantined interface{}
+	err := row.Scan(&e.Ref, &kind, &scope, &sessionID, &projectPath, &subject, &predicate, &object, &rule, &validFrom, &validUntil, &supersededBy, &sourceRef, &e.TokenEst, &e.AccessCount, &lastAccessed, &createdAt, &invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt, &quarantined)
 	if err != nil {
 		return e, err
 	}
@@ -299,6 +307,7 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	e.WorldValidAt = strVal(worldValidAt)
 	e.WorldInvalidAt = strVal(worldInvalidAt)
 	e.ExpiresAt = strVal(expiresAt)
+	e.Quarantined = intVal(quarantined)
 	return e, nil
 }
 
@@ -310,6 +319,22 @@ func strVal(v interface{}) string {
 		return s
 	}
 	return fmt.Sprint(v)
+}
+
+func intVal(v interface{}) int {
+	if v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
 }
 
 func entryByRef(ref string) (Entry, error) {

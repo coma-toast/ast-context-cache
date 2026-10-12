@@ -93,7 +93,7 @@ func ftsConflictCandidates(e Entry) []Conflict {
 	}, "sm.", smEntryValidity)
 	q := `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
 		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,
-		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at
+		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at, sm.quarantined
 		FROM structured_memory_fts
 		JOIN structured_memory sm ON sm.ref = structured_memory_fts.ref
 		WHERE structured_memory_fts MATCH ?` + clause + ` ORDER BY bm25(structured_memory_fts) LIMIT 10`

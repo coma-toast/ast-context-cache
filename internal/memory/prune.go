@@ -205,3 +205,86 @@ func RunExpiryJob() {
 	}
 	logger.Info("Expired structured memory invalidated via TTL", "count", n)
 }
+
+// RunStaleAnchorJob runs the periodic MEM-1 job: invalidate facts whose world-time
+// anchor has passed (world_invalid_at is set and earlier than now). A fact whose
+// world_invalid_at is in the past is no longer true in the world, so it is
+// invalidated with reason "stale_anchor". Rows without world_invalid_at are ignored.
+func RunStaleAnchorJob() {
+	now := db.SQLTime(time.Now().UTC())
+	res, err := db.ContextDB.Exec(
+		`UPDATE structured_memory
+		 SET valid_until = ?, invalidated_reason = ?
+		 WHERE kind = 'fact'
+		   AND (valid_until IS NULL OR valid_until = '')
+		   AND world_invalid_at IS NOT NULL AND world_invalid_at != ''
+		   AND world_invalid_at < ?`,
+		now, ReasonStaleAnchor, now,
+	)
+	if err != nil {
+		logger.Error("Failed to run stale anchor job", "error", err)
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return
+	}
+	rows, err := db.ContextDB.Query(
+		`SELECT ref FROM structured_memory
+		 WHERE valid_until = ? AND invalidated_reason = ?`,
+		now, ReasonStaleAnchor,
+	)
+	if err != nil {
+		logger.Error("Failed to fetch stale anchor refs for cleanup", "error", err)
+		return
+	}
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if rows.Scan(&ref) == nil && ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	rows.Close()
+	if len(refs) == 0 {
+		return
+	}
+	keys := make([]string, len(refs))
+	for i, ref := range refs {
+		keys[i] = memoryVectorKey(ref)
+	}
+	if err := search.Cache.DeleteRefs("memory", keys); err != nil {
+		logger.Error("Failed to delete memory vectors for stale anchors", "error", err)
+	}
+	for _, ref := range refs {
+		deleteFTS(ref)
+	}
+	logger.Info("Structured memory invalidated via stale world anchors", "count", n)
+}
+
+// RejectQuarantined invalidates a quarantined entry with reason "quarantine" (MEM-1,
+// TR-3). Quarantined entries are rejected from the dashboard review queue; rejecting
+// must invalidate the row (never delete) so history keeps explaining what happened.
+func RejectQuarantined(ref string) error {
+	if ref == "" {
+		return errs.NewCode(errs.CodeInvalidInput, "ref required")
+	}
+	res, err := db.ContextDB.Exec(
+		`UPDATE structured_memory
+		 SET valid_until = datetime('now'), invalidated_reason = ?
+		 WHERE ref = ? AND quarantined = 1 AND (valid_until IS NULL OR valid_until = '')`,
+		ReasonQuarantine, ref,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errs.NewCode(errs.CodeNotFound, "no active quarantined entry with ref %q", ref)
+	}
+	deleteFTS(ref)
+	if err := search.Cache.DeleteRefs("memory", []string{memoryVectorKey(ref)}); err != nil {
+		logger.Warn("Failed to delete memory vector for quarantined ref", "ref", ref, "error", err)
+	}
+	logger.Info("Quarantined entry rejected", "ref", ref)
+	return nil
+}

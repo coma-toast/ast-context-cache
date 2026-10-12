@@ -579,6 +579,11 @@ func resolveStartupWorkers(flagVal int) int {
 // startBackgroundServices starts the periodic jobs; the tickers owned here stop when
 // ctx is cancelled at shutdown.
 func startBackgroundServices(ctx context.Context) {
+	// Run memory lifecycle jobs once at startup so a server that restarts daily still prunes
+	memory.RunDailyPrune()
+	memory.RunExpiryJob()
+	memory.RunStaleAnchorJob()
+
 	go docs.EmbedAllSources()
 	purge.StartDeletedProjectSweep()
 	db.StartFTSSelfCheck()
@@ -589,6 +594,7 @@ func startBackgroundServices(ctx context.Context) {
 	// MEM-2 / MEM-8: background maintenance jobs for structured memory.
 	go runEvery(ctx, 24*time.Hour, memory.RunDailyPrune)
 	go runEvery(ctx, time.Hour, memory.RunExpiryJob)
+	go runEvery(ctx, time.Hour, memory.RunStaleAnchorJob)
 	ctxpkg.StartSessionStoreEviction(ctx)
 	handoff.Start(ctx, embedder.Tracked())
 	seen := map[string]bool{}

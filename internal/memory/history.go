@@ -2,6 +2,7 @@ package memory
 
 import (
 	"database/sql"
+	"sort"
 	"strings"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
@@ -68,22 +69,90 @@ func History(in HistoryInput) (*HistoryResult, error) {
 }
 
 func historyByRef(ref string, includeWorld bool) (*HistoryResult, error) {
+	// MEM-3: follow the version chain in both directions from the given ref.
+	// Backward: entries whose superseded_by points at this ref (or any ref in the chain).
+	// Forward: the entry this ref points to via superseded_by, and so on.
+	seen := map[string]bool{ref: true}
+	queue := []string{ref}
+	var all []HistoryEntry
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		e, err := historyEntryByRef(cur, includeWorld)
+		if err != nil {
+			continue
+		}
+		all = append(all, e)
+		// Forward: this entry was superseded by e.SupersededBy.
+		if e.SupersededBy != "" && !seen[e.SupersededBy] {
+			seen[e.SupersededBy] = true
+			queue = append(queue, e.SupersededBy)
+		}
+		// Backward: other entries that were superseded by this one.
+		back, err := historyEntriesSupersededBy(cur, includeWorld)
+		if err != nil {
+			continue
+		}
+		for _, b := range back {
+			if !seen[b.Ref] {
+				seen[b.Ref] = true
+				queue = append(queue, b.Ref)
+			}
+		}
+	}
+
+	if len(all) == 0 {
+		return nil, errs.NewCode(errs.CodeNotFound, "no history entries found for ref %q", ref)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt < all[j].CreatedAt
+	})
+	return &HistoryResult{Entries: all}, nil
+}
+
+func historyEntryByRef(ref string, includeWorld bool) (HistoryEntry, error) {
 	q := historySelect
-	args := []any{ref}
 	if !includeWorld {
 		q += ` WHERE sm.ref = ? AND (sm.world_valid_at IS NULL OR sm.world_valid_at = '')`
 	} else {
 		q += ` WHERE sm.ref = ?`
 	}
-	q += ` ORDER BY sm.created_at ASC`
+	q += ` ORDER BY sm.created_at ASC LIMIT 1`
+	row := db.ContextDB.QueryRow(q, ref)
+	var e HistoryEntry
+	var validUntil, invalidatedReason, expiresAt sql.NullString
+	var worldValidAt, worldInvalidAt sql.NullString
+	err := row.Scan(&e.Ref, &e.Kind, &e.Scope, &e.SessionID, &e.ProjectPath,
+		&e.Subject, &e.Predicate, &e.Object, &e.Rule,
+		&e.ValidFrom, &validUntil, &e.SupersededBy, &e.SourceRef, &e.TokenEst,
+		&e.AccessCount, &e.LastAccessedAt, &e.CreatedAt,
+		&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
+	if err != nil {
+		return e, err
+	}
+	e.ValidUntil = validUntil.String
+	e.InvalidatedReason = invalidatedReason.String
+	e.WorldValidAt = worldValidAt.String
+	e.WorldInvalidAt = worldInvalidAt.String
+	e.ExpiresAt = expiresAt.String
+	return e, nil
+}
 
-	rows, err := db.ContextDB.Query(q, args...)
+func historyEntriesSupersededBy(ref string, includeWorld bool) ([]HistoryEntry, error) {
+	q := historySelect
+	if !includeWorld {
+		q += ` WHERE sm.superseded_by = ? AND (sm.world_valid_at IS NULL OR sm.world_valid_at = '')`
+	} else {
+		q += ` WHERE sm.superseded_by = ?`
+	}
+	q += ` ORDER BY sm.created_at ASC`
+	rows, err := db.ContextDB.Query(q, ref)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var entries []HistoryEntry
+	var out []HistoryEntry
 	for rows.Next() {
 		var e HistoryEntry
 		var validUntil, invalidatedReason, expiresAt sql.NullString
@@ -94,22 +163,16 @@ func historyByRef(ref string, includeWorld bool) (*HistoryResult, error) {
 			&e.AccessCount, &e.LastAccessedAt, &e.CreatedAt,
 			&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
 		if err != nil {
-			return nil, err
+			return out, err
 		}
 		e.ValidUntil = validUntil.String
 		e.InvalidatedReason = invalidatedReason.String
 		e.WorldValidAt = worldValidAt.String
 		e.WorldInvalidAt = worldInvalidAt.String
 		e.ExpiresAt = expiresAt.String
-		entries = append(entries, e)
+		out = append(out, e)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(entries) == 0 {
-		return nil, errs.NewCode(errs.CodeNotFound, "no history entries found for ref %q", ref)
-	}
-	return &HistoryResult{Entries: entries}, nil
+	return out, rows.Err()
 }
 
 func historyByQuery(query string, includeWorld bool) (*HistoryResult, error) {
@@ -120,10 +183,12 @@ func historyByQuery(query string, includeWorld bool) (*HistoryResult, error) {
 		where = append(where, "(sm.world_valid_at IS NULL OR sm.world_valid_at = '')")
 	}
 	like := "%" + strings.ReplaceAll(query, "%", "\\%") + "%"
+	content := make([]string, 0, 4)
 	for _, col := range []string{"sm.subject", "sm.predicate", "sm.object", "sm.rule"} {
-		where = append(where, col+" LIKE ?")
+		content = append(content, col+" LIKE ?")
 		args = append(args, like)
 	}
+	where = append(where, "("+strings.Join(content, " OR ")+")")
 	q += " WHERE " + strings.Join(where, " AND ") + " ORDER BY sm.ref LIMIT 50"
 
 	rows, err := db.ContextDB.Query(q, args...)

@@ -15,12 +15,12 @@ import (
 const (
 	searchEntriesLikeQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
 		FROM structured_memory WHERE (subject LIKE ? OR predicate LIKE ? OR object LIKE ? OR rule LIKE ?)`
 	// The FTS table has no alias so bm25() and MATCH can name it.
 	searchEntriesFTSQuery = `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
 		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,
-		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at
+		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at, sm.quarantined
 		FROM structured_memory_fts
 		JOIN structured_memory sm ON sm.ref = structured_memory_fts.ref
 		WHERE structured_memory_fts MATCH ?`

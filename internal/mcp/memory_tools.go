@@ -14,33 +14,31 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
 
-func parseTTL(s string) (int, error) {
+// parseTTL converts a TTL string ("Nd", "Nh", "Nm", or plain days) into days, hours
+// and minutes so that hour and minute precision is preserved rather than rounded up to
+// a full day (MEM-8).
+func parseTTL(s string) (days, hours, minutes int, err error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return 0, nil
+		return 0, 0, 0, nil
+	}
+	if parsed, err := strconv.Atoi(s); err == nil {
+		return parsed, 0, 0, nil
 	}
 	var n int
 	var unit string
-	_, err := fmt.Sscanf(s, "%d%s", &n, &unit)
-	if err != nil {
-		if parsed, err := strconv.Atoi(s); err == nil {
-			return parsed, nil
-		}
-		return 0, fmt.Errorf("invalid ttl: %s", s)
+	if _, err := fmt.Sscanf(s, "%d%s", &n, &unit); err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid ttl: %s", s)
 	}
 	switch strings.ToLower(unit) {
 	case "d", "day", "days":
-		return n, nil
+		return n, 0, 0, nil
 	case "h", "hr", "hrs", "hour", "hours":
-		days := (n + 23) / 24
-		if days < 1 {
-			days = 1
-		}
-		return days, nil
+		return 0, n, 0, nil
 	case "m", "min", "mins":
-		return 1, nil
+		return 0, 0, n, nil
 	default:
-		return n, nil
+		return n, 0, 0, nil
 	}
 }
 
@@ -79,15 +77,19 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		// caller opts out.
 		InvalidatePrevious: true,
 	}
-	if ttl, ok := toolArgs["ttl"].(float64); ok && ttl > 0 {
-		in.TTL = int(ttl)
-	} else if ttlS, ok := toolArgs["ttl"].(string); ok && ttlS != "" {
-		d, err := parseTTL(ttlS)
-		if err != nil {
-			logToolQuery("store_memory", args, 0, 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
-			return map[string]string{"error": err.Error()}
-		}
-		in.TTL = d
+	ttlDays, ttlHours, ttlMinutes, err := parseTTL(strArg(toolArgs, "ttl"))
+	if err != nil {
+		logToolQuery("store_memory", args, 0, 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
+		return map[string]string{"error": err.Error()}
+	}
+	if ttlDays > 0 {
+		in.TTL = ttlDays
+	}
+	if ttlHours > 0 {
+		in.TTLHours = ttlHours
+	}
+	if ttlMinutes > 0 {
+		in.TTLMinutes = ttlMinutes
 	}
 	if expiresAt := strArg(toolArgs, "expires_at"); expiresAt != "" {
 		in.ExpiresAt = expiresAt

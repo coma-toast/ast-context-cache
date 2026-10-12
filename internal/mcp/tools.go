@@ -402,6 +402,8 @@ func GetTools() []Tool {
 					"token_budget":  map[string]string{"type": "integer", "description": "Max tokens in formatted output (default 800)"},
 					"repo_siblings": map[string]string{"type": "boolean", "description": "Also match project memories stored in other checkouts of the same repo (default true)"},
 					"history":       map[string]string{"type": "boolean", "description": "Return full version chain with reasons/timestamps (MEM-3)"},
+					"ref":           map[string]string{"type": "string", "description": "With history=true: single mem_* ref whose version chain to return"},
+					"include_world": map[string]string{"type": "boolean", "description": "With history=true: include world-time rows too (default false)"},
 				},
 			},
 			Tier:     TierCore,

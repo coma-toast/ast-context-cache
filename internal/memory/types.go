@@ -40,6 +40,7 @@ type Entry struct {
 	WorldValidAt      string `json:"world_valid_at,omitempty"`
 	WorldInvalidAt    string `json:"world_invalid_at,omitempty"`
 	ExpiresAt         string `json:"expires_at,omitempty"`
+	Quarantined       int    `json:"quarantined,omitempty"`
 }
 
 // CompactLine is a token-efficient representation for agents.

@@ -15,11 +15,11 @@ import (
 const (
 	selectActiveEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
 		FROM structured_memory WHERE 1=1`
 	selectEntriesByRefsQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
 		FROM structured_memory WHERE ref IN (`
 	selectActiveEntryTokensQuery    = `SELECT ref, token_est FROM structured_memory WHERE (valid_until IS NULL OR valid_until = '')`
 	invalidateEntryQuery            = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`
