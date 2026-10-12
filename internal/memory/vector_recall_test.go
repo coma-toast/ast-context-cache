@@ -161,8 +161,10 @@ func TestValidityClause(t *testing.T) {
 	}{
 		{name: "now", in: RecallInput{}, wantClause: validNowClause},
 		{name: "history", in: RecallInput{IncludeHistory: true}},
-		{name: "as of", in: RecallInput{AsOf: "2026-01-01"}, wantClause: validAsOfClause, wantArgs: []any{"2026-01-01", "2026-01-01"}},
-		{name: "history as of", in: RecallInput{AsOf: "2026-01-01", IncludeHistory: true}, wantClause: validFromAsOfClause, wantArgs: []any{"2026-01-01"}},
+		{name: "as of", in: RecallInput{AsOf: "2026-01-01"}, wantClause: worldValidAsOfClause, wantArgs: []any{"2026-01-01", "2026-01-01"}},
+		{name: "history as of", in: RecallInput{AsOf: "2026-01-01", IncludeHistory: true}, wantClause: worldValidFromAsOfClause, wantArgs: []any{"2026-01-01"}},
+		{name: "as of system", in: RecallInput{AsOf: "2026-01-01", AsOfSystem: true}, wantClause: validAsOfClause, wantArgs: []any{"2026-01-01", "2026-01-01"}},
+		{name: "history as of system", in: RecallInput{AsOf: "2026-01-01", IncludeHistory: true, AsOfSystem: true}, wantClause: validFromAsOfClause, wantArgs: []any{"2026-01-01"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
