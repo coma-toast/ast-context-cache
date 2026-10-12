@@ -301,8 +301,8 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 		ps = append(ps, map[string]interface{}{
 			"path": p, "name": filepath.Base(p), "query_count": c,
 			"symbol_count": sc.symbols, "file_count": sc.files,
-			"pinned":      db.IsPinnedProject(p),
-			"PinnedNote":  getPinnedNoteContent(p),
+			"pinned":     db.IsPinnedProject(p),
+			"PinnedNote": getPinnedNoteContent(p),
 		})
 	}
 	if ps == nil {

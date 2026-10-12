@@ -30,6 +30,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/netlisten"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
@@ -585,6 +586,9 @@ func startBackgroundServices(ctx context.Context) {
 	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
 	go runEvery(ctx, time.Hour, contextnotes.RunOffloadPurge)
 	go runEvery(ctx, time.Hour, transcripts.RunOnce)
+	// MEM-2 / MEM-8: background maintenance jobs for structured memory.
+	go runEvery(ctx, 24*time.Hour, memory.RunDailyPrune)
+	go runEvery(ctx, time.Hour, memory.RunExpiryJob)
 	ctxpkg.StartSessionStoreEviction(ctx)
 	handoff.Start(ctx, embedder.Tracked())
 	seen := map[string]bool{}
