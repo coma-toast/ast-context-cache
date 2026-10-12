@@ -201,7 +201,6 @@ func Store(in StoreInput) (*StoreResult, error) {
 			ref, string(entry.Kind), string(scope), nullIfEmpty(in.SessionID), nullIfEmpty(in.ProjectPath),
 			nullIfEmpty(entry.Subject), nullIfEmpty(entry.Predicate), nullIfEmpty(entry.Object), nullIfEmpty(entry.Rule),
 			nullIfEmpty(entry.SourceRef), entry.TokenEst,
-			nullIfEmpty(in.InvalidatedReason),
 			nullIfEmpty(worldValidAt),
 			nullIfEmpty(worldInvalidAt),
 			nullIfEmpty(expiresAt))

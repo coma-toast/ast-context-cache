@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -283,12 +284,12 @@ func TestStoreEntryNullInvalidatedReason(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var invalidatedReason string
-	err = db.ContextDB.QueryRow(`SELECT invalidated_reason FROM structured_memory WHERE ref = ?`, ref).Scan(&invalidatedReason)
+	var invalidatedReason sql.NullString
+	err = db.ContextDB.QueryRow(`SELECT invalidated_reason FROM structured_memory WHERE ref = ?`, ref.Ref).Scan(&invalidatedReason)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if invalidatedReason != "" {
-		t.Fatalf("expected empty invalidated_reason for active entry, got %q", invalidatedReason)
+	if invalidatedReason.String != "" {
+		t.Fatalf("expected empty invalidated_reason for active entry, got %q", invalidatedReason.String)
 	}
 }
