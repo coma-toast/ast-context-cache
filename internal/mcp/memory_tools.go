@@ -2,11 +2,11 @@ package mcp
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
@@ -16,30 +16,45 @@ import (
 
 // parseTTL converts a TTL string ("Nd", "Nh", "Nm", or plain days) into days, hours
 // and minutes so that hour and minute precision is preserved rather than rounded up to
-// a full day (MEM-8).
+// a full day (MEM-8). Returns an error for unknown units using the errs package.
 func parseTTL(s string) (days, hours, minutes int, err error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, 0, 0, nil
 	}
+	// Plain integer means days (backward compat).
 	if parsed, err := strconv.Atoi(s); err == nil {
 		return parsed, 0, 0, nil
 	}
-	var n int
-	var unit string
-	if _, err := fmt.Sscanf(s, "%d%s", &n, &unit); err != nil {
-		return 0, 0, 0, fmt.Errorf("invalid ttl: %s", s)
+	// time.ParseDuration handles standard units "h", "m", "s", "ms", "us", "ns" and
+	// combinations like "1h30m". Go does NOT support "d" in ParseDuration.
+	if d, err := time.ParseDuration(s); err == nil {
+		hours = int(d / time.Hour)
+		minutes = int(d / time.Minute) % 60
+		return 0, hours, minutes, nil
 	}
-	switch strings.ToLower(unit) {
-	case "d", "day", "days":
-		return n, 0, 0, nil
-	case "h", "hr", "hrs", "hour", "hours":
-		return 0, n, 0, nil
-	case "m", "min", "mins":
-		return 0, 0, n, nil
-	default:
-		return n, 0, 0, nil
+	// Handle "Nd" suffix and combinations like "2d3h", "1d6h30m".
+	if idx := strings.Index(s, "d"); idx >= 0 || strings.Index(s, "D") >= 0 {
+		dIdx := strings.Index(s, "d")
+		if dIdx < 0 {
+			dIdx = strings.Index(s, "D")
+		}
+		dayStr := s[:dIdx]
+		if n, err := strconv.Atoi(dayStr); err == nil {
+			days = n
+			remainder := s[dIdx+1:]
+			if remainder != "" {
+				if d, err := time.ParseDuration(remainder); err == nil {
+					hours += int(d / time.Hour)
+					minutes += int(d / time.Minute) % 60
+				} else {
+					return 0, 0, 0, errs.NewCode(errs.CodeInvalidInput, "invalid ttl: %s", s)
+				}
+			}
+			return days, hours, minutes, nil
+		}
 	}
+	return 0, 0, 0, errs.NewCode(errs.CodeInvalidInput, "invalid ttl: %s", s)
 }
 
 func handleMemoryTool(toolName string, toolArgs map[string]interface{}, args map[string]interface{}, emb embedder.Interface, start time.Time, cpuStart sys.CPUSample, projectPath string) (interface{}, bool, error) {

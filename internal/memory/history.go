@@ -123,15 +123,17 @@ func historyEntryByRef(ref string, includeWorld bool) (HistoryEntry, error) {
 	var e HistoryEntry
 	var validUntil, invalidatedReason, expiresAt sql.NullString
 	var worldValidAt, worldInvalidAt sql.NullString
+	var supersededBy sql.NullString
 	err := row.Scan(&e.Ref, &e.Kind, &e.Scope, &e.SessionID, &e.ProjectPath,
 		&e.Subject, &e.Predicate, &e.Object, &e.Rule,
-		&e.ValidFrom, &validUntil, &e.SupersededBy, &e.SourceRef, &e.TokenEst,
+		&e.ValidFrom, &validUntil, &supersededBy, &e.SourceRef, &e.TokenEst,
 		&e.AccessCount, &e.LastAccessedAt, &e.CreatedAt,
 		&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
 	if err != nil {
 		return e, err
 	}
 	e.ValidUntil = validUntil.String
+	e.SupersededBy = supersededBy.String
 	e.InvalidatedReason = invalidatedReason.String
 	e.WorldValidAt = worldValidAt.String
 	e.WorldInvalidAt = worldInvalidAt.String
@@ -157,15 +159,17 @@ func historyEntriesSupersededBy(ref string, includeWorld bool) ([]HistoryEntry, 
 		var e HistoryEntry
 		var validUntil, invalidatedReason, expiresAt sql.NullString
 		var worldValidAt, worldInvalidAt sql.NullString
+		var supersededBy sql.NullString
 		err := rows.Scan(&e.Ref, &e.Kind, &e.Scope, &e.SessionID, &e.ProjectPath,
 			&e.Subject, &e.Predicate, &e.Object, &e.Rule,
-			&e.ValidFrom, &validUntil, &e.SupersededBy, &e.SourceRef, &e.TokenEst,
+			&e.ValidFrom, &validUntil, &supersededBy, &e.SourceRef, &e.TokenEst,
 			&e.AccessCount, &e.LastAccessedAt, &e.CreatedAt,
 			&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
 		if err != nil {
 			return out, err
 		}
 		e.ValidUntil = validUntil.String
+		e.SupersededBy = supersededBy.String
 		e.InvalidatedReason = invalidatedReason.String
 		e.WorldValidAt = worldValidAt.String
 		e.WorldInvalidAt = worldInvalidAt.String
