@@ -242,6 +242,53 @@ func TestRecallMemoryAsOf(t *testing.T) {
 	assert.Empty(t, out["lines"])
 }
 
+// MEM-5: store_memory accepts optional valid_at and invalid_at world-time anchors.
+// When valid_at and invalid_at are set on a fact, as_of queries use those world-time
+// columns instead of system valid_from/valid_until. as_of_system=true uses system time.
+func TestRecallMemoryAsOfWorldTime(t *testing.T) {
+	setupMemoryToolTest(t)
+
+	// Store a fact with world-time anchors using RFC3339 format.
+	out1, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":       "fact",
+		"session_id": "s-world",
+		"subject":    "world-time-fact",
+		"predicate":  "is",
+		"object":     "active now",
+		"valid_at":   "2026-01-01T00:00:00Z",
+		"invalid_at": "2026-06-01T00:00:00Z",
+		"expires_at": "30",
+	})
+	require.False(t, isErr, out1)
+
+	// as_of within the window (March 1 2026, between Jan 1 and June 1) → should return the fact
+	out, isErr := callTool(t, "recall_memory", map[string]interface{}{
+		"session_id": "s-world",
+		"as_of":      "2026-03-01",
+	})
+	require.False(t, isErr, out)
+	assert.Len(t, out["lines"], 1, "as_of within [valid_at, invalid_at] should return the fact")
+
+	// as_of after the window (July 1 2026, after invalid_at) → should not return
+	out, isErr = callTool(t, "recall_memory", map[string]interface{}{
+		"session_id": "s-world",
+		"as_of":      "2026-07-01",
+	})
+	require.False(t, isErr, out)
+	assert.Empty(t, out["lines"], "as_of after invalid_at should not return the fact")
+
+	// as_of_system=true uses system time (valid_from/valid_until) instead of world time.
+	// The fact was just stored, so valid_from is now and valid_until is empty.
+	// With as_of=2999 (future), the fact's valid_from <= as_of → returned.
+	out, isErr = callTool(t, "recall_memory", map[string]interface{}{
+		"session_id":   "s-world",
+		"as_of":        "2999-01-01T00:00:00Z",
+		"as_of_system": true,
+	})
+	require.False(t, isErr, out)
+	assert.Len(t, out["lines"], 1, "as_of_system=true should use system time and return the fact")
+}
+
 // BF-4: store_memory supersedes by default and keeps both facts when told not to.
 func TestStoreMemoryInvalidatePreviousDefault(t *testing.T) {
 	setupMemoryToolTest(t)
@@ -282,10 +329,10 @@ func TestForgetMemoryAllRequiresScopeOrConfirm(t *testing.T) {
 // using the errs package (MEM-8).
 func TestParseTTLTable(t *testing.T) {
 	cases := []struct {
-		name     string
-		input    string
+		name                             string
+		input                            string
 		wantDays, wantHours, wantMinutes int
-		wantErr  bool
+		wantErr                          bool
 	}{
 		{"empty string", "", 0, 0, 0, false},
 		{"plain number (days)", "42", 42, 0, 0, false},
@@ -318,7 +365,7 @@ func TestParseTTLTable(t *testing.T) {
 // Issue #3: MEM-3 history test for make→bazel→ninja chain
 func TestHistoryMakeBazelNinjaChain(t *testing.T) {
 	setupMemoryToolTest(t)
-	
+
 	// Store the initial fact: build tool is make
 	resMake, err := memory.Store(memory.StoreInput{
 		Kind:               memory.KindFact,
@@ -330,7 +377,7 @@ func TestHistoryMakeBazelNinjaChain(t *testing.T) {
 		InvalidatePrevious: false,
 	})
 	require.NoError(t, err)
-	
+
 	// Store the second fact: build tool is bazel (supersedes make)
 	resBazel, err := memory.Store(memory.StoreInput{
 		Kind:               memory.KindFact,
@@ -342,7 +389,7 @@ func TestHistoryMakeBazelNinjaChain(t *testing.T) {
 		InvalidatePrevious: true, // This will supersede the active fact
 	})
 	require.NoError(t, err)
-	
+
 	// Store the third fact: build tool is ninja (supersedes bazel)
 	resNinja, err := memory.Store(memory.StoreInput{
 		Kind:               memory.KindFact,
@@ -354,7 +401,7 @@ func TestHistoryMakeBazelNinjaChain(t *testing.T) {
 		InvalidatePrevious: true, // This will supersede the active fact
 	})
 	require.NoError(t, err)
-	
+
 	// Verify the invalidation chain was set up correctly via direct SQL
 	var makeSupersededBy, makeReason sql.NullString
 	err = db.ContextDB.QueryRow(`SELECT superseded_by, invalidated_reason FROM structured_memory WHERE ref = ?`, resMake.Ref).Scan(&makeSupersededBy, &makeReason)
@@ -374,7 +421,7 @@ func TestHistoryMakeBazelNinjaChain(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, ninjaSupersededBy.String, "ninja should be active (not superseded)")
 	assert.Empty(t, ninjaReason.String, "ninja should be active (no invalidation reason)")
-	
+
 	// Test history by ref starting from the first fact (make)
 	hist, err := memory.History(memory.HistoryInput{
 		Ref:          resMake.Ref,
@@ -382,38 +429,38 @@ func TestHistoryMakeBazelNinjaChain(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, hist)
-	
+
 	// Should have 3 entries in the chain: make → bazel → ninja
 	assert.Len(t, hist.Entries, 3, "history chain should have 3 entries")
-	
+
 	// Entries should be in chronological order (oldest first)
 	assert.Equal(t, resMake.Ref, hist.Entries[0].Ref, "first entry should be make")
 	assert.Equal(t, resBazel.Ref, hist.Entries[1].Ref, "second entry should be bazel")
 	assert.Equal(t, resNinja.Ref, hist.Entries[2].Ref, "third entry should be ninja")
-	
+
 	// Verify the invalidation reasons and superseded_by links
 	assert.Equal(t, memory.ReasonContradiction, hist.Entries[0].InvalidatedReason, "make should be invalidated by contradiction")
 	assert.Equal(t, resBazel.Ref, hist.Entries[0].SupersededBy, "make should point to bazel as superseded_by")
-	
+
 	assert.Equal(t, memory.ReasonContradiction, hist.Entries[1].InvalidatedReason, "bazel should be invalidated by contradiction")
 	assert.Equal(t, resNinja.Ref, hist.Entries[1].SupersededBy, "bazel should point to ninja as superseded_by")
-	
+
 	assert.Empty(t, hist.Entries[2].InvalidatedReason, "ninja should be active (no invalidation reason)")
 	assert.Empty(t, hist.Entries[2].SupersededBy, "ninja should be active (no superseded_by)")
-	
+
 	// Test recall_memory with history=true via the tool interface
 	out, isErr := callTool(t, "recall_memory", map[string]interface{}{
-		"history": true,
-		"ref":     resMake.Ref,
+		"history":    true,
+		"ref":        resMake.Ref,
 		"session_id": "history-test-session",
 	})
 	require.False(t, isErr, "recall_memory with history should not error")
 	require.NotNil(t, out["entries"], "should have entries in response")
-	
+
 	// The tool should return the same chain
 	entries := out["entries"].([]interface{})
 	assert.Len(t, entries, 3, "tool history should return 3 entries")
-	
+
 	// Check that we got the refs in order
 	assert.Equal(t, resMake.Ref, entries[0].(map[string]interface{})["ref"], "first tool entry should be make")
 	assert.Equal(t, resBazel.Ref, entries[1].(map[string]interface{})["ref"], "second tool entry should be bazel")
@@ -425,9 +472,9 @@ func TestHistoryMakeBazelNinjaChain(t *testing.T) {
 // and deletes legacy rows (without reason) older than 90 days.
 func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	setupMemoryToolTest(t)
-	
+
 	now := time.Now().UTC()
-	
+
 	// Row A: legacy row (no invalidated_reason), invalidated 100 days ago → should be DELETED by 90-day prune
 	old100 := now.AddDate(0, 0, -100).Format("2006-01-02 15:04:05")
 	resA, err := memory.Store(memory.StoreInput{
@@ -441,7 +488,7 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = NULL WHERE ref = ?`, old100, resA.Ref)
 	require.NoError(t, err)
-	
+
 	// Row B: invalidated row with reason, 10 days ago → should be RETAINED by 90-day prune
 	old10 := now.AddDate(0, 0, -10).Format("2006-01-02 15:04:05")
 	resB, err := memory.Store(memory.StoreInput{
@@ -455,7 +502,7 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = ? WHERE ref = ?`, old10, memory.ReasonUserForget, resB.Ref)
 	require.NoError(t, err)
-	
+
 	// Row C: legacy row (no invalidated_reason), invalidated 400 days ago → should be DELETED by 90-day prune
 	old400 := now.AddDate(0, 0, -400).Format("2006-01-02 15:04:05")
 	resC, err := memory.Store(memory.StoreInput{
@@ -469,7 +516,7 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = NULL WHERE ref = ?`, old400, resC.Ref)
 	require.NoError(t, err)
-	
+
 	// Row D: invalidated row with reason, 20 days ago → should be RETAINED by 90-day prune
 	old20 := now.AddDate(0, 0, -20).Format("2006-01-02 15:04:05")
 	resD, err := memory.Store(memory.StoreInput{
@@ -483,42 +530,42 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = ? WHERE ref = ?`, old20, memory.ReasonUserForget, resD.Ref)
 	require.NoError(t, err)
-	
+
 	// Verify rows before prune
 	var cnt int
 	err = db.ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory WHERE session_id = 'prune-test-session'`).Scan(&cnt)
 	require.NoError(t, err)
 	_ = cnt
-	
+
 	// Run PruneSuperseded with default 90-day window
 	nPruned, err := memory.PruneSuperseded(0) // 0 means default 90
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), nPruned, "should prune 2 legacy rows (A and C, both >90 days without reason)")
-	
+
 	// Verify rows after prune: B and D should still exist, A and C should be gone
 	var cntAfter int
 	err = db.ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory WHERE session_id = 'prune-test-session'`).Scan(&cntAfter)
 	require.NoError(t, err)
 	assert.Equal(t, 2, cntAfter, "should have 2 rows remaining (B and D with reasons)")
-	
+
 	// Specifically check: B and D should still be present
 	var refB string
 	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ? AND valid_until IS NOT NULL AND invalidated_reason = ?`, resB.Ref, memory.ReasonUserForget).Scan(&refB)
 	require.NoError(t, err)
-	
+
 	var refD string
 	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ? AND valid_until IS NOT NULL AND invalidated_reason = ?`, resD.Ref, memory.ReasonUserForget).Scan(&refD)
 	require.NoError(t, err)
-	
+
 	// A and C should be gone
 	var refA string
 	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ?`, resA.Ref).Scan(&refA)
 	assert.Error(t, err, "row A should have been pruned")
-	
+
 	var refC string
 	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ?`, resC.Ref).Scan(&refC)
 	assert.Error(t, err, "row C should have been pruned")
-	
+
 	// Verify PruneArchived still works for rows with reasons (365-day default)
 	_, err = memory.PruneArchived(0) // 0 means default 365
 	// Should have pruned some rows - depends on when they were invalidated

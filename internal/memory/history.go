@@ -2,6 +2,7 @@ package memory
 
 import (
 	"database/sql"
+	"errors"
 	"sort"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 const (
 	historySelect = `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
 		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,
-		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at
+		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at, sm.quarantined
 		FROM structured_memory sm`
 )
 
@@ -81,7 +82,10 @@ func historyByRef(ref string, includeWorld bool) (*HistoryResult, error) {
 		queue = queue[1:]
 		e, err := historyEntryByRef(cur, includeWorld)
 		if err != nil {
-			continue
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, err
 		}
 		all = append(all, e)
 		// Forward: this entry was superseded by e.SupersededBy.
@@ -92,7 +96,7 @@ func historyByRef(ref string, includeWorld bool) (*HistoryResult, error) {
 		// Backward: other entries that were superseded by this one.
 		back, err := historyEntriesSupersededBy(cur, includeWorld)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		for _, b := range back {
 			if !seen[b.Ref] {
@@ -103,7 +107,7 @@ func historyByRef(ref string, includeWorld bool) (*HistoryResult, error) {
 	}
 
 	if len(all) == 0 {
-		return nil, errs.NewCode(errs.CodeNotFound, "no history entries found for ref %q", ref)
+		return nil, errs.NewCode(errs.CodeNotFound, "no history entries found for ref "+ref)
 	}
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].CreatedAt < all[j].CreatedAt
@@ -120,25 +124,11 @@ func historyEntryByRef(ref string, includeWorld bool) (HistoryEntry, error) {
 	}
 	q += ` ORDER BY sm.created_at ASC LIMIT 1`
 	row := db.ContextDB.QueryRow(q, ref)
-	var e HistoryEntry
-	var validUntil, invalidatedReason, expiresAt sql.NullString
-	var worldValidAt, worldInvalidAt sql.NullString
-	var supersededBy sql.NullString
-	err := row.Scan(&e.Ref, &e.Kind, &e.Scope, &e.SessionID, &e.ProjectPath,
-		&e.Subject, &e.Predicate, &e.Object, &e.Rule,
-		&e.ValidFrom, &validUntil, &supersededBy, &e.SourceRef, &e.TokenEst,
-		&e.AccessCount, &e.LastAccessedAt, &e.CreatedAt,
-		&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
+	e, err := scanEntry(row)
 	if err != nil {
-		return e, err
+		return HistoryEntry{}, err
 	}
-	e.ValidUntil = validUntil.String
-	e.SupersededBy = supersededBy.String
-	e.InvalidatedReason = invalidatedReason.String
-	e.WorldValidAt = worldValidAt.String
-	e.WorldInvalidAt = worldInvalidAt.String
-	e.ExpiresAt = expiresAt.String
-	return e, nil
+	return entryToHistoryEntry(e), nil
 }
 
 func historyEntriesSupersededBy(ref string, includeWorld bool) ([]HistoryEntry, error) {
@@ -156,27 +146,39 @@ func historyEntriesSupersededBy(ref string, includeWorld bool) ([]HistoryEntry, 
 	defer rows.Close()
 	var out []HistoryEntry
 	for rows.Next() {
-		var e HistoryEntry
-		var validUntil, invalidatedReason, expiresAt sql.NullString
-		var worldValidAt, worldInvalidAt sql.NullString
-		var supersededBy sql.NullString
-		err := rows.Scan(&e.Ref, &e.Kind, &e.Scope, &e.SessionID, &e.ProjectPath,
-			&e.Subject, &e.Predicate, &e.Object, &e.Rule,
-			&e.ValidFrom, &validUntil, &supersededBy, &e.SourceRef, &e.TokenEst,
-			&e.AccessCount, &e.LastAccessedAt, &e.CreatedAt,
-			&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
+		e, err := scanEntry(rows)
 		if err != nil {
 			return out, err
 		}
-		e.ValidUntil = validUntil.String
-		e.SupersededBy = supersededBy.String
-		e.InvalidatedReason = invalidatedReason.String
-		e.WorldValidAt = worldValidAt.String
-		e.WorldInvalidAt = worldInvalidAt.String
-		e.ExpiresAt = expiresAt.String
-		out = append(out, e)
+		out = append(out, entryToHistoryEntry(e))
 	}
 	return out, rows.Err()
+}
+
+func entryToHistoryEntry(e Entry) HistoryEntry {
+	return HistoryEntry{
+		Ref:               e.Ref,
+		Kind:              e.Kind,
+		Scope:             e.Scope,
+		SessionID:         e.SessionID,
+		ProjectPath:       e.ProjectPath,
+		Subject:           e.Subject,
+		Predicate:         e.Predicate,
+		Object:            e.Object,
+		Rule:              e.Rule,
+		ValidFrom:         e.ValidFrom,
+		ValidUntil:        e.ValidUntil,
+		SupersededBy:      e.SupersededBy,
+		SourceRef:         e.SourceRef,
+		TokenEst:          e.TokenEst,
+		AccessCount:       e.AccessCount,
+		LastAccessedAt:    e.LastAccessedAt,
+		CreatedAt:         e.CreatedAt,
+		InvalidatedReason: e.InvalidatedReason,
+		WorldValidAt:      e.WorldValidAt,
+		WorldInvalidAt:    e.WorldInvalidAt,
+		ExpiresAt:         e.ExpiresAt,
+	}
 }
 
 func historyByQuery(query string, includeWorld bool) (*HistoryResult, error) {
@@ -203,23 +205,11 @@ func historyByQuery(query string, includeWorld bool) (*HistoryResult, error) {
 
 	var entries []HistoryEntry
 	for rows.Next() {
-		var e HistoryEntry
-		var validUntil, invalidatedReason, expiresAt sql.NullString
-		var worldValidAt, worldInvalidAt sql.NullString
-		err := rows.Scan(&e.Ref, &e.Kind, &e.Scope, &e.SessionID, &e.ProjectPath,
-			&e.Subject, &e.Predicate, &e.Object, &e.Rule,
-			&e.ValidFrom, &validUntil, &e.SupersededBy, &e.SourceRef, &e.TokenEst,
-			&e.AccessCount, &e.LastAccessedAt, &e.CreatedAt,
-			&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt)
+		e, err := scanEntry(rows)
 		if err != nil {
 			return nil, err
 		}
-		e.ValidUntil = validUntil.String
-		e.InvalidatedReason = invalidatedReason.String
-		e.WorldValidAt = worldValidAt.String
-		e.WorldInvalidAt = worldInvalidAt.String
-		e.ExpiresAt = expiresAt.String
-		entries = append(entries, e)
+		entries = append(entries, entryToHistoryEntry(e))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

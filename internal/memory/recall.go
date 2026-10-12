@@ -21,17 +21,25 @@ const (
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
 		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
 		FROM structured_memory WHERE ref IN (`
-	selectActiveEntryTokensQuery    = `SELECT ref, token_est FROM structured_memory WHERE (valid_until IS NULL OR valid_until = '')`
-	invalidateEntryQuery            = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`
-	invalidateActiveEntryQuery      = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`
-	updateEntryAccessQuery          = `UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`
-	insertMemoryAccessQuery         = `INSERT INTO memory_access (ref, session_id, project_path, tool_name, tokens_returned) VALUES (?, ?, ?, ?, ?)`
-	validAsOfClause                 = ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`
-	validFromAsOfClause             = ` AND valid_from <= ?`
-	validNowClause                  = ` AND (valid_until IS NULL OR valid_until = '')`
-	smValidAsOfClause               = ` AND sm.valid_from <= ? AND (sm.valid_until IS NULL OR sm.valid_until = '' OR sm.valid_until > ?)`
-	smValidFromAsOfClause           = ` AND sm.valid_from <= ?`
-	smValidNowClause                = ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
+	selectActiveEntryTokensQuery = `SELECT ref, token_est FROM structured_memory WHERE (valid_until IS NULL OR valid_until = '')`
+	invalidateEntryQuery         = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`
+	invalidateActiveEntryQuery   = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`
+	updateEntryAccessQuery       = `UPDATE structured_memory SET access_count = access_count + 1, last_accessed_at = datetime('now') WHERE ref = ?`
+	insertMemoryAccessQuery      = `INSERT INTO memory_access (ref, session_id, project_path, tool_name, tokens_returned) VALUES (?, ?, ?, ?, ?)`
+	validAsOfClause              = ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`
+	validFromAsOfClause          = ` AND valid_from <= ?`
+	validNowClause               = ` AND (valid_until IS NULL OR valid_until = '')`
+	// MEM-5: world-time as_of clauses use COALESCE(world_valid_at, valid_from) so that
+	// as_of queries use world time when present and fall back to system time when the
+	// world columns are empty. The "now" clause stays on system time (valid_until).
+	worldValidAsOfClause     = ` AND COALESCE(world_valid_at, valid_from) <= ? AND (COALESCE(world_invalid_at, valid_until) IS NULL OR COALESCE(world_invalid_at, valid_until) = '' OR COALESCE(world_invalid_at, valid_until) > ?)`
+	worldValidFromAsOfClause = ` AND COALESCE(world_valid_at, valid_from) <= ?`
+	smValidAsOfClause        = ` AND sm.valid_from <= ? AND (sm.valid_until IS NULL OR sm.valid_until = '' OR sm.valid_until > ?)`
+	smValidFromAsOfClause    = ` AND sm.valid_from <= ?`
+	smValidNowClause         = ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
+	// MEM-5: world-time as_of clauses qualified for the structured_memory join.
+	smWorldValidAsOfClause          = ` AND COALESCE(sm.world_valid_at, sm.valid_from) <= ? AND (COALESCE(sm.world_invalid_at, sm.valid_until) IS NULL OR COALESCE(sm.world_invalid_at, sm.valid_until) = '' OR COALESCE(sm.world_invalid_at, sm.valid_until) > ?)`
+	smWorldValidFromAsOfClause      = ` AND COALESCE(sm.world_valid_at, sm.valid_from) <= ?`
 	orderByAccessCreatedLimitClause = ` ORDER BY access_count DESC, created_at DESC, ref LIMIT ?`
 	andKindInClause                 = ` AND kind IN (`
 	andSMKindInClause               = ` AND sm.kind IN (`
@@ -53,6 +61,10 @@ type RecallInput struct {
 	Kinds       []Kind
 	Scope       Scope  // optional filter
 	AsOf        string // RFC3339 or SQLite datetime; empty = now (current facts only)
+	// AsOfSystem uses system valid_from/valid_until for the as_of query instead of
+	// world time. When false (default), as_of uses world_valid_at/world_invalid_at
+	// when present, falling back to system time.
+	AsOfSystem  bool
 	Limit       int
 	TokenBudget int
 	// IncludeHistory drops the valid_until (superseded/forgotten) filter. With
@@ -76,11 +88,11 @@ type RecallResult struct {
 
 // validityClauses holds the validity filters for one column qualification, so
 // joined and unjoined queries share validityClause.
-type validityClauses struct{ now, asOf, fromAsOf string }
+type validityClauses struct{ now, asOf, fromAsOf, worldAsOf, worldFromAsOf string }
 
 var (
-	entryValidity   = validityClauses{now: validNowClause, asOf: validAsOfClause, fromAsOf: validFromAsOfClause}
-	smEntryValidity = validityClauses{now: smValidNowClause, asOf: smValidAsOfClause, fromAsOf: smValidFromAsOfClause}
+	entryValidity   = validityClauses{now: validNowClause, asOf: validAsOfClause, fromAsOf: validFromAsOfClause, worldAsOf: worldValidAsOfClause, worldFromAsOf: worldValidFromAsOfClause}
+	smEntryValidity = validityClauses{now: smValidNowClause, asOf: smValidAsOfClause, fromAsOf: smValidFromAsOfClause, worldAsOf: smWorldValidAsOfClause, worldFromAsOf: smWorldValidFromAsOfClause}
 )
 
 // Recall returns compact valid facts and procedures matching query within token budget.
@@ -150,9 +162,15 @@ func applyTokenBudget(entries []Entry, budget int) ([]Entry, int, int) {
 func validityClause(in RecallInput, c validityClauses) (string, []any) {
 	switch {
 	case in.AsOf != "" && in.IncludeHistory:
-		return c.fromAsOf, []any{in.AsOf}
+		if in.AsOfSystem {
+			return c.fromAsOf, []any{in.AsOf}
+		}
+		return c.worldFromAsOf, []any{in.AsOf}
 	case in.AsOf != "":
-		return c.asOf, []any{in.AsOf, in.AsOf}
+		if in.AsOfSystem {
+			return c.asOf, []any{in.AsOf, in.AsOf}
+		}
+		return c.worldAsOf, []any{in.AsOf, in.AsOf}
 	case in.IncludeHistory:
 		return "", nil
 	}

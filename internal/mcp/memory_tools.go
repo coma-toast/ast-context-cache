@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
@@ -30,7 +30,7 @@ func parseTTL(s string) (days, hours, minutes int, err error) {
 	// combinations like "1h30m". Go does NOT support "d" in ParseDuration.
 	if d, err := time.ParseDuration(s); err == nil {
 		hours = int(d / time.Hour)
-		minutes = int(d / time.Minute) % 60
+		minutes = int(d/time.Minute) % 60
 		return 0, hours, minutes, nil
 	}
 	// Handle "Nd" suffix and combinations like "2d3h", "1d6h30m".
@@ -46,7 +46,7 @@ func parseTTL(s string) (days, hours, minutes int, err error) {
 			if remainder != "" {
 				if d, err := time.ParseDuration(remainder); err == nil {
 					hours += int(d / time.Hour)
-					minutes += int(d / time.Minute) % 60
+					minutes += int(d/time.Minute) % 60
 				} else {
 					return 0, 0, 0, errs.NewCode(errs.CodeInvalidInput, "invalid ttl: %s", s)
 				}
@@ -108,6 +108,14 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 	}
 	if expiresAt := strArg(toolArgs, "expires_at"); expiresAt != "" {
 		in.ExpiresAt = expiresAt
+	}
+	// MEM-5: optional world-time anchors: the fact was/is true in the world during
+	// [valid_at, invalid_at]. When absent world time equals system time.
+	if v := strArg(toolArgs, "valid_at"); v != "" {
+		in.WorldValidAt = v
+	}
+	if v := strArg(toolArgs, "invalid_at"); v != "" {
+		in.WorldInvalidAt = v
 	}
 	if v, ok := toolArgs["invalidate_previous"].(bool); ok {
 		in.InvalidatePrevious = v
@@ -199,6 +207,9 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		SessionID:   sessionID,
 		ProjectPath: pp,
 		AsOf:        asOf,
+		// MEM-5: as_of_system=true asks what was known at that time using system
+		// valid_from/valid_until instead of world time.
+		AsOfSystem:  boolArg(toolArgs, "as_of_system"),
 		Limit:       limit,
 		TokenBudget: budget,
 		// Project memories describe the repo, not the checkout, so a note taken in
