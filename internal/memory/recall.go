@@ -469,7 +469,7 @@ func forgetScopeClause(in ForgetInput) (string, []any) {
 }
 
 func invalidateRef(ref, reason string) {
-	db.ContextDB.Exec(invalidateEntryQuery, reason, ref)
+	invalidate(db.ContextDB, ref, reason, "")
 }
 
 // forgetRefs invalidates exactly the named refs. Each ref's scope comes from its
@@ -501,7 +501,7 @@ func forgetRefs(in ForgetInput) (*ForgetResult, error) {
 			res.ScopeMismatch = append(res.ScopeMismatch, ref)
 			continue
 		}
-		if _, err := db.ContextDB.Exec(invalidateActiveEntryQuery, ReasonUserForget, ref); err != nil {
+		if err := invalidate(db.ContextDB, ref, ReasonUserForget, ""); err != nil {
 			return nil, errs.WrapMessage("failed to invalidate memory", err, "ref", ref)
 		}
 		res.Invalidated = append(res.Invalidated, ref)

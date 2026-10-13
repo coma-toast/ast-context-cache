@@ -23,7 +23,7 @@ const (
 	andGlobalScopeClause      = ` AND scope = 'global'`
 	// MEM-1: all invalidation routes record a reason (contradiction, user_forget,
 	// ttl, stale_anchor, quarantine, restored) — rows are never deleted on invalidate.
-	supersedeEntryQuery = `UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ?, invalidated_reason = ? WHERE ref = ?`
+	supersedeEntryQuery = `UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = NULLIF(?, ''), invalidated_reason = ? WHERE ref = ?`
 	// Entry queries now select the v2 columns too. Old rows read as zero values.
 	selectEntryByRefQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
 		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,

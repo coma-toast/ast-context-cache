@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 // invalidate marks the row with ref as invalid: sets valid_until to now,
@@ -12,12 +13,13 @@ import (
 //
 // Invalidated rows are never deleted; they stay queryable via history for the
 // archive period (MEM-2).
-func invalidate(ctx *sql.Tx, ref, reason, supersededBy string) error {
-	_, err := ctx.Exec(supersedeEntryQuery, supersededBy, reason, ref)
+func invalidate(dbx *sql.DB, ref, reason, supersededBy string) error {
+	_, err := dbx.Exec(supersedeEntryQuery, supersededBy, reason, ref)
 	if err != nil {
 		return err
 	}
 	deleteFTS(ref)
+	search.Cache.DeleteRefs("memory", []string{memoryVectorKey(ref)})
 	return nil
 }
 
@@ -50,7 +52,7 @@ func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predica
 		}
 	}
 	for _, ref := range refs {
-		db.ContextDB.Exec(supersedeEntryQuery, newRef, ReasonContradiction, ref)
+		invalidate(db.ContextDB, ref, ReasonContradiction, newRef)
 	}
 	return refs, nil
 }

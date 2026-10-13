@@ -64,7 +64,7 @@ func handleMemoryTool(toolName string, toolArgs map[string]interface{}, args map
 	case "recall_memory":
 		return handleRecallMemory(toolArgs, emb, start, cpuStart, args, projectPath), true, nil
 	case "forget_memory":
-		return handleForgetMemory(toolArgs, start, cpuStart, args, projectPath), true, nil
+		return handleForgetMemory(toolArgs, emb, start, cpuStart, args, projectPath), true, nil
 	default:
 		return nil, false, nil
 	}
@@ -298,7 +298,7 @@ func recallHistory(toolArgs map[string]interface{}, start time.Time, cpuStart sy
 	return out
 }
 
-func handleForgetMemory(toolArgs map[string]interface{}, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
+func handleForgetMemory(toolArgs map[string]interface{}, emb embedder.Interface, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
 	sessionID, _ := toolArgs["session_id"].(string)
 	pp, _ := toolArgs["project_path"].(string)
 	if pp == "" {
@@ -335,7 +335,7 @@ func handleForgetMemory(toolArgs map[string]interface{}, start time.Time, cpuSta
 			logToolQuery("forget_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, "")
 			return out
 		}
-		res, err := memory.Restore(memory.RestoreInput{Refs: []string{ref}})
+		res, err := memory.Restore(memory.RestoreInput{Refs: []string{ref}, Embedder: emb})
 		if err != nil {
 			out := map[string]string{"error": err.Error()}
 			resultJSON, _ := json.Marshal(out)
