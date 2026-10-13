@@ -151,3 +151,102 @@ func TestRestoreAlreadyActive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, e.ValidUntil)
 }
+
+func TestRestoreAllowsForgottenSuccessor(t *testing.T) {
+	testMemoryDB(t)
+
+	// Store A
+	resA, err := Store(StoreInput{
+		Kind:               KindFact,
+		Scope:              ScopeGlobal,
+		Subject:            "restore.forget",
+		Predicate:          "is",
+		Object:             "old",
+		InvalidatePrevious: true,
+	})
+	require.NoError(t, err)
+
+	// Store B (supersedes A)
+	resB, err := Store(StoreInput{
+		Kind:               KindFact,
+		Scope:              ScopeGlobal,
+		Subject:            "restore.forget",
+		Predicate:          "is",
+		Object:             "new",
+		InvalidatePrevious: true,
+	})
+	require.NoError(t, err)
+
+	// Forget B (user_forget)
+	_, err = Forget(ForgetInput{
+		Refs:       []string{resB.Ref},
+		SessionID:  "s-forget",
+	})
+	require.NoError(t, err)
+
+	// Restore A: B was forgotten (not superseded by contradiction), so restore should succeed!
+	result, err := Restore(RestoreInput{Refs: []string{resA.Ref}})
+	require.NoError(t, err)
+	assert.Empty(t, result.Conflicts, "restore should succeed when superseder was forgotten")
+	assert.Contains(t, result.RestoredRefs, resA.Ref)
+}
+
+func TestRestoreHonoursRefsArray(t *testing.T) {
+	testMemoryDB(t)
+
+	// Store A1, B1 (B1 supersedes A1)
+	resA1, err := Store(StoreInput{
+		Kind:               KindFact,
+		Scope:              ScopeGlobal,
+		Subject:            "restore.multi",
+		Predicate:          "is",
+		Object:             "old1",
+		InvalidatePrevious: true,
+	})
+	require.NoError(t, err)
+	_, err = Store(StoreInput{
+		Kind:               KindFact,
+		Scope:              ScopeGlobal,
+		Subject:            "restore.multi",
+		Predicate:          "is",
+		Object:             "new1",
+		InvalidatePrevious: true,
+	})
+	require.NoError(t, err)
+
+	// Store A2, B2 (B2 supersedes A2)
+	resA2, err := Store(StoreInput{
+		Kind:               KindFact,
+		Scope:              ScopeGlobal,
+		Subject:            "restore.multi2",
+		Predicate:          "is",
+		Object:             "old2",
+		InvalidatePrevious: true,
+	})
+	require.NoError(t, err)
+	_, err = Store(StoreInput{
+		Kind:               KindFact,
+		Scope:              ScopeGlobal,
+		Subject:            "restore.multi2",
+		Predicate:          "is",
+		Object:             "new2",
+		InvalidatePrevious: true,
+	})
+	require.NoError(t, err)
+
+	// Restore both A1 and A2 in one call
+	result, err := Restore(RestoreInput{Refs: []string{resA1.Ref, resA2.Ref}})
+	require.NoError(t, err)
+	assert.Len(t, result.RestoredRefs, 2, "both refs should be restored")
+	assert.Contains(t, result.RestoredRefs, resA1.Ref)
+	assert.Contains(t, result.RestoredRefs, resA2.Ref)
+	assert.Empty(t, result.Conflicts)
+
+	// Verify both are active
+	eA1, err := entryByRef(resA1.Ref)
+	require.NoError(t, err)
+	assert.Empty(t, eA1.ValidUntil)
+	eA2, err := entryByRef(resA2.Ref)
+	require.NoError(t, err)
+	assert.Empty(t, eA2.ValidUntil)
+}
