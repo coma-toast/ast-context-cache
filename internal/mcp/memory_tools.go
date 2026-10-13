@@ -159,18 +159,16 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 			CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
 		}
 		conflicts, method := memory.ConflictCandidates(entry, emb, 0)
-		if len(conflicts) > 0 {
-			var confSlice []map[string]interface{}
-			for _, c := range conflicts {
-				confSlice = append(confSlice, map[string]interface{}{
-					"ref":        c.Ref,
-					"fact":       c.Line,
-					"similarity": c.Similarity,
-				})
-			}
-			out["possible_conflicts"] = confSlice
-			out["conflict_method"] = method
+		confSlice := make([]map[string]interface{}, 0, len(conflicts))
+		for _, c := range conflicts {
+			confSlice = append(confSlice, map[string]interface{}{
+				"ref":        c.Ref,
+				"fact":       c.Line,
+				"similarity": c.Similarity,
+			})
 		}
+		out["possible_conflicts"] = confSlice
+		out["conflict_method"] = method
 	}
 	resultJSON, _ := json.Marshal(out)
 	logToolQuery("store_memory", args, len(resultJSON), res.VirtualTokensStored, 0, context.SavingsMeta{TokensSaved: res.VirtualTokensStored}, start, cpuStart, pp, "")

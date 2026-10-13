@@ -573,3 +573,22 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	// But the test just verifies the function runs without error
 	assert.NoError(t, err)
 }
+
+// TestStoreMemoryConflictResponseAlwaysIncludesFields tests MEM-12:
+// store_memory for facts always returns possible_conflicts ([] when none)
+// and conflict_method, even when no conflicts are found.
+func TestStoreMemoryConflictResponseAlwaysIncludesFields(t *testing.T) {
+	setupMemoryToolTest(t)
+	out, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":       "fact",
+		"session_id": "s-conf",
+		"subject":    "editor.test",
+		"predicate":  "uses",
+		"object":     "vim",
+	})
+	require.False(t, isErr, out)
+	assert.Contains(t, out, "possible_conflicts", "store_memory must always return possible_conflicts")
+	assert.Contains(t, out, "conflict_method", "store_memory must always return conflict_method")
+	assert.IsType(t, []interface{}{}, out["possible_conflicts"], "possible_conflicts must be an array")
+	assert.Contains(t, []string{"fts", "embed", "none"}, out["conflict_method"], "conflict_method must be fts, embed, or none")
+}
