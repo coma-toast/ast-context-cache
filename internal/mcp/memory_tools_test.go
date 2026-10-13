@@ -475,7 +475,7 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// Row A: legacy row (no invalidated_reason), invalidated 100 days ago → should be DELETED by 90-day prune
+	// Row A: legacy row (no invalidated_reason), invalidated 100 days ago → retained by no-op prune
 	old100 := now.AddDate(0, 0, -100).Format("2006-01-02 15:04:05")
 	resA, err := memory.Store(memory.StoreInput{
 		Kind:      memory.KindFact,
@@ -489,7 +489,7 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = NULL WHERE ref = ?`, old100, resA.Ref)
 	require.NoError(t, err)
 
-	// Row B: invalidated row with reason, 10 days ago → should be RETAINED by 90-day prune
+	// Row B: invalidated row with reason, 10 days ago → retained
 	old10 := now.AddDate(0, 0, -10).Format("2006-01-02 15:04:05")
 	resB, err := memory.Store(memory.StoreInput{
 		Kind:      memory.KindFact,
@@ -503,7 +503,7 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = ? WHERE ref = ?`, old10, memory.ReasonUserForget, resB.Ref)
 	require.NoError(t, err)
 
-	// Row C: legacy row (no invalidated_reason), invalidated 400 days ago → should be DELETED by 90-day prune
+	// Row C: legacy row (no invalidated_reason), invalidated 400 days ago → retained by no-op prune
 	old400 := now.AddDate(0, 0, -400).Format("2006-01-02 15:04:05")
 	resC, err := memory.Store(memory.StoreInput{
 		Kind:      memory.KindFact,
@@ -517,7 +517,7 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = NULL WHERE ref = ?`, old400, resC.Ref)
 	require.NoError(t, err)
 
-	// Row D: invalidated row with reason, 20 days ago → should be RETAINED by 90-day prune
+	// Row D: invalidated row with reason, 20 days ago → retained
 	old20 := now.AddDate(0, 0, -20).Format("2006-01-02 15:04:05")
 	resD, err := memory.Store(memory.StoreInput{
 		Kind:      memory.KindFact,
@@ -531,46 +531,42 @@ func TestPruneSuperseded90DayBehavior(t *testing.T) {
 	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = ?, invalidated_reason = ? WHERE ref = ?`, old20, memory.ReasonUserForget, resD.Ref)
 	require.NoError(t, err)
 
-	// Verify rows before prune
+	// Verify rows before prune: all 4 rows exist
 	var cnt int
 	err = db.ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory WHERE session_id = 'prune-test-session'`).Scan(&cnt)
 	require.NoError(t, err)
-	_ = cnt
+	assert.Equal(t, 4, cnt, "should have 4 rows before prune")
 
-	// Run PruneSuperseded with default 90-day window
+	// Run PruneSuperseded with default 90-day window — now a no-op per MEM-2
 	nPruned, err := memory.PruneSuperseded(0) // 0 means default 90
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), nPruned, "should prune 2 legacy rows (A and C, both >90 days without reason)")
+	assert.Equal(t, int64(0), nPruned, "PruneSuperseded is a no-op, should prune 0 rows")
 
-	// Verify rows after prune: B and D should still exist, A and C should be gone
+	// Verify all rows remain after no-op prune
 	var cntAfter int
 	err = db.ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory WHERE session_id = 'prune-test-session'`).Scan(&cntAfter)
 	require.NoError(t, err)
-	assert.Equal(t, 2, cntAfter, "should have 2 rows remaining (B and D with reasons)")
+	assert.Equal(t, 4, cntAfter, "all 4 rows should remain after no-op prune")
 
-	// Specifically check: B and D should still be present
-	var refB string
-	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ? AND valid_until IS NOT NULL AND invalidated_reason = ?`, resB.Ref, memory.ReasonUserForget).Scan(&refB)
-	require.NoError(t, err)
-
-	var refD string
-	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ? AND valid_until IS NOT NULL AND invalidated_reason = ?`, resD.Ref, memory.ReasonUserForget).Scan(&refD)
-	require.NoError(t, err)
-
-	// A and C should be gone
+	// Specifically check: A, B, C, D should all still be present
 	var refA string
 	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ?`, resA.Ref).Scan(&refA)
-	assert.Error(t, err, "row A should have been pruned")
+	require.NoError(t, err, "row A should still exist after no-op prune")
+
+	var refB string
+	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ?`, resB.Ref).Scan(&refB)
+	require.NoError(t, err, "row B should still exist")
 
 	var refC string
 	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ?`, resC.Ref).Scan(&refC)
-	assert.Error(t, err, "row C should have been pruned")
+	require.NoError(t, err, "row C should still exist")
+
+	var refD string
+	err = db.ContextDB.QueryRow(`SELECT ref FROM structured_memory WHERE ref = ?`, resD.Ref).Scan(&refD)
+	require.NoError(t, err, "row D should still exist")
 
 	// Verify PruneArchived still works for rows with reasons (365-day default)
 	_, err = memory.PruneArchived(0) // 0 means default 365
-	// Should have pruned some rows - depends on when they were invalidated
-	// B was invalidated 10 days ago, D was invalidated 20 days ago → both < 365 so should NOT be pruned
-	// But the test just verifies the function runs without error
 	assert.NoError(t, err)
 }
 
