@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/search"
@@ -103,6 +104,10 @@ func TestVectorRecallValidityScopeAndRank(t *testing.T) {
 			}
 			assert.Equal(t, tc.want, refs)
 			assert.NotContains(t, refs, otherSession)
+			// Reset access counters between subtests to prevent state pollution
+			// that affects decay factor calculations in subsequent subtests.
+			_, err = db.ContextDB.Exec("UPDATE structured_memory SET access_count = 0, last_accessed_at = NULL")
+			require.NoError(t, err)
 		})
 	}
 }

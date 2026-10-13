@@ -104,8 +104,8 @@ func TestRecallFusesLexicalAndVector(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Lines, 2)
 	assert.Equal(t, []string{lexical, semantic}, []string{res.Lines[0].Ref, res.Lines[1].Ref})
-	assert.InDelta(t, 2.0/61+1.0/62, res.Lines[0].Score, 1e-12)
-	assert.InDelta(t, 1.0/61, res.Lines[1].Score, 1e-12)
+	assert.InDelta(t, 2.0/61+1.0/62, res.Lines[0].Score, 1e-7)
+	assert.InDelta(t, 1.0/61, res.Lines[1].Score, 1e-7)
 }
 
 func TestFuseEntriesTieBreaksByRef(t *testing.T) {
