@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -87,31 +87,57 @@ func TestListenAndServeShutsDownEveryListener(t *testing.T) {
 	}
 }
 
-func TestServeWithRestartOutcomeExits1WhenNotRestartingAndServeFails(t *testing.T) {
-	// When listenAndServe returns an error (not nil) with restarting=0,
-	// serveWithRestartOutcome should call os.Exit(1).
-	// This test verifies the logic flow by checking the function exists
-	// and the atomic flag works correctly.
-	restarting = 0
-	require.Equal(t, int32(0), atomic.LoadInt32(&restarting))
+func TestServeWithRestartOutcomeExits1WhenServeFails(t *testing.T) {
+	// When serve returns an error (not nil) with isRestarting=false,
+	// serveWithRestartOutcome should call exit(1) and not block.
+	var exitCalled, blockCalled bool
+	fakeExit := func(code int) { exitCalled = true }
+	fakeBlock := func() { blockCalled = true }
 
-	restarting = 1
-	require.Equal(t, int32(1), atomic.LoadInt32(&restarting))
-	restarting = 0
+	serveWithRestartOutcome(
+		func() error { return errors.New("boom") },
+		func() bool { return false },
+		fakeExit,
+		fakeBlock,
+	)
+
+	require.True(t, exitCalled, "exit(1) should be called on serve error")
+	require.False(t, blockCalled, "block should not be called on serve error")
 }
 
-func TestServeWithRestartOutcomeBlocksWhenRestarting(t *testing.T) {
-	setListenAddr(t, defaultListenAddr)
+func TestServeWithRestartOutcomeBlocksWhenRestartingAndServeReturnsNil(t *testing.T) {
+	// When serve returns nil and isRestarting=true,
+	// serveWithRestartOutcome should call block() and not exit.
+	// This is the regression test for the nil-return-after-Shutdown bug.
+	var exitCalled, blockCalled bool
+	fakeExit := func(code int) { exitCalled = true }
+	fakeBlock := func() { blockCalled = true }
 
-	// Set restarting=1 to simulate a restart in progress
-	restarting = 1
-	defer func() { restarting = 0 }()
+	serveWithRestartOutcome(
+		func() error { return nil },
+		func() bool { return true },
+		fakeExit,
+		fakeBlock,
+	)
 
-	// We can't easily test the select{} block without a real server,
-	// but we can verify the atomic flag logic is in place
-	require.Equal(t, int32(1), atomic.LoadInt32(&restarting))
+	require.True(t, blockCalled, "block() should be called during restart")
+	require.False(t, exitCalled, "exit should not be called during restart")
+}
 
-	// listenAndServe would return nil after Shutdown when restarting=1,
-	// and serveWithRestartOutcome would block in select{}.
-	// The logic is tested via the atomic flag above.
+func TestServeWithRestartOutcomeExits1WhenServeReturnsNilAndNotRestarting(t *testing.T) {
+	// When serve returns nil and isRestarting=false (unexpected shutdown),
+	// serveWithRestartOutcome should call exit(1) so supervisors notice.
+	var exitCalled, blockCalled bool
+	fakeExit := func(code int) { exitCalled = true }
+	fakeBlock := func() { blockCalled = true }
+
+	serveWithRestartOutcome(
+		func() error { return nil },
+		func() bool { return false },
+		fakeExit,
+		fakeBlock,
+	)
+
+	require.True(t, exitCalled, "exit(1) should be called on unexpected shutdown")
+	require.False(t, blockCalled, "block should not be called on unexpected shutdown")
 }

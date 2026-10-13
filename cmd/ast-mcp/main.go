@@ -85,7 +85,7 @@ const (
 
 var (
 	startTime  = time.Now()
-	restarting = int32(0)
+	restarting = atomic.Bool{}
 )
 
 func GetStartTime() time.Time {
@@ -239,27 +239,30 @@ func main() {
 	}()
 
 	logger.Info("Starting dashboard server", "url", serverURL(dashboardPort))
-	serveWithRestartOutcome(dashSrv, dashboardPort)
+	serveWithRestartOutcome(
+		func() error { return listenAndServe(dashSrv, dashboardPort) },
+		restarting.Load,
+		os.Exit,
+		func() { select {} },
+	)
 }
 
-// serveWithRestartOutcome serves srv and waits for either the server to shut down or a
-// restart to complete. When listenAndServe returns nil because dashSrv.Shutdown() was
-// called from a restart (restarts set the restarting flag at their start), this blocks in
-// select{} so syscall.Exec can replace the process rather than main() returning and
-// exiting 0. If listenAndServe returns nil with no restart underway, that is an
-// unexpected shutdown: exit 1 so supervisors notice. listenAndServe errors are always
-// fatal. The logic is extracted here for unit testing with fakes.
-func serveWithRestartOutcome(srv *http.Server, port int) {
-	if err := listenAndServe(srv, port); err != nil {
-		if atomic.LoadInt32(&restarting) != 0 {
-			// A restart is in progress; listenAndServe returns nil after dashSrv.Shutdown().
-			// Block here so syscall.Exec can replace the process.
-			logger.Info("Restart in progress; blocking until new process replaces this one")
-			select {}
-		} else {
-			logger.Error("Dashboard server failed", "error", err)
-			os.Exit(1)
-		}
+// serveWithRestartOutcome runs serve and decides what main does when it returns: an error
+// is fatal; a nil return during a restart blocks so syscall.Exec can replace the process;
+// a nil return otherwise is an unexpected shutdown and exits 1 so supervisors restart us.
+// The logic is extracted here for unit testing with fakes.
+func serveWithRestartOutcome(serve func() error, isRestarting func() bool, exit func(int), block func()) {
+	err := serve()
+	switch {
+	case err != nil:
+		logger.Error("Dashboard server failed", "error", err)
+		exit(1)
+	case isRestarting():
+		logger.Info("Restart in progress; waiting for exec")
+		block()
+	default:
+		logger.Error("Dashboard server stopped unexpectedly")
+		exit(1)
 	}
 }
 
@@ -273,8 +276,7 @@ func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 	return func() {
 		// Tell main() we are re-executing so it does not return from listenAndServe
 		// (which is what happens when dashSrv.Shutdown() closes the server) and exit 0.
-		atomic.StoreInt32(&restarting, 1)
-		defer atomic.StoreInt32(&restarting, 0)
+		restarting.Store(true)
 		logger.Info("Draining connections to restart")
 		// db.RequestShutdown aborts any in-progress WAL checkpoint quickly, but it also
 		// unconditionally calls AfterForceCheckpoint (wired below to
