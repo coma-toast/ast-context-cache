@@ -13,70 +13,13 @@ const (
 	deleteExpiredEntriesQuery   = `DELETE FROM structured_memory WHERE valid_until IS NOT NULL AND valid_until != '' AND valid_until < ?`
 )
 
-// PruneSuperseded permanently deletes structured_memory rows that were
-// invalidated (superseded by a newer fact, or explicitly forgotten) more than
-// maxAgeDays ago. Superseded facts are soft-deleted via valid_until so
-// recall can still reason about "what used to be true" for a while, but
-// nothing ever purged old rows afterward — unlike contextnotes (a
-// token/count quota, see limits.go) and the queries table (age-based
-// retention, see db.RunQueryRetention), structured_memory grew unbounded.
-// Per MEM-2: the dashboard 90-day prune must not delete invalidated rows
-// (rows with invalidated_reason set). Those are handled by the daily
-// PruneArchived job with a configurable window keyed on valid_until.
+// PruneSuperseded was the dashboard 90-day prune for superseded memory.
+// Per MEM-2: the 90-day prune must not delete any invalidated rows
+// (any row with valid_until set). All invalidated rows are handled by
+// PruneArchived with its 365-day window keyed on valid_until.
+// This function is now a no-op and retained for API compatibility.
 func PruneSuperseded(maxAgeDays int) (int64, error) {
-	if maxAgeDays <= 0 {
-		maxAgeDays = 90
-	}
-	cutoff := db.SQLTime(time.Now().UTC().AddDate(0, 0, -maxAgeDays))
-	// Only delete rows that have valid_until but NO invalidated_reason.
-	// Rows with invalidated_reason are handled by PruneArchived with its
-	// configurable window keyed on valid_until.
-	rows, err := db.ContextDB.Query(
-		`SELECT ref FROM structured_memory
-		 WHERE valid_until IS NOT NULL AND valid_until != ''
-		   AND (invalidated_reason IS NULL OR invalidated_reason = '')
-		   AND valid_until < ?`,
-		cutoff,
-	)
-	if err != nil {
-		return 0, err
-	}
-	var refs []string
-	for rows.Next() {
-		var ref string
-		if rows.Scan(&ref) == nil && ref != "" {
-			refs = append(refs, ref)
-		}
-	}
-	rows.Close()
-	if len(refs) == 0 {
-		return 0, nil
-	}
-	keys := make([]string, len(refs))
-	for i, ref := range refs {
-		keys[i] = memoryVectorKey(ref)
-	}
-	if err := search.Cache.DeleteRefs("memory", keys); err != nil {
-		return 0, errs.WrapMessage("failed to delete memory vectors", err)
-	}
-	for _, ref := range refs {
-		deleteFTS(ref)
-	}
-	res, err := db.ContextDB.Exec(
-		`DELETE FROM structured_memory
-		 WHERE valid_until IS NOT NULL AND valid_until != ''
-		   AND (invalidated_reason IS NULL OR invalidated_reason = '')
-		   AND valid_until < ?`,
-		cutoff,
-	)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	if n > 0 {
-		logger.Info("Pruned superseded structured memory", "pruned", n, "max_age_days", maxAgeDays)
-	}
-	return n, nil
+	return 0, nil
 }
 
 // PruneArchived permanently deletes structured_memory rows archived (invalidated)
@@ -84,6 +27,9 @@ func PruneSuperseded(maxAgeDays int) (int64, error) {
 // It is the daily job from MEM-2: invalidated rows stay readable via history
 // for the queryable window, after which they are purged entirely. Keyed on
 // invalidation time (valid_until), not world_invalid_at.
+// MEM-2: any row with valid_until set is treated as invalidated (rows invalidated
+// before the migration carry no invalidated_reason, so we don't filter on it), so
+// the 90-day prune never deletes them.
 func PruneArchived(queryableWindowDays int) (int64, error) {
 	if queryableWindowDays <= 0 {
 		queryableWindowDays = db.SettingInt("memory_archive_window_days", "", 365)
@@ -92,7 +38,6 @@ func PruneArchived(queryableWindowDays int) (int64, error) {
 	rows, err := db.ContextDB.Query(
 		`SELECT ref FROM structured_memory
 		 WHERE valid_until IS NOT NULL AND valid_until != ''
-		   AND invalidated_reason IS NOT NULL AND invalidated_reason != ''
 		   AND valid_until < ?`,
 		cutoff,
 	)
@@ -123,7 +68,6 @@ func PruneArchived(queryableWindowDays int) (int64, error) {
 	res, err := db.ContextDB.Exec(
 		`DELETE FROM structured_memory
 		 WHERE valid_until IS NOT NULL AND valid_until != ''
-		   AND invalidated_reason IS NOT NULL AND invalidated_reason != ''
 		   AND valid_until < ?`,
 		cutoff,
 	)
