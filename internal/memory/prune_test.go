@@ -52,7 +52,7 @@ func TestPruneArchivedDeletesOldRowsOnly(t *testing.T) {
 	} else if n != 0 {
 		t.Fatalf("PruneSuperseded should be a no-op, got n=%d want 0", n)
 	}
-	assertPresent(t, oldRes.Ref)   // Still present (not deleted by Superseded)
+	assertPresent(t, oldRes.Ref) // Still present (not deleted by Superseded)
 	assertPresent(t, recentRes.Ref)
 	assertPresent(t, activeRes.Ref)
 
