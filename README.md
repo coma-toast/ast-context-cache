@@ -17,6 +17,10 @@ An agent without it reads whole files, greps, re-reads the same code after compa
 | Reading full source to learn a file's shape | A **skeleton**: signatures and types only (`get_file_context`, `mode=skeleton`) | ~90% fewer tokens |
 | Re-reading code you've understood | Your cached **summary** of it (`cache_summary`, then `mode=summary`) | ~94% fewer tokens |
 | Full source for every search hit | **`auto` mode**: full source for the top 3 hits, skeletons for the rest | ~80% fewer tokens |
+| Full source plus a grep for each function it calls, before an edit | **`mode=edit`**: the target's exact source and skeletons of its callees | One call, only the signatures it needs |
+| Loose hits padding out a weak search | The **relevance floor**: hits far below the top score are withheld (and counted), a weak query returns `no_match` with a hint, and test, mock, vendored and duplicate hits fold into one `collapsed` line | No tokens spent on near-misses |
+| A JSON envelope around every hit | **Text output** (default): a summary line, then a `### file:lines kind name (mode)` heading and fenced block per symbol; `output=locations` for one line per hit, `output=json` for the structured body | No keys, escapes or stats in the model's context |
+| A search result that floods the context | **Self-offload**: a result over 2k tokens comes back as its top hits plus a `[ctx_… <tool> <target>, <N> tok — head shown, fetch_context for all]` stub | The rest costs a ref until it's needed |
 | Sending the same symbol twice in a conversation | Nothing: **session dedup** skips symbols already returned to that `session_id` | 100% of the repeat |
 | Grepping callers before an edit | **Impact checks** (`get_impact_graph`, `diff_impact`, `check_deletion_safety`) list exactly what depends on a symbol | One answer instead of many reads |
 | Losing a long plan to chat compaction, then rebuilding it | **Virtual context**: `store_context` keeps the plan on disk behind a short `ctx_*` ref; `fetch_context` brings it back | The plan costs a ref until it's needed |
@@ -27,17 +31,41 @@ An agent without it reads whole files, greps, re-reads the same code after compa
 
 For example, `internal/selfupdate/selfupdate.go` in this repo costs 1,293 tokens read as a file and 393 as a skeleton.
 
-Every search response reports what it saved (`tokens_saved`, `tokens_used`, and the full-source baseline), and the dashboard totals it, so savings are measured rather than claimed:
+The four code tools (`get_context_capsule`, `search_semantic`, `get_file_context`, `retrieve`) take `output=text|json|locations`:
+
+```
+get_context_capsule(query="load_model", project_path="/repo")
+→ get_context_capsule "load_model" · 2 results · 75 tok
+  ### clients.py:2-3 method LlamaCppClient.load_model (full)
+  ```python
+  def load_model(self, name):
+      return 'llama'
+  ```
+  …
+
+get_context_capsule(query="load_model", project_path="/repo", output="locations")
+→ get_context_capsule "load_model" · 2 results · 38 tok
+  clients.py:2-3 method LlamaCppClient.load_model 0.0328
+  clients.py:7-8 method OMLXClient.load_model 0.0323
+```
+
+Responses are byte-stable: timings, pipeline counts and cache hits go in the result's `_meta["ast-context-cache/stats"]` (`debug=true` keeps them in the body), so identical calls return identical text. Stub formats are in [docs/stubs.md](docs/stubs.md).
+
+Every search response reports what it saved (`tokens_saved`, `tokens_used`, and the full-source baseline, in the `output=json` body), and the dashboard totals it, so savings are measured rather than claimed:
 
 ```
 tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips
 ```
 
+`tokens_returned` is counted on the text actually sent, after rendering and offload. The dashboard keeps separate ledgers: **compression** (the formula's first term) and **dedup** make up Tokens saved; a **conservative** figure measures against each symbol ± 20 lines instead of the full file context, as a floor; and **virtual** context and memory (tokens stored, fetched and recalled) are tracked apart and never counted as savings. Definitions: [docs/USAGE.md](docs/USAGE.md#token-savings-tracking).
+
+The token benchmark (`make bench-tokens`, `internal/tokenbench`) runs fixed queries against a small fixture repo and fails if any expected hit goes missing. On that fixture the 27 scenarios came to 32,564 tokens in 4.x JSON and 6,666 in 5.0 text with the relevance floor, with no expected hit lost. These are fixture numbers, not a promise for your repo. Floor defaults and how to tune them for your embedder: [docs/USAGE.md](docs/USAGE.md#relevance-floor).
+
 ## Core features
 
 | | |
 |--|--|
-| **Token-efficient code search** | `get_context_capsule`, `search_semantic`, and `get_file_context` over a symbol-level tree-sitter index; modes `auto` / `skeleton` / `summary` / `full`; per-session dedup; token budgets; filters by path, language, and symbol kind |
+| **Token-efficient code search** | `get_context_capsule`, `search_semantic`, and `get_file_context` over a symbol-level tree-sitter index; modes `auto` / `skeleton` / `summary` / `full` / `edit`; a relevance floor with explicit no-match; per-session dedup; token budgets; filters by path, language, and symbol kind |
 | **Virtual context** | `store_context` / `fetch_context` / `search_context` / `edit_context` / `flush_context`: notes, plans, and diffs kept on disk behind stable `ctx_*` refs, so they survive host compaction. Manage them as files — `edit_context` appends, replaces, deletes, or rewrites a note in place and reverts by revision, so an update keeps the ref instead of forcing a re-store and another compaction ([docs](docs/context-edit.md)) |
 | **Subagent handoff** | `handoff` / `open_handoff` / `scratchpad`: snapshot-backed briefs for subagents, capped return summaries, and a shared scratchpad with advisory claims for up to 16 parallel children; trees shown on the dashboard ([docs](docs/handoff.md)) |
 | **Structured memory** | `store_memory` / `recall_memory` / `forget_memory`: compact temporal facts and procedural rules (`mem_*`), cheaper to recall than notes |
@@ -120,10 +148,10 @@ Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` an
 | **Context functions** | `define_context_fn` / `apply_context_fn` / `list_context_fns`: reusable transforms over stored notes, off by default ([docs](docs/context-fn.md)) |
 | **KV repair** | `report_kv_repair_event`, golden-text archives, success-rate stats on the dashboard |
 | **Tool tiers** | `core` / `extended` / `complete`, plus per-tool overrides in `~/.astcache/tools.json` |
-| **Feature flags** | Live switches (Settings → Features, `AST_FEATURE_*` env locks); clients are told with `tools/list_changed` |
+| **Feature flags** | Live switches (Settings → Features, `AST_FEATURE_*` env locks); modern clients get one coalesced `tools/list_changed`, and legacy sessions keep the tool list they started with until they reconnect |
 | **Code mode** | `execute_code` sandbox and repo scripts in `scripts/code-mode/` |
 | **Pinning and queue** | Bounded embed queue; pinned projects get priority |
-| **Analysis and bundles** | Dead code, complexity, `.astbundle` export/import |
+| **Analysis** | Dead code, complexity |
 | **Remote access** | Extra listen addresses, trusted hosts, and an optional access token, applied live ([docs](docs/INSTALL.md#remote-access-tailscale)) |
 | **Supervise / Docker** | `ast-mcp supervise` or [`docker/ast-mcp`](docker/ast-mcp/README.md) |
 | **Metrics** | Prometheus at `http://127.0.0.1:7830/metrics` (`astcache_` prefix) |
@@ -169,7 +197,7 @@ For a local supervisor that runs several MCP servers and merges their host confi
 | Tier | Typical tools |
 |------|----------------|
 | **core** | Search, maps, docs, `retrieve`, impact checks (`get_impact_graph`, `diff_impact`, `check_symbol_exists`, `check_deletion_safety`), context **read**, `recall_memory`, and the handoff tools `handoff` / `open_handoff` / `scratchpad` |
-| **extended** | + indexing, `store_context` / `edit_context` / memory write, analysis, bundles, doc-source management (`define_context_fn` / `apply_context_fn` are extended too, behind `feature_context_fn`) |
+| **extended** | + indexing, `store_context` / `edit_context` / memory write, analysis, doc-source management (`define_context_fn` / `apply_context_fn` are extended too, behind `feature_context_fn`) |
 | **complete** | + `execute_code` |
 
 The handoff tools are core even though they write, so delegation works at every tier; turn them off with a feature flag instead.
@@ -178,7 +206,7 @@ The handoff tools are core even though they write, so delegation works at every 
 
 ## Upgrading
 
-Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** switches over. From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0 and 4.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
+Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** switches over. From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0, 4.0 and 5.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
 
 ## Architecture
 
@@ -216,6 +244,7 @@ Settings → **Updates** installs the latest release in place and keeps the prev
 | `AST_MCP_TIER` / `AST_MCP_CODE_MODE` / `AST_MCP_TOOLS_CONFIG` | Tool tier, `execute_code` switch, `tools.json` path | `complete` / on / `~/.astcache/tools.json` |
 | `AST_FEATURE_*` | Feature-flag locks (e.g. `AST_FEATURE_HANDOFF=false`) | Unset (dashboard toggle) |
 | `AST_HANDOFF_*` | Handoff TTL, caps, summary size ([docs](docs/handoff.md#settings-and-limits)) | See docs |
+| `AST_RELEVANCE_MIN_RELATIVE` / `AST_RELEVANCE_VECTOR_MIN` / `AST_RELEVANCE_COVERAGE_MIN` | Relevance floor thresholds ([tuning](docs/USAGE.md#relevance-floor)) | `0.7` / `0.45` with ONNX, `0.30` with other backends / `0.5` |
 
 Embedding backend variables: [`docs/embedding-backends.md`](docs/embedding-backends.md). A non-empty environment variable overrides the matching dashboard setting.
 

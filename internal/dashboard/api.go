@@ -32,6 +32,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/selfupdate"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
+	"github.com/coma-toast/ast-context-cache/internal/transcripts"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -852,6 +853,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			value = strconv.Itoa(n)
 		}
+		if key == transcripts.SettingKey && !validBoolSetting(value) {
+			writeFlagsError(w, http.StatusBadRequest, key+" must be true or false")
+			return
+		}
 		if key == "embed_worker_max" {
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 1 || n > embedqueue.AbsoluteMaxWorkers {
@@ -996,6 +1001,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"dashboard_log_line_chars":       "500",
 		netlisten.KeyExtraAddrs:          "",
 		netlisten.KeyTrustedHosts:        "",
+		transcripts.SettingKey:           "false",
 	}
 	for _, ls := range handoff.LimitSettings() {
 		defaults[ls.Key] = strconv.Itoa(ls.Default)

@@ -7,6 +7,7 @@ import type {
   FlushHandoffTreeResponse,
   HandoffTreesResponse,
   Health,
+  HostUsageResponse,
   IndexHealth,
   InstallerApplyResult,
   InstallerBackupsResponse,
@@ -145,6 +146,7 @@ export const api = {
   health: () => get<Health>('/api/dashboard/health'),
   stats: (projectId?: string) => get<Stats>(`/api/dashboard/stats${qs(projectId)}`),
   weeklyDigest: (projectId?: string) => get<WeeklyDigest>(`/api/dashboard/weekly-digest${qs(projectId)}`),
+  hostUsage: () => get<HostUsageResponse>('/api/dashboard/host-usage'),
   contextSessions: (projectId?: string) =>
     get<ContextSessionsResponse>(`/api/dashboard/context-sessions${qs(projectId)}`),
   indexHealth: (projectId?: string) => get<IndexHealth>(`/api/dashboard/index-health${qs(projectId)}`),

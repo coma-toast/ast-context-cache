@@ -120,24 +120,40 @@ func toolAccessByName(toolName string, cfg ServerConfig) (bool, toolDenyReason) 
 	return false, denyUnknown
 }
 
+// Arguments shared by the four code tools (get_context_capsule, search_semantic,
+// get_file_context, retrieve).
+var (
+	codeOutputSchema = map[string]any{
+		"type": "string", "enum": []string{outputText, outputJSON, outputLocations},
+		"description": "Response format: 'text' (default: a summary line, then a heading and fenced block per symbol), 'json' (the structured body), 'locations' (one file:lines kind name score line per hit)",
+	}
+	codeDebugSchema   = map[string]string{"type": "boolean", "description": "Keep timings, pipeline counts and cache stats in the body instead of _meta (default false)"}
+	codeOffloadSchema = map[string]string{"type": "boolean", "description": "Store a result over the offload threshold as a ctx_* note and return a head plus the ref (default true); false returns it whole"}
+)
+
 func GetTools() []Tool {
 	return []Tool{
 		{
 			Name:        "get_context_capsule",
-			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. May include code_script_hints when a bundled or repo JS script fits the query/results. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction), 'auto' (full for top 3 results, skeleton for rest). Supports Python, JS/TS, Go, Bash, Fish.",
+			Description: "Search indexed code symbols using hybrid BM25+vector search. Returns matching functions, classes, types with file paths, line ranges. May include code_script_hints (output=json; _meta.hints otherwise) when a bundled or repo JS script fits the query/results. Supports mode: 'auto' (default: full source for the top 3 hits, skeletons for the rest), 'full' (source for every hit), 'skeleton' (signatures only), 'summary' (cached summaries for navigation only; read source before editing), 'edit' (the top hit's exact source plus skeletons of the functions it calls). Weak queries return no_match instead of loose hits; withheld counts hits held back. Supports Python, JS/TS, Go, Bash, Fish.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":        map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
-					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":         map[string]string{"type": "string", "description": "Response mode: 'auto' (default — full for top hits, skeleton for rest), 'skeleton', 'summary' (cached summaries), 'full'"},
-					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
-					"limit":        map[string]string{"type": "integer", "description": "Max candidate symbols to consider (default 30, max 100)."},
-					"path_prefix":  map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
-					"language":     map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, javascript, rust, ...). Uses file extensions."},
-					"kinds":        map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include (e.g. function,method)."},
-					"kind":         map[string]string{"type": "string", "description": "Optional: single symbol kind filter (same as one entry in kinds)."},
+					"query":              map[string]string{"type": "string", "description": "Search query (function name, class name, type name, or keywords)"},
+					"project_path":       map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"mode":               map[string]string{"type": "string", "description": "Response mode: 'auto' (default: full source for the top 3 hits, skeletons for the rest), 'skeleton', 'summary' (navigation only), 'full', 'edit' (top hit's source plus its callees' skeletons)"},
+					"session_id":         map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
+					"token_budget":       map[string]string{"type": "integer", "description": "Max tokens to return (default 4000). Results are packed greedily by score until budget is exhausted."},
+					"limit":              map[string]string{"type": "integer", "description": "Max candidate symbols to consider (default 30, max 100)."},
+					"path_prefix":        map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative, e.g. internal/mcp) or absolute path prefix."},
+					"language":           map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, javascript, rust, ...). Uses file extensions."},
+					"kinds":              map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include (e.g. function,method)."},
+					"kind":               map[string]string{"type": "string", "description": "Optional: single symbol kind filter (same as one entry in kinds)."},
+					"min_relative_score": map[string]string{"type": "number", "description": "Optional: withhold hits scoring below this fraction of the top hit's score (default from settings)."},
+					"collapse":           map[string]string{"type": "boolean", "description": "Fold test, mock, vendored, generated and duplicate hits into a collapsed list (default true; skipped when the query is about tests)."},
+					"output":             codeOutputSchema,
+					"debug":              codeDebugSchema,
+					"offload":            codeOffloadSchema,
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -171,7 +187,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "get_impact_graph",
-			Description: "Find the blast radius of a symbol. Returns files that import or depend on the given symbol, enabling impact analysis before making changes. Requires project to be indexed first.",
+			Description: "Find the blast radius of a symbol. Returns files that import or depend on the given symbol, enabling impact analysis before making changes. Call this before changing or deleting an exported symbol. Requires project to be indexed first.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -185,7 +201,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "diff_impact",
-			Description: "Blast radius of a whole branch or pull request. Diffs base_ref...head_ref (or, with pr set, fetches that GitHub PR's changed files via gh without checking the branch out), collects the indexed symbols those files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included. Use pr to ask whether another open PR already touches a file or symbol you are about to change.",
+			Description: "Blast radius of a whole branch or pull request. Diffs base_ref...head_ref (or, with pr set, fetches that GitHub PR's changed files via gh without checking the branch out), collects the indexed symbols those files define, and returns which other files still depend on each one. Searches sibling worktrees of the same repo, so callers on other branches are included. Use pr to ask whether another open PR already touches a file or symbol you are about to change. Call this before opening or merging a branch that changes exported symbols.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -216,7 +232,7 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "check_deletion_safety",
-			Description: "Guardrail before removing code. Compares a file against base_ref, finds the symbols the change deletes, and reports which of them are still referenced by other files (unsafe) versus which have no remaining callers (safe). Sibling worktrees of the same repo are searched too.",
+			Description: "Guardrail before removing code. Compares a file against base_ref, finds the symbols the change deletes, and reports which of them are still referenced by other files (unsafe) versus which have no remaining callers (safe). Sibling worktrees of the same repo are searched too. Call this before committing a change that deletes functions, types, or other symbols.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -412,20 +428,25 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "search_semantic",
-			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Responses may include code_script_hints when a script fits. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
+			Description: "Semantic vector search over indexed code symbols. Finds symbols by meaning, not just text matching. Responses may include code_script_hints (output=json; _meta.hints otherwise) when a script fits. Supports mode (default skeleton), session_id, and token_budget like get_context_capsule.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":        map[string]string{"type": "string", "description": "Natural language search query (e.g. 'function that handles user authentication')"},
-					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"limit":        map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
-					"doc_type":     map[string]string{"type": "string", "description": "Filter by document type: 'code', 'doc', etc. (optional)"},
-					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
-					"token_budget": map[string]string{"type": "integer", "description": "Max tokens to return. Results packed greedily by score until budget exhausted."},
-					"path_prefix":  map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative or absolute prefix)."},
-					"language":     map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, ...)."},
-					"kinds":        map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
-					"kind":         map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
+					"query":              map[string]string{"type": "string", "description": "Natural language search query (e.g. 'function that handles user authentication')"},
+					"project_path":       map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"limit":              map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
+					"doc_type":           map[string]string{"type": "string", "description": "Filter by document type: 'code', 'doc', etc. (optional)"},
+					"session_id":         map[string]string{"type": "string", "description": "Session ID for dedup. If provided, symbols already returned in this session are skipped."},
+					"token_budget":       map[string]string{"type": "integer", "description": "Max tokens to return. Results packed greedily by score until budget exhausted."},
+					"path_prefix":        map[string]string{"type": "string", "description": "Optional: only symbols under this path (project-relative or absolute prefix)."},
+					"language":           map[string]string{"type": "string", "description": "Optional: filter by language (go, python, typescript, ...)."},
+					"kinds":              map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
+					"kind":               map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
+					"min_relative_score": map[string]string{"type": "number", "description": "Optional: withhold hits scoring below this fraction of the top hit's score (default from settings)."},
+					"collapse":           map[string]string{"type": "boolean", "description": "Fold test, mock, vendored, generated and duplicate hits into a collapsed list (default true; skipped when the query is about tests)."},
+					"output":             codeOutputSchema,
+					"debug":              codeDebugSchema,
+					"offload":            codeOffloadSchema,
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -448,15 +469,19 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "get_file_context",
-			Description: "Get all symbols in a specific file with mode-aware output. Returns function signatures, source code, or cached summaries for every symbol in the file. Supports mode: 'full' (source code), 'skeleton' (signatures only, ~90% token reduction), 'summary' (cached summaries, ~94% token reduction).",
+			Description: "Get all symbols in a specific file with mode-aware output. Returns function signatures, source code, or cached summaries for every symbol in the file. Supports mode: 'full' (source code), 'skeleton' (signatures only), 'summary' (cached summaries for navigation only; read source before editing), 'edit' (one symbol's exact source plus skeletons of the functions it calls; needs symbol).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"file":         map[string]string{"type": "string", "description": "Absolute path to the file"},
 					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"mode":         map[string]string{"type": "string", "description": "Response mode: 'skeleton' (default), 'full', 'summary' (cached summaries), 'auto'"},
+					"mode":         map[string]string{"type": "string", "description": "Response mode: 'skeleton' (default), 'full', 'summary' (cached summaries), 'auto' (same as skeleton), 'edit' (requires symbol)"},
+					"symbol":       map[string]string{"type": "string", "description": "Symbol name or fqn to edit; required with mode=edit"},
 					"session_id":   map[string]string{"type": "string", "description": "Session ID for dedup — skip symbols already returned in this session"},
 					"token_budget": map[string]string{"type": "integer", "description": "Max tokens for symbol list (optional)"},
+					"output":       codeOutputSchema,
+					"debug":        codeDebugSchema,
+					"offload":      codeOffloadSchema,
 				},
 				"required": []string{"file", "project_path"},
 			},
@@ -507,32 +532,6 @@ func GetTools() []Tool {
 				"required": []string{"data"},
 			},
 			Tier: TierComplete,
-		},
-		{
-			Name:        "export_bundle",
-			Description: "Not yet implemented — calling this returns an error. Intended to export indexed code as a portable bundle file that can be shared or imported on other machines without re-indexing.",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"project_path": map[string]string{"type": "string", "description": "Absolute path to the project to export"},
-					"output_path":  map[string]string{"type": "string", "description": "Output file path for the bundle (.astbundle)"},
-				},
-				"required": []string{"project_path", "output_path"},
-			},
-			Tier:     TierExtended,
-			ReadOnly: true,
-		},
-		{
-			Name:        "import_bundle",
-			Description: "Not yet implemented — calling this returns an error. Intended to import a previously exported code bundle, loading all symbols, edges, and summaries without needing to re-index.",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"bundle_path": map[string]string{"type": "string", "description": "Path to the .astbundle file to import"},
-				},
-				"required": []string{"bundle_path"},
-			},
-			Tier: TierExtended,
 		},
 		{
 			Name:        "search_docs",
@@ -619,24 +618,30 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "retrieve",
-			Description: "RAG-style retrieval: hybrid search across code + docs, reranks results, assembles context within token budget. May include code_script_hints for code hits. Returns formatted context ready for LLM consumption. Supports markdown, xml, json output formats.",
+			Description: "RAG-style retrieval: hybrid search across code + docs, reranks results, assembles context within token budget. May include code_script_hints for code hits (output=json; _meta.hints otherwise). Returns context ready for LLM consumption, assembled as markdown, xml or json (format).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query":          map[string]string{"type": "string", "description": "Natural language query to retrieve context for"},
-					"project_path":   map[string]string{"type": "string", "description": "Absolute path to the project root"},
-					"limit":          map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
-					"token_budget":   map[string]string{"type": "integer", "description": "Max tokens for assembled context (default 4000)"},
-					"include_docs":   map[string]string{"type": "boolean", "description": "Include documentation sources (default true)"},
-					"include_source": map[string]string{"type": "boolean", "description": "Include full source code in code chunks (default false — skeleton/signatures only)"},
-					"mode":           map[string]string{"type": "string", "description": "Code chunk mode when include_source is false: 'skeleton' (default), 'auto', 'full'"},
-					"session_id":     map[string]string{"type": "string", "description": "Session ID for dedup — skip symbols already returned"},
-					"include_memory": map[string]string{"type": "boolean", "description": "Prepend compact recall_memory facts/procedures (~20% of token_budget)"},
-					"format":         map[string]string{"type": "string", "description": "Output format: 'markdown', 'xml', 'json' (default 'markdown')"},
-					"path_prefix":    map[string]string{"type": "string", "description": "Optional: only code symbols under this path (project-relative or absolute prefix)."},
-					"language":       map[string]string{"type": "string", "description": "Optional: filter by language (go, typescript, ...)."},
-					"kinds":          map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
-					"kind":           map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
+					"query":              map[string]string{"type": "string", "description": "Natural language query to retrieve context for"},
+					"project_path":       map[string]string{"type": "string", "description": "Absolute path to the project root"},
+					"limit":              map[string]string{"type": "integer", "description": "Max results to return (default 10)"},
+					"token_budget":       map[string]string{"type": "integer", "description": "Max tokens for assembled context (default 4000)"},
+					"include_docs":       map[string]string{"type": "boolean", "description": "Include documentation sources (default true)"},
+					"include_source":     map[string]string{"type": "boolean", "description": "Include full source code in code chunks (default false — skeleton/signatures only)"},
+					"mode":               map[string]string{"type": "string", "description": "Code chunk mode when include_source is false: 'skeleton' (default), 'auto' (full for the top 3), 'full'. 'edit' is not supported here."},
+					"session_id":         map[string]string{"type": "string", "description": "Session ID for dedup — skip symbols already returned"},
+					"include_memory":     map[string]string{"type": "boolean", "description": "Prepend compact recall_memory facts/procedures (~20% of token_budget)"},
+					"include_chunks":     map[string]string{"type": "boolean", "description": "Keep each chunk's content in the chunks list (default false; the assembled context already carries it)"},
+					"format":             map[string]string{"type": "string", "description": "Format the context is assembled in: 'markdown', 'xml', 'json' (default 'markdown'); output picks the response format"},
+					"path_prefix":        map[string]string{"type": "string", "description": "Optional: only code symbols under this path (project-relative or absolute prefix)."},
+					"language":           map[string]string{"type": "string", "description": "Optional: filter by language (go, typescript, ...)."},
+					"kinds":              map[string]string{"type": "string", "description": "Optional: comma-separated symbol kinds to include."},
+					"kind":               map[string]string{"type": "string", "description": "Optional: single symbol kind filter."},
+					"min_relative_score": map[string]string{"type": "number", "description": "Optional: withhold hits scoring below this fraction of the top hit's score (default from settings)."},
+					"collapse":           map[string]string{"type": "boolean", "description": "Fold test, mock, vendored, generated and duplicate hits into a collapsed list (default true; skipped when the query is about tests)."},
+					"output":             codeOutputSchema,
+					"debug":              codeDebugSchema,
+					"offload":            codeOffloadSchema,
 				},
 				"required": []string{"query", "project_path"},
 			},
@@ -704,7 +709,7 @@ func GetPrompts() []Prompt {
 
 ### Token savings tracking
 - tokens_saved = max(0, full_source_baseline - tokens_returned) + dedup_skips
-- Tracked: get_context_capsule, get_file_context, search_semantic, retrieve, execute_code (see tokens_saved, tokens_used, symbol_baseline_tokens in JSON)
+- Tracked: get_context_capsule, get_file_context, search_semantic, retrieve, execute_code (see tokens_saved, tokens_used, symbol_baseline_tokens with output=json)
 - Not tracked: fetch_doc, search_docs, index_*, get_project_map — dashboard Tokens saved can be 0 on doc-only days
 - mode=full saves ~nothing; use auto or skeleton for real savings
 

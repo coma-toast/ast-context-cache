@@ -49,6 +49,14 @@ export const buildFlagRows = (flags: FlagState[]): FlagRow[] => {
   return rows
 }
 
+/** Confirmation shown before toggling a flag that changes the tool list (TS-4). */
+export const TOOL_LIST_WARNING =
+  'Changing this updates the tool list. Connected agents lose their prompt cache; sessions that started before the change keep the old list until they reconnect.'
+
+/** Whether setting `flag` to `enabled` changes the tool list, so the toggle needs confirming first. */
+export const needsToolListWarning = (flag: FlagState | undefined, enabled: boolean): boolean =>
+  !!flag?.affects_tools && flag.enabled !== enabled
+
 /** Optimistically applies a toggle; the server's response replaces it (including children). */
 export const withFlagEnabled = (flags: FlagState[], key: string, enabled: boolean): FlagState[] =>
   flags.map((f) => (f.key === key ? { ...f, enabled, source: 'setting' } : f))

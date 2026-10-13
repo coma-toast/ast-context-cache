@@ -25,9 +25,18 @@ func setupMemoryToolTest(t *testing.T) {
 }
 
 // callTool runs a tools/call through the JSON-RPC handler and returns the
-// decoded tool payload plus the MCP isError flag.
+// decoded tool payload plus the MCP isError flag. The code tools default to text, so it asks
+// them for output=json unless the call sets output.
 func callTool(t *testing.T, name string, arguments map[string]interface{}) (map[string]interface{}, bool) {
 	t.Helper()
+	if _, ok := arguments["output"]; codeTools[name] && !ok {
+		withJSON := make(map[string]interface{}, len(arguments)+1)
+		for k, v := range arguments {
+			withJSON[k] = v
+		}
+		withJSON["output"] = outputJSON
+		arguments = withJSON
+	}
 	req := JSONRPCRequest{
 		JSONRPC: "2.0", ID: 1, Method: "tools/call",
 		Params: map[string]any{"name": name, "arguments": arguments},

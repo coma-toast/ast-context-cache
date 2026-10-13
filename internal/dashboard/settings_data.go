@@ -12,6 +12,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
+	"github.com/coma-toast/ast-context-cache/internal/transcripts"
 )
 
 // handoffEnvLocked lists the handoff limit keys overridden by a non-empty environment variable.
@@ -74,6 +75,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		ProjectExcludePaths:      projectExclude,
 		ProjectIndexExcludes:     db.GetProjectIndexExcludes(),
 		IndexLogFiles:            indexLog,
+		TranscriptUsageIngest:    settings[transcripts.SettingKey] == "true",
 		LogRetentionEnabled:      logRetentionEn,
 		LogRetentionRoots:        logRoots,
 		LogRetentionMaxAgeDays:   logRetentionMaxAge,

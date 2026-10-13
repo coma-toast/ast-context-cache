@@ -77,6 +77,8 @@ Use MCP in this order for unfamiliar code (generate a stable **`session_id`** pe
 
 **Defaults:** `get_context_capsule` → `auto`; `get_file_context` → **`skeleton`**; `search_semantic` → `skeleton`. Do not read whole source files when MCP can return structured symbols.
 
+**Output format (the four code tools):** `get_context_capsule`, `search_semantic`, `get_file_context` and `retrieve` take **`output`**: `text` (default with `feature_text_format`: a summary line, then a `### <file>:<start>-<end> <kind> <name> (<mode>)` heading and a fenced block per symbol), `json` (the structured body, results first; needed for `execute_code`), or `locations` (one `file:lines kind name score` line per hit). Timings, pipeline counts and cache stats are in the result's `_meta["ast-context-cache/stats"]`; pass **`debug=true`** to keep them in the body. A result over `result_offload_threshold` tokens (default 2000) comes back as a head plus an offload stub `[ctx_… <tool> <target>, <N> tok — head shown, fetch_context for all]`; `fetch_context` returns the rest, and **`offload=false`** returns it whole. `retrieve` keeps chunk content out of `chunks` unless **`include_chunks=true`** (the assembled `context` carries it). Stub grammars: [`docs/stubs.md`](docs/stubs.md).
+
 **Operators** (embeddings, dashboard, log retention): [skills/operator/SKILL.md](skills/operator/SKILL.md) — dashboard http://localhost:7830 (embed queue gauge; tool performance with CPU/latency).
 
 ## MCP Server Tools (Preferred)
@@ -110,7 +112,7 @@ When working with codebases that have an MCP server available, **always prefer M
 | `index_status` | Check if a project is indexed. Returns file/symbol counts. |
 | `search_docs` | Search locally cached documentation (FTS). Try before WebFetch for library/framework docs. |
 | `list_doc_sources` | List all tracked documentation sources (read-only). |
-| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). Supports `markdown`, `xml`, `json` output; optional `include_memory`. |
+| `retrieve` | RAG-style retrieval: hybrid search + reranking + context assembly (code + docs). `format` assembles the context as `markdown`, `xml` or `json`; `output` picks the response format; optional `include_memory`, `include_chunks`. |
 | `fetch_context` | Retrieve offloaded virtual context by `ctx_*` ref(s). |
 | `list_context` | List stored virtual context refs for a session (metadata only). |
 | `search_context` | Find stored virtual context by keyword/meaning. |
@@ -134,8 +136,6 @@ When working with codebases that have an MCP server available, **always prefer M
 | `report_kv_repair_event` | Report KV cache miss/quality signal before/after `fetch_context` (observability). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
 | `analyze_complexity` | Calculate cyclomatic complexity to find hard-to-maintain code. |
-| `export_bundle` | Export indexed code as a portable `.astbundle` file. |
-| `import_bundle` | Import a previously exported bundle without re-indexing. |
 | `fetch_doc` | Fetch a documentation URL, store it in the local cache, and return entries (prefer over WebFetch). |
 | `add_doc_source` | Track a documentation URL for async background caching (markdown, html, webpage, json). |
 | `remove_doc_source` | Remove a tracked documentation source. |
@@ -149,9 +149,9 @@ When working with codebases that have an MCP server available, **always prefer M
 
 ### Code-mode scripts
 
-Search responses may include **`code_script_hints`** (core tier). Running scripts needs **complete** tier + **`AST_MCP_CODE_MODE`**.
+Search responses may include **`code_script_hints`** (core tier): in the body with `output=json`, in `_meta.hints` with text or locations output. Running scripts needs **complete** tier + **`AST_MCP_CODE_MODE`**.
 
-1. Search with `get_context_capsule`, `search_semantic`, or `retrieve`.
+1. Search with `get_context_capsule`, `search_semantic`, or `retrieve`, with **`output=json`** (scripts read the JSON results).
 2. If `code_script_hints[]` is non-empty → use top `script_id`.
 3. `execute_code(script_id=..., data=<results JSON string>, project_path=...)`.
 4. Use **`result` only** — do not re-ingest full search JSON into chat.

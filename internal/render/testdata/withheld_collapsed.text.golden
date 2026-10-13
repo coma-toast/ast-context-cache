@@ -1,0 +1,9 @@
+search_semantic "widget" · 1 results · 44 tok · withheld 4 (120 tok) · also 2 similar in tests
+note: deduped 1 symbol already returned this session
+### pkg/widgets.go:3-5 function WidgetAlpha (full)
+```go
+func WidgetAlpha() int {
+	return 1
+}
+```
+collapsed into WidgetAlpha: pkg/widgets_test.go, mocks/widgets.go

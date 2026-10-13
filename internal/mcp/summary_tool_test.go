@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
@@ -142,7 +143,7 @@ func TestCacheSummaryKeepsSameNamedMethodsApart(t *testing.T) {
 // load_model hits came back with the first one's code.
 func TestRetrieveReturnsEachSameNamedMethod(t *testing.T) {
 	project, _ := indexedPython(t, "clients.py", twoClientsPy)
-	chunks, _, _, _, _ := retrieveCode("load_model", project, 10, false, "skeleton", "", nil)
+	chunks, _, _, _, _ := retrieveCode("load_model", project, 10, false, "skeleton", "", nil, context.PrecisionArgs{Collapse: true})
 	got := map[string]string{}
 	for _, c := range chunks {
 		if c.Kind != "method" {

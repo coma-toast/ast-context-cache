@@ -112,10 +112,12 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 
 // handleLegacy serves the handshake era. Requests are answered statelessly even when their
 // Mcp-Session-Id is unknown (say, after a restart): nothing a POST does depends on the
-// session, so forcing a re-initialize would only interrupt the client.
+// session, so forcing a re-initialize would only interrupt the client. A live session's
+// tools/list is frozen at first use.
 func handleLegacy(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest) {
-	if id := r.Header.Get(headerSessionID); id != "" {
-		hub.touch(id)
+	sessionID := r.Header.Get(headerSessionID)
+	if sessionID != "" && !hub.touch(sessionID) {
+		sessionID = ""
 	}
 	w.Header().Set("Content-Type", "application/json")
 	switch rpcReq.Method {
@@ -129,7 +131,7 @@ func handleLegacy(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest)
 	case "ping":
 		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{}))
 	default:
-		if !dispatch(w, rpcReq) {
+		if !dispatch(w, rpcReq, sessionID) {
 			writeRPC(w, http.StatusOK, rpcError(rpcReq.ID, &JSONRPCError{Code: MethodNotFound, Message: "Unknown method: " + rpcReq.Method}))
 		}
 	}
@@ -152,7 +154,7 @@ func handleModern(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest)
 		return
 	}
 	buf := newResponseBuffer()
-	if !dispatch(buf, rpcReq) {
+	if !dispatch(buf, rpcReq, "") {
 		writeRPC(w, http.StatusNotFound, rpcError(rpcReq.ID, &JSONRPCError{Code: MethodNotFound, Message: "Unknown method: " + rpcReq.Method}))
 		return
 	}
@@ -164,10 +166,11 @@ func handleModern(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest)
 }
 
 // dispatch answers the methods both eras share, reporting false for an unknown method.
-func dispatch(w http.ResponseWriter, rpcReq JSONRPCRequest) bool {
+// sessionID is a live legacy session, whose tools/list is frozen, or "" for the live list.
+func dispatch(w http.ResponseWriter, rpcReq JSONRPCRequest, sessionID string) bool {
 	switch rpcReq.Method {
 	case "tools/list":
-		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"tools": FilterTools(GetConfig())}))
+		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"tools": hub.toolsFor(sessionID)}))
 	case "prompts/list":
 		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"prompts": GetPrompts()}))
 	case "prompts/get":
@@ -248,17 +251,13 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 
 	cfg := GetConfig()
 	if ok, reason := toolAccessByName(toolName, cfg); !ok {
-		mcpErr := map[string]interface{}{
-			"content": []map[string]interface{}{
-				{"type": "text", "text": ToolDenyMessage(toolName, cfg, reason)},
-			},
-			"isError": true,
-		}
-		json.NewEncoder(w).Encode(JSONRPCResponse{
-			JSONRPC: JSONRPCVersion,
-			ID:      rpcReq.ID,
-			Result:  mcpErr,
-		})
+		writeToolResult(w, rpcReq.ID, []map[string]interface{}{{"type": "text", "text": ToolDenyMessage(toolName, cfg, reason)}}, true, nil)
+		return
+	}
+	cc, ccErr := parseCodeCall(toolArgs)
+	if codeTools[toolName] && ccErr != nil {
+		data, _ := json.Marshal(map[string]string{"error": ccErr.Error()})
+		writeToolResult(w, rpcReq.ID, []map[string]interface{}{{"type": "text", "text": string(data)}}, true, nil)
 		return
 	}
 
@@ -282,6 +281,11 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 
 	var result interface{}
 	loggedToolCall := false
+	// codeLog is a code tool's query log entry, written after rendering.
+	var codeLog *pendingCodeLog
+	// retrieve's timings and chunks, for rendering.
+	var retrieveTimes *retrieveTimings
+	var retrieveChunks *retrieveView
 	switch toolName {
 	case "index_files":
 		path, _ := toolArgs["path"].(string)
@@ -318,7 +322,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		ctxResult := context.HandleGetContextWithMeta(toolArgs, projectPath)
 		inputTokens := db.EstimateTokens(query)
 		outputTokens := db.EstimateTokens(ctxResult.JSON)
-		logToolQuery(toolName, args, len(ctxResult.JSON), inputTokens, outputTokens, ctxResult.Savings, start, cpuStart, projectPath, "")
+		codeLog = &pendingCodeLog{inputTokens: inputTokens, savings: ctxResult.Savings}
 		recordSearch(sid, ctxResult.Trail)
 		var parsed map[string]interface{}
 		if err := json.Unmarshal([]byte(ctxResult.JSON), &parsed); err == nil {
@@ -409,28 +413,31 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				if tb, ok := toolArgs["token_budget"].(float64); ok && tb > 0 {
 					tokenBudget = int(tb)
 				}
-				results, packSavings, hits := context.PackScoredResults(scored, limit, projectPath, mode, sessionID, tokenBudget)
-				packSavings.CacheHit = cacheHit
+				packed, hits, packErr := context.PackScoredResults(scored, limit, projectPath, query, mode, sessionID, tokenBudget, context.ParsePrecisionArgs(toolArgs))
+				if packErr != nil {
+					result = map[string]string{"error": packErr.Error()}
+					break
+				}
+				packed.Savings.CacheHit = cacheHit
 				resp := map[string]interface{}{
 					"query":         query,
 					"mode":          mode,
-					"results":       results,
+					"results":       packed.Results,
 					"total_vectors": search.Cache.Count(projectPath),
 				}
-				packSavings.ApplyTo(resp)
+				packed.ApplyTo(resp)
 				if tokenBudget > 0 {
 					resp["token_budget"] = tokenBudget
-					resp["tokens_remaining"] = tokenBudget - packSavings.TokensUsed
+					resp["tokens_remaining"] = tokenBudget - packed.Savings.TokensUsed
 				}
-				codescripts.AttachHints(resp, "search_semantic", query, projectPath, results)
+				codescripts.AttachHints(resp, "search_semantic", query, projectPath, packed.Results)
 				entry := semanticTrail(hits, query, docType, projectPath, filters)
 				recordSearch(sessionID, entry)
-				if ann := annotateSearch(sessionID, entry, results); ann != nil {
+				if ann := annotateSearch(sessionID, entry, packed.Results); ann != nil {
 					resp["handoff"] = ann
 				}
 				respData, _ := json.Marshal(resp)
-				outTokens := db.EstimateTokens(string(respData))
-				logToolQuery(toolName, args, len(respData), db.EstimateTokens(query), outTokens, packSavings, start, cpuStart, projectPath, "")
+				codeLog = &pendingCodeLog{inputTokens: db.EstimateTokens(query), savings: packed.Savings}
 				loggedToolCall = true
 				result = json.RawMessage(respData)
 			}
@@ -459,9 +466,9 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if file == "" || projectPath == "" {
 			result = map[string]string{"error": "file and project_path required"}
 		} else {
-			fc := handleFileContextWithMeta(file, projectPath, mode, sessionID, tokenBudget)
-			outTokens := db.EstimateTokens(fc.JSON)
-			logToolQuery(toolName, args, len(fc.JSON), 0, outTokens, fc.Savings, start, cpuStart, projectPath, "")
+			symbol, _ := toolArgs["symbol"].(string)
+			fc := handleFileContextWithMeta(file, projectPath, mode, symbol, sessionID, tokenBudget)
+			codeLog = &pendingCodeLog{savings: fc.Savings}
 			recordSearch(sessionID, fc.Trail)
 			result = json.RawMessage(annotateFileContext(sessionID, fc.Trail, fc.JSON))
 			loggedToolCall = true
@@ -476,10 +483,6 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		resultJSON, _ := json.Marshal(ec.Result)
 		logToolQuery(toolName, args, len(resultJSON), 0, ec.Savings.TokensUsed, ec.Savings, start, cpuStart, projectPath, "")
 		loggedToolCall = true
-	case "export_bundle":
-		result = handleExportBundle(toolArgs)
-	case "import_bundle":
-		result = handleImportBundle(toolArgs)
 	case "search_docs":
 		query, _ := toolArgs["query"].(string)
 		limit := 10
@@ -598,9 +601,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 				result = map[string]string{"error": errMsg}
 			} else {
 				result = retrieveResult["result"]
+				if t, ok := retrieveResult[retrieveTimingsKey].(retrieveTimings); ok {
+					retrieveTimes = &t
+				}
+				retrieveChunks, _ = retrieveResult[retrieveViewKey].(*retrieveView)
 				var parsed map[string]interface{}
 				if err := json.Unmarshal([]byte(result.(json.RawMessage)), &parsed); err == nil {
-					ctxLen := len(parsed["context"].(string))
 					outTokens := db.EstimateTokens(parsed["context"].(string))
 					mode := "skeleton"
 					if m, ok := toolArgs["mode"].(string); ok && m != "" {
@@ -628,7 +634,8 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 						computed := context.ComputeSavings(savings.TokensUsed, savings.SymbolBaseline, 0, savings.DedupTokensSaved)
 						savings.TokensSaved = computed.TokensSaved
 					}
-					logToolQuery(toolName, args, ctxLen, db.EstimateTokens(query), outTokens, savings, start, cpuStart, projectPath, "")
+					savings.ConservativeBaseline, _ = retrieveResult[retrieveConservativeBaselineKey].(int)
+					codeLog = &pendingCodeLog{inputTokens: db.EstimateTokens(query), savings: savings}
 					loggedToolCall = true
 				}
 			}
@@ -654,19 +661,69 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 	}
 	// MCP tools/call response must have result.content[].text and isError so clients pass tool output to the model.
 	resultJSON, _ := json.Marshal(result)
-	content := []map[string]interface{}{{"type": "text", "text": string(resultJSON)}}
+	isErr := resultIsError(resultJSON)
+	text := string(resultJSON)
+	var meta toolMeta
+	if codeTools[toolName] && !isErr {
+		text, meta = renderCodeResult(toolName, toolArgs, projectPath, sid, cc, resultJSON, retrieveTimes, retrieveChunks)
+	}
+	if codeLog != nil {
+		outTokens := db.EstimateTokens(text)
+		logToolQuery(toolName, args, len(text), codeLog.inputTokens, outTokens, renderedSavings(codeLog.savings, outTokens), start, cpuStart, projectPath, "")
+	}
+	content := []map[string]interface{}{{"type": "text", "text": text}}
 	if notice := claimsGrantedNotice(sid); notice != "" {
 		content = append(content, map[string]interface{}{"type": "text", "text": notice})
 	}
-	mcpResult := map[string]interface{}{
-		"content": content,
-		"isError": resultIsError(resultJSON),
+	writeToolResult(w, rpcReq.ID, content, isErr, meta)
+}
+
+// pendingCodeLog is a code tool's query log entry, held until the response is rendered so
+// its output tokens and tokens_used count the text actually returned (after offload).
+type pendingCodeLog struct {
+	inputTokens int
+	savings     context.SavingsMeta
+}
+
+// renderedSavings recomputes savings for used, the rendered text's token count: tokens_used
+// becomes used and the savings derived from it follow.
+func renderedSavings(s context.SavingsMeta, used int) context.SavingsMeta {
+	out := context.ComputeSavings(used, s.SymbolBaseline, s.FileBaseline, s.DedupTokensSaved)
+	out.DedupedCount, out.Mode, out.CacheHit, out.ConservativeBaseline = s.DedupedCount, s.Mode, s.CacheHit, s.ConservativeBaseline
+	return out
+}
+
+// writeToolResult writes a tools/call result: content, isError, and _meta when set.
+func writeToolResult(w http.ResponseWriter, id any, content []map[string]interface{}, isErr bool, meta toolMeta) {
+	mcpResult := map[string]interface{}{"content": content, "isError": isErr}
+	if len(meta) > 0 {
+		mcpResult[metaKey] = meta
 	}
-	json.NewEncoder(w).Encode(JSONRPCResponse{
-		JSONRPC: JSONRPCVersion,
-		ID:      rpcReq.ID,
-		Result:  mcpResult,
-	})
+	if err := json.NewEncoder(w).Encode(JSONRPCResponse{JSONRPC: JSONRPCVersion, ID: id, Result: mcpResult}); err != nil {
+		logger.Debug("Failed to write tool result", "error", err)
+	}
+}
+
+// Ledgers (TL-2) for queries.ledger: compression is search/read savings, virtual is
+// stored and fetched context or memory; any other tool is none.
+const (
+	ledgerCompression = "compression"
+	ledgerVirtual     = "virtual"
+	ledgerNone        = "none"
+)
+
+var toolLedgers = map[string]string{
+	"get_context_capsule": ledgerCompression, "search_semantic": ledgerCompression, "get_file_context": ledgerCompression,
+	"retrieve": ledgerCompression, "execute_code": ledgerCompression,
+	"store_context": ledgerVirtual, "fetch_context": ledgerVirtual, "edit_context": ledgerVirtual, "store_memory": ledgerVirtual,
+	"recall_memory": ledgerVirtual, "apply_context_fn": ledgerVirtual, "handoff": ledgerVirtual,
+}
+
+func toolLedger(toolName string) string {
+	if l, ok := toolLedgers[toolName]; ok {
+		return l
+	}
+	return ledgerNone
 }
 
 func logToolQuery(toolName string, args map[string]interface{}, resultChars, inputTokens, outputTokens int, savings context.SavingsMeta, start time.Time, cpuStart sys.CPUSample, projectPath, errMsg string) {
@@ -685,5 +742,8 @@ func logToolQuery(toolName string, args map[string]interface{}, resultChars, inp
 		CacheHit:         savings.CacheHit,
 		DurationMs:       float64(time.Since(start).Milliseconds()),
 		CpuMs:            sys.DeltaMs(cpuStart, sys.SampleCPU()),
+		// The conservative baseline only means something on the compression ledger.
+		ConservativeBaseline: savings.ConservativeBaseline,
+		Ledger:               toolLedger(toolName),
 	}, projectPath, errMsg)
 }

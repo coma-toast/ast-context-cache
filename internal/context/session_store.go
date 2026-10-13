@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 )
 
 const (
@@ -25,12 +26,13 @@ type ReturnedSymbol struct {
 	Tokens      int
 }
 
-// sessionSet is a session's returned-symbol keys. The sessions table is written
+// sessionSet is a session's returned-symbol keys and the richest mode each was delivered in. The sessions table is written
 // through a batching buffer (flushed every few seconds), so reading it alone let a
 // symbol returned moments ago be sent again; the in-memory set is updated before
 // the call that returned the symbol responds.
 type sessionSet struct {
 	keys     map[string]struct{}
+	modes    map[string]string
 	hydrated bool
 	evicted  bool
 	lastUsed time.Time
@@ -51,6 +53,49 @@ func ReturnedKeys(sessionID string) map[string]struct{} {
 	s := lockedSession(sessionID)
 	defer s.mu.Unlock()
 	return maps.Clone(s.keys)
+}
+
+// ReturnedModes returns a copy of the keys already returned to sessionID mapped to the
+// richest mode each was delivered in ("" or "seed" when unknown), hydrating once from the
+// database. It returns an empty map for no session.
+func ReturnedModes(sessionID string) map[string]string {
+	if sessionID == "" {
+		return map[string]string{}
+	}
+	s := lockedSession(sessionID)
+	defer s.mu.Unlock()
+	return maps.Clone(s.modes)
+}
+
+// DedupCovers reports whether a symbol already returned (returned from ReturnedModes) covers a
+// request for it in mode want, so it is skipped. With feature_mode_v2 on, an earlier delivery
+// covers the request only when its mode ranks at least as high as want (a skeleton does not
+// cover a later full request); a seeded or legacy row with no mode covers everything. With
+// the flag off any earlier delivery covers it.
+func DedupCovers(returned map[string]string, key, want string) bool {
+	prev, ok := returned[key]
+	if !ok {
+		return false
+	}
+	if !flags.Enabled(flags.KeyModeV2) || prev == "" || prev == seededReturnedModeTag {
+		return true
+	}
+	return ModeRank(prev) >= ModeRank(want)
+}
+
+// mergeReturnedMode records key as returned in mode, keeping the richer of mode and any
+// earlier mode ("" and "seed" rank above everything, since they cover any request).
+func mergeReturnedMode(modes map[string]string, key, mode string) {
+	prev, ok := modes[key]
+	if !ok || prev == "" || prev == seededReturnedModeTag {
+		if !ok {
+			modes[key] = mode
+		}
+		return
+	}
+	if mode == "" || mode == seededReturnedModeTag || ModeRank(mode) > ModeRank(prev) {
+		modes[key] = mode
+	}
 }
 
 // MarkReturned records syms as returned to sessionID: the in-memory set at once,
@@ -122,7 +167,9 @@ func addReturned(sessionID string, syms []ReturnedSymbol) {
 	s := lockedSession(sessionID)
 	defer s.mu.Unlock()
 	for _, r := range syms {
-		s.keys[SymbolDedupKey(r.File, r.Name, r.StartLine)] = struct{}{}
+		key := SymbolDedupKey(r.File, r.Name, r.StartLine)
+		s.keys[key] = struct{}{}
+		mergeReturnedMode(s.modes, key, r.Mode)
 	}
 }
 
@@ -130,7 +177,7 @@ func addReturned(sessionID string, syms []ReturnedSymbol) {
 // evicted between the lookup and the lock is skipped: writes to it would be lost.
 func lockedSession(sessionID string) *sessionSet {
 	for {
-		v, _ := sessions.LoadOrStore(sessionID, &sessionSet{keys: map[string]struct{}{}})
+		v, _ := sessions.LoadOrStore(sessionID, &sessionSet{keys: map[string]struct{}{}, modes: map[string]string{}})
 		s := v.(*sessionSet)
 		s.mu.Lock()
 		if s.evicted {
@@ -151,11 +198,14 @@ func (s *sessionSet) hydrate(sessionID string) {
 	if db.DB == nil {
 		return
 	}
-	persisted, err := loadReturnedKeys(sessionID)
+	persisted, err := loadReturned(sessionID)
 	if err != nil {
 		logger.Warn("Failed to load returned symbols for session", "session_id", sessionID, "error", err)
 		return
 	}
-	maps.Copy(s.keys, persisted)
+	for key, mode := range persisted {
+		s.keys[key] = struct{}{}
+		mergeReturnedMode(s.modes, key, mode)
+	}
 	s.hydrated = true
 }

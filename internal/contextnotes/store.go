@@ -20,7 +20,7 @@ const (
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	// LRU eviction takes the least recently used note (last fetch, else store), never a handoff
 	// result or any note of a handoff child session: the handoff tree owns those and they expire with it.
-	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?` + notTreeOwnedClause + `
+	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?` + notTreeOwnedClause + notOffloadClause + `
 		ORDER BY COALESCE(last_accessed_at, created_at) ASC, access_count ASC LIMIT 1`
 	selectNoteByRefQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
@@ -131,7 +131,7 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 	}
 	tokenEst := db.EstimateTokens(content)
 	lim := LoadLimits()
-	if tokenEst > lim.MaxTokensSession {
+	if strings.TrimSpace(kind) != KindOffload && tokenEst > lim.MaxTokensSession {
 		return nil, newLimitError("single_note_tokens", tokenEst, lim.MaxTokensSession, tokenEst)
 	}
 	tagStr := normalizeTags(tags)
@@ -145,7 +145,12 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 	}
 	var evicted []string
 	var err error
-	if lim.Policy == "lru_session" {
+	if kind == KindOffload {
+		evicted, err = checkOffloadLimit(tokenEst, lim)
+		if err != nil {
+			return nil, err
+		}
+	} else if lim.Policy == "lru_session" {
 		evicted, err = evictSessionLRU(sessionID, tokenEst, lim)
 		if err != nil {
 			return nil, err
@@ -428,8 +433,9 @@ func parseRefList(raw interface{}) []string {
 
 // FetchResult holds notes retrieved by ref.
 type FetchResult struct {
-	Notes []Note                 `json:"notes"`
-	Stats map[string]interface{} `json:"stats"`
+	Notes   []Note                 `json:"notes"`
+	Expired []ExpiredRef           `json:"expired,omitempty"`
+	Stats   map[string]interface{} `json:"stats"`
 }
 
 // Fetch returns notes by ref, optionally scoped to session_id.
@@ -440,10 +446,14 @@ func Fetch(refsRaw interface{}, sessionID, repairReason string) (*FetchResult, e
 	}
 	reason := normalizeRepairReason(repairReason)
 	notes := make([]Note, 0, len(refs))
+	var expired []ExpiredRef
 	totalReturned := 0
 	for _, ref := range refs {
 		n, err := noteByRef(ref)
 		if err != nil {
+			if e, ok := tombstoneFor(ref); ok {
+				expired = append(expired, e)
+			}
 			continue
 		}
 		if sessionID != "" && n.SessionID != sessionID {
@@ -476,7 +486,7 @@ func Fetch(refsRaw interface{}, sessionID, repairReason string) (*FetchResult, e
 		stats["session_virtual_accessed_total"] = r.VirtualTokensAccessed
 	}
 	appendKvRepairStats(stats, "")
-	return &FetchResult{Notes: notes, Stats: stats}, nil
+	return &FetchResult{Notes: notes, Expired: expired, Stats: stats}, nil
 }
 
 // ListResult is metadata-only listing.

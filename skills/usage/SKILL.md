@@ -14,7 +14,6 @@ Use this skill when the user asks to:
 - Search code by meaning/intent
 - Find unused or complex code
 - Search documentation for libraries/frameworks
-- Share indexed code with another machine (bundles)
 - Run code analysis against search results
 - Offload bulky conversation context before host compaction (virtual context)
 - Store or recall user prefs / coding conventions (structured memory)
@@ -51,6 +50,21 @@ Generate a stable **`session_id`** per conversation (e.g. UUID) and pass it on *
 | RAG | `retrieve` | `session_id`, `token_budget`, `format` |
 | Library docs | `search_docs` | FTS over cached sources |
 
+## Output format
+
+The four code tools (`get_context_capsule`, `search_semantic`, `get_file_context`, `retrieve`) take **`output`**:
+
+| `output` | Response |
+|----------|----------|
+| `text` (default with `feature_text_format`) | Summary line (`<tool> "<query>" · <n> results · <tok> tok`, plus withheld / collapsed / no-match), then per symbol a `### <file>:<start>-<end> <kind> <name> (<mode>)` heading and a fenced block. `retrieve`: summary line, the assembled `context`, then one `file:lines kind name score` line per chunk |
+| `json` | The structured body, results first, then counts and budget, savings, hints. Use it for `execute_code` and scripts |
+| `locations` | Summary line, then one `file:lines kind name score` line per hit — cheapest way to see where things are |
+
+- Timings, pipeline counts, cache hits and `total_vectors` are in the result's **`_meta["ast-context-cache/stats"]`**, so identical calls return identical text. **`debug=true`** keeps them in the body (`retrieve` adds `timings`).
+- `code_script_hints` are in the body only with `output=json`; otherwise in **`_meta.hints`**.
+- `retrieve` leaves chunk content out of `chunks` unless **`include_chunks=true`**; the assembled `context` carries it.
+- A result over ~2k tokens is offloaded (below); **`offload=false`** returns it whole. Stub grammars: `docs/stubs.md`.
+
 ## Tool availability (tiers)
 
 If `index_files`, `execute_code`, or other tools are missing from `tools/list`, the server tier is too low or the tool is disabled in `~/.astcache/tools.json`. Agents cannot change tier—ask the user to set `AST_MCP_TIER` / edit overrides and restart ast-mcp. If `handoff`, `open_handoff`, or `scratchpad` is missing, or an action returns `feature_disabled`, a feature flag is off (dashboard Settings → Features or `AST_FEATURE_*`); flags apply live. See [README](../../README.md#tool-tiers-and-per-tool-overrides).
@@ -74,7 +88,6 @@ If `index_files`, `execute_code`, or other tools are missing from `tools/list`, 
 | Best single-shot context | `retrieve` | Code + optional docs, reranked |
 | External library docs | `search_docs` then `fetch_doc` | Not WebFetch when MCP is up |
 | List doc URLs | `list_doc_sources` | Core tier |
-| Portable index | `export_bundle` / `import_bundle` | Extended tier |
 | Transform results in JS | `execute_code` | Complete tier; optional `script_id`; check `code_script_hints` first |
 | Virtual context compaction | `store_context` / `fetch_context` / `flush_context` | Extended write; core read; same `session_id`; bulky `ctx_*` notes |
 | Context-as-a-file editing | `edit_context` | Extended; in-place rewrite of a `ctx_*` note, reversible via revisions |
@@ -150,6 +163,10 @@ When finished:
 **Session isolation:** `fetch_context` with `session_id` rejects refs owned by other sessions (returns empty notes, not an error).
 
 **Quota errors:** Response includes `context_limit_exceeded` with `limit`, `current`, `max`. Fix by flushing old notes, raising limits (dashboard Settings), or enabling **`lru_session`** policy to evict oldest note in session.
+
+### Host context clearing
+
+When `feature_result_offload` is on, a search result over ~2k tokens comes back as its top results plus a stub line like `[ctx_… get_context_capsule auth flow, 9.4k tok — head shown, fetch_context for all]`. Keep that stub when the host clears tool output: `fetch_context(refs=["ctx_…"])` returns the full result. Offloads have their own budget (they never use your session quota) and expire 24h after their last fetch; an expired ref comes back from `fetch_context` under `expired` with the `tool` and `args` to re-run. Copy anything you need longer into your own `store_context` note. Pass `offload=false` to get a result inline. See [docs/USAGE.md](../../docs/USAGE.md#host-context-clearing).
 
 ### Defaults and limits
 
@@ -373,7 +390,7 @@ KV repair notes share **virtual context quotas** (same as compaction notes). Sep
 |---------|-------------|
 | `get_context_capsule`, `get_file_context`, `search_semantic`, `retrieve`, `execute_code` | `fetch_doc`, `search_docs`, `index_*`, maps, impact graph, `store_context`, `store_memory`, … |
 
-- Context tool JSON includes **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**
+- Context tool JSON (`output=json`) includes **`tokens_saved`**, **`tokens_used`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**
 - Dashboard **Tokens saved** = compression + dedup from those five search/read tools only; virtual context and memory writes never count (doc-only days → **0** is normal)
 - **`mode=full`** ≈ no savings; **`auto`** / **`skeleton`** / **`summary`** are where savings come from
 - Same **`session_id`** on all four context tools for dedup credit
@@ -381,14 +398,14 @@ KV repair notes share **virtual context quotas** (same as compaction notes). Sep
 
 ## Code-mode scripts
 
-Search tools may attach **`code_script_hints`** when a built-in or repo script fits (many results, query regex, etc.). Hints are visible on **core** tier; running scripts needs **complete** + **`AST_MCP_CODE_MODE`**.
+Search tools may attach **`code_script_hints`** when a built-in or repo script fits (many results, query regex, etc.): in the body with `output=json`, in `_meta.hints` otherwise. Hints are visible on **core** tier; running scripts needs **complete** + **`AST_MCP_CODE_MODE`**.
 
 **When hints appear:** Large result sets, structure/overview queries, export/impact queries — see [scripts/code-mode/README.md](../../scripts/code-mode/README.md).
 
 **Do not:** Paste huge `results` JSON into chat when a hint offers `script_id` — run `execute_code` and use `result` only.
 
 ```
-1. get_context_capsule / search_semantic / retrieve
+1. get_context_capsule / search_semantic / retrieve with output=json
 2. If code_script_hints[] → top script_id
 3. execute_code(script_id=..., data=<JSON string of results>, project_path=...)
 4. Read result + tokens_saved only
@@ -408,10 +425,12 @@ retrieve(
 
 - `include_docs=false` — code only  
 - `include_source=false` (default) — signatures/skeleton in code chunks; `true` for full source  
+- `include_chunks=false` (default) — `chunks` list locations and scores only; `true` keeps each chunk's content  
+- `format` — how `context` is assembled (`markdown`, `xml`, `json`); `output` is the response format  
 - `mode` — `skeleton`, `auto`, or `full` when `include_source` is false  
 - Filters: `path_prefix`, `language`, `kinds` / `kind` (same as search tools)
 
-Response **`stats`**: hybrid counts (`bm25_candidates`, `vector_candidates`, …), `after_dedup`, `chunks_in_budget`, timings, plus **`tokens_saved`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**, **`budget_tokens_saved`**.
+Response **`stats`** (`output=json`): `after_dedup`, `chunks_in_budget`, plus **`tokens_saved`**, **`symbol_baseline_tokens`**, **`dedup_tokens_saved`**, **`budget_tokens_saved`**. Hybrid counts (`bm25_candidates`, `vector_candidates`, `hybrid_after_fuse`) and timings (`search_time_ms`, `code_retrieve_ms`, `docs_retrieve_ms`, `dedup_budget_ms`) are in `_meta["ast-context-cache/stats"]`, or in the body with `debug=true`.
 
 ## Optional search filters
 

@@ -1,0 +1,15 @@
+get_context_capsule "widget" · 3 results · 83 tok
+### pkg/widgets.go:3-5 function WidgetAlpha (full)
+```go
+func WidgetAlpha() int {
+	return 1
+}
+```
+### pkg/widgets.go:7-7 method Widget.Beta (skeleton)
+```go
+func (w *Widget) Beta() int
+```
+### web/app.ts:10-40 class App (summary)
+```typescript
+Root application component.
+```

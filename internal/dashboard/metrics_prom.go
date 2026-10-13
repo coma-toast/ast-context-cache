@@ -15,6 +15,10 @@ import (
 
 const (
 	selectTokensSavedTodayQuery = "SELECT " + tokensSavedSum + " FROM queries WHERE timestamp >= ? AND timestamp < ?"
+	selectLedgerSavedTodayQuery = "SELECT " + compressionSavedSum + ", " + ledgerDedupSavedSum + " FROM queries WHERE timestamp >= ? AND timestamp < ?"
+	// ledgerSavedTodayMetric is the per-ledger split of astcache_tokens_saved_today. It has its
+	// own name: Prometheus rejects one metric name registered with and without labels.
+	ledgerSavedTodayMetric = "astcache_ledger_tokens_saved_today"
 )
 
 var (
@@ -81,6 +85,16 @@ func registerPrometheusMetrics() {
 				Help: "Sum of tokens_saved for today (local calendar day) from the query log.",
 			}, tokensSavedToday),
 			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Name:        ledgerSavedTodayMetric,
+				Help:        "Tokens saved today (local calendar day) on one ledger: compression or dedup.",
+				ConstLabels: prometheus.Labels{"ledger": ledgerCompression},
+			}, func() float64 { return float64(ledgerSavedToday()[0]) }),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Name:        ledgerSavedTodayMetric,
+				Help:        "Tokens saved today (local calendar day) on one ledger: compression or dedup.",
+				ConstLabels: prometheus.Labels{"ledger": ledgerDedup},
+			}, func() float64 { return float64(ledgerSavedToday()[1]) }),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 				Name: "astcache_query_cache_hit_ratio",
 				Help: "Shared query-cache (search candidate cache) hits over lookups since start; 0 before any lookup.",
 			}, cache.Candidates.HitRatio),
@@ -133,6 +147,20 @@ func tokensSavedToday() float64 {
 		return 0
 	}
 	return float64(n)
+}
+
+// ledgerSavedToday returns today's compression and dedup savings.
+func ledgerSavedToday() [2]int {
+	var out [2]int
+	if db.DB == nil {
+		return out
+	}
+	todayStart := time.Now().Format("2006-01-02") + "T00:00:00"
+	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
+	if err := db.DB.QueryRow(selectLedgerSavedTodayQuery, todayStart, tomorrowStart).Scan(&out[0], &out[1]); err != nil {
+		return [2]int{}
+	}
+	return out
 }
 
 // observeQueryLogMetrics increments tool-call counters/histograms from a flush batch.

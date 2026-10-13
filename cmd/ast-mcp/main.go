@@ -17,6 +17,7 @@ import (
 	"time"
 
 	ctxpkg "github.com/coma-toast/ast-context-cache/internal/context"
+	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
@@ -36,6 +37,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
+	"github.com/coma-toast/ast-context-cache/internal/transcripts"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -581,6 +583,8 @@ func startBackgroundServices(ctx context.Context) {
 	db.StartFTSSelfCheck()
 	go runEvery(ctx, time.Hour, logretention.RunOnce)
 	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
+	go runEvery(ctx, time.Hour, contextnotes.RunOffloadPurge)
+	go runEvery(ctx, time.Hour, transcripts.RunOnce)
 	ctxpkg.StartSessionStoreEviction(ctx)
 	handoff.Start(ctx, embedder.Tracked())
 	seen := map[string]bool{}

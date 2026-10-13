@@ -16,7 +16,8 @@ import (
 // Server-to-client delivery for both eras. A legacy client opens GET /mcp with its
 // Mcp-Session-Id and gets a standalone SSE stream; a modern client POSTs
 // subscriptions/listen and gets an SSE response that stays open. Broadcast fans a
-// notification out to every open stream of either kind.
+// notification out to every open stream of either kind. A legacy session's tools/list is
+// frozen at first use, so tool-list changes only reach modern subscribers.
 
 const (
 	// sessionIdleTTL is how long a legacy session survives without requests or an open stream.
@@ -28,6 +29,16 @@ const (
 	// heartbeatInterval spaces SSE keep-alive comments. Claude Code backs off for hours
 	// after repeated stream drops, so idle proxies and clients must never see a quiet stream.
 	heartbeatInterval = 20 * time.Second
+	listChangedMethod = "notifications/tools/list_changed"
+)
+
+// Flag changes are coalesced: one batch sends one list_changed frame after
+// listChangedDebounce, and never sooner than listChangedMinInterval after the last frame, so
+// a burst of toggles costs connected agents one prompt-cache miss rather than several.
+// Package vars so tests can shorten them (under listChanged.mu).
+var (
+	listChangedDebounce    = 400 * time.Millisecond
+	listChangedMinInterval = 5 * time.Second
 )
 
 // mcpSession is one legacy Streamable HTTP session minted by initialize.
@@ -35,6 +46,9 @@ type mcpSession struct {
 	id, version string
 	lastSeen    time.Time
 	streams     int
+	// tools is the tools/list answer frozen at the session's first request, so a flag
+	// change mid-session never invalidates the client's prompt cache.
+	tools []Tool
 }
 
 // subscriber is one open SSE stream.
@@ -82,7 +96,8 @@ func CloseStreams() {
 
 // Init wires feature flags to MCP clients and the dashboard. Call it after db.Init: the
 // Reload applies flags saved in the settings table, which lookups before the database
-// opened couldn't see. A flag that changes tools/list sends list_changed to every stream.
+// opened couldn't see. A flag that changes tools/list sends one coalesced list_changed to
+// every modern subscriber.
 func Init() {
 	initOnce.Do(func() { flags.OnChange(onFlagChange) })
 	flags.Reload()
@@ -91,10 +106,67 @@ func Init() {
 var initOnce sync.Once
 
 func onFlagChange(key string, _ bool) {
-	if flags.AffectsTools(key) {
-		Broadcast("notifications/tools/list_changed", nil)
+	listChanged.mark(flags.AffectsTools(key))
+}
+
+var listChanged = &listChangedCoalescer{}
+
+// listChangedCoalescer batches flag changes into one list_changed frame for modern
+// subscribers and one dashboard SettingsChanged notification.
+type listChangedCoalescer struct {
+	mu         sync.Mutex
+	timer      *time.Timer
+	toolsDirty bool
+	lastFrame  time.Time
+}
+
+// mark records a flag change, arming the batch timer if none is pending.
+func (c *listChangedCoalescer) mark(tools bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.toolsDirty = c.toolsDirty || tools
+	if c.timer == nil {
+		c.timer = time.AfterFunc(listChangedDebounce, c.fire)
+	}
+}
+
+// fire flushes the batch, re-arming instead when a tool change would follow the last frame
+// sooner than listChangedMinInterval.
+func (c *listChangedCoalescer) fire() {
+	c.mu.Lock()
+	if wait := listChangedMinInterval - time.Since(c.lastFrame); c.toolsDirty && !c.lastFrame.IsZero() && wait > 0 {
+		c.timer = time.AfterFunc(wait, c.fire)
+		c.mu.Unlock()
+		return
+	}
+	tools := c.toolsDirty
+	c.toolsDirty, c.timer = false, nil
+	if tools {
+		c.lastFrame = time.Now()
+	}
+	c.mu.Unlock()
+	if tools {
+		hub.send(listChangedMethod, nil, false)
 	}
 	realtime.Notify(realtime.SettingsChanged)
+}
+
+// toolsFor answers tools/list for sessionID: the session's frozen list, captured from the
+// live config on first use, or the live list when there is no live session.
+func (h *streamHub) toolsFor(sessionID string) []Tool {
+	if sessionID == "" {
+		return FilterTools(GetConfig())
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s, ok := h.liveSessionLocked(sessionID)
+	if !ok {
+		return FilterTools(GetConfig())
+	}
+	if s.tools == nil {
+		s.tools = FilterTools(GetConfig())
+	}
+	return s.tools
 }
 
 func (h *streamHub) newSession(version string) string {
@@ -184,11 +256,17 @@ func (h *streamHub) unregister(sub *subscriber) {
 }
 
 func (h *streamHub) broadcast(method string, params any) {
+	h.send(method, params, true)
+}
+
+// send delivers method to every modern subscriber that opted in and, when legacy is set, to
+// one stream per legacy session.
+func (h *streamHub) send(method string, params any, legacy bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	served := map[string]bool{}
 	for sub := range h.subs {
-		if sub.sessionID != "" && served[sub.sessionID] {
+		if sub.sessionID != "" && (!legacy || served[sub.sessionID]) {
 			continue
 		}
 		frame, ok := sub.frame(method, params)
@@ -260,7 +338,7 @@ func serveListen(w http.ResponseWriter, r *http.Request, req JSONRPCRequest) {
 	agreed, methods := map[string]any{}, map[string]bool{}
 	if on, _ := requested["toolsListChanged"].(bool); on {
 		agreed["toolsListChanged"] = true
-		methods["notifications/tools/list_changed"] = true
+		methods[listChangedMethod] = true
 	}
 	sub := &subscriber{ch: make(chan []byte, subscriberBuffer), done: make(chan struct{}), subscriptionID: req.ID, methods: methods}
 	if !hub.register(sub) {

@@ -54,6 +54,44 @@ export interface Stats {
   ApproxRoundsAvoided?: number
   HeuristicApproximate?: boolean
   HeuristicLabel?: string
+  /** Ledgers (TL-2/TL-3): TokensSaved = CompressionSaved + DedupSaved. Absent on older servers. */
+  CompressionSaved?: number
+  DedupSaved?: number
+  /** Symbol ± 20 lines baseline minus tokens returned. */
+  ConservativeSaved?: number
+  VirtualStoredTokens?: number
+  VirtualFetchedTokens?: number
+  VirtualRecalledTokens?: number
+  /** Query rows whose token counts were bytes/4 estimates. */
+  EstimatedRows?: number
+  /** Definitions keyed by compression, dedup, conservative, virtual, estimated. */
+  BaselineDefinitions?: Record<string, string> | null
+}
+
+/** Ledger split for a window (weekly digest). */
+export interface LedgerTotals {
+  CompressionSaved?: number
+  DedupSaved?: number
+  ConservativeSaved?: number
+  VirtualStoredTokens?: number
+  VirtualFetchedTokens?: number
+  VirtualRecalledTokens?: number
+}
+
+/** One day of host (Claude Code transcript) token usage. */
+export interface HostUsageDay {
+  Day: string
+  Input: number
+  Output: number
+  CacheRead: number
+  CacheWrite: number
+}
+
+/** /api/dashboard/host-usage: Days is empty while transcript_usage_ingest is off. */
+export interface HostUsageResponse {
+  Enabled: boolean
+  WindowDays: number
+  Days: HostUsageDay[]
 }
 
 export interface WeeklyDigestTool {
@@ -74,7 +112,7 @@ export interface WeeklyDigestEmbedReliability {
   Note?: string
 }
 
-export interface WeeklyDigest {
+export interface WeeklyDigest extends LedgerTotals {
   WindowDays: number
   TokensSaved: number
   Queries: number
@@ -271,6 +309,8 @@ export interface SettingsData {
   /** Project path → per-project exclude patterns (gitignore syntax, relative to the project root). */
   ProjectIndexExcludes?: Record<string, string[]> | null
   IndexLogFiles: boolean
+  /** transcript_usage_ingest: hourly Claude Code transcript usage ingest (off by default). */
+  TranscriptUsageIngest?: boolean
   LogRetentionEnabled: boolean
   LogRetentionRoots: string
   LogRetentionMaxAgeDays: number
@@ -471,6 +511,8 @@ export interface FlagState {
   enabled: boolean
   default: boolean
   locked: boolean
+  /** Toggling it changes tools/list or the actions a tool accepts. */
+  affects_tools: boolean
 }
 
 export interface FlagsResponse {

@@ -36,6 +36,16 @@ type Stats struct {
 	KvRepairQuality30d        int
 	KvRepairManual30d         int
 	KvRepairTodayRepairs      int
+	// Ledgers (TL-2/TL-3): TokensSaved = CompressionSaved + DedupSaved.
+	CompressionSaved      int
+	DedupSaved            int
+	ConservativeSaved     int
+	VirtualStoredTokens   int
+	VirtualFetchedTokens  int
+	VirtualRecalledTokens int
+	// EstimatedRows counts query rows whose tokens were len/4 estimates (estimate_method bytes4).
+	EstimatedRows       int
+	BaselineDefinitions map[string]string
 }
 
 func fmtInt(n int) string {

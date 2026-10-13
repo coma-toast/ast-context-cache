@@ -36,15 +36,17 @@ type Flag struct {
 
 // FlagState is a flag's resolved state for the settings API and dashboard. Enabled is the
 // effective value, so a child reads false while feature_handoff is off; Source is where the
-// flag's own value came from.
+// flag's own value came from. AffectsTools marks flags whose toggle changes tools/list or the
+// actions a tool accepts.
 type FlagState struct {
-	Key         string `json:"key"`
-	Description string `json:"description"`
-	Source      string `json:"source"`
-	Env         string `json:"env"`
-	Enabled     bool   `json:"enabled"`
-	Default     bool   `json:"default"`
-	Locked      bool   `json:"locked"`
+	Key          string `json:"key"`
+	Description  string `json:"description"`
+	Source       string `json:"source"`
+	Env          string `json:"env"`
+	Enabled      bool   `json:"enabled"`
+	Default      bool   `json:"default"`
+	Locked       bool   `json:"locked"`
+	AffectsTools bool   `json:"affects_tools"`
 }
 
 type snapshot struct {
@@ -250,7 +252,7 @@ func build() *snapshot {
 }
 
 func resolve(f Flag) FlagState {
-	st := FlagState{Key: f.Key, Description: f.Description, Env: f.Env, Default: f.Default, Enabled: f.Default, Source: SourceDefault}
+	st := FlagState{Key: f.Key, Description: f.Description, Env: f.Env, Default: f.Default, Enabled: f.Default, Source: SourceDefault, AffectsTools: AffectsTools(f.Key)}
 	if on, ok := envValue(f); ok {
 		st.Enabled, st.Source, st.Locked = on, SourceEnv, true
 		return st

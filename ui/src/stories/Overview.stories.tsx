@@ -5,7 +5,7 @@ import { HealthBar } from '../components/HealthBar'
 import { IndexHealthSection } from '../tabs/IndexHealthSection'
 import { OverviewTab } from '../tabs/OverviewTab'
 import { WatchersPanel } from '../components/WatchersPanel'
-import { fixtureContextSessions, fixtureHandoffTrees, fixtureHealth, fixtureIndexHealth, fixtureStats, fixtureWeeklyDigest } from '../storybook/fixtures'
+import { fixtureContextSessions, fixtureHandoffTrees, fixtureHealth, fixtureHostUsage, fixtureIndexHealth, fixtureStats, fixtureWeeklyDigest } from '../storybook/fixtures'
 
 const meta: Meta = {
   title: 'Dashboard/Overview',
@@ -35,7 +35,13 @@ export const Savings: Story = {
       <Box sx={{ mb: 2 }}>
         <HealthBar health={fixtureHealth} />
       </Box>
-      <OverviewTab stats={fixtureStats} weeklyDigest={fixtureWeeklyDigest} contextSessions={fixtureContextSessions} handoffTrees={fixtureHandoffTrees} />
+      <OverviewTab
+        stats={fixtureStats}
+        weeklyDigest={fixtureWeeklyDigest}
+        contextSessions={fixtureContextSessions}
+        handoffTrees={fixtureHandoffTrees}
+        hostUsage={fixtureHostUsage}
+      />
     </StoryFrame>
   ),
 }
