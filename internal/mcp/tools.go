@@ -366,11 +366,11 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "store_memory",
-			Description: "Store a compact temporal fact or procedural rule (mem_* ref). Facts auto-invalidate prior same subject+predicate in scope (Mem0/Zep-style). Much smaller than store_context for preferences and behavior. Supports TTL duration. kind=pinned stores the per-project pinned note — change rarely, changes move the host's cached prefix.",
+			Description: "Store a compact temporal fact or procedural rule (mem_* ref). Facts auto-invalidate prior same subject+predicate in scope (Mem0/Zep-style). Much smaller than store_context for preferences and behavior. Supports TTL duration.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"kind":                map[string]string{"type": "string", "description": "fact, procedure, or pinned"},
+					"kind":                map[string]string{"type": "string", "description": "fact or procedure"},
 					"session_id":          map[string]string{"type": "string", "description": "Required for session scope"},
 					"scope":               map[string]string{"type": "string", "description": "session (default), project, or global"},
 					"project_path":        map[string]string{"type": "string", "description": "Required for project scope"},

@@ -231,7 +231,7 @@ recall_memory(project_path="/abs/repo", scope="project")  # do this before readi
 
 Project memories key on the repo, not the checkout: one stored in a WTG worktree is recalled from a sibling worktree on a different branch. Pass `repo_siblings=false` to limit recall to the single checkout.
 
-**Pinned notes (`kind=pinned` via `store_context` or `store_memory`):** Each project has at most one pinned note (max 500 tokens), returned by `open_handoff` and SessionStart hooks. **Change the pinned note rarely** — frequent edits invalidate the host's cached prefix.
+**Pinned notes (`kind=pinned` via `store_context`):** Each project has at most one pinned note (max 500 tokens), returned by `open_handoff` and SessionStart hooks. **Change the pinned note rarely** — frequent edits invalidate the host's cached prefix.
 
 ## Subagent handoff
 
