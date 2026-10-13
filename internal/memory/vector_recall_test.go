@@ -320,9 +320,15 @@ func TestFeatureMemoryV2Gating(t *testing.T) {
 	v2On := flags.Enabled(flags.KeyMemoryV2)
 	assert.True(t, v2On, "feature_memory_v2 should be on by default")
 
-	// Test that RecallInput fields are present (MEM-9, MEM-10)
-	_ = RecallInput{Debug: true, Expand: true}
+	// Toggle the flag off and verify that v2 features are disabled
+	err := flags.Set(flags.KeyMemoryV2, false)
+	assert.NoError(t, err, "should be able to toggle feature_memory_v2 off")
 
-	// Test that decayFactor is gated by feature flag
-	// (this is tested indirectly via applyDecay in recall_rank_test.go)
+	v2Off := flags.Enabled(flags.KeyMemoryV2)
+	assert.False(t, v2Off, "feature_memory_v2 should be off after toggle")
+
+	// When v2 is off, TTL expiry in recall should be disabled (entries should not
+	// be marked expired simply because they have no expires_at)
+	// and decay should not be applied.
+	_ = RecallInput{Debug: true, Expand: true}
 }

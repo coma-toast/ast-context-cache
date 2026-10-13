@@ -153,7 +153,11 @@ func RunDailyPrune() {
 // expires_at is set and in the past. Rows without expires_at are ignored.
 // After DB update, it also deletes the FTS and vector entries for consistency.
 // This complements the recall-time applyTTLExpiry which only affects output.
+// Gated by feature_memory_v2 (MEM-11).
 func RunExpiryJob() {
+	if !v2Enabled() {
+		return
+	}
 	now := db.SQLTime(time.Now().UTC())
 	res, err := db.ContextDB.Exec(
 		`UPDATE structured_memory

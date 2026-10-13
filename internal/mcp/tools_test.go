@@ -269,3 +269,29 @@ func TestGetPromptsHandoffContent(t *testing.T) {
 		assert.ElementsMatch(t, actions, enum, tool)
 	}
 }
+
+func TestToolSchemasContainRequiredFields(t *testing.T) {
+	tools := GetTools()
+	byName := make(map[string]Tool)
+	for _, tl := range tools {
+		byName[tl.Name] = tl
+	}
+
+	// store_memory: valid_at, invalid_at, expires_at (MEM-5, MEM-8)
+	store := byName["store_memory"]
+	storeProps := store.InputSchema["properties"].(map[string]any)
+	assert.Contains(t, storeProps, "valid_at", "store_memory missing valid_at")
+	assert.Contains(t, storeProps, "invalid_at", "store_memory missing invalid_at")
+	assert.Contains(t, storeProps, "expires_at", "store_memory missing expires_at")
+
+	// recall_memory: as_of_system, expand (MEM-5, MEM-10)
+	recall := byName["recall_memory"]
+	recallProps := recall.InputSchema["properties"].(map[string]any)
+	assert.Contains(t, recallProps, "as_of_system", "recall_memory missing as_of_system")
+	assert.Contains(t, recallProps, "expand", "recall_memory missing expand")
+
+	// list_context: expand (MEM-10)
+	list := byName["list_context"]
+	listProps := list.InputSchema["properties"].(map[string]any)
+	assert.Contains(t, listProps, "expand", "list_context missing expand")
+}
