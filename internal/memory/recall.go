@@ -141,7 +141,7 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 	if err != nil {
 		return nil, err
 	}
-		v2 := v2Enabled()
+	v2 := v2Enabled()
 	var demotedLimit []DemotedEntry
 	if len(entries) > in.Limit {
 		if v2 && in.Debug {

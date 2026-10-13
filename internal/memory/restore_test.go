@@ -179,8 +179,8 @@ func TestRestoreAllowsForgottenSuccessor(t *testing.T) {
 
 	// Forget B (user_forget)
 	_, err = Forget(ForgetInput{
-		Refs:       []string{resB.Ref},
-		SessionID:  "s-forget",
+		Refs:      []string{resB.Ref},
+		SessionID: "s-forget",
 	})
 	require.NoError(t, err)
 

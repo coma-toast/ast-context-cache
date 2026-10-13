@@ -38,7 +38,7 @@ const (
 	listSessionNotesQuery  = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE session_id = ?`
-	listPinnedNotesQuery  = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
+	listPinnedNotesQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE session_id = ? AND kind = 'pinned'`
 	searchNotesFTSQuery = `SELECT cn.ref, cn.session_id, COALESCE(cn.project_path,''), COALESCE(cn.label,''), cn.content,
