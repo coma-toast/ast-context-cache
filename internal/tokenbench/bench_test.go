@@ -318,16 +318,30 @@ func (b *bench) waitMemoryVector(ref string) {
 }
 
 // randomRef matches the random hex part of mem_, hof_, hft_, and ctx_ refs.
-var randomRef = regexp.MustCompile(`\b(mem|hof|hft|ctx)_[0-9a-f]+`)
+var (
+	randomRef = regexp.MustCompile(`\b(mem|hof|hft|ctx)_[0-9a-f]+`)
+	// reUntil matches the (until YYYY-MM-DD HH:MM:SS) suffix that formatLines adds when
+	// ValidUntil is set, so the bench can strip it and stay deterministic across runs.
+	reUntil = regexp.MustCompile(`\s*\(until [^\)]*\)`)
+	// reScore matches the float score in recall line JSON, which drifts between runs as
+	// access_count grows, so the bench normalizes it to keep the two runs identical.
+	reScore = regexp.MustCompile(`"score":[0-9.eE+-]+`)
+)
 
 // normalize replaces the temp paths and the run's session id with fixed tokens, and zeroes
 // random ref ids (keeping their length), so token counts do not drift between runs.
+// It also strips ValidUntil timestamps to ensure determinism.
 func (b *bench) normalize(text, sid string) string {
 	text = strings.NewReplacer(b.project, projectToken, b.home, homeToken, sid, "${session}").Replace(text)
-	return randomRef.ReplaceAllStringFunc(text, func(ref string) string {
+	text = randomRef.ReplaceAllStringFunc(text, func(ref string) string {
 		prefix, hex, _ := strings.Cut(ref, "_")
 		return prefix + "_" + strings.Repeat("0", len(hex))
 	})
+	// Strip ValidUntil timestamps (until YYYY-MM-DD HH:MM:SS) to ensure determinism
+	// between runs, as these timestamps vary each time.
+	text = reUntil.ReplaceAllString(text, "")
+	// Normalize float scores to keep the two runs identical (access_count drift).
+	return reScore.ReplaceAllString(text, `"score":0`)
 }
 
 // textHit matches a rendered text or locations line: `### file:start-end kind name` or
