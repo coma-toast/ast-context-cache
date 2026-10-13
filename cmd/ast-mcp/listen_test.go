@@ -61,7 +61,7 @@ func TestListenersSingleForExplicitAddress(t *testing.T) {
 	assert.Len(t, lns, 1)
 }
 
-func TestListenAndServeShutsDownEveryListener(t *testing.T) {
+func TestListenAndServeReturnsAfterShutdown(t *testing.T) {
 	setListenAddr(t, defaultListenAddr)
 	port := freePort(t)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
