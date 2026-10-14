@@ -287,7 +287,7 @@ func TestHandlePinnedNoteFlowsThroughProjectsList(t *testing.T) {
 	}
 	// Store a pinned note.
 	if _, err := db.ContextDB.Exec(
-		`INSERT INTO context_notes (ref,session_id,project_path,label,content,content_hash,tags,kind,metadata_json,token_est) VALUES ('p','pinned','/tmp/proj-pn2','my note','from projects list','','pinned','{}',0)`,
+		`INSERT INTO context_notes (ref,session_id,project_path,label,content,content_hash,tags,kind,metadata_json,token_est) VALUES ('p','pinned','/tmp/proj-pn2','my note','from projects list','','','pinned','{}',0)`,
 	); err != nil {
 		t.Fatal(err)
 	}
