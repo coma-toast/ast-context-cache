@@ -88,7 +88,7 @@ func TestListenAndServeReturnsAfterShutdown(t *testing.T) {
 }
 
 func TestServeWithRestartOutcomeExits1WhenServeFails(t *testing.T) {
-	// When serve returns an error (not nil) with isRestarting=false,
+	// When serve returns an error (not nil) with exiting=false,
 	// serveWithRestartOutcome should call exit(1) and not block.
 	var exitCalled, blockCalled bool
 	fakeExit := func(code int) { exitCalled = true }
@@ -105,8 +105,8 @@ func TestServeWithRestartOutcomeExits1WhenServeFails(t *testing.T) {
 	require.False(t, blockCalled, "block should not be called on serve error")
 }
 
-func TestServeWithRestartOutcomeBlocksWhenRestartingAndServeReturnsNil(t *testing.T) {
-	// When serve returns nil and isRestarting=true,
+func TestServeWithRestartOutcomeBlocksWhenExitingAndServeReturnsNil(t *testing.T) {
+	// When serve returns nil and exiting=true (restart or signal),
 	// serveWithRestartOutcome should call block() and not exit.
 	// This is the regression test for the nil-return-after-Shutdown bug.
 	var exitCalled, blockCalled bool
@@ -120,12 +120,12 @@ func TestServeWithRestartOutcomeBlocksWhenRestartingAndServeReturnsNil(t *testin
 		fakeBlock,
 	)
 
-	require.True(t, blockCalled, "block() should be called during restart")
-	require.False(t, exitCalled, "exit should not be called during restart")
+	require.True(t, blockCalled, "block() should be called during exit")
+	require.False(t, exitCalled, "exit should not be called during exit")
 }
 
-func TestServeWithRestartOutcomeExits1WhenServeReturnsNilAndNotRestarting(t *testing.T) {
-	// When serve returns nil and isRestarting=false (unexpected shutdown),
+func TestServeWithRestartOutcomeExits1WhenServeReturnsNilAndNotExiting(t *testing.T) {
+	// When serve returns nil and exiting=false (unexpected shutdown),
 	// serveWithRestartOutcome should call exit(1) so supervisors notice.
 	var exitCalled, blockCalled bool
 	fakeExit := func(code int) { exitCalled = true }
