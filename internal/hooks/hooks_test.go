@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 )
 
@@ -144,11 +146,9 @@ func TestSessionStart(t *testing.T) {
 		{name: "startup", fixture: "SessionStart.startup", reply: func(t *testing.T) func(toolCall) (any, bool) {
 			// CH-3: SessionStart at startup should include pinned note, recent ctx/mem index (no checkpoint)
 			return func(c toolCall) (any, bool) {
-				if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+				if c.Tool == "get_pinned_note" && c.Args["project_path"] == "/tmp/hook-spike/work" {
 					// Return pinned note for the project
-					return map[string]any{"notes": []map[string]any{
-						{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell. It has better tab completion and features than bash."},
-					}, "total": 1}, false
+					return map[string]any{"ref": "ctx_pinned1", "project_path": "/tmp/hook-spike/work", "content": "Always use fish as your shell. It has better tab completion and features than bash.", "token_est": 500}, false
 				}
 				if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
 					// Return recent ctx_* entries and one compaction_checkpoint
@@ -164,13 +164,11 @@ func TestSessionStart(t *testing.T) {
 				}
 				return map[string]any{"error": "unexpected tool"}, true
 			}
-		}, wantText: want + "\nPinned note: pinned: Always use fish as your shell. It has better tab completion and features than bash.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan] [ctx_note1 note]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode", wantList: true},
+		}, wantText: want + "\nPinned note: ctx_pinned1: Always use fish as your shell. It has better tab completion and features than bash.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan] [ctx_note1 note]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode", wantList: true},
 		{name: "resume", fixture: "SessionStart.resume", reply: func(t *testing.T) func(toolCall) (any, bool) {
 			return func(c toolCall) (any, bool) {
-				if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
-					return map[string]any{"notes": []map[string]any{
-						{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell."},
-					}, "total": 1}, false
+				if c.Tool == "get_pinned_note" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+					return map[string]any{"ref": "ctx_pinned1", "project_path": "/tmp/hook-spike/work", "content": "Always use fish as your shell.", "token_est": 500}, false
 				}
 				if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
 					return map[string]any{"notes": []map[string]any{
@@ -183,15 +181,13 @@ func TestSessionStart(t *testing.T) {
 				}
 				return map[string]any{"error": "unexpected tool"}, true
 			}
-		}, wantText: want + "\nPinned note: pinned: Always use fish as your shell.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode", wantList: true},
+		}, wantText: want + "\nPinned note: ctx_pinned1: Always use fish as your shell.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode", wantList: true},
 		{
 			name: "compact lists handoffs", fixture: "SessionStart.compact", wantList: true,
 			reply: func(t *testing.T) func(toolCall) (any, bool) {
 				return func(c toolCall) (any, bool) {
-					if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
-						return map[string]any{"notes": []map[string]any{
-							{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell. It has better tab completion and features than bash."},
-						}, "total": 1}, false
+					if c.Tool == "get_pinned_note" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"ref": "ctx_pinned1", "project_path": "/tmp/hook-spike/work", "content": "Always use fish as your shell. It has better tab completion and features than bash.", "token_est": 500}, false
 					}
 					if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
 						return map[string]any{"notes": []map[string]any{
@@ -209,16 +205,14 @@ func TestSessionStart(t *testing.T) {
 					return map[string]any{"error": "unexpected tool"}, true
 				}
 			},
-			wantText: want + "\nPinned note: pinned: Always use fish as your shell. It has better tab completion and features than bash.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan] [ctx_note1 note]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode\nHandoffs this session created before compaction (newest first):\n- hof_b \"Review auth\": 1 open, 1 done\n- hof_a: no child opened yet\nUse `handoff` action `collect` with session_id=" + parentSID + " to read results.",
+			wantText: want + "\nPinned note: ctx_pinned1: Always use fish as your shell. It has better tab completion and features than bash.\nCheckpoint: ctx_a1b2c3\nRecent ctx: [ctx_a1b2c3 plan] [ctx_plan1 plan] [ctx_note1 note]\nRecent mem: mem_goal1: always use fish\nmem_style1: prefer skeleton mode\nHandoffs this session created before compaction (newest first):\n- hof_b \"Review auth\": 1 open, 1 done\n- hof_a: no child opened yet\nUse `handoff` action `collect` with session_id=" + parentSID + " to read results.",
 		},
 		{
 			name: "compact with list failing still injects the session id", fixture: "SessionStart.compact", wantList: true,
 			reply: func(t *testing.T) func(toolCall) (any, bool) {
 				return func(c toolCall) (any, bool) {
-					if c.Tool == "list_context" && c.Args["session_id"] == "pinned" && c.Args["project_path"] == "/tmp/hook-spike/work" {
-						return map[string]any{"notes": []map[string]any{
-							{"ref": "ctx_pinned1", "session_id": "pinned", "project_path": "/tmp/hook-spike/work", "label": "pinned", "kind": "pinned", "content": "Always use fish as your shell. It has better tab completion and features than bash."},
-						}, "total": 1}, false
+					if c.Tool == "get_pinned_note" && c.Args["project_path"] == "/tmp/hook-spike/work" {
+						return map[string]any{"ref": "ctx_pinned1", "project_path": "/tmp/hook-spike/work", "content": "Always use fish as your shell. It has better tab completion and features than bash.", "token_est": 500}, false
 					}
 					if c.Tool == "list_context" && c.Args["session_id"] == parentSID && c.Args["project_path"] == "/tmp/hook-spike/work" {
 						return map[string]any{"notes": []map[string]any{}, "total": 0}, false
@@ -232,7 +226,7 @@ func TestSessionStart(t *testing.T) {
 					return map[string]any{"error": "unexpected tool"}, true
 				}
 			},
-			wantText: want + "\nPinned note: pinned: Always use fish as your shell. It has better tab completion and features than bash.",
+			wantText: want + "\nPinned note: ctx_pinned1: Always use fish as your shell. It has better tab completion and features than bash.",
 		},
 	}
 	for _, tt := range tests {
@@ -244,7 +238,7 @@ func TestSessionStart(t *testing.T) {
 			assert.Equal(t, tt.wantText, out.HookSpecificOutput.AdditionalContext)
 			// CH-3: every source with a CWD gets the pinned/ctx/mem briefing; compact adds handoff list.
 			expectedCalls := []toolCall{
-				{Tool: "list_context", Args: map[string]any{"session_id": "pinned", "project_path": "/tmp/hook-spike/work", "limit": float64(1)}},
+				{Tool: "get_pinned_note", Args: map[string]any{"project_path": "/tmp/hook-spike/work"}},
 				{Tool: "list_context", Args: map[string]any{"session_id": parentSID, "project_path": "/tmp/hook-spike/work", "limit": float64(20)}},
 				{Tool: "recall_memory", Args: map[string]any{"session_id": parentSID, "project_path": "/tmp/hook-spike/work", "token_budget": float64(400), "limit": float64(10)}},
 			}
@@ -258,6 +252,90 @@ func TestSessionStart(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSessionStartRealDB verifies PIN-2: SessionStart with a real pinned note stored
+// in the SQLite database, confirming the hook retrieves it via get_pinned_note and
+// includes it in the output. It uses a real DB-backed MCP server (not a fakeMCP) so the
+// get_pinned_note call reads from the actual SQLite database.
+func TestSessionStartRealDB(t *testing.T) {
+	dbtest.Init(t)
+
+	// Store a pinned note for the project
+	note, err := contextnotes.StorePinned("/tmp/hook-spike/db-work", "Always use fish as your shell. It has better tab completion and features than bash.", "user")
+	require.NoError(t, err)
+	require.NotEmpty(t, note.Ref, "StorePinned should return a ref")
+
+	// Create a test MCP server that returns the pinned note from the DB
+	// when get_pinned_note is called.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+			Params struct {
+				Name      string         `json:"name"`
+				Arguments map[string]any `json:"arguments"`
+			} `json:"params"`
+		}
+		if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&req)) {
+			return
+		}
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "tools/call", req.Method)
+		c := toolCall{Tool: req.Params.Name, Args: req.Params.Arguments}
+		// Return the pinned note when get_pinned_note is called
+		if c.Tool == "get_pinned_note" && c.Args["project_path"] == "/tmp/hook-spike/db-work" {
+			// Read the note from the DB to verify it was stored
+			dbNote, dbErr := contextnotes.Pinned("/tmp/hook-spike/db-work")
+			require.NoError(t, dbErr, "Pinned should find the stored note")
+			resultBytes, _ := json.Marshal(map[string]any{"ref": dbNote.Ref, "project_path": dbNote.ProjectPath, "content": dbNote.Content, "token_est": dbNote.TokenEst})
+			response := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"content": []map[string]any{
+						{"type": "text", "text": string(resultBytes)},
+					},
+					"isError": false,
+				},
+			}
+			respBytes, _ := json.Marshal(response)
+			_, _ = w.Write(respBytes)
+			return
+		}
+		// Default error for other tools
+		errorResp := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"result": map[string]any{
+				"content": []map[string]any{
+					{"type": "text", "text": `{"error":"unknown tool"}`},
+				},
+				"isError": true,
+			},
+		}
+		errorBytes, _ := json.Marshal(errorResp)
+		_, _ = w.Write(errorBytes)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := New(srv.URL, t.TempDir())
+	want := "ast-context-cache: use session_id=82de5123-70a6-4982-b7cc-aa839be2cd89 for all ast-context-cache tool calls in this conversation.\nPinned note: " + note.Ref + ": Always use fish as your shell. It has better tab completion and features than bash."
+
+	// Build the SessionStart payload inline so the CWD matches the DB path
+	// where we stored the pinned note.
+	payload := encode(t, map[string]interface{}{
+		"session_id":      "82de5123-70a6-4982-b7cc-aa839be2cd89",
+		"transcript_path": "/Users/USER/.claude/projects/-tmp-hook-spike-work/82de5123-70a6-4982-b7cc-aa839be2cd89.jsonl",
+		"cwd":             "/tmp/hook-spike/db-work",
+		"scratchpad_dir":  "/tmp/claude-scratch/-work/82de5123-70a6-4982-b7cc-aa839be2cd89/scratchpad",
+		"hook_event_name": "startup",
+		"source":          "startup",
+	})
+
+	out := decodeOutput(t, run(t, h, EventSessionStart, payload))
+	assert.Equal(t, "SessionStart", out.HookSpecificOutput.HookEventName)
+	assert.Equal(t, want, out.HookSpecificOutput.AdditionalContext)
 }
 
 func TestSessionStartListCapped(t *testing.T) {

@@ -335,6 +335,19 @@ func GetTools() []Tool {
 			ReadOnly: true,
 		},
 		{
+			Name:        "get_pinned_note",
+			Description: "Get the project-scoped pinned note directly.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"project_path": map[string]string{"type": "string", "description": "Project path (required)"},
+				},
+				"required": []string{"project_path"},
+			},
+			Tier:     TierCore,
+			ReadOnly: true,
+		},
+		{
 			Name:        "search_context",
 			Description: "Find stored virtual context by keyword or meaning when refs are lost. Returns matching notes with access stats.",
 			InputSchema: map[string]interface{}{

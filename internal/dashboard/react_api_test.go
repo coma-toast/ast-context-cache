@@ -1,11 +1,15 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
 )
 
@@ -175,4 +180,130 @@ func TestDashboardStatsLedgers(t *testing.T) {
 	assert.Equal(t, 1500, digest.CompressionSaved)
 	assert.Equal(t, 400, digest.ConservativeSaved)
 	assert.Equal(t, 800, digest.VirtualFetchedTokens)
+}
+
+// TestHandlePinnedNoteRoundTrip covers PIN-4: GET returns the current note (or zero
+// state when no note exists), PUT stores/updates the note, and subsequent GET returns
+// the updated content.
+func TestHandlePinnedNoteRoundTrip(t *testing.T) {
+	dbtest.Init(t)
+
+	// Seed one project so /api/projects returns it.
+	if _, err := db.DB.Exec(`INSERT INTO queries (tool_name, project_path, timestamp) VALUES ('t', '/tmp/proj-pn', datetime('now'))`); err != nil {
+		t.Fatal(err)
+	}
+
+	// --- GET with no stored note → zero-state response ---
+	req := httptest.NewRequest(http.MethodGet, "/api/pinned-note?project=/tmp/proj-pn", nil)
+	rec := httptest.NewRecorder()
+	handlePinnedNote(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var getOut struct {
+		Ref            string `json:"ref"`
+		Content        string `json:"content"`
+		SessionID      string `json:"session_id"`
+		ProjectPath    string `json:"project_path"`
+		Label          string `json:"label"`
+		Tags           string `json:"tags"`
+		Kind           string `json:"kind"`
+		MetadataJSON   string `json:"metadata_json"`
+		TokenEst       int    `json:"token_est"`
+		AccessCount    int    `json:"access_count"`
+		CreatedAt      string `json:"created_at"`
+		LastAccessedAt string `json:"last_accessed_at"`
+		ProjectName    string `json:"project_name"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	// Pinned() returns a zero-value ContextNote when nothing is stored.
+	assert.Empty(t, getOut.Ref)
+	assert.Empty(t, getOut.Content)
+	assert.Empty(t, getOut.SessionID)
+	assert.Equal(t, "/tmp/proj-pn", getOut.ProjectPath)
+
+	// --- PUT: store a note ---
+	body := []byte(`{"project_path":"/tmp/proj-pn","content":"hello world","origin":"dashboard"}`)
+	req = httptest.NewRequest(http.MethodPut, "/api/pinned-note", nil)
+	req.Body = nopCloser(body)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	handlePinnedNote(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var putOut struct {
+		Ref         string `json:"ref"`
+		Content     string `json:"content"`
+		ProjectPath string `json:"project_path"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut))
+	assert.NotEmpty(t, putOut.Ref, "PUT should return the created ref")
+	assert.Equal(t, "hello world", putOut.Content)
+
+	// --- GET after PUT: should return the stored note ---
+	req = httptest.NewRequest(http.MethodGet, "/api/pinned-note?project=/tmp/proj-pn", nil)
+	rec = httptest.NewRecorder()
+	handlePinnedNote(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	assert.Equal(t, "hello world", getOut.Content)
+	assert.NotEmpty(t, getOut.Ref)
+	assert.Equal(t, "pinned", getOut.Kind)
+}
+
+// TestHandlePinnedNoteEmptyBody covers PIN-4: GET with no project param returns an error.
+func TestHandlePinnedNoteMissingProject(t *testing.T) {
+	dbtest.Init(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/pinned-note", nil)
+	rec := httptest.NewRecorder()
+	handlePinnedNote(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Contains(t, out["error"], "project query parameter required")
+}
+
+// TestHandlePinnedNoteOverCap rejects content over the 500-token cap (PIN-1).
+func TestHandlePinnedNoteOverCap(t *testing.T) {
+	dbtest.Init(t)
+	over := strings.Repeat("word ", 700)
+	body := []byte(fmt.Sprintf(`{"project_path":"/tmp/proj-pn","content":"%s"}`, over))
+	req := httptest.NewRequest(http.MethodPut, "/api/pinned-note", nil)
+	req.Body = nopCloser(body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handlePinnedNote(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Contains(t, out["error"], "max 500")
+}
+
+// handlePinnedNote appears in /api/projects responses — verify it flows through
+// getPinnedNoteContent so the UI sees the note on load.
+func TestHandlePinnedNoteFlowsThroughProjectsList(t *testing.T) {
+	dbtest.Init(t)
+
+	// Seed the project in the queries table so it appears in handleProjects.
+	if _, err := db.DB.Exec(`INSERT INTO queries (tool_name, project_path, timestamp) VALUES ('t', '/tmp/proj-pn2', datetime('now'))`); err != nil {
+		t.Fatal(err)
+	}
+	// Store a pinned note.
+	if _, err := db.ContextDB.Exec(
+		`INSERT INTO context_notes (ref,session_id,project_path,label,content,content_hash,tags,kind,metadata_json,token_est) VALUES ('p','pinned','/tmp/proj-pn2','my note','from projects list','','pinned','{}',0)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
+	rec := httptest.NewRecorder()
+	handleProjects(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var projects []map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projects))
+	require.Len(t, projects, 1)
+	gotNote, ok := projects[0]["PinnedNote"]
+	require.True(t, ok, "PinnedNote key must be present")
+	assert.Equal(t, "from projects list", gotNote)
+}
+
+func nopCloser(b []byte) io.ReadCloser {
+	return io.NopCloser(bytes.NewReader(b))
 }
