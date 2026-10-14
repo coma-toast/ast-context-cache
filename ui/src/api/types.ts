@@ -291,6 +291,7 @@ export interface Project {
   FileCount: number
   file_count?: number
   Pinned: boolean
+  PinnedNote?: string
   LinkedChildren: string[]
   LinkedParent: string
 }

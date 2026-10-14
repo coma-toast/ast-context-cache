@@ -10,7 +10,8 @@ import (
 
 const (
 	selectActiveSessionEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
 		FROM structured_memory WHERE scope = 'session' AND session_id = ? AND (valid_until IS NULL OR valid_until = '')
 		ORDER BY created_at, ref`
 	selectSessionEntryRefsQuery = `SELECT ref FROM structured_memory WHERE scope = 'session' AND session_id = ?`

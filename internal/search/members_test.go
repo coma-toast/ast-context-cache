@@ -124,7 +124,8 @@ func TestHybridSearchKeepsSameNamedMethodsApart(t *testing.T) {
 	project, ids := seedSameNamedMethods(t)
 	Cache.mu.Lock()
 	savedEntries, savedLoaded := Cache.entries, Cache.loaded
-	Cache.entries, Cache.loaded, Cache.lastUsed = vectorEntries(project, ids), true, time.Now()
+	Cache.entries, Cache.loaded = vectorEntries(project, ids), true
+	Cache.lastUsed.Store(time.Now().UnixNano())
 	Cache.mu.Unlock()
 	t.Cleanup(func() {
 		Cache.mu.Lock()

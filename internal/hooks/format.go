@@ -82,6 +82,22 @@ type completeResult struct {
 // statusOrder is the order child counts are listed in.
 var statusOrder = []string{"open", "done", "partial", "failed", "abandoned"}
 
+// noteDigest is metadata-only listing returned by list_context MCP tool.
+type noteDigest struct {
+	Ref          string `json:"ref"`
+	SessionID    string `json:"session_id"`
+	ProjectPath  string `json:"project_path,omitempty"`
+	Label        string `json:"label,omitempty"`
+	Content      string `json:"content,omitempty"`
+	Tags         string `json:"tags,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	MetadataJSON string `json:"metadata_json,omitempty"`
+	TokenEst     int    `json:"virtual_tokens,omitempty"`
+	AccessCount  int    `json:"access_count,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	LastAccessed string `json:"last_accessed_at,omitempty"`
+}
+
 // formatDigest renders an open digest as plain text, capped at maxDigestTokens.
 func formatDigest(o *openResult) string {
 	var b strings.Builder

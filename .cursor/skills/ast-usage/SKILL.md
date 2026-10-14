@@ -234,6 +234,8 @@ recall_memory(project_path="/abs/repo", scope="project")  # do this before readi
 
 Project memories key on the repo, not the checkout: one stored in a WTG worktree is recalled from a sibling worktree on a different branch. Pass `repo_siblings=false` to limit recall to the single checkout.
 
+**Pinned notes (`kind=pinned` via `store_context` or `store_memory`):** Each project has at most one pinned note (max 500 tokens), returned by `open_handoff` and SessionStart hooks. **Change the pinned note rarely** — frequent edits invalidate the host's cached prefix.
+
 ## Subagent handoff
 
 A subagent normally starts with an empty window: it re-runs your searches, re-reads the same code, and returns a long report. A handoff gives it a snapshot of what you explored (a stub of at most 60 tokens in its prompt) and gives you back a ref plus a summary capped at 300 tokens. Full guide: [docs/handoff.md](../../../docs/handoff.md).

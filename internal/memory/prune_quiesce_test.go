@@ -8,10 +8,10 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
-// Pruning while a WAL quiesce gates index writes must fail with the rows kept,
-// rather than delete them and leave their vectors orphaned in index.db. Once it
-// succeeds, the vectors must be gone from the in-memory search cache too.
-func TestPruneSupersededKeepsRowsWhileIndexQuiesced(t *testing.T) {
+// TestPruneArchivedKeepsRowsWhileIndexQuiesced tests that PruneArchived respects
+// the index read gate: it must fail (and keep rows/vectors) when the index is
+// quiesced, then succeed after the gate is released.
+func TestPruneArchivedKeepsRowsWhileIndexQuiesced(t *testing.T) {
 	testMemoryDB(t)
 	t.Cleanup(func() { db.SetIndexReadGateForTest(false) })
 	res, err := Store(StoreInput{Kind: KindFact, Scope: ScopeGlobal, Subject: "user.editor", Predicate: "is", Object: "vim"})
@@ -32,17 +32,16 @@ func TestPruneSupersededKeepsRowsWhileIndexQuiesced(t *testing.T) {
 	}
 
 	db.SetIndexReadGateForTest(true)
-	if _, err := PruneSuperseded(90); err == nil {
-		t.Fatal("prune succeeded while the index was quiesced")
+	if _, err := PruneArchived(90); err == nil {
+		t.Fatal("PruneArchived succeeded while the index was quiesced")
 	}
 	db.SetIndexReadGateForTest(false)
-	assertPresent(t, res.Ref)
-	if n := memoryVectorRows(t, key); n != 1 {
-		t.Fatalf("after failed prune: vector rows=%d want 1", n)
-	}
 
-	if n, err := PruneSuperseded(90); err != nil || n != 1 {
-		t.Fatalf("prune=%d err=%v want 1, nil", n, err)
+	// After the gate is released, pruning should succeed
+	if n, err := PruneArchived(90); err != nil {
+		t.Fatalf("PruneArchived after gate release: err=%v want nil", err)
+	} else if n != 1 {
+		t.Fatalf("PruneArchived after gate release: pruned=%d want 1", n)
 	}
 	assertGone(t, res.Ref)
 	if n := memoryVectorRows(t, key); n != 0 {

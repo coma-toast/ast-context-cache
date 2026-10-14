@@ -31,6 +31,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/netlisten"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
@@ -608,6 +609,11 @@ func resolveStartupWorkers(flagVal int) int {
 // startBackgroundServices starts the periodic jobs; the tickers owned here stop when
 // ctx is cancelled at shutdown.
 func startBackgroundServices(ctx context.Context) {
+	// Run memory lifecycle jobs once at startup so a server that restarts daily still prunes
+	memory.RunDailyPrune()
+	memory.RunExpiryJob()
+	memory.RunStaleAnchorJob()
+
 	go docs.EmbedAllSources()
 	purge.StartDeletedProjectSweep()
 	db.StartFTSSelfCheck()
@@ -615,6 +621,10 @@ func startBackgroundServices(ctx context.Context) {
 	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
 	go runEvery(ctx, time.Hour, contextnotes.RunOffloadPurge)
 	go runEvery(ctx, time.Hour, transcripts.RunOnce)
+	// MEM-2 / MEM-8: background maintenance jobs for structured memory.
+	go runEvery(ctx, 24*time.Hour, memory.RunDailyPrune)
+	go runEvery(ctx, time.Hour, memory.RunExpiryJob)
+	go runEvery(ctx, time.Hour, memory.RunStaleAnchorJob)
 	ctxpkg.StartSessionStoreEviction(ctx)
 	handoff.Start(ctx, embedder.Tracked())
 	seen := map[string]bool{}

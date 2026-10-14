@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
+	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
@@ -63,6 +64,14 @@ const (
 	countVectorsQuery            = "SELECT COUNT(*) FROM vectors"
 )
 
+func getPinnedNoteContent(projectPath string) string {
+	note, err := contextnotes.Pinned(projectPath)
+	if err != nil || note == nil {
+		return ""
+	}
+	return note.Content
+}
+
 // NewHandler builds the dashboard HTTP handler. listen is the address the server
 // binds to; httpguard uses it to reject cross-origin writes and DNS-rebinding
 // requests whose Host doesn't match.
@@ -103,6 +112,8 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/project-label", handleProjectLabel)
+	mux.HandleFunc("/api/pinned-note", handlePinnedNote)
+	mux.HandleFunc("/api/count-tokens", handleCountTokens)
 	mux.HandleFunc("/api/project-excludes", handleProjectExcludes)
 	mux.HandleFunc("/api/project-links", handleProjectLinks)
 	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
@@ -290,6 +301,8 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 		ps = append(ps, map[string]interface{}{
 			"path": p, "name": filepath.Base(p), "query_count": c,
 			"symbol_count": sc.symbols, "file_count": sc.files,
+			"pinned":     db.IsPinnedProject(p),
+			"PinnedNote": getPinnedNoteContent(p),
 		})
 	}
 	if ps == nil {
@@ -680,6 +693,78 @@ func handlePinProject(w http.ResponseWriter, r *http.Request) {
 	realtime.Notify(realtime.SettingsChanged | realtime.IndexHealth)
 	invalidateProjectsCache()
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "pinned": req.Pinned})
+}
+
+func handlePinnedNote(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet {
+		projectPath := r.URL.Query().Get("project")
+		if projectPath == "" {
+			json.NewEncoder(w).Encode(map[string]string{"error": "project query parameter required"})
+			return
+		}
+		note, err := contextnotes.Pinned(projectPath)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"ref":           "",
+				"project_path":  projectPath,
+				"content":       "",
+				"session_id":    "",
+				"label":         "",
+				"tags":          "",
+				"kind":          "",
+				"metadata_json": "{}",
+				"token_est":     0,
+				"access_count":  0,
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(note)
+		return
+	}
+	if r.Method == http.MethodPut {
+		var req struct {
+			ProjectPath string `json:"project_path"`
+			Content     string `json:"content"`
+			Origin      string `json:"origin"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if req.ProjectPath == "" {
+			json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+			return
+		}
+		if req.Origin == "" {
+			req.Origin = "user"
+		}
+		note, err := contextnotes.StorePinned(req.ProjectPath, req.Content, req.Origin)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(note)
+		return
+	}
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func handleCountTokens(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	tokenEst := db.EstimateTokens(req.Text)
+	json.NewEncoder(w).Encode(map[string]int{"token_est": tokenEst})
 }
 
 func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error) {

@@ -43,9 +43,9 @@ func TestIdleTickUnloadsCacheIdlePastTimeout(t *testing.T) {
 	vc := &VectorCache{
 		entries:  []VectorEntry{{ID: 1}},
 		loaded:   true,
-		lastUsed: time.Now().Add(-time.Hour), // idle_unload_minutes defaults to 1
 		stopIdle: make(chan struct{}),
 	}
+	vc.lastUsed.Store(time.Now().Add(-time.Hour).UnixNano())
 	vc.idleTick()
 	if vc.loaded || vc.entries != nil {
 		t.Fatal("a cache idle past the timeout should be unloaded")

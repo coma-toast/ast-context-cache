@@ -62,8 +62,11 @@ const (
 )
 
 const (
-	toolHandoff     = "handoff"
-	toolOpenHandoff = "open_handoff"
+	toolHandoff       = "handoff"
+	toolOpenHandoff   = "open_handoff"
+	toolListContext   = "list_context"
+	toolRecallMemory  = "recall_memory"
+	toolGetPinnedNote = "get_pinned_note"
 )
 
 var (
@@ -166,6 +169,76 @@ func (h *Handler) sessionStart(ctx context.Context, in *Input) (*Output, error) 
 		return nil, errs.New("session_id missing")
 	}
 	text := "ast-context-cache: use session_id=" + in.SessionID + " for all ast-context-cache tool calls in this conversation."
+
+	// PIN-2: SessionStart hook briefing within 1,200-token cap
+	if in.CWD != "" {
+		// Get pinned note directly via get_pinned_note (contextnotes.Pinned).
+		// list_context returns '' content and with v2 on returns lines, not notes.
+		var pinnedResult struct {
+			Ref         string `json:"ref"`
+			ProjectPath string `json:"project_path"`
+			Content     string `json:"content"`
+			TokenEst    int    `json:"token_est"`
+		}
+		if err := h.client.Call(ctx, toolGetPinnedNote, map[string]any{
+			"project_path": in.CWD,
+		}, &pinnedResult); err == nil && pinnedResult.Ref != "" {
+			text += "\nPinned note: " + pinnedResult.Ref
+			if pinnedResult.Content != "" {
+				content := pinnedResult.Content
+				if pinnedResult.TokenEst > 500 {
+					words := strings.Fields(content)
+					if len(words) > 500 {
+						content = strings.Join(words[:500], " ") + "..."
+					}
+				}
+				text += ": " + content
+			}
+		}
+
+		// Get recent ctx_* entries and checkpoint
+		var ctxResult struct {
+			Notes []noteDigest `json:"notes"`
+		}
+		if err := h.client.Call(ctx, toolListContext, map[string]any{
+			"session_id":   in.SessionID,
+			"project_path": in.CWD,
+			"limit":        20,
+		}, &ctxResult); err == nil {
+			var checkpointRef string
+			var ctxRefs []string
+
+			for _, note := range ctxResult.Notes {
+				if note.Kind == "compaction_checkpoint" {
+					checkpointRef = note.Ref
+				}
+				if note.Kind != "" && note.Ref != "" {
+					ctxRefs = append(ctxRefs, "["+note.Ref+" "+note.Label+"]")
+				}
+			}
+
+			if checkpointRef != "" {
+				text += "\nCheckpoint: " + checkpointRef
+			}
+			if len(ctxRefs) > 0 {
+				text += "\nRecent ctx: " + strings.Join(ctxRefs[:min(5, len(ctxRefs))], " ")
+			}
+		}
+
+		// Get recent mem_* entries
+		var memResult struct {
+			Formatted string `json:"formatted"`
+		}
+		if err := h.client.Call(ctx, toolRecallMemory, map[string]any{
+			"session_id":   in.SessionID,
+			"project_path": in.CWD,
+			"token_budget": 400,
+			"limit":        10,
+		}, &memResult); err == nil && memResult.Formatted != "" {
+			text += "\nRecent mem: " + memResult.Formatted
+		}
+	}
+
 	if in.Source == sourceCompact {
 		var list listResult
 		err := h.client.Call(ctx, toolHandoff, map[string]any{"action": "list", "session_id": in.SessionID}, &list)
@@ -176,6 +249,8 @@ func (h *Handler) sessionStart(ctx context.Context, in *Input) (*Output, error) 
 			text += "\n" + formatHandoffList(in.SessionID, list.Handoffs)
 		}
 	}
+	// Cap the briefing at maxDigestTokens (1,200 tokens ~ 4,800 runes)
+	text = truncateRunes(text, maxDigestTokens*charsPerToken)
 	return contextOutput(hookNameSessionStart, text), nil
 }
 

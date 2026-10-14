@@ -33,6 +33,18 @@ const (
 		input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0,
 		cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (day, project_dir))`
+	// MEM-1/MEM-4: invalidated rows keep a reason (contradiction, user_forget, ttl,
+	// stale_anchor, quarantine, restored) so history output can explain the chain.
+	addStructuredMemoryInvalidatedReasonColumn = `ALTER TABLE structured_memory ADD COLUMN invalidated_reason TEXT`
+	// MEM-5: world time — when a fact is true in the world, not when the system learned it.
+	addStructuredMemoryWorldValidAtColumn   = `ALTER TABLE structured_memory ADD COLUMN world_valid_at TEXT`
+	addStructuredMemoryWorldInvalidAtColumn = `ALTER TABLE structured_memory ADD COLUMN world_invalid_at TEXT`
+	// MEM-8: TTL expiry. The hourly memory expiry job and PruneArchived read this column.
+	addStructuredMemoryExpiresAtColumn = `ALTER TABLE structured_memory ADD COLUMN expires_at TEXT`
+	createStructuredMemoryExpiresIndex = `CREATE INDEX IF NOT EXISTS idx_struct_mem_expires ON structured_memory(expires_at)`
+	// MEM-1/TR-3: quarantine state. A quarantined entry is excluded from default recall/search
+	// and invalidated with reason quarantine when rejected (RejectQuarantined).
+	addStructuredMemoryQuarantinedColumn = `ALTER TABLE structured_memory ADD COLUMN quarantined INTEGER DEFAULT 0`
 )
 
 var indexSteps []schemaStep
@@ -41,6 +53,8 @@ var contextSteps = []schemaStep{
 	{version: 1, name: "normalize_timestamps", run: execSteps(normalizeContextNotesLastAccessedQuery)},
 	{version: 2, name: "context_note_tombstones", run: execSteps(createContextNoteTombstonesTable)},
 	{version: 3, name: "recount_token_est", run: recountTokenEstimates},
+	{version: 4, name: "structured_memory_invalidation", run: execSteps(addStructuredMemoryInvalidatedReasonColumn, addStructuredMemoryWorldValidAtColumn, addStructuredMemoryWorldInvalidAtColumn, addStructuredMemoryExpiresAtColumn, createStructuredMemoryExpiresIndex)},
+	{version: 5, name: "structured_memory_quarantine", run: execSteps(addStructuredMemoryQuarantinedColumn)},
 }
 
 var usageSteps = []schemaStep{

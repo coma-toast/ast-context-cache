@@ -15,6 +15,7 @@ const (
 	KeyRelevanceFloor     = "feature_relevance_floor"
 	KeyModeV2             = "feature_mode_v2"
 	KeyResultOffload      = "feature_result_offload"
+	KeyMemoryV2           = "feature_memory_v2"
 	handoffChildKeyPrefix = KeyHandoff + "_"
 )
 
@@ -101,6 +102,12 @@ var registry = []Flag{
 		Key:         KeyResultOffload,
 		Env:         "AST_FEATURE_RESULT_OFFLOAD",
 		Description: "Tool results over the offload threshold are stored as a ctx_* note and returned as a head plus the ref.",
+		Default:     true,
+	},
+	{
+		Key:         KeyMemoryV2,
+		Env:         "AST_FEATURE_MEMORY_V2",
+		Description: "Structured memory v2 features: recency decay ranking, TTL expiry, debug demotion output, and compact lines default.",
 		Default:     true,
 	},
 }

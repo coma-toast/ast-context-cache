@@ -66,6 +66,7 @@ const (
 	SectionNote     Section = "note"
 	SectionMemory   Section = "memory"
 	SectionPointer  Section = "pointer"
+	SectionPinned   Section = "pinned"
 )
 
 // EntryType is a scratchpad entry's type (SP-2).
@@ -189,6 +190,13 @@ type ItemDigest struct {
 	TokenEst int    `json:"tokens"`
 }
 
+// PinnedDigest is a pinned note as the open digest lists it (PIN-1–PIN-2).
+type PinnedDigest struct {
+	ProjectPath string `json:"project_path"`
+	Content     string `json:"content"`
+	TokenEst    int    `json:"tokens"`
+}
+
 // TrailDigest is one snapshot trail entry as the open digest lists it, newest first.
 type TrailDigest struct {
 	ID      int64  `json:"id"`
@@ -226,6 +234,7 @@ type OpenResponse struct {
 	Pointers   []PointerDigest   `json:"pointers,omitempty"`
 	Notes      []ItemDigest      `json:"notes,omitempty"`
 	Memory     []ItemDigest      `json:"memory,omitempty"`
+	Pinned     []PinnedDigest    `json:"pinned,omitempty"`
 	Trail      []TrailDigest     `json:"trail,omitempty"`
 	Scratchpad *ScratchpadDigest `json:"scratchpad,omitempty"`
 	TokensUsed int               `json:"tokens_used"`

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testMemoryDB(t *testing.T) {
@@ -143,7 +146,7 @@ func TestStoreFactInvalidatesPrevious(t *testing.T) {
 	if len(r2.InvalidatedRefs) != 1 || r2.InvalidatedRefs[0] != r1.Ref {
 		t.Fatalf("invalidated=%v want %s", r2.InvalidatedRefs, r1.Ref)
 	}
-	rec, err := Recall(RecallInput{SessionID: "s1", Query: "city", TokenBudget: 400}, nil)
+	rec, err := Recall(RecallInput{SessionID: "s1", Query: "city", TokenBudget: 400, Expand: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,4 +271,40 @@ func TestRecallTokenBudget(t *testing.T) {
 	if len(rec.Lines) >= 20 {
 		t.Fatalf("expected budget to limit lines, got %d", len(rec.Lines))
 	}
+}
+
+// TestStoreEntryNullInvalidatedReason verifies that a new active entry has
+// NULL (empty) invalidated_reason in the database, fixing the bug where
+// a stray nil argument was passed to the SQL query.
+func TestStoreEntryNullInvalidatedReason(t *testing.T) {
+	testMemoryDB(t)
+	ref, err := Store(StoreInput{
+		Kind: KindFact, Scope: ScopeSession, SessionID: "test-null-reason",
+		Subject: "test", Predicate: "has", Object: "null invalidated reason",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var invalidatedReason sql.NullString
+	err = db.ContextDB.QueryRow(`SELECT invalidated_reason FROM structured_memory WHERE ref = ?`, ref.Ref).Scan(&invalidatedReason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invalidatedReason.String != "" {
+		t.Fatalf("expected empty invalidated_reason for active entry, got %q", invalidatedReason.String)
+	}
+}
+
+// TestStoreRejectsPinnedKind verifies PIN-3: kind=pinned must be rejected by
+// memory.Store (pinned notes must use store_context only).
+func TestStoreRejectsPinnedKind(t *testing.T) {
+	testMemoryDB(t)
+	_, err := Store(StoreInput{
+		Kind:      KindPinned,
+		SessionID: "s-pin",
+		Rule:      "some rule",
+	})
+	require.Error(t, err, "Store should reject kind=pinned")
+	assert.Contains(t, err.Error(), "store_context", "error must mention store_context as the correct path")
 }
