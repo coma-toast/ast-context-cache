@@ -62,11 +62,11 @@ const (
 )
 
 const (
-	toolHandoff        = "handoff"
-	toolOpenHandoff    = "open_handoff"
-	toolListContext    = "list_context"
-	toolRecallMemory   = "recall_memory"
-	toolGetPinnedNote  = "get_pinned_note"
+	toolHandoff       = "handoff"
+	toolOpenHandoff   = "open_handoff"
+	toolListContext   = "list_context"
+	toolRecallMemory  = "recall_memory"
+	toolGetPinnedNote = "get_pinned_note"
 )
 
 var (

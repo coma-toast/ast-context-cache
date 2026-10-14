@@ -706,16 +706,16 @@ func handlePinnedNote(w http.ResponseWriter, r *http.Request) {
 		note, err := contextnotes.Pinned(projectPath)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"ref":          "",
-				"project_path": projectPath,
-				"content":      "",
-				"session_id":   "",
-				"label":        "",
-				"tags":         "",
-				"kind":         "",
+				"ref":           "",
+				"project_path":  projectPath,
+				"content":       "",
+				"session_id":    "",
+				"label":         "",
+				"tags":          "",
+				"kind":          "",
 				"metadata_json": "{}",
-				"token_est":    0,
-				"access_count": 0,
+				"token_est":     0,
+				"access_count":  0,
 			})
 			return
 		}

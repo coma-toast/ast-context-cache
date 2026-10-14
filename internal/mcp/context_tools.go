@@ -240,11 +240,11 @@ func handleGetPinnedNote(toolArgs map[string]interface{}, start time.Time, cpuSt
 		return map[string]string{"error": err.Error()}
 	}
 	return map[string]interface{}{
-		"ref":         note.Ref,
+		"ref":          note.Ref,
 		"project_path": note.ProjectPath,
-		"content":     note.Content,
-		"token_est":   note.TokenEst,
-		"created_at":  note.CreatedAt,
+		"content":      note.Content,
+		"token_est":    note.TokenEst,
+		"created_at":   note.CreatedAt,
 	}
 }
 
