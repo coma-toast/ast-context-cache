@@ -28,6 +28,7 @@ import type {
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
+import { RecoveryBanner } from '../components/RecoveryBanner'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
 import { FeaturesSection } from '../components/FeaturesSection'
@@ -40,6 +41,7 @@ import { restartNow } from '../lib/restart'
 const PROJECTS_PAGE_SIZE = 8
 
 const SECTIONS = [
+  { id: 'general', label: 'General' },
   { id: 'updates', label: 'Updates' },
   { id: 'storage', label: 'Storage' },
   { id: 'features', label: 'Features' },
@@ -169,7 +171,11 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
 
       <UpdatesSection />
 
+      <InstanceSection data={data} save={save} />
+
       <StorageSection data={data} save={save} />
+
+      <RecoveryBanner />
 
       <FeaturesSection refreshKey={data} />
 
@@ -655,6 +661,50 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
   )
 }
 
+function InstanceSection({ data, save }: { data: SettingsData; save: (key: string, value: string) => Promise<void> }) {
+  const locked = !!data.InstanceNameLocked
+  const [name, setName] = useState(data.InstanceName ?? '')
+  useEffect(() => {
+    setName(data.InstanceName ?? '')
+  }, [data.InstanceName])
+  const lockHint = data.InstanceNameSource === 'flag'
+    ? 'Set by the -name flag; clear the flag to edit here.'
+    : 'Set by the AST_INSTANCE_NAME environment variable; unset it to edit here.'
+  return (
+    <Card variant="outlined" id="settings-general" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          General
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', flexWrap: 'wrap' }} useFlexGap>
+          <TextField
+            label="Instance name"
+            size="small"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={locked}
+            helperText={
+              locked
+                ? lockHint
+                : '1–40 chars: letters, digits, spaces, - _ . · Shown in the tab title; scopes the session cookie and stored UI state. Empty clears it.'
+            }
+            slotProps={{ htmlInput: { maxLength: 40 } }}
+            sx={{ minWidth: 240 }}
+          />
+          <Button size="small" variant="outlined" disabled={locked || name === (data.InstanceName ?? '')} onClick={() => save('instance_name', name.trim())}>
+            Save
+          </Button>
+        </Stack>
+        {data.InstanceNameEffective && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Active: {data.InstanceNameEffective} (from {data.InstanceNameSource || 'db'})
+          </Typography>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function StorageSection({ data, save }: { data: SettingsData; save: (key: string, value: string) => Promise<void> }) {
   const { showToast } = useToast()
   const [target, setTarget] = useState('')
@@ -802,9 +852,18 @@ function StorageSection({ data, save }: { data: SettingsData; save: (key: string
                 </Button>
               }
             >
-              Move complete. Restart ast-mcp to use the new location at <code>{status.target_dir}</code>.
-              Old files are still at <code>{data.DataDir}</code> — safe to delete once you've confirmed
-              everything works after restart.
+Move complete. Restart ast-mcp to use the new location at <code>{status.target_dir}</code>.
+{status.source_dir !== undefined && status.source_dir !== null ? (
+  <Typography variant="note" sx={{ mt: 1, color: 'text.secondary', display: 'block' }}>
+    Old files are still at <code>{status.source_dir}</code> — safe to delete once you've confirmed
+    everything works after restart.
+  </Typography>
+) : (
+  <Typography variant="note" sx={{ mt: 1, color: 'text.secondary', display: 'block' }}>
+    Old files are still at <code>{data.DataDir}</code> — safe to delete once you've confirmed
+    everything works after restart.
+  </Typography>
+)}
             </Alert>
           )}
           {!active && status?.done && status.recreated && status.recreated.length > 0 && (

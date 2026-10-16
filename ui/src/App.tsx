@@ -21,6 +21,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
 import { panelsToKeys, useWebSocket } from './hooks/useWebSocket'
 import { shouldHoldIndexToast } from './lib/toastStack'
+import { setInstanceScope } from './lib/scopedStorage'
 import { useResizableSidebar } from './hooks/useResizableSidebar'
 import { OverviewTab } from './tabs/OverviewTab'
 import { IndexHealthSection } from './tabs/IndexHealthSection'
@@ -148,6 +149,16 @@ function DashboardInner() {
     load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'handoffTrees', 'hostUsage', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
   }, [load])
 
+  const instanceName = settings?.InstanceNameEffective || health?.InstanceName || ''
+
+  useEffect(() => {
+    document.title = instanceName ? `${instanceName} · AST Context Cache` : 'AST Context Cache'
+  }, [instanceName])
+
+  useEffect(() => {
+    if (settings?.InstanceScope) setInstanceScope(settings.InstanceScope)
+  }, [settings?.InstanceScope])
+
   useEffect(() => {
     loadAll()
   }, [loadAll])
@@ -195,6 +206,11 @@ function DashboardInner() {
       <Typography variant="h6" sx={{ fontWeight: 700 }} gutterBottom>
         AST Context Cache
       </Typography>
+      {instanceName && (
+        <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600, mt: -1, mb: 0.5 }}>
+          {instanceName}
+        </Typography>
+      )}
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
         Operator dashboard
       </Typography>

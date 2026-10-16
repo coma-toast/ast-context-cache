@@ -11,7 +11,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/instance"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 )
@@ -81,6 +83,13 @@ func buildHealthData() components.Health {
 		Uptime:                time.Since(serverStartTime),
 		Version:               version.Version,
 		AbnormalPreviousRun:   embedqueue.AbnormalPreviousRun(),
+		InstanceName:          instance.Current().Value,
+		DataDirPhase: func() string {
+			if startup.DataDirUnavailable() {
+				return "data_dir_unavailable"
+			}
+			return ""
+		}(),
 	}
 	applyActiveEmbedderHealth(&h)
 	overlayStartupEmbedder(&h.EmbedderState, &h.EmbedderError, &h.EmbedBackend)

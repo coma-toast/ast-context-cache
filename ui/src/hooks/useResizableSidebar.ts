@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getScopedItem, setScopedItem } from '../lib/scopedStorage'
 
 const STORAGE_KEY = 'dashboard-sidebar-width'
 const DEFAULT = 240
@@ -7,7 +8,7 @@ const MAX = 420
 
 function readStored(): number {
   try {
-    const n = parseInt(localStorage.getItem(STORAGE_KEY) || '', 10)
+    const n = parseInt(getScopedItem(STORAGE_KEY) || '', 10)
     if (Number.isFinite(n) && n >= MIN && n <= MAX) return n
   } catch {
     /* ignore */
@@ -37,7 +38,7 @@ export function useResizableSidebar() {
       if (!dragging.current) return
       dragging.current = false
       try {
-        localStorage.setItem(STORAGE_KEY, String(widthRef.current))
+        setScopedItem(STORAGE_KEY, String(widthRef.current))
       } catch {
         /* ignore */
       }

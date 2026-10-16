@@ -128,6 +128,7 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/wal-status", handleWALStatus)
 	mux.HandleFunc("/api/data-dir/move", handleDataDirMove)
 	mux.HandleFunc("/api/data-dir/status", handleDataDirStatus)
+	mux.HandleFunc("/api/data-dir/clear-override", handleDataDirClearOverride)
 	mux.HandleFunc("/api/update/check", handleUpdateCheck)
 	mux.HandleFunc("/api/update/start", handleStartUpdate)
 	mux.HandleFunc("/api/update/status", handleUpdateStatus)
@@ -436,8 +437,12 @@ func handleTimeseries(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIndexStats(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode(map[string]string{"error": "index database unavailable"})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	var totalSymbols, totalFiles, totalEdges int
 	if conn, err := db.IndexReader(); err == nil {
 		if pid != "" {
@@ -458,8 +463,12 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	conn, err := db.IndexReader()
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -487,8 +496,12 @@ func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	conn, err := db.IndexReader()
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -516,8 +529,12 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTopImports(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	conn, err := db.IndexReader()
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -956,6 +973,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "EMBED_AUX_BACKEND" {
 			value = normalizeEmbedBackendValue(value)
 		}
+		if key == "instance_name" {
+			saveInstanceName(w, r, value)
+			return
+		}
 		if key == embedder.ProbeIntervalSettingKey {
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 5 || n > 600 {
@@ -1076,6 +1097,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		netlisten.KeyExtraAddrs:          "",
 		netlisten.KeyTrustedHosts:        "",
 		transcripts.SettingKey:           "false",
+		"instance_name":                  "",
 	}
 	for _, ls := range handoff.LimitSettings() {
 		defaults[ls.Key] = strconv.Itoa(ls.Default)
@@ -1087,6 +1109,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	redactNetworkSettings(settings)
+	applyInstanceSettings(settings)
 	json.NewEncoder(w).Encode(settings)
 }
 
@@ -1574,7 +1597,7 @@ func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := db.GetDataDirMoveSnapshot()
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	result := map[string]interface{}{
 		"active":      s.Active,
 		"done":        s.Done,
 		"phase":       s.Phase,
@@ -1584,7 +1607,31 @@ func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
 		"error":       s.Error,
 		"recreated":   s.Recreated,
 		"kept":        s.Kept,
-	})
+	}
+	if s.SourceDir != "" {
+		result["source_dir"] = s.SourceDir
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleDataDirClearOverride deletes the location override file so the next restart
+// falls back to the default data directory (or DB_PATH env var). It returns a
+// status that the UI can use to show a "restart now" button.
+func handleDataDirClearOverride(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	overridePath := db.LocationOverridePath()
+	if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to clear override: %v", err)})
+		return
+	}
+	// The override is now cleared; a restart will pick up the default location.
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "cleared", "message": "Override cleared. Restart ast-mcp to use the default data directory."})
 }
 
 // selfUpdateExePath returns the running ast-mcp, symlinks resolved, which an

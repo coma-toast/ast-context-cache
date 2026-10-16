@@ -137,7 +137,7 @@ func TestSessionValue(t *testing.T) {
 
 func TestAuthorized(t *testing.T) {
 	withToken(t, testToken)
-	cookie := &http.Cookie{Name: SessionCookie, Value: sessionValue(testToken)}
+	cookie := &http.Cookie{Name: SessionCookieName, Value: sessionValue(testToken)}
 	tests := []struct {
 		name   string
 		remote string
@@ -154,8 +154,8 @@ func TestAuthorized(t *testing.T) {
 		{"remote basic scheme", tailnetAddr, "Basic " + testToken, nil, false},
 		{"remote empty bearer", tailnetAddr, "Bearer ", nil, false},
 		{"remote good cookie", tailnetAddr, "", cookie, true},
-		{"remote raw token as cookie", tailnetAddr, "", &http.Cookie{Name: SessionCookie, Value: testToken}, false},
-		{"remote stale cookie", tailnetAddr, "", &http.Cookie{Name: SessionCookie, Value: sessionValue("old")}, false},
+		{"remote raw token as cookie", tailnetAddr, "", &http.Cookie{Name: SessionCookieName, Value: testToken}, false},
+		{"remote stale cookie", tailnetAddr, "", &http.Cookie{Name: SessionCookieName, Value: sessionValue("old")}, false},
 		{"remote bad bearer good cookie", tailnetAddr, "Bearer wrong", cookie, true},
 	}
 	for _, tt := range tests {
@@ -320,7 +320,7 @@ func TestHandleLogin(t *testing.T) {
 		cookies := rr.Result().Cookies()
 		require.Len(t, cookies, 1)
 		c := cookies[0]
-		assert.Equal(t, SessionCookie, c.Name)
+		assert.Equal(t, SessionCookieName, c.Name)
 		assert.Equal(t, sessionValue(testToken), c.Value)
 		assert.NotContains(t, c.Value, testToken)
 		assert.True(t, c.HttpOnly)
@@ -351,4 +351,91 @@ func TestHandleLoginWithoutToken(t *testing.T) {
 	HandleLogin(rr, req)
 	assert.Equal(t, http.StatusSeeOther, rr.Code)
 	assert.Empty(t, rr.Result().Cookies())
+}
+
+func withScope(t *testing.T, scope string) {
+	t.Helper()
+	prevCookie, prevName := SessionCookieName, instanceName
+	SetCookieScope(scope)
+	t.Cleanup(func() {
+		SessionCookieName = prevCookie
+		instanceName = prevName
+	})
+}
+
+func TestScopedCookieIsolation(t *testing.T) {
+	withToken(t, testToken)
+	withScope(t, "jd")
+	assert.Equal(t, "astcache_session_jd", SessionCookieName)
+
+	// Log in on scope jd.
+	req := httptest.NewRequest(http.MethodPost, LoginPath, strings.NewReader(url.Values{"token": {testToken}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = tailnetAddr
+	rr := httptest.NewRecorder()
+	HandleLogin(rr, req)
+	require.Equal(t, http.StatusSeeOther, rr.Code)
+	var session *http.Cookie
+	legacyExpired := false
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "astcache_session_jd" {
+			session = c
+		}
+		if c.Name == "astcache_session" && c.MaxAge < 0 {
+			legacyExpired = true
+		}
+	}
+	require.NotNil(t, session, "login sets the scoped cookie")
+	assert.True(t, legacyExpired, "login expires the legacy shared cookie")
+
+	authed := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+	authed.RemoteAddr = tailnetAddr
+	authed.AddCookie(session)
+	assert.True(t, Authorized(authed))
+
+	// Same cookie value is rejected once the scope rotates to slide.
+	withScope(t, "slide")
+	assert.False(t, Authorized(authed), "a jd cookie must not authorize the slide instance")
+}
+
+func TestRotateCookieScopeCarriesSession(t *testing.T) {
+	withToken(t, testToken)
+	withScope(t, "jd")
+	old := SessionCookieName
+	req := httptest.NewRequest(http.MethodPost, "/api/settings", nil)
+	req.RemoteAddr = tailnetAddr
+	req.AddCookie(&http.Cookie{Name: old, Value: sessionValue(testToken)})
+	rr := httptest.NewRecorder()
+	RotateCookieScope(rr, req, "slide")
+	require.Equal(t, "astcache_session_slide", SessionCookieName)
+	names := map[string]int{}
+	var carried *http.Cookie
+	for _, c := range rr.Result().Cookies() {
+		names[c.Name] = c.MaxAge
+		if c.Name == "astcache_session_slide" && c.MaxAge > 0 {
+			carried = c
+		}
+	}
+	require.NotNil(t, carried, "valid session is re-issued under the new name")
+	assert.Equal(t, sessionValue(testToken), carried.Value)
+	assert.True(t, names["astcache_session_jd"] < 0, "old scoped cookie is expired")
+
+	next := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+	next.RemoteAddr = tailnetAddr
+	next.AddCookie(carried)
+	assert.True(t, Authorized(next), "re-issued cookie keeps the user logged in")
+}
+
+func TestLoginTitleUsesInstanceName(t *testing.T) {
+	withToken(t, testToken)
+	withScope(t, "jd")
+	SetInstanceName("jd <b>bold</b>")
+	req := httptest.NewRequest(http.MethodGet, LoginPath, nil)
+	req.RemoteAddr = tailnetAddr
+	rr := httptest.NewRecorder()
+	HandleLogin(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "jd &lt;b&gt;bold&lt;/b&gt; · ast-context-cache login", "title includes the escaped name")
+	assert.NotContains(t, body, "<b>bold</b>", "name must be HTML-escaped")
 }

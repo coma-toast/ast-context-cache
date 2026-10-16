@@ -22,6 +22,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import type { MemoryData } from '../api/types'
 import { api, formatNum } from '../api/client'
+import { getScopedItem, setScopedItem } from '../lib/scopedStorage'
 import { useToast } from '../context/ToastContext'
 import { StatCard } from '../components/HealthBar'
 
@@ -37,7 +38,7 @@ interface SortState {
 
 function loadSort(): SortState {
   try {
-    const saved = localStorage.getItem(SORT_STORAGE_KEY)
+    const saved = getScopedItem(SORT_STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved)
       if (parsed && typeof parsed.field === 'string' && typeof parsed.direction === 'string') {
@@ -54,7 +55,7 @@ function loadSort(): SortState {
 
 function saveSort(sort: SortState) {
   try {
-    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort))
+    setScopedItem(SORT_STORAGE_KEY, JSON.stringify(sort))
   } catch {
     // ignore
   }
