@@ -41,6 +41,12 @@ export function flattenSpaceWatchers(spaces: WatcherSpaceGroup[]): WatcherDispla
 
 function sortWatchers(ws: WatcherInfo[]): WatcherInfo[] {
   ws.sort((a, b) => {
+    // First, sort by active status: active (true) comes before inactive (false)
+    if (a.Active !== b.Active) {
+      return a.Active ? -1 : 1
+    }
+    
+    // If both have same active status, sort by label/name/path
     const la = (a.Label || a.Name || '').toLowerCase()
     const lb = (b.Label || b.Name || '').toLowerCase()
     if (la !== lb) return la < lb ? -1 : 1
