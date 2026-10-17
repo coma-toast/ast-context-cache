@@ -262,6 +262,7 @@ export const api = {
   walCheckpoint: () => post<{ started?: boolean; status?: string }>('/api/wal-checkpoint', {}),
   moveDataDir: (target: string) =>
     post<{ started?: boolean; status?: string; error?: string }>('/api/data-dir/move', { target }),
+  clearDataDirOverride: () => post<{ status?: string; message?: string }>('/api/data-dir/clear-override', {}),
   dataDirMoveStatus: () => get<DataDirMoveStatus>('/api/data-dir/status'),
   updateCheck: () => get<UpdateCheckResult>('/api/update/check'),
   startUpdate: () => post<{ started?: boolean; error?: string }>('/api/update/start', {}),

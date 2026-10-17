@@ -12,6 +12,7 @@ const (
 	MethodNotFound = -32601
 	InvalidParams  = -32602
 	InternalError  = -32603
+	DataDirUnavailableErr = -32023
 )
 
 // Tier represents tool access levels. Higher tiers include all lower tiers.
