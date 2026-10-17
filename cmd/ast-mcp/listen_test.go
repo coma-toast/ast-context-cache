@@ -87,6 +87,49 @@ func TestListenAndServeReturnsAfterShutdown(t *testing.T) {
 	}
 }
 
+func TestRestartReleasesPorts(t *testing.T) {
+	// Verify that shutting down a server (simulating the degraded-mode restart/drain flow)
+	// completely releases the port so a subsequent server instance can bind it immediately.
+	port := freePort(t)
+	addr := net.JoinHostPort(defaultListenAddr, strconv.Itoa(port))
+
+	// First server instance
+	srv1 := &http.Server{Addr: addr, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
+	ln, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+
+	done1 := make(chan error, 1)
+	go func() { done1 <- srv1.Serve(ln) }()
+
+	// Shut down first server
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, srv1.Shutdown(ctx))
+	select {
+	case <-done1:
+	case <-time.After(2 * time.Second):
+		t.Fatal("srv1 did not stop")
+	}
+
+	// Second server instance on the exact same port — must bind successfully (no "address already in use")
+	srv2 := &http.Server{Addr: addr, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
+	ln2, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { ln2.Close() })
+
+	done2 := make(chan error, 1)
+	go func() { done2 <- srv2.Serve(ln2) }()
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	require.NoError(t, srv2.Shutdown(ctx2))
+	select {
+	case <-done2:
+	case <-time.After(2 * time.Second):
+		t.Fatal("srv2 did not stop")
+	}
+}
+
 func TestServeWithRestartOutcomeExits1WhenServeFails(t *testing.T) {
 	// When serve returns an error (not nil) with exiting=false,
 	// serveWithRestartOutcome should call exit(1) and not block.
