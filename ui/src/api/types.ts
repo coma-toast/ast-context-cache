@@ -19,6 +19,8 @@ export interface Health {
   Uptime: number
   Version: string
   AbnormalPreviousRun?: boolean
+  /** Effective instance name (flag > env > setting > empty). */
+  InstanceName?: string
 }
 
 export interface Stats {
@@ -347,6 +349,16 @@ export interface SettingsData {
   HandoffLimits?: HandoffLimits
   /** Handoff limit settings keys locked by their AST_HANDOFF_* env var. */
   HandoffEnvLocked?: string[] | null
+  /** Raw instance_name DB setting (what the settings field edits). */
+  InstanceName?: string
+  /** Effective instance name (flag > env > setting > empty). */
+  InstanceNameEffective?: string
+  /** Cookie/localStorage scope for the effective name. */
+  InstanceScope?: string
+  /** flag|env|db|default — where the effective name came from. */
+  InstanceNameSource?: string
+  /** True when the -name flag or AST_INSTANCE_NAME env var sets the name. */
+  InstanceNameLocked?: boolean
 }
 
 export interface MemoryData {
@@ -436,6 +448,8 @@ export interface DataDirMoveStatus {
   done: boolean
   phase: string
   target_dir: string
+  /** The original data directory path before the move started. Set when done=true. */
+  source_dir?: string | null
   started_at: string
   finished_at: string
   error: string

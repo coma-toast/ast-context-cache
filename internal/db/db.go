@@ -26,18 +26,22 @@ const (
 )
 
 // DefaultLogPath is the default ast-mcp server log file (ast-mcp start / dashboard Logs tab).
+// It lives in the active data directory, so two instances with different DB_PATH
+// values (or location overrides) never share one log file. Under systemd the
+// units log to the journal anyway; this path covers `ast-mcp start` and the
+// dashboard Logs tab.
 func DefaultLogPath() string {
-	home := os.Getenv("HOME")
-	if home == "" {
-		return filepath.Join(".astcache", "ast-mcp.log")
-	}
-	return filepath.Join(home, ".astcache", "ast-mcp.log")
+	return filepath.Join(GetDataDir(), "ast-mcp.log")
 }
 
 func Init() error {
 	if _, err := ResolveDataDir(); err != nil {
 		p := locationOverridePath()
-		return errs.WrapMessage(fmt.Sprintf("configured data directory unavailable (reconnect the drive, or delete %s to use the default location)", p), err, "override_path", p)
+		startup.MarkDataDirUnavailable(fmt.Sprintf("configured data directory unavailable (reconnect the drive, or delete %s to use the default location)", p))
+		if !errs.HasCode(err, errs.CodeInvalidInput) {
+			startup.SetMessage("Data directory unavailable")
+		}
+		return nil
 	}
 	idxPath := indexDBPath()
 	ctxPath := contextDBPath()

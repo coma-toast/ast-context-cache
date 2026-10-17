@@ -9,9 +9,10 @@ import (
 type Phase string
 
 const (
-	PhaseStarting Phase = "starting"
-	PhaseReady    Phase = "ready"
-	PhaseFailed   Phase = "failed"
+	PhaseStarting            Phase = "starting"
+	PhaseReady               Phase = "ready"
+	PhaseFailed              Phase = "failed"
+	PhaseDataDirUnavailable  Phase = "data_dir_unavailable"
 )
 
 var (
@@ -51,6 +52,10 @@ func Failed() bool {
 	return CurrentPhase() == PhaseFailed
 }
 
+func DataDirUnavailable() bool {
+	return CurrentPhase() == PhaseDataDirUnavailable
+}
+
 func SetMessage(msg string) {
 	mu.Lock()
 	message = msg
@@ -74,6 +79,15 @@ func MarkFailed(err string) {
 	if message == "" {
 		message = "Startup failed"
 	}
+	mu.Unlock()
+	realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
+}
+
+func MarkDataDirUnavailable(err string) {
+	mu.Lock()
+	phase = PhaseDataDirUnavailable
+	errText = err
+	message = "Data directory unavailable"
 	mu.Unlock()
 	realtime.Notify(realtime.HealthBar | realtime.IndexHealth)
 }

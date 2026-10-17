@@ -21,6 +21,7 @@ type DataDirMoveSnapshot struct {
 	Done       bool
 	Phase      string
 	TargetDir  string
+	SourceDir  string `json:"source_dir,omitempty"`
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Error      string
@@ -38,6 +39,10 @@ type DataDirMoveSnapshot struct {
 var (
 	dataDirMoveMu sync.RWMutex
 	dataDirMove   DataDirMoveSnapshot
+
+	// sourceDirAtMoveStart is the data directory path before the override file was rewritten,
+	// so the completion message can show users where the "old files" still reside.
+	sourceDirAtMoveStart string
 )
 
 // GetDataDirMoveSnapshot returns the current data-directory move state for the dashboard.
@@ -60,6 +65,10 @@ func setDataDirMove(s DataDirMoveSnapshot) {
 // records target in the location override file; the new location takes effect on the next
 // restart. Existing files at the current location are never modified or removed.
 func StartDataDirMove(target string) (started bool, errMsg string) {
+	// Capture the source directory before claiming the move, so we can show users
+	// where the old files still reside after the move completes.
+	sourceDir := cacheDir()
+	
 	// Claim Active atomically before any validation: StartDataDirMove used to
 	// check-then-act (read Active, validate, then set Active), so two
 	// near-simultaneous calls could both pass the check and both launch
@@ -93,6 +102,7 @@ func StartDataDirMove(target string) (started bool, errMsg string) {
 	os.Remove(probe)
 
 	setDataDirMove(DataDirMoveSnapshot{Active: true, TargetDir: target, StartedAt: time.Now(), Phase: "starting"})
+	sourceDirAtMoveStart = sourceDir
 	go runDataDirMove(target)
 	return true, ""
 }
@@ -189,6 +199,7 @@ func runDataDirMove(target string) {
 	snap.Done = true
 	snap.Phase = "done"
 	snap.FinishedAt = time.Now()
+	snap.SourceDir = sourceDirAtMoveStart
 	snap.Recreated = recreated
 	snap.Kept = kept
 	setDataDirMove(snap)
