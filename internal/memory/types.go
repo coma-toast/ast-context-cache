@@ -6,6 +6,7 @@ type Kind string
 const (
 	KindFact      Kind = "fact"
 	KindProcedure Kind = "procedure"
+	KindPinned    Kind = "pinned"
 )
 
 // Scope controls conflict resolution (Mem0-style user/session/project tiers).

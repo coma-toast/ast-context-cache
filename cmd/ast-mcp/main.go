@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -86,7 +87,10 @@ const (
 	selectSymbolProjectsQuery    = "SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''"
 )
 
-var startTime = time.Now()
+var (
+	startTime = time.Now()
+	exiting   = atomic.Bool{}
+)
 
 func GetStartTime() time.Time {
 	return startTime
@@ -249,6 +253,7 @@ func main() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
+		exiting.Store(true)
 		logger.Info("Shutting down")
 		cancel()
 		netlisten.CloseAll()
@@ -259,9 +264,31 @@ func main() {
 	}()
 
 	logger.Info("Starting dashboard server", "url", serverURL(dashboardPort))
-	if err := listenAndServe(dashSrv, dashboardPort); err != nil {
+	serveWithRestartOutcome(
+		func() error { return listenAndServe(dashSrv, dashboardPort) },
+		exiting.Load,
+		os.Exit,
+		func() { select {} },
+	)
+}
+
+// serveWithRestartOutcome runs serve and decides what main does when it returns: an error
+// is fatal; a nil return during an exit (restart or signal) blocks so the owner —
+// syscall.Exec in restartProcess, or the signal goroutine's os.Exit(0) after the flush —
+// can finish. A nil return otherwise is an unexpected shutdown and exits 1 so supervisors
+// restart us. The logic is extracted here for unit testing with fakes.
+func serveWithRestartOutcome(serve func() error, exiting func() bool, exit func(int), block func()) {
+	err := serve()
+	switch {
+	case err != nil:
 		logger.Error("Dashboard server failed", "error", err)
-		os.Exit(1)
+		exit(1)
+	case exiting():
+		logger.Info("Exit in progress; waiting for owner")
+		block()
+	default:
+		logger.Error("Dashboard server stopped unexpectedly")
+		exit(1)
 	}
 }
 
@@ -273,6 +300,9 @@ func main() {
 // rebuild).
 func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 	return func() {
+		// Tell main() we are re-executing so it does not return from listenAndServe
+		// (which is what happens when dashSrv.Shutdown() closes the server) and exit 0.
+		exiting.Store(true)
 		logger.Info("Draining connections to restart")
 		// db.RequestShutdown aborts any in-progress WAL checkpoint quickly, but it also
 		// unconditionally calls AfterForceCheckpoint (wired below to

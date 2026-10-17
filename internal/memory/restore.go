@@ -70,19 +70,20 @@ func Restore(in RestoreInput) (*RestoreResult, error) {
 			continue
 		}
 
-		// 2. Check if the fact that superseded it has itself been superseded again (MEM-4).
-		// If B was superseded by C, B has superseded_by set (and valid_until set).
-		// In that case, report a conflict and change nothing.
+		// 2. Check if the fact that superseded it has itself been invalidated
+		// with reason 'contradiction' (MEM-4). If B was invalidated by a later
+		// contradiction, report a conflict and change nothing. If B was merely
+		// forgotten (reason != contradiction), allow the restore.
 		if supersededBy.Valid && supersededBy.String != "" {
-			var succSupersededBy sql.NullString
+			var reason sql.NullString
 			err = tx.QueryRow(
-				`SELECT superseded_by FROM structured_memory WHERE ref = ?`,
+				`SELECT invalidated_reason FROM structured_memory WHERE ref = ?`,
 				supersededBy.String,
-			).Scan(&succSupersededBy)
-			if err == nil && succSupersededBy.Valid && succSupersededBy.String != "" {
-				// The superseding fact has been superseded again — conflict!
+			).Scan(&reason)
+			if err == nil && reason.Valid && reason.String == ReasonContradiction {
+				// The superseding fact was invalidated by contradiction — conflict!
 				tx.Rollback()
-				conflicts = append(conflicts, ref+": superseding fact "+supersededBy.String+" was superseded again by "+succSupersededBy.String)
+				conflicts = append(conflicts, ref+": superseding fact "+supersededBy.String+" was invalidated by contradiction")
 				continue
 			}
 		}

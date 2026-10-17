@@ -24,6 +24,7 @@ type PinnedNote struct {
 	Content     string `json:"content"`
 	TokenEst    int    `json:"token_est"`
 	CreatedAt   string `json:"created_at"`
+	Kind        string `json:"kind"`
 }
 
 // StorePinned stores or updates a pinned note for a project. It enforces a 500-token
@@ -70,6 +71,7 @@ func StorePinned(projectPath, content, origin string) (*PinnedNote, error) {
 			Content:     content,
 			TokenEst:    tokenEst,
 			CreatedAt:   db.SQLTime(time.Now().UTC()),
+			Kind:        KindPinned,
 		}, nil
 	}
 
@@ -106,6 +108,7 @@ func StorePinned(projectPath, content, origin string) (*PinnedNote, error) {
 		Content:     content,
 		TokenEst:    tokenEst,
 		CreatedAt:   note.CreatedAt,
+		Kind:        note.Kind,
 	}, nil
 }
 
@@ -125,6 +128,7 @@ func Pinned(projectPath string) (*PinnedNote, error) {
 	if err != nil {
 		return nil, err
 	}
+	note.Kind = KindPinned
 	return &note, nil
 }
 

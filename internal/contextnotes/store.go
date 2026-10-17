@@ -38,6 +38,9 @@ const (
 	listSessionNotesQuery  = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE session_id = ?`
+	listPinnedNotesQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		FROM context_notes WHERE session_id = ? AND kind = 'pinned'`
 	searchNotesFTSQuery = `SELECT cn.ref, cn.session_id, COALESCE(cn.project_path,''), COALESCE(cn.label,''), cn.content,
 		COALESCE(cn.tags,''), COALESCE(cn.kind,''), COALESCE(cn.metadata_json,''), cn.token_est, cn.access_count, cn.created_at, COALESCE(cn.last_accessed_at,'')
 		FROM context_notes_fts f
@@ -524,17 +527,43 @@ func List(sessionID, projectPath string, limit int) (*ListResult, error) {
 		limit = 20
 	}
 	var total int
-	countQ := countSessionNotesQuery
-	countArgs := []any{sessionID}
-	q := listSessionNotesQuery
-	args := []any{sessionID}
-	if projectPath != "" {
-		q += andProjectPathClause
-		countQ += andProjectPathClause
-		args = append(args, projectPath)
-		countArgs = append(countArgs, projectPath)
+	var q string
+	var args []any
+
+	if sessionID == "pinned" {
+		// For pinned notes, use the pinned notes query that includes content
+		q = listPinnedNotesQuery
+		args = []any{sessionID}
+		if projectPath != "" {
+			q += andProjectPathClause
+			args = append(args, projectPath)
+		}
+		// Count pinned notes
+		countQ := `SELECT COUNT(*) FROM context_notes WHERE session_id = ? AND kind = 'pinned'`
+		countArgs := []any{sessionID}
+		if projectPath != "" {
+			countQ += andProjectPathClause
+			countArgs = append(countArgs, projectPath)
+		}
+		db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
+	} else {
+		q = listSessionNotesQuery
+		args = []any{sessionID}
+		if projectPath != "" {
+			q += andProjectPathClause
+			args = append(args, projectPath)
+			countQ := countSessionNotesQuery
+			countArgs := []any{sessionID}
+			if projectPath != "" {
+				countQ += andProjectPathClause
+				countArgs = append(countArgs, projectPath)
+			}
+			db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
+		} else {
+			db.ContextDB.QueryRow(countSessionNotesQuery, []any{sessionID}...).Scan(&total)
+		}
 	}
-	db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
+
 	q += orderByCreatedDescLimitClause
 	args = append(args, limit)
 	rows, err := db.ContextDB.Query(q, args...)

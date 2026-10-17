@@ -62,10 +62,11 @@ const (
 )
 
 const (
-	toolHandoff      = "handoff"
-	toolOpenHandoff  = "open_handoff"
-	toolListContext  = "list_context"
-	toolRecallMemory = "recall_memory"
+	toolHandoff       = "handoff"
+	toolOpenHandoff   = "open_handoff"
+	toolListContext   = "list_context"
+	toolRecallMemory  = "recall_memory"
+	toolGetPinnedNote = "get_pinned_note"
 )
 
 var (
@@ -169,26 +170,23 @@ func (h *Handler) sessionStart(ctx context.Context, in *Input) (*Output, error) 
 	}
 	text := "ast-context-cache: use session_id=" + in.SessionID + " for all ast-context-cache tool calls in this conversation."
 
-	// CH-3: SessionStart hook briefing within 1,200-token cap
+	// PIN-2: SessionStart hook briefing within 1,200-token cap
 	if in.CWD != "" {
-		// Get pinned note (session_id='pinned')
+		// Get pinned note directly via get_pinned_note (contextnotes.Pinned).
+		// list_context returns '' content and with v2 on returns lines, not notes.
 		var pinnedResult struct {
-			Notes []noteDigest `json:"notes"`
+			Ref         string `json:"ref"`
+			ProjectPath string `json:"project_path"`
+			Content     string `json:"content"`
+			TokenEst    int    `json:"token_est"`
 		}
-		if err := h.client.Call(ctx, toolListContext, map[string]any{
-			"session_id":   "pinned",
+		if err := h.client.Call(ctx, toolGetPinnedNote, map[string]any{
 			"project_path": in.CWD,
-			"limit":        1,
-		}, &pinnedResult); err == nil && len(pinnedResult.Notes) > 0 {
-			pinned := pinnedResult.Notes[0]
-			text += "\nPinned note: " + pinned.Label
-			if len(pinned.Content) > 0 {
-				// Include full pinned note content (up to 500 tokens, PIN-2).
-				// StorePinned already enforces the 500-token cap, so content
-				// arriving here fits; the belt-and-suspenders trim guards a
-				// server that returned more than it should have.
-				content := pinned.Content
-				if pinned.TokenEst > 500 {
+		}, &pinnedResult); err == nil && pinnedResult.Ref != "" {
+			text += "\nPinned note: " + pinnedResult.Ref
+			if pinnedResult.Content != "" {
+				content := pinnedResult.Content
+				if pinnedResult.TokenEst > 500 {
 					words := strings.Fields(content)
 					if len(words) > 500 {
 						content = strings.Join(words[:500], " ") + "..."

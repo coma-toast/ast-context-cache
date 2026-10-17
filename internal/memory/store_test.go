@@ -9,6 +9,8 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testMemoryDB(t *testing.T) {
@@ -292,4 +294,17 @@ func TestStoreEntryNullInvalidatedReason(t *testing.T) {
 	if invalidatedReason.String != "" {
 		t.Fatalf("expected empty invalidated_reason for active entry, got %q", invalidatedReason.String)
 	}
+}
+
+// TestStoreRejectsPinnedKind verifies PIN-3: kind=pinned must be rejected by
+// memory.Store (pinned notes must use store_context only).
+func TestStoreRejectsPinnedKind(t *testing.T) {
+	testMemoryDB(t)
+	_, err := Store(StoreInput{
+		Kind:      KindPinned,
+		SessionID: "s-pin",
+		Rule:      "some rule",
+	})
+	require.Error(t, err, "Store should reject kind=pinned")
+	assert.Contains(t, err.Error(), "store_context", "error must mention store_context as the correct path")
 }

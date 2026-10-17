@@ -5,6 +5,8 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/repokey"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -54,6 +56,19 @@ func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) 
 			if err != nil || cand.ValidUntil != "" {
 				continue
 			}
+			// Filter to facts only, same scope, and project/repo siblings
+			if cand.Kind != KindFact {
+				continue
+			}
+			if cand.Scope != e.Scope {
+				continue
+			}
+			if e.Scope == ScopeProject && cand.ProjectPath != e.ProjectPath {
+				// Check repo siblings for project scope
+				if !isRepoSibling(e.ProjectPath, cand.ProjectPath) {
+					continue
+				}
+			}
 			conflicts = append(conflicts, Conflict{
 				Ref:        ref,
 				Line:       FormatLine(cand),
@@ -75,8 +90,8 @@ func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) 
 }
 
 func ftsConflictCandidates(e Entry) []Conflict {
-	// Fallback FTS search over subject/object terms; limit to active facts only.
-	terms := search.QueryTerms(e.Subject + " " + e.Object)
+	// Fallback FTS search over subject/predicate/object terms; limit to active facts only.
+	terms := search.QueryTerms(e.Subject + " " + e.Predicate + " " + e.Object)
 	if len(terms) == 0 {
 		return nil
 	}
@@ -118,4 +133,28 @@ func ftsConflictCandidates(e Entry) []Conflict {
 		})
 	}
 	return conflicts
+}
+
+// isRepoSibling reports whether projA and projB are in the same repo
+// (checked via the project_links index).
+func isRepoSibling(projA, projB string) bool {
+	// Same project path
+	if projA == projB {
+		return true
+	}
+	keyA := repokey.Key(projA)
+	keyB := repokey.Key(projB)
+	if keyA == "" || keyB == "" {
+		return false
+	}
+	if keyA == keyB {
+		return true
+	}
+	// Check if projB is a repo sibling of projA
+	for _, sib := range projectlinks.RepoSiblings(projA) {
+		if sib == projB {
+			return true
+		}
+	}
+	return false
 }

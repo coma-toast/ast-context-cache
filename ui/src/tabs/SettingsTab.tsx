@@ -487,11 +487,10 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
                       {p.Pinned ? 'Unpin' : 'Pin'}
                     </Button>
 
-                    {p.Pinned && (
-                      <Box sx={{ mt: 1.5 }}>
+                    <Box sx={{ mt: 1.5 }}>
                         <TextField
                           label="Pinned note"
-                          value={editingPinned[p.Path] || p.PinnedNote || ''}
+                          value={editingPinned[p.Path] ?? p.PinnedNote ?? ''}
                           onChange={(e) => setEditingPinned({ ...editingPinned, [p.Path]: e.target.value })}
                           multiline
                           rows={2}
@@ -510,7 +509,6 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
                           </Button>
                         </Stack>
                       </Box>
-                    )}
 
                     <Button
                       size="small"

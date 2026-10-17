@@ -53,6 +53,8 @@ type HistoryResult struct {
 type HistoryInput struct {
 	Ref          string // optional: single entry by ref
 	Query        string // optional: query string for subject/predicate/object/rule
+	Subject      string // optional: exact subject (MEM-3)
+	Predicate    string // optional: exact predicate (MEM-3)
 	IncludeWorld bool   // include world-time columns
 }
 

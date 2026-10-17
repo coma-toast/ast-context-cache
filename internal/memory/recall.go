@@ -16,7 +16,7 @@ import (
 // v2Enabled reports whether the feature_memory_v2 flag gates MEM-6..MEM-10
 // (recency decay ranking, TTL expiry, debug demotion output, compact lines
 // default with hard caps). History, restore and world time are always on.
-var v2Enabled = flags.Enabled(flags.KeyMemoryV2)
+func v2Enabled() bool { return flags.Enabled(flags.KeyMemoryV2) }
 
 const (
 	selectActiveEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
@@ -127,7 +127,7 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 	if in.TokenBudget <= 0 {
 		in.TokenBudget = 800
 	}
-	if in.TokenBudget > 2000 && v2Enabled {
+	if in.TokenBudget > 2000 && v2Enabled() {
 		in.TokenBudget = 2000 // hard cap: 2,000 tokens
 	}
 	var entries []Entry
@@ -141,7 +141,7 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	v2 := v2Enabled
+	v2 := v2Enabled()
 	var demotedLimit []DemotedEntry
 	if len(entries) > in.Limit {
 		if v2 && in.Debug {

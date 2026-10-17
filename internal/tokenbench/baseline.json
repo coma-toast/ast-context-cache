@@ -139,7 +139,7 @@
     {
       "name": "recall_test_framework",
       "tool": "recall_memory",
-      "tokens": 122,
+      "tokens": 84,
       "results": 2,
       "recall": 1,
       "deterministic": true
@@ -147,7 +147,7 @@
     {
       "name": "recall_error_rule",
       "tool": "recall_memory",
-      "tokens": 169,
+      "tokens": 113,
       "results": 3,
       "recall": 1,
       "deterministic": true
@@ -155,7 +155,7 @@
     {
       "name": "recall_superseded_fact",
       "tool": "recall_memory",
-      "tokens": 208,
+      "tokens": 140,
       "results": 4,
       "recall": 1,
       "deterministic": true
@@ -163,7 +163,7 @@
     {
       "name": "recall_list_recent",
       "tool": "recall_memory",
-      "tokens": 168,
+      "tokens": 124,
       "results": 4,
       "recall": 1,
       "deterministic": true
@@ -214,7 +214,7 @@
     {
       "name": "negative_recall_unrelated",
       "tool": "recall_memory",
-      "tokens": 208,
+      "tokens": 140,
       "results": 4,
       "recall": 1,
       "deterministic": true,

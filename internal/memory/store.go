@@ -173,6 +173,8 @@ func Store(in StoreInput) (*StoreResult, error) {
 		}
 	default:
 		return nil, errs.NewCode(errs.CodeInvalidInput, "kind must be fact or procedure")
+	case KindPinned:
+		return nil, errs.NewCode(errs.CodeInvalidInput, "pinned notes must be stored via store_context, not store_memory")
 	}
 	ref, err := newRef("mem_")
 	if err != nil {

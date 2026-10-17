@@ -230,6 +230,24 @@ func handleReportKvRepairEvent(toolArgs map[string]interface{}, start time.Time,
 	return out
 }
 
+func handleGetPinnedNote(toolArgs map[string]interface{}, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
+	pinnedProjectPath, _ := toolArgs["project_path"].(string)
+	if projectPath != "" {
+		pinnedProjectPath = projectPath
+	}
+	note, err := contextnotes.Pinned(pinnedProjectPath)
+	if err != nil {
+		return map[string]string{"error": err.Error()}
+	}
+	return map[string]interface{}{
+		"ref":          note.Ref,
+		"project_path": note.ProjectPath,
+		"content":      note.Content,
+		"token_est":    note.TokenEst,
+		"created_at":   note.CreatedAt,
+	}
+}
+
 func handleContextTool(toolName string, toolArgs map[string]interface{}, args map[string]interface{}, emb embedder.Interface, start time.Time, cpuStart sys.CPUSample, projectPath string) (interface{}, bool, error) {
 	switch toolName {
 	case "store_context":
@@ -252,6 +270,8 @@ func handleContextTool(toolName string, toolArgs map[string]interface{}, args ma
 		return handleFlushContext(toolArgs, start, cpuStart, args, projectPath), true, nil
 	case "report_kv_repair_event":
 		return handleReportKvRepairEvent(toolArgs, start, cpuStart, args, projectPath), true, nil
+	case "get_pinned_note":
+		return handleGetPinnedNote(toolArgs, start, cpuStart, args, projectPath), true, nil
 	default:
 		return nil, false, errs.New("not a context tool")
 	}
