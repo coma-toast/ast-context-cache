@@ -9,10 +9,10 @@ import (
 type Phase string
 
 const (
-	PhaseStarting            Phase = "starting"
-	PhaseReady               Phase = "ready"
-	PhaseFailed              Phase = "failed"
-	PhaseDataDirUnavailable  Phase = "data_dir_unavailable"
+	PhaseStarting           Phase = "starting"
+	PhaseReady              Phase = "ready"
+	PhaseFailed             Phase = "failed"
+	PhaseDataDirUnavailable Phase = "data_dir_unavailable"
 )
 
 var (

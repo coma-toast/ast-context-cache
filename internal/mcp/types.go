@@ -6,12 +6,12 @@ import (
 )
 
 const (
-	JSONRPCVersion = "2.0"
-	ParseError     = -32700
-	InvalidRequest = -32600
-	MethodNotFound = -32601
-	InvalidParams  = -32602
-	InternalError  = -32603
+	JSONRPCVersion        = "2.0"
+	ParseError            = -32700
+	InvalidRequest        = -32600
+	MethodNotFound        = -32601
+	InvalidParams         = -32602
+	InternalError         = -32603
 	DataDirUnavailableErr = -32023
 )
 

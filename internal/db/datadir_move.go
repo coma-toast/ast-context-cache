@@ -68,7 +68,7 @@ func StartDataDirMove(target string) (started bool, errMsg string) {
 	// Capture the source directory before claiming the move, so we can show users
 	// where the old files still reside after the move completes.
 	sourceDir := cacheDir()
-	
+
 	// Claim Active atomically before any validation: StartDataDirMove used to
 	// check-then-act (read Active, validate, then set Active), so two
 	// near-simultaneous calls could both pass the check and both launch
