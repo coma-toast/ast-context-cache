@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Alert,
   Box,
@@ -19,6 +19,7 @@ import { api } from '../api/client'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { HandoffTreesCard } from '../components/HandoffTreesCard'
 import { RingGauge } from '../components/charts/RingGauge'
+import { RecoveryBanner } from '../components/RecoveryBanner'
 import { useToast } from '../context/ToastContext'
 import type { ContextSessionStory, ContextSessionsResponse, HandoffTreesResponse, HostUsageResponse, Stats, WeeklyDigest } from '../api/types'
 import { formatStat } from '../components/HealthBar'
@@ -62,7 +63,9 @@ export function OverviewTab({
   const saved30d = ledgerSplit(stats).total
 
   return (
-    <Box sx={{ mb: 3 }}>
+    <>
+      <RecoveryBanner />
+      <Box sx={{ mb: 3 }}>
       <SectionHeader title="Activity" hint="Big number is today · bar compares today with the 30-day daily average" />
       <Grid container spacing={2} sx={{ mb: 2 }}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -131,6 +134,7 @@ export function OverviewTab({
         )}
       </Grid>
     </Box>
+    </>
   )
 }
 

@@ -66,4 +66,14 @@ type SettingsData struct {
 	HandoffEnvLocked []string
 	// TranscriptUsageIngest is the transcript_usage_ingest setting (TL-5, default off).
 	TranscriptUsageIngest bool
+	// InstanceName is the raw instance_name DB setting (what the field edits).
+	InstanceName string
+	// InstanceNameEffective is the live name (flag > env > setting > empty).
+	InstanceNameEffective string
+	// InstanceScope is the cookie/localStorage scope for the effective name.
+	InstanceScope string
+	// InstanceNameSource is flag|env|db|default.
+	InstanceNameSource string
+	// InstanceNameLocked is true when the flag or env var sets the name.
+	InstanceNameLocked bool
 }

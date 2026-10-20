@@ -19,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
+	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -168,6 +169,10 @@ func handleModern(w http.ResponseWriter, r *http.Request, rpcReq JSONRPCRequest)
 // dispatch answers the methods both eras share, reporting false for an unknown method.
 // sessionID is a live legacy session, whose tools/list is frozen, or "" for the live list.
 func dispatch(w http.ResponseWriter, rpcReq JSONRPCRequest, sessionID string) bool {
+	if startup.DataDirUnavailable() {
+		writeRPC(w, http.StatusServiceUnavailable, rpcError(rpcReq.ID, &JSONRPCError{Code: DataDirUnavailableErr, Message: "Server unavailable: data directory not accessible"}))
+		return true
+	}
 	switch rpcReq.Method {
 	case "tools/list":
 		writeRPC(w, http.StatusOK, rpcResult(rpcReq.ID, map[string]any{"tools": hub.toolsFor(sessionID)}))

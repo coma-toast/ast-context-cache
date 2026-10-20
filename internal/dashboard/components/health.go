@@ -33,6 +33,8 @@ type Health struct {
 	Uptime                time.Duration
 	Version               string
 	AbnormalPreviousRun   bool
+	DataDirPhase          string
+	InstanceName          string
 }
 
 func (h Health) EmbedderEmoji() string {
@@ -163,4 +165,8 @@ func (h Health) EmbedderChipClass() string {
 	default:
 		return "health-status-badge idle"
 	}
+}
+
+func (h Health) IsDataDirUnavailable() bool {
+	return h.DataDirPhase == "data_dir_unavailable"
 }
