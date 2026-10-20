@@ -11,7 +11,9 @@ PROJ_DIR    := $(shell pwd)
 # unrelated multi-module checkout one level up) would otherwise break module resolution.
 CGO_FLAGS := GOWORK=off CGO_LDFLAGS="-L$(PROJ_DIR) -L$(ORT_LIB)" CGO_CFLAGS="-I$(ORT_INC)"
 
-VERSION     := $(shell tr -d '[:space:]' < VERSION 2>/dev/null || echo dev)
+# Releases are tags (see .github/workflows/bump-version.yml), so the nearest vX.Y.Z tag is the
+# version; the VERSION file is the fallback for checkouts without tags.
+VERSION     := $(or $(patsubst v%,%,$(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)),$(shell tr -d '[:space:]' < VERSION 2>/dev/null),dev)
 LDFLAGS     := -X 'github.com/coma-toast/ast-context-cache/internal/version.Version=$(VERSION)'
 BINARY       := ast-mcp
 TOKENIZER_LIB := libtokenizers.a
@@ -176,8 +178,12 @@ download-tokenizer-lib:
 generate:
 	@echo "generate: no-op (no .templ sources)"
 
-internal/version/VERSION: VERSION
-	cp VERSION internal/version/VERSION
+# Rewritten only when the version changes, so it doesn't force rebuilds.
+internal/version/VERSION: FORCE
+	@[ "$$(cat $@ 2>/dev/null)" = "$(VERSION)" ] || echo "$(VERSION)" > $@
+
+.PHONY: FORCE
+FORCE:
 
 build: download-model download-tokenizer-lib ui-build internal/version/VERSION
 	@echo "Building ast-mcp..."

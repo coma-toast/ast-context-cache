@@ -1,5 +1,10 @@
 name: Bump version on merge
 
+# Releases are tags only. main is protected by a ruleset (PRs and required checks), and on a
+# personal-account repo the Actions bot can't be a bypass actor, so this workflow never pushes
+# to main: it tags the merge commit with the next version and releases from that tag. To ask
+# for a minor or major bump, raise VERSION in the PR (see scripts/next-version.sh).
+
 on:
   pull_request:
     types: [closed]
@@ -7,6 +12,11 @@ on:
 
 permissions:
   contents: write
+
+# Two merges close together must not compute the same tag.
+concurrency:
+  group: bump-version
+  cancel-in-progress: false
 
 jobs:
   bump:
@@ -19,25 +29,26 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          fetch-tags: true
 
-      - name: Bump patch version
+      - name: Pick the next version
         id: bump
         run: |
-          chmod +x scripts/bump-version.sh
-          new=$(./scripts/bump-version.sh VERSION)
+          new=$(./scripts/next-version.sh VERSION)
+          if git rev-parse -q --verify "refs/tags/v${new}" >/dev/null; then
+            echo "::error::tag v${new} already exists"
+            exit 1
+          fi
           echo "version=$new" >> "$GITHUB_OUTPUT"
-          echo "Bumped VERSION to $new"
+          echo "Next version: $new"
 
-      - name: Commit and tag
+      - name: Tag the merge commit
         env:
           NEW_VERSION: ${{ steps.bump.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "chore: bump version to ${NEW_VERSION}"
-          git tag -a "v${NEW_VERSION}" -m "v${NEW_VERSION}"
-          git push origin main
+          git tag -a "v${NEW_VERSION}" -m "v${NEW_VERSION}" HEAD
           git push origin "v${NEW_VERSION}"
 
   # A tag pushed with GITHUB_TOKEN doesn't trigger other workflows, so release from here.
