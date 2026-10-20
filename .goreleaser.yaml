@@ -13,8 +13,8 @@ project_name: ast-context-cache
 
 before:
   hooks:
-    # internal/version embeds this file; make normally copies it.
-    - cp VERSION internal/version/VERSION
+    # internal/version embeds this file; the release version comes from the tag.
+    - sh -c 'echo {{ .Version }} > internal/version/VERSION'
 
 builds:
   - id: darwin
