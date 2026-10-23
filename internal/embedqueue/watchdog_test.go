@@ -83,6 +83,11 @@ func TestStuckWorkerAutoRecover(t *testing.T) {
 	resetStuckClock()
 	lastAutoRecoverAt.Store(0)
 	t.Cleanup(func() {
+		// Stop any quiet-on-pause goroutines triggered by prior SetWorkerCount(0)
+		// calls *before* we drain the pools: those goroutines restore aux workers
+		// after their quiet window, and a restore that fires after the drain is
+		// what left live aux workers behind under the race detector.
+		stopQuietOnPause()
 		resetStuckClock()
 		lastAutoRecoverAt.Store(0)
 		resetPauseStateForTest()
@@ -91,6 +96,7 @@ func TestStuckWorkerAutoRecover(t *testing.T) {
 		_ = applyAuxWorkerCountLocked(0, false)
 		auxWorkerTarget = 0
 		auxWorkerMu.Unlock()
+		stopQuietOnPause()
 		resetPauseStateForTest()
 		waitLiveZero(t, &workerLive)
 		waitLiveZero(t, &auxWorkerLive)
@@ -104,8 +110,19 @@ func TestStuckWorkerAutoRecover(t *testing.T) {
 		t.Fatal("expected no auto-recover yet")
 	}
 
-	time.Sleep(40 * time.Millisecond)
-	maybeRecoverStuckWorkers()
+	// Wait for auto-recovery to complete with a generous deadline.
+	// Using a fixed sleep was unreliable under the race detector because
+	// goroutine scheduling delays could make the elapsed time less than
+	// stuckRecoverAfter (25ms) even after the sleep. Instead, poll until
+	// the recovery conditions are met.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		maybeRecoverStuckWorkers()
+		if WorkerCount() == 3 && AuxWorkerCount() == 2 && LastAutoRecoverAt() != 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if got := WorkerCount(); got != 3 {
 		t.Fatalf("WorkerCount=%d want 3 after auto-recover", got)
