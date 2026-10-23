@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   Box,
   Button,
@@ -16,12 +16,75 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import DeleteIcon from '@mui/icons-material/Delete'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import type { MemoryData } from '../api/types'
 import { api, formatNum } from '../api/client'
+import { getScopedItem, setScopedItem } from '../lib/scopedStorage'
 import { useToast } from '../context/ToastContext'
 import { StatCard } from '../components/HealthBar'
+
+const SORT_STORAGE_KEY = 'ast-memory-doc-sources-sort'
+
+type SortField = 'name' | 'type' | 'age'
+type SortDirection = 'asc' | 'desc'
+
+interface SortState {
+  field: SortField
+  direction: SortDirection
+}
+
+function loadSort(): SortState {
+  try {
+    const saved = getScopedItem(SORT_STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (parsed && typeof parsed.field === 'string' && typeof parsed.direction === 'string') {
+        if (['name', 'type', 'age'].includes(parsed.field) && ['asc', 'desc'].includes(parsed.direction)) {
+          return parsed
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { field: 'name', direction: 'asc' }
+}
+
+function saveSort(sort: SortState) {
+  try {
+    setScopedItem(SORT_STORAGE_KEY, JSON.stringify(sort))
+  } catch {
+    // ignore
+  }
+}
+
+function getAgeSeconds(ageStr: string): number {
+  if (!ageStr) return 0
+  const totalSeconds = parseDuration(ageStr)
+  return totalSeconds
+}
+
+function parseDuration(duration: string): number {
+  const regex = /(\d+)\s*(second|minute|hour|day|week|month|year)s?/gi
+  let total = 0
+  let match
+  while ((match = regex.exec(duration)) !== null) {
+    const value = parseInt(match[1], 10)
+    switch (match[2].toLowerCase()) {
+      case 'second': total += value; break
+      case 'minute': total += value * 60; break
+      case 'hour': total += value * 60 * 60; break
+      case 'day': total += value * 60 * 60 * 24; break
+      case 'week': total += value * 60 * 60 * 24 * 7; break
+      case 'month': total += value * 60 * 60 * 24 * 30; break
+      case 'year': total += value * 60 * 60 * 24 * 365; break
+    }
+  }
+  return total
+}
 
 export function MemoryTab({
   data,
@@ -39,8 +102,35 @@ export function MemoryTab({
   const [docUrl, setDocUrl] = useState('')
   const [docType, setDocType] = useState('markdown')
   const [packBusy, setPackBusy] = useState(false)
+  const [sort, setSort] = useState<SortState>(loadSort)
 
-  if (!data) return <Typography color="text.secondary">Loading memory…</Typography>
+  const handleSort = useCallback((field: SortField) => {
+    const next: SortState = {
+      field,
+      direction: sort.field === field && sort.direction === 'asc' ? 'desc' : 'asc',
+    }
+    setSort(next)
+    saveSort(next)
+  }, [sort])
+
+  const sortedSources = useMemo(() => {
+    if (!data?.DocSources) return []
+    const sorted = [...data.DocSources]
+    const dir = sort.direction === 'asc' ? 1 : -1
+    sorted.sort((a, b) => {
+      switch (sort.field) {
+        case 'name':
+          return dir * a.Name.localeCompare(b.Name)
+        case 'type':
+          return dir * a.Type.localeCompare(b.Type)
+        case 'age':
+          return dir * (getAgeSeconds(a.Age) - getAgeSeconds(b.Age))
+        default:
+          return 0
+      }
+    })
+    return sorted
+  }, [data?.DocSources, sort])
 
   return (
     <Box>
@@ -111,14 +201,38 @@ export function MemoryTab({
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Age</TableCell>
+                  <TableCell
+                    onClick={() => handleSort('name')}
+                    sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: 'action.hover' } }}
+                  >
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      Name
+                      {renderSortIcon(sort, 'name')}
+                    </Stack>
+                  </TableCell>
+                  <TableCell
+                    onClick={() => handleSort('type')}
+                    sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: 'action.hover' } }}
+                  >
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      Type
+                      {renderSortIcon(sort, 'type')}
+                    </Stack>
+                  </TableCell>
+                  <TableCell
+                    onClick={() => handleSort('age')}
+                    sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: 'action.hover' } }}
+                  >
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      Age
+                      {renderSortIcon(sort, 'age')}
+                    </Stack>
+                  </TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {data.DocSources?.map((d) => (
+                {sortedSources.map((d) => (
                   <TableRow key={d.ID}>
                     <TableCell>{d.Name}</TableCell>
                     <TableCell>{d.Type}</TableCell>
@@ -167,4 +281,11 @@ export function MemoryTab({
       </Card>
     </Box>
   )
+}
+
+function renderSortIcon(sort: SortState, field: SortField) {
+  if (sort.field !== field) return <KeyboardArrowDownIcon fontSize="inherit" sx={{ opacity: 0.35 }} />
+  return sort.direction === 'asc'
+    ? <ArrowUpwardIcon fontSize="inherit" />
+    : <KeyboardArrowDownIcon fontSize="inherit" />
 }

@@ -20,7 +20,7 @@ const (
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	// LRU eviction takes the least recently used note (last fetch, else store), never a handoff
 	// result or any note of a handoff child session: the handoff tree owns those and they expire with it.
-	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?` + notTreeOwnedClause + `
+	selectOldestSessionNoteQuery = `SELECT ref, token_est FROM context_notes WHERE session_id = ?` + notTreeOwnedClause + notOffloadClause + `
 		ORDER BY COALESCE(last_accessed_at, created_at) ASC, access_count ASC LIMIT 1`
 	selectNoteByRefQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
@@ -38,6 +38,9 @@ const (
 	listSessionNotesQuery  = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), '',
 		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
 		FROM context_notes WHERE session_id = ?`
+	listPinnedNotesQuery = `SELECT ref, session_id, COALESCE(project_path,''), COALESCE(label,''), content,
+		COALESCE(tags,''), COALESCE(kind,''), COALESCE(metadata_json,''), token_est, access_count, created_at, COALESCE(last_accessed_at,'')
+		FROM context_notes WHERE session_id = ? AND kind = 'pinned'`
 	searchNotesFTSQuery = `SELECT cn.ref, cn.session_id, COALESCE(cn.project_path,''), COALESCE(cn.label,''), cn.content,
 		COALESCE(cn.tags,''), COALESCE(cn.kind,''), COALESCE(cn.metadata_json,''), cn.token_est, cn.access_count, cn.created_at, COALESCE(cn.last_accessed_at,'')
 		FROM context_notes_fts f
@@ -129,9 +132,13 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 	if sessionID == "" || content == "" {
 		return nil, errs.NewCode(errs.CodeInvalidInput, "session_id and content required")
 	}
+	kind = strings.TrimSpace(kind)
+	if kind == KindPinned {
+		return storePinned(projectPath, content)
+	}
 	tokenEst := db.EstimateTokens(content)
 	lim := LoadLimits()
-	if tokenEst > lim.MaxTokensSession {
+	if strings.TrimSpace(kind) != KindOffload && tokenEst > lim.MaxTokensSession {
 		return nil, newLimitError("single_note_tokens", tokenEst, lim.MaxTokensSession, tokenEst)
 	}
 	tagStr := normalizeTags(tags)
@@ -145,7 +152,12 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 	}
 	var evicted []string
 	var err error
-	if lim.Policy == "lru_session" {
+	if kind == KindOffload {
+		evicted, err = checkOffloadLimit(tokenEst, lim)
+		if err != nil {
+			return nil, err
+		}
+	} else if lim.Policy == "lru_session" {
 		evicted, err = evictSessionLRU(sessionID, tokenEst, lim)
 		if err != nil {
 			return nil, err
@@ -177,6 +189,21 @@ func Store(sessionID, content, label, projectPath string, tags interface{}, kind
 		SessionID:           sessionID,
 		EvictedRefs:         evicted,
 		Stats:               stats,
+	}, nil
+}
+
+// storePinned routes a store_context(kind=pinned) call to StorePinned.
+func storePinned(projectPath, content string) (*StoreResult, error) {
+	pinned, err := StorePinned(projectPath, content, "store_context")
+	if err != nil {
+		return nil, err
+	}
+	return &StoreResult{
+		Ref:                 pinned.Ref,
+		Label:               "pinned",
+		VirtualTokensStored: pinned.TokenEst,
+		SessionID:           "pinned",
+		Stats:               map[string]interface{}{},
 	}, nil
 }
 
@@ -428,8 +455,9 @@ func parseRefList(raw interface{}) []string {
 
 // FetchResult holds notes retrieved by ref.
 type FetchResult struct {
-	Notes []Note                 `json:"notes"`
-	Stats map[string]interface{} `json:"stats"`
+	Notes   []Note                 `json:"notes"`
+	Expired []ExpiredRef           `json:"expired,omitempty"`
+	Stats   map[string]interface{} `json:"stats"`
 }
 
 // Fetch returns notes by ref, optionally scoped to session_id.
@@ -440,10 +468,14 @@ func Fetch(refsRaw interface{}, sessionID, repairReason string) (*FetchResult, e
 	}
 	reason := normalizeRepairReason(repairReason)
 	notes := make([]Note, 0, len(refs))
+	var expired []ExpiredRef
 	totalReturned := 0
 	for _, ref := range refs {
 		n, err := noteByRef(ref)
 		if err != nil {
+			if e, ok := tombstoneFor(ref); ok {
+				expired = append(expired, e)
+			}
 			continue
 		}
 		if sessionID != "" && n.SessionID != sessionID {
@@ -476,7 +508,7 @@ func Fetch(refsRaw interface{}, sessionID, repairReason string) (*FetchResult, e
 		stats["session_virtual_accessed_total"] = r.VirtualTokensAccessed
 	}
 	appendKvRepairStats(stats, "")
-	return &FetchResult{Notes: notes, Stats: stats}, nil
+	return &FetchResult{Notes: notes, Expired: expired, Stats: stats}, nil
 }
 
 // ListResult is metadata-only listing.
@@ -495,17 +527,43 @@ func List(sessionID, projectPath string, limit int) (*ListResult, error) {
 		limit = 20
 	}
 	var total int
-	countQ := countSessionNotesQuery
-	countArgs := []any{sessionID}
-	q := listSessionNotesQuery
-	args := []any{sessionID}
-	if projectPath != "" {
-		q += andProjectPathClause
-		countQ += andProjectPathClause
-		args = append(args, projectPath)
-		countArgs = append(countArgs, projectPath)
+	var q string
+	var args []any
+
+	if sessionID == "pinned" {
+		// For pinned notes, use the pinned notes query that includes content
+		q = listPinnedNotesQuery
+		args = []any{sessionID}
+		if projectPath != "" {
+			q += andProjectPathClause
+			args = append(args, projectPath)
+		}
+		// Count pinned notes
+		countQ := `SELECT COUNT(*) FROM context_notes WHERE session_id = ? AND kind = 'pinned'`
+		countArgs := []any{sessionID}
+		if projectPath != "" {
+			countQ += andProjectPathClause
+			countArgs = append(countArgs, projectPath)
+		}
+		db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
+	} else {
+		q = listSessionNotesQuery
+		args = []any{sessionID}
+		if projectPath != "" {
+			q += andProjectPathClause
+			args = append(args, projectPath)
+			countQ := countSessionNotesQuery
+			countArgs := []any{sessionID}
+			if projectPath != "" {
+				countQ += andProjectPathClause
+				countArgs = append(countArgs, projectPath)
+			}
+			db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
+		} else {
+			db.ContextDB.QueryRow(countSessionNotesQuery, []any{sessionID}...).Scan(&total)
+		}
 	}
-	db.ContextDB.QueryRow(countQ, countArgs...).Scan(&total)
+
 	q += orderByCreatedDescLimitClause
 	args = append(args, limit)
 	rows, err := db.ContextDB.Query(q, args...)

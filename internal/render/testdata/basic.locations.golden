@@ -1,0 +1,4 @@
+get_context_capsule "widget" · 3 results · 46 tok
+pkg/widgets.go:3-5 function WidgetAlpha 0.0328
+pkg/widgets.go:7-7 method Widget.Beta 0.61
+web/app.ts:10-40 class App 0.5

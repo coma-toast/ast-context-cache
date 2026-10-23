@@ -8,6 +8,14 @@ import (
 
 const rrfK = 60 // reciprocal rank fusion constant
 
+// Fused hit data keys recording which ranked lists a hybrid hit came from. A hit from the
+// vector list also carries that list's "similarity". Packers drop these before output
+// (StripFusionKeys).
+const (
+	KeyInBM25   = "in_bm25"
+	KeyInVector = "in_vector"
+)
+
 // HybridSearchMetrics counts candidates at each hybrid-search stage (after filters, before final limit).
 type HybridSearchMetrics struct {
 	BM25Candidates   int `json:"bm25_candidates"`
@@ -35,6 +43,9 @@ func HybridSearch(query, projectPath string, emb embedder.Interface, limit int, 
 		if len(bm25Results) > limit {
 			bm25Results = bm25Results[:limit]
 		}
+		for _, r := range bm25Results {
+			r.Data[KeyInBM25] = true
+		}
 		metrics.HybridAfterFuse = len(bm25Results)
 		return bm25Results, metrics
 	}
@@ -44,34 +55,24 @@ func HybridSearch(query, projectPath string, emb embedder.Interface, limit int, 
 		data  map[string]interface{}
 		score float64
 	}
-
 	seen := map[string]*fusedEntry{}
-
-	for rank, r := range bm25Results {
-		key := resultKey(r)
-		if e, ok := seen[key]; ok {
+	fuse := func(results []ScoredResult, member string) {
+		for rank, r := range results {
+			key := resultKey(r)
+			e, ok := seen[key]
+			if !ok {
+				e = &fusedEntry{key: key, data: r.Data}
+				seen[key] = e
+			}
 			e.score += 1.0 / float64(rrfK+rank+1)
-		} else {
-			seen[key] = &fusedEntry{
-				key:   key,
-				data:  r.Data,
-				score: 1.0 / float64(rrfK+rank+1),
+			e.data[member] = true
+			if sim, ok := r.Data["similarity"]; ok && member == KeyInVector {
+				e.data["similarity"] = sim
 			}
 		}
 	}
-
-	for rank, r := range vectorResults {
-		key := resultKey(r)
-		if e, ok := seen[key]; ok {
-			e.score += 1.0 / float64(rrfK+rank+1)
-		} else {
-			seen[key] = &fusedEntry{
-				key:   key,
-				data:  r.Data,
-				score: 1.0 / float64(rrfK+rank+1),
-			}
-		}
-	}
+	fuse(bm25Results, KeyInBM25)
+	fuse(vectorResults, KeyInVector)
 
 	// Fuse in sorted-key order and break score ties on the key, so tied hits
 	// come back in the same order on every run.
@@ -101,6 +102,16 @@ func HybridSearch(query, projectPath string, emb embedder.Interface, limit int, 
 		merged = merged[:limit]
 	}
 	return merged, metrics
+}
+
+// StripFusionKeys removes the list-membership keys HybridSearch adds, and a similarity that
+// fusion copied onto a BM25 hit, so packed output matches the hit's own fields.
+func StripFusionKeys(data map[string]interface{}) {
+	if inBM25, _ := data[KeyInBM25].(bool); inBM25 {
+		delete(data, "similarity")
+	}
+	delete(data, KeyInBM25)
+	delete(data, KeyInVector)
 }
 
 // resultKey identifies a hit's symbol for fusion. Same-named methods of

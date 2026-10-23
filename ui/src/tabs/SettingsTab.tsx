@@ -28,6 +28,7 @@ import type {
 import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
+import { RecoveryBanner } from '../components/RecoveryBanner'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
 import { FeaturesSection } from '../components/FeaturesSection'
@@ -40,6 +41,7 @@ import { restartNow } from '../lib/restart'
 const PROJECTS_PAGE_SIZE = 8
 
 const SECTIONS = [
+  { id: 'general', label: 'General' },
   { id: 'updates', label: 'Updates' },
   { id: 'storage', label: 'Storage' },
   { id: 'features', label: 'Features' },
@@ -68,9 +70,10 @@ export function SettingsTab({
   const [linkChild, setLinkChild] = useState<Record<string, string>>({})
   const [projectSearch, setProjectSearch] = useState('')
   const [projectPage, setProjectPage] = useState(1)
-  const [renaming, setRenaming] = useState<Record<string, string>>({})
-  const [pendingPaths, setPendingPaths] = useState<Record<string, boolean>>({})
-  const [editingExcludes, setEditingExcludes] = useState<Record<string, string>>({})
+const [renaming, setRenaming] = useState<Record<string, string>>({})
+	const [pendingPaths, setPendingPaths] = useState<Record<string, boolean>>({})
+	const [editingExcludes, setEditingExcludes] = useState<Record<string, string>>({})
+	const [editingPinned, setEditingPinned] = useState<Record<string, string>>({})
 
   if (!data) return <Typography color="text.secondary">Loading settings…</Typography>
 
@@ -118,6 +121,20 @@ export function SettingsTab({
         showToast(String(e), 'error')
       }
     })
+  const savePinnedNote = (path: string) =>
+    withPending(path, async () => {
+      try {
+        await api.savePinnedNote(path, editingPinned[path] || '', 'user')
+        setEditingPinned((prev) => {
+          const { [path]: _drop, ...rest } = prev
+          return rest
+        })
+        showToast('Pinned note saved', 'success')
+        onRefresh()
+      } catch (e) {
+        showToast(String(e), 'error')
+      }
+    })
   const linkable = (parent: Project) =>
     projects.filter((p) => p.Path !== parent.Path && p.LinkedParent === '' && !parent.LinkedChildren?.includes(p.Path))
 
@@ -154,7 +171,11 @@ export function SettingsTab({
 
       <UpdatesSection />
 
-      <StorageSection data={data} />
+      <InstanceSection data={data} save={save} />
+
+      <StorageSection data={data} save={save} />
+
+      <RecoveryBanner />
 
       <FeaturesSection refreshKey={data} />
 
@@ -465,6 +486,30 @@ export function SettingsTab({
                     })}>
                       {p.Pinned ? 'Unpin' : 'Pin'}
                     </Button>
+
+                    <Box sx={{ mt: 1.5 }}>
+                        <TextField
+                          label="Pinned note"
+                          value={editingPinned[p.Path] ?? p.PinnedNote ?? ''}
+                          onChange={(e) => setEditingPinned({ ...editingPinned, [p.Path]: e.target.value })}
+                          multiline
+                          rows={2}
+                          sx={{ mt: 1 }}
+                          helperText="Max 500 tokens"
+                        />
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                          <Button size="small" variant="contained" disabled={!!pendingPaths[p.Path]} onClick={() => savePinnedNote(p.Path)}>
+                            Save
+                          </Button>
+                          <Button size="small" variant="outlined" onClick={() => setEditingPinned((prev) => {
+                            const { [p.Path]: _drop, ...rest } = prev
+                            return rest
+                          })}>
+                            Cancel
+                          </Button>
+                        </Stack>
+                      </Box>
+
                     <Button
                       size="small"
                       disabled={!!pendingPaths[p.Path]}
@@ -614,7 +659,51 @@ export function SettingsTab({
   )
 }
 
-function StorageSection({ data }: { data: SettingsData }) {
+function InstanceSection({ data, save }: { data: SettingsData; save: (key: string, value: string) => Promise<void> }) {
+  const locked = !!data.InstanceNameLocked
+  const [name, setName] = useState(data.InstanceName ?? '')
+  useEffect(() => {
+    setName(data.InstanceName ?? '')
+  }, [data.InstanceName])
+  const lockHint = data.InstanceNameSource === 'flag'
+    ? 'Set by the -name flag; clear the flag to edit here.'
+    : 'Set by the AST_INSTANCE_NAME environment variable; unset it to edit here.'
+  return (
+    <Card variant="outlined" id="settings-general" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          General
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', flexWrap: 'wrap' }} useFlexGap>
+          <TextField
+            label="Instance name"
+            size="small"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={locked}
+            helperText={
+              locked
+                ? lockHint
+                : '1–40 chars: letters, digits, spaces, - _ . · Shown in the tab title; scopes the session cookie and stored UI state. Empty clears it.'
+            }
+            slotProps={{ htmlInput: { maxLength: 40 } }}
+            sx={{ minWidth: 240 }}
+          />
+          <Button size="small" variant="outlined" disabled={locked || name === (data.InstanceName ?? '')} onClick={() => save('instance_name', name.trim())}>
+            Save
+          </Button>
+        </Stack>
+        {data.InstanceNameEffective && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Active: {data.InstanceNameEffective} (from {data.InstanceNameSource || 'db'})
+          </Typography>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function StorageSection({ data, save }: { data: SettingsData; save: (key: string, value: string) => Promise<void> }) {
   const { showToast } = useToast()
   const [target, setTarget] = useState('')
   const [status, setStatus] = useState<DataDirMoveStatus | null>(null)
@@ -696,6 +785,15 @@ function StorageSection({ data }: { data: SettingsData }) {
         <Typography variant="body2" color="text.secondary">
           Current data directory: <code>{data.DataDir || '—'}</code> ({data.DataDirSize || '—'})
         </Typography>
+        <Box sx={{ mt: 2 }}>
+          <Button size="small" onClick={() => save('transcript_usage_ingest', data.TranscriptUsageIngest ? 'false' : 'true')}>
+            Transcript usage ingest: {data.TranscriptUsageIngest ? 'On' : 'Off'}
+          </Button>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            Hourly, reads token usage counts from ~/.claude/projects transcripts for the Overview host usage card. Only
+            per-day token totals are stored, never transcript text.
+          </Typography>
+        </Box>
         <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'warning.dark', borderRadius: 1 }}>
           <Typography variant="subtitle2" color="warning.main">
             Move data directory
@@ -752,9 +850,18 @@ function StorageSection({ data }: { data: SettingsData }) {
                 </Button>
               }
             >
-              Move complete. Restart ast-mcp to use the new location at <code>{status.target_dir}</code>.
-              Old files are still at <code>{data.DataDir}</code> — safe to delete once you've confirmed
-              everything works after restart.
+Move complete. Restart ast-mcp to use the new location at <code>{status.target_dir}</code>.
+{status.source_dir !== undefined && status.source_dir !== null ? (
+  <Typography variant="note" sx={{ mt: 1, color: 'text.secondary', display: 'block' }}>
+    Old files are still at <code>{status.source_dir}</code> — safe to delete once you've confirmed
+    everything works after restart.
+  </Typography>
+) : (
+  <Typography variant="note" sx={{ mt: 1, color: 'text.secondary', display: 'block' }}>
+    Old files are still at <code>{data.DataDir}</code> — safe to delete once you've confirmed
+    everything works after restart.
+  </Typography>
+)}
             </Alert>
           )}
           {!active && status?.done && status.recreated && status.recreated.length > 0 && (

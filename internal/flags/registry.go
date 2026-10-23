@@ -10,6 +10,12 @@ const (
 	KeyContextEdit        = "feature_context_edit"
 	KeyContextFn          = "feature_context_fn"
 	KeySharedQueryCache   = "feature_shared_query_cache"
+	KeyStableResponses    = "feature_stable_responses"
+	KeyTextFormat         = "feature_text_format"
+	KeyRelevanceFloor     = "feature_relevance_floor"
+	KeyModeV2             = "feature_mode_v2"
+	KeyResultOffload      = "feature_result_offload"
+	KeyMemoryV2           = "feature_memory_v2"
 	handoffChildKeyPrefix = KeyHandoff + "_"
 )
 
@@ -67,5 +73,41 @@ var registry = []Flag{
 		Description: "Model-defined reusable context functions: define_context_fn, apply_context_fn, list_context_fns. Off by default because an agent-authored context transform is a prompt-injection surface (arXiv 2609.37725 Discussion).",
 		Default:     false,
 		Tools:       []string{"define_context_fn", "apply_context_fn", "list_context_fns"},
+	},
+	{
+		Key:         KeyStableResponses,
+		Env:         "AST_FEATURE_STABLE_RESPONSES",
+		Description: "Byte-stable tool responses: timings and cache stats move to _meta and stable results come before variable stats, so identical calls return identical text.",
+		Default:     true,
+	},
+	{
+		Key:         KeyTextFormat,
+		Env:         "AST_FEATURE_TEXT_FORMAT",
+		Description: "Code tools default to compact text (one header line per symbol plus a fenced source block); output=json keeps the JSON structure.",
+		Default:     true,
+	},
+	{
+		Key:         KeyRelevanceFloor,
+		Env:         "AST_FEATURE_RELEVANCE_FLOOR",
+		Description: "Code search drops hits far below the top score, returns an explicit no-match for weak queries, and collapses test, mock, vendored and duplicate hits.",
+		Default:     true,
+	},
+	{
+		Key:         KeyModeV2,
+		Env:         "AST_FEATURE_MODE_V2",
+		Description: "Revised modes: auto returns full source for the top 3 hits and skeletons for the rest, and mode=edit returns a symbol plus its callee signatures.",
+		Default:     true,
+	},
+	{
+		Key:         KeyResultOffload,
+		Env:         "AST_FEATURE_RESULT_OFFLOAD",
+		Description: "Tool results over the offload threshold are stored as a ctx_* note and returned as a head plus the ref.",
+		Default:     true,
+	},
+	{
+		Key:         KeyMemoryV2,
+		Env:         "AST_FEATURE_MEMORY_V2",
+		Description: "Structured memory v2 features: recency decay ranking, TTL expiry, debug demotion output, and compact lines default.",
+		Default:     true,
 	},
 }

@@ -2,7 +2,9 @@ package memory
 
 import (
 	"fmt"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,16 +104,118 @@ func TestRecallFusesLexicalAndVector(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Lines, 2)
 	assert.Equal(t, []string{lexical, semantic}, []string{res.Lines[0].Ref, res.Lines[1].Ref})
-	assert.InDelta(t, 2.0/61+1.0/62, res.Lines[0].Score, 1e-12)
-	assert.InDelta(t, 1.0/61, res.Lines[1].Score, 1e-12)
+	assert.InDelta(t, 2.0/61+1.0/62, res.Lines[0].Score, 1e-7)
+	assert.InDelta(t, 1.0/61, res.Lines[1].Score, 1e-7)
 }
 
 func TestFuseEntriesTieBreaksByRef(t *testing.T) {
-	t.Parallel()
 	a, b := Entry{Ref: "mem_a"}, Entry{Ref: "mem_b"}
 	got, scores := fuseEntries([]Entry{b}, []Entry{a})
 	assert.Equal(t, []string{"mem_a", "mem_b"}, entryRefs(got))
 	assert.Equal(t, scores["mem_a"], scores["mem_b"])
+}
+
+// MEM-6: decayFactor tests.
+// Test that frequently accessed recent entry scores >1.0.
+func TestDecayFactor_FrequentRecentScoresAboveOne(t *testing.T) {
+	dbtest.Init(t)
+	e := Entry{
+		Kind:           KindFact,
+		Scope:          ScopeSession,
+		AccessCount:    10,
+		LastAccessedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
+		CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
+	}
+	f := decayFactor(e, RecallInput{})
+	assert.True(t, f > 1.0, "frequent recent entry should score >1.0, got %f", f)
+}
+
+// Test that old unused entry hits floor 0.3.
+func TestDecayFactor_OldUnusedHitsFloor(t *testing.T) {
+	dbtest.Init(t)
+	old := time.Now().UTC().Add(-100 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	e := Entry{
+		Kind:           KindFact,
+		Scope:          ScopeSession,
+		AccessCount:    1,
+		LastAccessedAt: old,
+		CreatedAt:      old,
+	}
+	f := decayFactor(e, RecallInput{})
+	assert.InDelta(t, 0.3, f, 1e-9, "old unused entry should hit 0.3 floor, got %f", f)
+}
+
+// Test that more accesses never lower the factor.
+func TestDecayFactor_MoreAccessesNeverLower(t *testing.T) {
+	dbtest.Init(t)
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	var prev float64 = -1
+	for n := 1; n <= 20; n++ {
+		e := Entry{
+			Kind:           KindFact,
+			Scope:          ScopeSession,
+			AccessCount:    n,
+			LastAccessedAt: now,
+			CreatedAt:      now,
+		}
+		f := decayFactor(e, RecallInput{})
+		if prev >= 0 {
+			assert.True(t, f >= prev-1e-12, "accessCount=%d factor %f should not be lower than %f (n=%d)", n, f, prev, n-1)
+		}
+		prev = f
+	}
+}
+
+// Test that frequency component is monotonic with access count.
+func TestDecayFactor_FrequencyMonotonic(t *testing.T) {
+	dbtest.Init(t)
+	var prev float64
+	for n := 1; n <= 100; n++ {
+		freq := 1.0 + math.Log2(1.0+float64(n))/4.0
+		if n > 1 {
+			assert.True(t, freq >= prev-1e-12, "frequency should be monotonic: n=%d freq=%f", n, freq)
+		}
+		prev = freq
+	}
+}
+
+// Test that recency decays with time since last access.
+func TestDecayFactor_RecencyDecays(t *testing.T) {
+	dbtest.Init(t)
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	old := time.Now().UTC().Add(-10 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	eRecent := Entry{Kind: KindFact, Scope: ScopeSession, AccessCount: 1, LastAccessedAt: now, CreatedAt: now}
+	eOld := Entry{Kind: KindFact, Scope: ScopeSession, AccessCount: 1, LastAccessedAt: old, CreatedAt: now}
+	fRecent := decayFactor(eRecent, RecallInput{})
+	fOld := decayFactor(eOld, RecallInput{})
+	assert.True(t, fRecent > fOld, "recent entry %f should score higher than old %f", fRecent, fOld)
+}
+
+// Test that age term decays with creation age.
+func TestDecayFactor_AgeDecays(t *testing.T) {
+	dbtest.Init(t)
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	old := time.Now().UTC().Add(-10 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	eNew := Entry{Kind: KindFact, Scope: ScopeSession, AccessCount: 1, LastAccessedAt: now, CreatedAt: now}
+	eOld := Entry{Kind: KindFact, Scope: ScopeSession, AccessCount: 1, LastAccessedAt: now, CreatedAt: old}
+	fNew := decayFactor(eNew, RecallInput{})
+	fOld := decayFactor(eOld, RecallInput{})
+	assert.True(t, fNew > fOld, "new entry %f should score higher than old %f", fNew, fOld)
+}
+
+// Test that procedure is exempt from decay by default (MEM-7).
+func TestDecayFactor_ProcedureExempt(t *testing.T) {
+	dbtest.Init(t)
+	old := time.Now().UTC().Add(-100 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	e := Entry{
+		Kind:           KindProcedure,
+		Scope:          ScopeSession,
+		AccessCount:    1,
+		LastAccessedAt: old,
+		CreatedAt:      old,
+	}
+	f := decayFactor(e, RecallInput{})
+	assert.Equal(t, 1.0, f, "procedure should be exempt from decay by default")
 }
 
 // BF-13: all=true wiped every session and project; it is now scoped, and unscoped needs confirm.

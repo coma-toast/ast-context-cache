@@ -38,6 +38,8 @@ const (
 	// counting tokens and comparing runs, so the numbers do not depend on the temp path.
 	projectToken = "<project>"
 	homeToken    = "<home>"
+	// hashVectorMin is the relevance_vector_min the hash embedder runs with (AST_RELEVANCE_SWEEP=1).
+	hashVectorMin = "0.22"
 )
 
 // handleToolCall starts a watcher on project_path; stop it before dbtest closes the pools.
@@ -88,12 +90,18 @@ type bench struct {
 	project string
 	home    string
 	nextID  int
+	// tag prefixes session ids, so repeated runs of a scenario (the sweep) start undeduped.
+	tag string
 }
 
 func TestTokenBench(t *testing.T) {
 	scenarios := loadScenarios(t)
 	b := newBench(t)
 	base := loadBaseline(t)
+	if os.Getenv("AST_RELEVANCE_SWEEP") == "1" {
+		b.sweep(scenarios, base)
+		return
+	}
 	var got []outcome
 	for _, sc := range scenarios {
 		got = append(got, b.run(sc))
@@ -145,11 +153,41 @@ func loadBaseline(t *testing.T) map[string]outcome {
 	return out
 }
 
-// newBench copies the fixture to a temp dir, indexes and embeds it with the hash embedder,
-// and starts the MCP server.
+// benchEmbedder is the deterministic hash embedder, or with AST_TOKENBENCH_EMBEDDER=onnx the
+// real local ONNX model (all-mpnet-base-v2) from MODEL_DIR or <repo>/model, as the server loads
+// it. The ONNX mode is opt-in and skips when the runtime or model files are missing.
+func benchEmbedder(t *testing.T) embedder.Interface {
+	t.Helper()
+	switch mode := os.Getenv("AST_TOKENBENCH_EMBEDDER"); mode {
+	case "", "hash":
+		return embedder.NewHashEmbedder(search.VectorDims)
+	case "onnx":
+		dir := os.Getenv("MODEL_DIR")
+		if dir == "" {
+			dir = filepath.Join("..", "..", "model")
+		}
+		emb, err := embedder.New(dir)
+		if err != nil {
+			t.Skipf("AST_TOKENBENCH_EMBEDDER=onnx: %v", err)
+		}
+		t.Cleanup(emb.Close)
+		return emb
+	default:
+		t.Fatalf("unknown AST_TOKENBENCH_EMBEDDER %q (use hash or onnx)", mode)
+		return nil
+	}
+}
+
+// newBench copies the fixture to a temp dir, indexes and embeds it with benchEmbedder, and
+// starts the MCP server.
 func newBench(t *testing.T) *bench {
 	t.Helper()
 	home := dbtest.Init(t)
+	if os.Getenv("AST_TOKENBENCH_EMBEDDER") != "onnx" {
+		// The relevance floor's VectorMin default is tuned for real embedders; the hash
+		// embedder's cosines need the floor the hash sweep picked.
+		require.NoError(t, db.SetSetting("relevance_vector_min", hashVectorMin))
+	}
 	search.Cache.Unload()
 	t.Cleanup(search.Cache.Unload)
 	root := filepath.Join(t.TempDir(), "fixture")
@@ -168,7 +206,7 @@ func newBench(t *testing.T) *bench {
 	home, err = filepath.EvalSymlinks(home)
 	require.NoError(t, err)
 	prevEmb := mcp.GetEmbedder()
-	emb := embedder.NewHashEmbedder(search.VectorDims)
+	emb := benchEmbedder(t)
 	prevCtxEmb := astcontext.Emb
 	mcp.SetEmbedder(emb)
 	astcontext.Emb = emb
@@ -199,7 +237,7 @@ func newBench(t *testing.T) *bench {
 // run measures one scenario: setup once, then the call twice under different session ids so
 // session dedup cannot change the second response.
 func (b *bench) run(sc scenario) outcome {
-	vars := map[string]string{"${project}": b.project, "${setup_session}": "tb-" + sc.Name + "-setup"}
+	vars := map[string]string{"${project}": b.project, "${setup_session}": "tb-" + b.tag + sc.Name + "-setup"}
 	for _, call := range sc.Setup {
 		out, isErr := b.call(call.Tool, expand(call.Args, vars))
 		require.False(b.t, isErr, "%s setup %s: %s", sc.Name, call.Tool, out)
@@ -216,7 +254,7 @@ func (b *bench) run(sc scenario) outcome {
 	}
 	var texts [2]string
 	for i, suffix := range []string{"a", "b"} {
-		sid := "tb-" + sc.Name + "-" + suffix
+		sid := "tb-" + b.tag + sc.Name + "-" + suffix
 		vars["${session}"] = sid
 		out, isErr := b.call(sc.Tool, expand(sc.Args, vars))
 		require.False(b.t, isErr, "%s: %s", sc.Name, out)
@@ -280,21 +318,43 @@ func (b *bench) waitMemoryVector(ref string) {
 }
 
 // randomRef matches the random hex part of mem_, hof_, hft_, and ctx_ refs.
-var randomRef = regexp.MustCompile(`\b(mem|hof|hft|ctx)_[0-9a-f]+`)
+var (
+	randomRef = regexp.MustCompile(`\b(mem|hof|hft|ctx)_[0-9a-f]+`)
+	// reUntil matches the (until YYYY-MM-DD HH:MM:SS) suffix that formatLines adds when
+	// ValidUntil is set, so the bench can strip it and stay deterministic across runs.
+	reUntil = regexp.MustCompile(`\s*\(until [^\)]*\)`)
+	// reScore matches the float score in recall line JSON, which drifts between runs as
+	// access_count grows, so the bench normalizes it to keep the two runs identical.
+	reScore = regexp.MustCompile(`"score":[0-9.eE+-]+`)
+)
 
 // normalize replaces the temp paths and the run's session id with fixed tokens, and zeroes
 // random ref ids (keeping their length), so token counts do not drift between runs.
+// It also strips ValidUntil timestamps to ensure determinism.
 func (b *bench) normalize(text, sid string) string {
 	text = strings.NewReplacer(b.project, projectToken, b.home, homeToken, sid, "${session}").Replace(text)
-	return randomRef.ReplaceAllStringFunc(text, func(ref string) string {
+	text = randomRef.ReplaceAllStringFunc(text, func(ref string) string {
 		prefix, hex, _ := strings.Cut(ref, "_")
 		return prefix + "_" + strings.Repeat("0", len(hex))
 	})
+	// Strip ValidUntil timestamps (until YYYY-MM-DD HH:MM:SS) to ensure determinism
+	// between runs, as these timestamps vary each time.
+	text = reUntil.ReplaceAllString(text, "")
+	// Normalize float scores to keep the two runs identical (access_count drift).
+	return reScore.ReplaceAllString(text, `"score":0`)
 }
 
+// textHit matches a rendered text or locations line: `### file:start-end kind name` or
+// `file:start-end kind name score`, capturing the file and name.
+var textHit = regexp.MustCompile(`^(?:### )?(\S+):\d+-\d+ \S+ (\S+)`)
+
 // hits returns "relpath:name" keys for the response's results, and how many results it has.
-// Results are the first array found under results, chunks, symbols, or lines.
+// JSON results are the first array found under results, chunks, symbols, or lines; text
+// output is parsed line by line with textHits.
 func (b *bench) hits(text string) (map[string]bool, int) {
+	if !json.Valid([]byte(text)) {
+		return textHits(text)
+	}
 	obj := decodeObject(text)
 	out := map[string]bool{}
 	for _, key := range []string{"results", "chunks", "symbols", "lines"} {
@@ -322,6 +382,26 @@ func (b *bench) hits(text string) (map[string]bool, int) {
 		return out, len(arr)
 	}
 	return out, 0
+}
+
+// textHits returns "relpath:name" keys (plus "relpath:bare" for a qualified name's part after
+// the last '.') for each rendered result line, and how many lines matched.
+func textHits(text string) (map[string]bool, int) {
+	out := map[string]bool{}
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		m := textHit.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		n++
+		file := strings.TrimPrefix(strings.TrimPrefix(m[1], projectToken), "/")
+		out[file+":"+m[2]] = true
+		if i := strings.LastIndex(m[2], "."); i >= 0 {
+			out[file+":"+m[2][i+1:]] = true
+		}
+	}
+	return out, n
 }
 
 // recall is the share of expect found. "text:<s>" expects match a substring of the response;
@@ -407,4 +487,71 @@ func printTable(got []outcome, base map[string]outcome) {
 		fmt.Printf("%-38s %-20s %7d %7s %7s %5d %6.2f %4v %s\n", o.Name, o.Tool, o.Tokens, baseCol, delta, o.Results, o.Recall, o.Deterministic, neg)
 	}
 	fmt.Printf("%-38s %-20s %7d %7d %+7d\n\n", "TOTAL", "", total, baseTotal, total-baseTotal)
+}
+
+type grid struct{ minRelative, vectorMin, coverageMin []float64 }
+
+// sweepGrid is the relevance threshold grid AST_RELEVANCE_SWEEP=1 runs with the hash embedder.
+var sweepGrid = grid{
+	minRelative: []float64{0.35, 0.5, 0.6, 0.7, 0.75, 0.8},
+	vectorMin:   []float64{0.05, 0.1, 0.2, 0.22, 0.25, 0.45},
+	coverageMin: []float64{0.34, 0.5, 1},
+}
+
+// onnxSweepGrid reaches higher vector floors, since a real model's cosines run well above the
+// hash embedder's.
+var onnxSweepGrid = grid{
+	minRelative: []float64{0.5, 0.6, 0.7, 0.75, 0.8},
+	vectorMin:   []float64{0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6},
+	coverageMin: []float64{0.34, 0.5, 1},
+}
+
+// sweepTools are the tools the relevance floor applies to.
+var sweepTools = map[string]bool{"get_context_capsule": true, "search_semantic": true, "retrieve": true}
+
+// sweep runs the code-search scenarios once per grid setting and prints, per setting, the
+// expected hits found, scenarios whose recall fell below the baseline (lost), negatives
+// flagged as no-match, and total tokens. Pick the setting with lost 0, then the fewest tokens.
+func (b *bench) sweep(scenarios []scenario, base map[string]outcome) {
+	var code []scenario
+	for _, sc := range scenarios {
+		if sweepTools[sc.Tool] && len(sc.Setup) == 0 {
+			code = append(code, sc)
+		}
+	}
+	g := sweepGrid
+	if os.Getenv("AST_TOKENBENCH_EMBEDDER") == "onnx" {
+		g = onnxSweepGrid
+	}
+	fmt.Printf("\n%-8s %-8s %-8s %9s %5s %9s %7s\n", "min_rel", "vec_min", "cov_min", "expected", "lost", "negatives", "tokens")
+	run := 0
+	for _, minRel := range g.minRelative {
+		for _, vecMin := range g.vectorMin {
+			for _, covMin := range g.coverageMin {
+				b.t.Setenv("AST_RELEVANCE_MIN_RELATIVE", fmt.Sprint(minRel))
+				b.t.Setenv("AST_RELEVANCE_VECTOR_MIN", fmt.Sprint(vecMin))
+				b.t.Setenv("AST_RELEVANCE_COVERAGE_MIN", fmt.Sprint(covMin))
+				run++
+				b.tag = fmt.Sprintf("sweep%d-", run)
+				found, expected, lost, flagged, negatives, total := 0.0, 0, 0, 0, 0, 0
+				for _, sc := range code {
+					o := b.run(sc)
+					total += o.Tokens
+					if sc.Negative {
+						negatives++
+						if *o.NoMatch {
+							flagged++
+						}
+						continue
+					}
+					found += o.Recall * float64(len(sc.Expect))
+					expected += len(sc.Expect)
+					if prev, ok := base[sc.Name]; ok && o.Recall < prev.Recall-1e-9 {
+						lost++
+					}
+				}
+				fmt.Printf("%-8g %-8g %-8g %5.0f/%-3d %5d %5d/%-3d %7d\n", minRel, vecMin, covMin, found, expected, lost, flagged, negatives, total)
+			}
+		}
+	}
 }

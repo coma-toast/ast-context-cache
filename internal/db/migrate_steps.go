@@ -18,12 +18,43 @@ const (
 	normalizeSessionStatsLastAccessQuery = `UPDATE context_session_stats SET last_access_at = datetime(last_access_at)
 		WHERE last_access_at LIKE '%T%' AND datetime(last_access_at) IS NOT NULL`
 	addQueriesEstimateMethodColumn = `ALTER TABLE queries ADD COLUMN estimate_method TEXT DEFAULT 'bytes4'`
+	// Offload notes leave a tombstone when they expire, so fetch_context can report the ref
+	// as expired (with the tool and args that produced it) instead of silently missing it.
+	createContextNoteTombstonesTable = `CREATE TABLE IF NOT EXISTS context_note_tombstones (
+		ref TEXT PRIMARY KEY, kind TEXT, tool TEXT, args_json TEXT, expired_at TEXT)`
+	addQueriesConservativeBaselineColumn = `ALTER TABLE queries ADD COLUMN conservative_baseline_tokens INTEGER DEFAULT 0`
+	addQueriesLedgerColumn               = `ALTER TABLE queries ADD COLUMN ledger TEXT DEFAULT ''`
+	// Transcript usage ingest (TL-5): per-file resume offsets and per-day usage totals.
+	// Only token counts are stored, never transcript text.
+	createHostUsageOffsetsTable = `CREATE TABLE IF NOT EXISTS host_usage_offsets (
+		path TEXT PRIMARY KEY, offset INTEGER NOT NULL DEFAULT 0, mtime INTEGER NOT NULL DEFAULT 0)`
+	createHostUsageDailyTable = `CREATE TABLE IF NOT EXISTS host_usage_daily (
+		day TEXT NOT NULL, project_dir TEXT NOT NULL,
+		input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0,
+		cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (day, project_dir))`
+	// MEM-1/MEM-4: invalidated rows keep a reason (contradiction, user_forget, ttl,
+	// stale_anchor, quarantine, restored) so history output can explain the chain.
+	addStructuredMemoryInvalidatedReasonColumn = `ALTER TABLE structured_memory ADD COLUMN invalidated_reason TEXT`
+	// MEM-5: world time — when a fact is true in the world, not when the system learned it.
+	addStructuredMemoryWorldValidAtColumn   = `ALTER TABLE structured_memory ADD COLUMN world_valid_at TEXT`
+	addStructuredMemoryWorldInvalidAtColumn = `ALTER TABLE structured_memory ADD COLUMN world_invalid_at TEXT`
+	// MEM-8: TTL expiry. The hourly memory expiry job and PruneArchived read this column.
+	addStructuredMemoryExpiresAtColumn = `ALTER TABLE structured_memory ADD COLUMN expires_at TEXT`
+	createStructuredMemoryExpiresIndex = `CREATE INDEX IF NOT EXISTS idx_struct_mem_expires ON structured_memory(expires_at)`
+	// MEM-1/TR-3: quarantine state. A quarantined entry is excluded from default recall/search
+	// and invalidated with reason quarantine when rejected (RejectQuarantined).
+	addStructuredMemoryQuarantinedColumn = `ALTER TABLE structured_memory ADD COLUMN quarantined INTEGER DEFAULT 0`
 )
 
 var indexSteps []schemaStep
 
 var contextSteps = []schemaStep{
 	{version: 1, name: "normalize_timestamps", run: execSteps(normalizeContextNotesLastAccessedQuery)},
+	{version: 2, name: "context_note_tombstones", run: execSteps(createContextNoteTombstonesTable)},
+	{version: 3, name: "recount_token_est", run: recountTokenEstimates},
+	{version: 4, name: "structured_memory_invalidation", run: execSteps(addStructuredMemoryInvalidatedReasonColumn, addStructuredMemoryWorldValidAtColumn, addStructuredMemoryWorldInvalidAtColumn, addStructuredMemoryExpiresAtColumn, createStructuredMemoryExpiresIndex)},
+	{version: 5, name: "structured_memory_quarantine", run: execSteps(addStructuredMemoryQuarantinedColumn)},
 }
 
 var usageSteps = []schemaStep{
@@ -31,4 +62,6 @@ var usageSteps = []schemaStep{
 		normalizeContextNoteAccessAtQuery, normalizeSessionStatsLastStoreQuery, normalizeSessionStatsLastAccessQuery,
 	)},
 	{version: 2, name: "queries_estimate_method", run: execSteps(addQueriesEstimateMethodColumn)},
+	{version: 3, name: "queries_ledgers", run: execSteps(addQueriesConservativeBaselineColumn, addQueriesLedgerColumn)},
+	{version: 4, name: "host_usage", run: execSteps(createHostUsageOffsetsTable, createHostUsageDailyTable)},
 }

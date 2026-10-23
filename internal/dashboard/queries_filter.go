@@ -16,6 +16,18 @@ const (
 	// tokensSavedCol / dedupTokensSavedCol are the per-row equivalents for row listings.
 	tokensSavedCol      = "CASE WHEN " + savingsToolsClause + " THEN COALESCE(tokens_saved,0) ELSE 0 END"
 	dedupTokensSavedCol = "CASE WHEN " + savingsToolsClause + " THEN COALESCE(dedup_tokens_saved,0) ELSE 0 END"
+	// compressionLedgerClause matches rows on the compression ledger; rows logged before
+	// queries.ledger existed (ledger '') fall back to the savings tools.
+	compressionLedgerClause = "(ledger = 'compression' OR (COALESCE(ledger,'') = '' AND " + savingsToolsClause + "))"
+	compressionSavedSum     = "COALESCE(SUM(CASE WHEN " + compressionLedgerClause + " THEN MAX(0, COALESCE(tokens_saved,0) - COALESCE(dedup_tokens_saved,0)) ELSE 0 END),0)"
+	ledgerDedupSavedSum     = "COALESCE(SUM(CASE WHEN " + compressionLedgerClause + " THEN COALESCE(dedup_tokens_saved,0) ELSE 0 END),0)"
+	conservativeSavedSum    = "COALESCE(SUM(CASE WHEN " + compressionLedgerClause + " AND COALESCE(conservative_baseline_tokens,0) > 0 THEN MAX(0, conservative_baseline_tokens - COALESCE(tokens_used,0)) ELSE 0 END),0)"
+	// The virtual ledger: tokens written to stored context/memory, and tokens later
+	// fetched or recalled from it.
+	virtualStoredSum   = "COALESCE(SUM(CASE WHEN tool_name IN ('store_context','store_memory') THEN COALESCE(tokens_saved,0) ELSE 0 END),0)"
+	virtualFetchedSum  = "COALESCE(SUM(CASE WHEN tool_name = 'fetch_context' THEN COALESCE(tokens_used,0) ELSE 0 END),0)"
+	virtualRecalledSum = "COALESCE(SUM(CASE WHEN tool_name = 'recall_memory' THEN COALESCE(tokens_used,0) ELSE 0 END),0)"
+	estimatedRowsSum   = "COALESCE(SUM(CASE WHEN COALESCE(estimate_method,'bytes4') = 'bytes4' THEN 1 ELSE 0 END),0)"
 )
 
 // StatsWindowDays is the rolling window for dashboard aggregate totals.

@@ -1,0 +1,6 @@
+get_context_capsule "quantum flux" · 1 results · 31 tok · no match (best 0.12)
+hint: try search_semantic or a symbol name
+### pkg/widgets.go:7-7 method Widget.Beta (skeleton)
+```go
+func (w *Widget) Beta() int
+```

@@ -2,6 +2,8 @@
 
 Per-repo JavaScript scripts for `execute_code`. Search tools (`get_context_capsule`, `search_semantic`, `retrieve`) may attach **`code_script_hints`** when a script matches the query and result count.
 
+Scripts read JSON results, so call the search tool with **`output=json`**. The default `output=text` renders compact text for the model; in that output the hints are in the result's `_meta.hints` rather than the body.
+
 ## Canonical builtins (source of truth)
 
 **Built-in scripts ship with ast-mcp** under [`internal/codescripts/builtin/`](../../internal/codescripts/builtin/). That directory is the **canonical** set: `manifest.json` plus one `.js` file per entry. Agents and operators should treat those six scripts as the default code-mode surface.
@@ -78,7 +80,7 @@ Repo entries with the same `id` as a built-in **override** that built-in. Use `e
 
 ## Agent workflow
 
-1. Search as usual.
+1. Search with `output=json`.
 2. If `code_script_hints[]` is non-empty, note the top `script_id`.
 3. `execute_code(script_id=..., data=<JSON string of results>, project_path=<abs root>)`
 4. Use **`result` only** — do not paste full search JSON into chat.

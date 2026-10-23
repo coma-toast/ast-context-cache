@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	ctxpkg "github.com/coma-toast/ast-context-cache/internal/context"
+	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
@@ -26,9 +28,11 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/installer"
+	"github.com/coma-toast/ast-context-cache/internal/instance"
 	"github.com/coma-toast/ast-context-cache/internal/logging"
 	"github.com/coma-toast/ast-context-cache/internal/logretention"
 	"github.com/coma-toast/ast-context-cache/internal/mcp"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/netlisten"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
@@ -36,6 +40,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
+	"github.com/coma-toast/ast-context-cache/internal/transcripts"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 )
@@ -46,6 +51,8 @@ var (
 	mcpPort       = 7821
 	dashboardPort = 7830
 )
+
+// instanceName holds the resolved instance name for use in handlers and health payload.
 
 // Port env vars. AST_MCP_PORT is also what the installer CLI and the hooks read, so one export
 // moves the server, its registrations, and the hooks together.
@@ -80,7 +87,10 @@ const (
 	selectSymbolProjectsQuery    = "SELECT DISTINCT project_path FROM symbols WHERE project_path IS NOT NULL AND project_path != ''"
 )
 
-var startTime = time.Now()
+var (
+	startTime = time.Now()
+	exiting   = atomic.Bool{}
+)
 
 func GetStartTime() time.Time {
 	return startTime
@@ -96,10 +106,11 @@ func main() {
 	embedWorkersFlag := flag.Int("embed-workers", -1, "Embed worker count at startup (-1 = auto/DB)")
 	flag.IntVar(&mcpPort, "mcp-port", envPort(envMCPPort, mcpPort), "MCP HTTP port (default: from AST_MCP_PORT env or 7821)")
 	flag.IntVar(&dashboardPort, "dashboard-port", envPort(envDashboardPort, dashboardPort), "Dashboard HTTP port (default: from AST_DASHBOARD_PORT env or 7830)")
+	nameFlag := flag.String("name", "", "Instance name for tab title and cookie/localStorage scoping (default: from AST_INSTANCE_NAME env or settings)")
 	if v := strings.TrimSpace(os.Getenv("AST_LISTEN")); v != "" {
 		listenAddr = v
 	}
-	flag.StringVar(&listenAddr, "listen", listenAddr, "Host/IP for the MCP and dashboard servers to bind (default: from AST_LISTEN env or 127.0.0.1)")
+	flag.StringVar(&listenAddr, "listen", listenAddr, "Host/IP for the MCP and dashboard servers to bind (default: from AST_LISTEN env or [IPV4_REDACTED])")
 	flag.Parse()
 	// JoinHostPort adds IPv6 brackets itself; "[::1]" would otherwise become "[[::1]]:7821".
 	listenAddr = strings.Trim(strings.TrimSpace(listenAddr), "[]")
@@ -146,6 +157,12 @@ func main() {
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 
+	// Resolve the instance name early (flag > env > fallback hash) so the
+	// dashboard serves with a scoped cookie before the DB opens. The DB
+	// setting is picked up again after db.Init below.
+	instance.Init(strings.TrimSpace(*nameFlag))
+	applyInstanceName("")
+
 	dashHandler := dashboard.NewHandler(listenAddr)
 	// Constructed here (before the db.Init() goroutine below reads it via restartHook)
 	// rather than at its ListenAndServe call further down, so that read has a clear
@@ -161,29 +178,42 @@ func main() {
 			dbReady <- err
 			return
 		}
-		projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
-		mcp.Init()
-		if svc, err := installer.New(installer.Config{MCPURL: installer.MCPURL(mcpPort)}); err != nil {
-			logger.Warn("Failed to start installer", "error", err)
+		// The DB setting is readable now: re-resolve (flag > env > setting)
+		// and re-scope the cookie before serving authenticated traffic.
+		applyInstanceName(strings.TrimSpace(db.GetSetting("instance_name", "")))
+		// If data directory is unavailable (override path missing/not-writable),
+		// still start MCP and dashboard in degraded mode, but skip post-init work.
+		if startup.DataDirUnavailable() {
+			logger.Warn("Starting in degraded mode: data directory unavailable")
+			projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
+			dbReady <- nil
 		} else {
-			dashboard.SetInstaller(svc)
-		}
-		dbReady <- nil
+			projectmeta.SetDisplayNameOverrideFunc(db.ProjectDisplayName)
+			mcp.Init()
+			if svc, err := installer.New(installer.Config{MCPURL: installer.MCPURL(mcpPort)}); err != nil {
+				logger.Warn("Failed to start installer", "error", err)
+			} else {
+				dashboard.SetInstaller(svc)
+			}
+			dbReady <- nil
 
-		db.BeforeForceCheckpoint = func() {
-			embedqueue.PauseAllForMaintenance(2 * time.Minute)
-			search.Cache.Unload()
+			db.BeforeForceCheckpoint = func() {
+				embedqueue.PauseAllForMaintenance(2 * time.Minute)
+				search.Cache.Unload()
+			}
+			db.AfterForceCheckpoint = embedqueue.RestoreAfterMaintenance
+			db.WALInFlightHook = embedqueue.InFlight
+			db.EmbedQueueIdleHook = embedqueue.QueueIdleForWAL
+			if embedqueue.BeginRunLock() {
+				logger.Warn("Embed queue previous run exited abnormally; using persisted worker count from DB")
+			}
+			watcher.EnsureDefaultIgnoreGlobs()
+			go db.StartWALCheckpoint()
+			go db.StartDriveMonitor()
 		}
-		db.AfterForceCheckpoint = embedqueue.RestoreAfterMaintenance
-		db.WALInFlightHook = embedqueue.InFlight
-		db.EmbedQueueIdleHook = embedqueue.QueueIdleForWAL
-		if embedqueue.BeginRunLock() {
-			logger.Warn("Embed queue previous run exited abnormally; using persisted worker count from DB")
-		}
-		watcher.EnsureDefaultIgnoreGlobs()
-		go db.StartWALCheckpoint()
-		go db.StartDriveMonitor()
 
+		// Set up MCP listener and RestartProcess in ALL cases (degraded or not).
+		// In degraded mode we skip mcp.Init()/installer/embed queue/WAL setup.
 		mcpMux := http.NewServeMux()
 		mcpMux.Handle("/mcp", httpguard.MCPMiddleware(listenAddr, mcp.NewHandler()))
 		mcpMux.HandleFunc("/health", handleMCPHealth)
@@ -223,6 +253,7 @@ func main() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
+		exiting.Store(true)
 		logger.Info("Shutting down")
 		cancel()
 		netlisten.CloseAll()
@@ -233,9 +264,31 @@ func main() {
 	}()
 
 	logger.Info("Starting dashboard server", "url", serverURL(dashboardPort))
-	if err := listenAndServe(dashSrv, dashboardPort); err != nil {
+	serveWithRestartOutcome(
+		func() error { return listenAndServe(dashSrv, dashboardPort) },
+		exiting.Load,
+		os.Exit,
+		func() { select {} },
+	)
+}
+
+// serveWithRestartOutcome runs serve and decides what main does when it returns: an error
+// is fatal; a nil return during an exit (restart or signal) blocks so the owner —
+// syscall.Exec in restartProcess, or the signal goroutine's os.Exit(0) after the flush —
+// can finish. A nil return otherwise is an unexpected shutdown and exits 1 so supervisors
+// restart us. The logic is extracted here for unit testing with fakes.
+func serveWithRestartOutcome(serve func() error, exiting func() bool, exit func(int), block func()) {
+	err := serve()
+	switch {
+	case err != nil:
 		logger.Error("Dashboard server failed", "error", err)
-		os.Exit(1)
+		exit(1)
+	case exiting():
+		logger.Info("Exit in progress; waiting for owner")
+		block()
+	default:
+		logger.Error("Dashboard server stopped unexpectedly")
+		exit(1)
 	}
 }
 
@@ -247,6 +300,9 @@ func main() {
 // rebuild).
 func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 	return func() {
+		// Tell main() we are re-executing so it does not return from listenAndServe
+		// (which is what happens when dashSrv.Shutdown() closes the server) and exit 0.
+		exiting.Store(true)
 		logger.Info("Draining connections to restart")
 		// db.RequestShutdown aborts any in-progress WAL checkpoint quickly, but it also
 		// unconditionally calls AfterForceCheckpoint (wired below to
@@ -496,7 +552,19 @@ func handleEmbedHealthHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// applyInstanceName resolves the effective instance name from dbSetting
+// (flag > env > setting > empty), scopes the session cookie and the login
+// page to it. An empty dbSetting keeps the flag/env/fallback resolution.
+func applyInstanceName(dbSetting string) {
+	n := instance.Update(dbSetting, db.GetDataDir())
+	httpguard.SetCookieScope(n.Scope)
+	httpguard.SetInstanceName(n.Value)
+}
+
 func buildHealthPayload() map[string]interface{} {
+	// Read the live value: a dashboard rename updates instance.Current
+	// without a restart.
+	cur := instance.Current()
 	embedState, _, embedErr := embedder.HealthSnapshot()
 	status := "healthy"
 	if startup.Starting() {
@@ -507,14 +575,21 @@ func buildHealthPayload() map[string]interface{} {
 		if embedErr == "" {
 			embedErr = startup.Error()
 		}
+	} else if startup.DataDirUnavailable() {
+		status = "data_dir_unavailable"
+		if embedErr == "" {
+			embedErr = startup.Error()
+		}
 	} else if embedState == "error" {
 		status = "degraded"
 	}
 	embedBackend, embedModel, _, _, _ := embedder.WiredSnapshot()
-	return map[string]interface{}{
+	payload := map[string]interface{}{
 		"status":                status,
 		"service":               "ast-context-cache",
 		"version":               version.Version,
+		"instance":              cur.Value,
+		"instance_name":         cur.Value,
 		"embedder":              embedder.IsLoaded(),
 		"embed_state":           embedState,
 		"embed_error":           embedErr,
@@ -524,6 +599,7 @@ func buildHealthPayload() map[string]interface{} {
 		"startup_message":       startup.Message(),
 		"abnormal_previous_run": embedqueue.AbnormalPreviousRun(),
 	}
+	return payload
 }
 
 func handleEmbedHTTP(w http.ResponseWriter, r *http.Request) {
@@ -576,11 +652,22 @@ func resolveStartupWorkers(flagVal int) int {
 // startBackgroundServices starts the periodic jobs; the tickers owned here stop when
 // ctx is cancelled at shutdown.
 func startBackgroundServices(ctx context.Context) {
+	// Run memory lifecycle jobs once at startup so a server that restarts daily still prunes
+	memory.RunDailyPrune()
+	memory.RunExpiryJob()
+	memory.RunStaleAnchorJob()
+
 	go docs.EmbedAllSources()
 	purge.StartDeletedProjectSweep()
 	db.StartFTSSelfCheck()
 	go runEvery(ctx, time.Hour, logretention.RunOnce)
 	go runEvery(ctx, 24*time.Hour, docs.UpdateAllSources)
+	go runEvery(ctx, time.Hour, contextnotes.RunOffloadPurge)
+	go runEvery(ctx, time.Hour, transcripts.RunOnce)
+	// MEM-2 / MEM-8: background maintenance jobs for structured memory.
+	go runEvery(ctx, 24*time.Hour, memory.RunDailyPrune)
+	go runEvery(ctx, time.Hour, memory.RunExpiryJob)
+	go runEvery(ctx, time.Hour, memory.RunStaleAnchorJob)
 	ctxpkg.StartSessionStoreEviction(ctx)
 	handoff.Start(ctx, embedder.Tracked())
 	seen := map[string]bool{}

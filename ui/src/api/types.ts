@@ -19,6 +19,8 @@ export interface Health {
   Uptime: number
   Version: string
   AbnormalPreviousRun?: boolean
+  /** Effective instance name (flag > env > setting > empty). */
+  InstanceName?: string
 }
 
 export interface Stats {
@@ -54,6 +56,44 @@ export interface Stats {
   ApproxRoundsAvoided?: number
   HeuristicApproximate?: boolean
   HeuristicLabel?: string
+  /** Ledgers (TL-2/TL-3): TokensSaved = CompressionSaved + DedupSaved. Absent on older servers. */
+  CompressionSaved?: number
+  DedupSaved?: number
+  /** Symbol ± 20 lines baseline minus tokens returned. */
+  ConservativeSaved?: number
+  VirtualStoredTokens?: number
+  VirtualFetchedTokens?: number
+  VirtualRecalledTokens?: number
+  /** Query rows whose token counts were bytes/4 estimates. */
+  EstimatedRows?: number
+  /** Definitions keyed by compression, dedup, conservative, virtual, estimated. */
+  BaselineDefinitions?: Record<string, string> | null
+}
+
+/** Ledger split for a window (weekly digest). */
+export interface LedgerTotals {
+  CompressionSaved?: number
+  DedupSaved?: number
+  ConservativeSaved?: number
+  VirtualStoredTokens?: number
+  VirtualFetchedTokens?: number
+  VirtualRecalledTokens?: number
+}
+
+/** One day of host (Claude Code transcript) token usage. */
+export interface HostUsageDay {
+  Day: string
+  Input: number
+  Output: number
+  CacheRead: number
+  CacheWrite: number
+}
+
+/** /api/dashboard/host-usage: Days is empty while transcript_usage_ingest is off. */
+export interface HostUsageResponse {
+  Enabled: boolean
+  WindowDays: number
+  Days: HostUsageDay[]
 }
 
 export interface WeeklyDigestTool {
@@ -74,7 +114,7 @@ export interface WeeklyDigestEmbedReliability {
   Note?: string
 }
 
-export interface WeeklyDigest {
+export interface WeeklyDigest extends LedgerTotals {
   WindowDays: number
   TokensSaved: number
   Queries: number
@@ -253,6 +293,7 @@ export interface Project {
   FileCount: number
   file_count?: number
   Pinned: boolean
+  PinnedNote?: string
   LinkedChildren: string[]
   LinkedParent: string
 }
@@ -271,6 +312,8 @@ export interface SettingsData {
   /** Project path → per-project exclude patterns (gitignore syntax, relative to the project root). */
   ProjectIndexExcludes?: Record<string, string[]> | null
   IndexLogFiles: boolean
+  /** transcript_usage_ingest: hourly Claude Code transcript usage ingest (off by default). */
+  TranscriptUsageIngest?: boolean
   LogRetentionEnabled: boolean
   LogRetentionRoots: string
   LogRetentionMaxAgeDays: number
@@ -306,6 +349,16 @@ export interface SettingsData {
   HandoffLimits?: HandoffLimits
   /** Handoff limit settings keys locked by their AST_HANDOFF_* env var. */
   HandoffEnvLocked?: string[] | null
+  /** Raw instance_name DB setting (what the settings field edits). */
+  InstanceName?: string
+  /** Effective instance name (flag > env > setting > empty). */
+  InstanceNameEffective?: string
+  /** Cookie/localStorage scope for the effective name. */
+  InstanceScope?: string
+  /** flag|env|db|default — where the effective name came from. */
+  InstanceNameSource?: string
+  /** True when the -name flag or AST_INSTANCE_NAME env var sets the name. */
+  InstanceNameLocked?: boolean
 }
 
 export interface MemoryData {
@@ -395,6 +448,8 @@ export interface DataDirMoveStatus {
   done: boolean
   phase: string
   target_dir: string
+  /** The original data directory path before the move started. Set when done=true. */
+  source_dir?: string | null
   started_at: string
   finished_at: string
   error: string
@@ -471,6 +526,8 @@ export interface FlagState {
   enabled: boolean
   default: boolean
   locked: boolean
+  /** Toggling it changes tools/list or the actions a tool accepts. */
+  affects_tools: boolean
 }
 
 export interface FlagsResponse {

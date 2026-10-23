@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -197,6 +198,28 @@ func TestToolDenyMessageFeatureDisabled(t *testing.T) {
 	assert.Contains(t, msg, flags.KeyHandoffScratchpad)
 }
 
+// TS-3: tools/list bytes are a prompt-cache prefix, so the same config must always marshal to
+// the same bytes, including after the config is swapped out and back.
+func TestToolsListBytesStable(t *testing.T) {
+	orig := GetConfig()
+	t.Cleanup(func() { SetConfig(orig) })
+	cfg := ServerConfig{ActiveTier: TierComplete, CodeMode: true}
+	marshal := func() []byte {
+		b, err := json.Marshal(FilterTools(GetConfig()))
+		require.NoError(t, err)
+		return b
+	}
+	SetConfig(cfg)
+	first := marshal()
+	assert.Equal(t, first, marshal(), "two marshals of one config")
+	for _, other := range []ServerConfig{{ActiveTier: TierCore}, {ActiveTier: TierExtended, ToolConfigs: map[string]*ToolConfig{"retrieve": {Enabled: false}}}} {
+		SetConfig(other)
+		assert.NotEqual(t, first, marshal(), "a different config changes the list")
+		SetConfig(cfg)
+		assert.Equal(t, first, marshal(), "a SetConfig round trip restores the same bytes")
+	}
+}
+
 func TestGetPromptsNames(t *testing.T) {
 	var names []string
 	for _, p := range GetPrompts() {
@@ -245,4 +268,30 @@ func TestGetPromptsHandoffContent(t *testing.T) {
 		enum := def.InputSchema["properties"].(map[string]any)["action"].(map[string]any)["enum"]
 		assert.ElementsMatch(t, actions, enum, tool)
 	}
+}
+
+func TestToolSchemasContainRequiredFields(t *testing.T) {
+	tools := GetTools()
+	byName := make(map[string]Tool)
+	for _, tl := range tools {
+		byName[tl.Name] = tl
+	}
+
+	// store_memory: valid_at, invalid_at, expires_at (MEM-5, MEM-8)
+	store := byName["store_memory"]
+	storeProps := store.InputSchema["properties"].(map[string]any)
+	assert.Contains(t, storeProps, "valid_at", "store_memory missing valid_at")
+	assert.Contains(t, storeProps, "invalid_at", "store_memory missing invalid_at")
+	assert.Contains(t, storeProps, "expires_at", "store_memory missing expires_at")
+
+	// recall_memory: as_of_system, expand (MEM-5, MEM-10)
+	recall := byName["recall_memory"]
+	recallProps := recall.InputSchema["properties"].(map[string]any)
+	assert.Contains(t, recallProps, "as_of_system", "recall_memory missing as_of_system")
+	assert.Contains(t, recallProps, "expand", "recall_memory missing expand")
+
+	// list_context: expand (MEM-10)
+	list := byName["list_context"]
+	listProps := list.InputSchema["properties"].(map[string]any)
+	assert.Contains(t, listProps, "expand", "list_context missing expand")
 }

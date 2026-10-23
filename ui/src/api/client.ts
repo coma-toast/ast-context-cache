@@ -7,6 +7,7 @@ import type {
   FlushHandoffTreeResponse,
   HandoffTreesResponse,
   Health,
+  HostUsageResponse,
   IndexHealth,
   InstallerApplyResult,
   InstallerBackupsResponse,
@@ -109,6 +110,30 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return data
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const url = apiUrl(path)
+  let r: Response
+  try {
+    r = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (e) {
+    throw new Error(`${path}: network error (${e instanceof Error ? e.message : 'fetch failed'})`)
+  }
+  redirectOnUnauthorized(r.status)
+  const text = await r.text()
+  let data: T & ErrorBody
+  try {
+    data = JSON.parse(text) as T & ErrorBody
+  } catch {
+    throw new Error(`${path}: invalid JSON (HTTP ${r.status})`)
+  }
+  if (!r.ok || data.error) throw apiError(data.error || `${path}: HTTP ${r.status}`, data)
+  return data
+}
+
 interface ErrorBody {
   error?: string
   code?: string
@@ -145,6 +170,7 @@ export const api = {
   health: () => get<Health>('/api/dashboard/health'),
   stats: (projectId?: string) => get<Stats>(`/api/dashboard/stats${qs(projectId)}`),
   weeklyDigest: (projectId?: string) => get<WeeklyDigest>(`/api/dashboard/weekly-digest${qs(projectId)}`),
+  hostUsage: () => get<HostUsageResponse>('/api/dashboard/host-usage'),
   contextSessions: (projectId?: string) =>
     get<ContextSessionsResponse>(`/api/dashboard/context-sessions${qs(projectId)}`),
   indexHealth: (projectId?: string) => get<IndexHealth>(`/api/dashboard/index-health${qs(projectId)}`),
@@ -181,6 +207,9 @@ export const api = {
   saveEmbedSettings: (settings: Record<string, string>) =>
     post<{ status?: string; error?: string }>('/api/settings/embed', { settings }),
   pinProject: (project_path: string, pinned: boolean) => post('/api/pin-project', { project_path, pinned }),
+  getPinnedNote: (project: string) => get<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>(`/api/pinned-note?project=${encodeURIComponent(project)}`),
+  savePinnedNote: (project_path: string, content: string, origin?: string) => put<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>('/api/pinned-note', { project_path, content, origin }),
+  countTokens: (text: string) => post<{ token_est: number }>('/api/count-tokens', { text }),
   resetProject: (project_path: string) => post('/api/reset-project', { project_path }),
   deleteWatcher: (project_path: string) => post('/api/delete-watcher', { project_path }),
   startWatcher: (project_path: string) => post<{ status?: string }>('/api/start-watcher', { project_path }),
@@ -233,6 +262,7 @@ export const api = {
   walCheckpoint: () => post<{ started?: boolean; status?: string }>('/api/wal-checkpoint', {}),
   moveDataDir: (target: string) =>
     post<{ started?: boolean; status?: string; error?: string }>('/api/data-dir/move', { target }),
+  clearDataDirOverride: () => post<{ status?: string; message?: string }>('/api/data-dir/clear-override', {}),
   dataDirMoveStatus: () => get<DataDirMoveStatus>('/api/data-dir/status'),
   updateCheck: () => get<UpdateCheckResult>('/api/update/check'),
   startUpdate: () => post<{ started?: boolean; error?: string }>('/api/update/start', {}),

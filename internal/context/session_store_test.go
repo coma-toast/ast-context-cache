@@ -51,3 +51,24 @@ func TestEvictIdleSessions(t *testing.T) {
 	db.FlushWriteBuffers()
 	assert.Contains(t, ReturnedKeys(sid), "/p/a.go|Foo|3", "an evicted session rehydrates")
 }
+
+// MO-4: the session keeps the richest mode each symbol was delivered in, across a restart.
+func TestReturnedModesHydrateRichest(t *testing.T) {
+	dbtest.Init(t)
+	sid := t.Name()
+	MarkReturned(sid, ReturnedSymbol{File: "/p/a.go", Name: "Foo", StartLine: 3, Mode: "full"})
+	MarkReturned(sid, ReturnedSymbol{File: "/p/a.go", Name: "Foo", StartLine: 3, Mode: "skeleton"})
+	MarkReturned(sid, ReturnedSymbol{File: "/p/b.go", Name: "Bar", StartLine: 1, Mode: "summary"})
+	SeedReturned(sid, []ReturnedSymbol{{File: "/p/c.go", Name: "Baz", StartLine: 2}})
+	want := map[string]string{"/p/a.go|Foo|3": "full", "/p/b.go|Bar|1": "summary", "/p/c.go|Baz|2": "seed"}
+	assert.Equal(t, want, ReturnedModes(sid))
+	db.FlushWriteBuffers()
+	sessions.Clear()
+	assert.Equal(t, want, ReturnedModes(sid), "hydrated from the sessions table")
+	modes := ReturnedModes(sid)
+	assert.True(t, DedupCovers(modes, "/p/a.go|Foo|3", "full"))
+	assert.False(t, DedupCovers(modes, "/p/b.go|Bar|1", "skeleton"), "a summary does not cover a skeleton")
+	assert.True(t, DedupCovers(modes, "/p/c.go|Baz|2", "full"), "a seed covers any mode")
+	assert.False(t, DedupCovers(modes, "/p/d.go|Qux|1", "locations"))
+	assert.Empty(t, ReturnedModes(""))
+}

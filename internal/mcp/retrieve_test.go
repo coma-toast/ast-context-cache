@@ -10,36 +10,30 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 )
 
-// Golden shape for retrieve stats JSON (regression guard for observability fields).
+// Golden shape for retrieve stats JSON (regression guard for observability fields). Timings
+// are not stats: they go to _meta, or to the body as timings with debug=true.
 func TestRetrieveStatsJSONGolden(t *testing.T) {
 	stats := RetrieveStats{
 		CodeResults:        1,
 		DocResults:         2,
 		TotalTokens:        3,
-		SearchTimeMs:       4.5,
 		BM25Candidates:     6,
 		VectorCandidates:   7,
 		HybridAfterFuse:    8,
 		AfterDedup:         9,
 		ChunksInBudget:     10,
 		TokensEstAllChunks: 11,
-		CodeRetrieveMs:     12,
-		DocsRetrieveMs:     13,
-		DedupBudgetMs:      14,
 	}
-	b, err := json.Marshal(map[string]interface{}{"stats": stats})
-	if err != nil {
-		t.Fatal(err)
-	}
-	const want = `{"stats":{"code_results":1,"doc_results":2,"total_tokens":3,"search_time_ms":4.5,"bm25_candidates":6,"vector_candidates":7,"hybrid_after_fuse":8,"after_dedup":9,"chunks_in_budget":10,"tokens_est_all_chunks":11,"code_retrieve_ms":12,"docs_retrieve_ms":13,"dedup_budget_ms":14}}`
-	if string(b) != want {
-		t.Fatalf("stats JSON mismatch:\ngot:  %s\nwant: %s", b, want)
-	}
+	timings := retrieveTimings{SearchTimeMs: 4.5, CodeRetrieveMs: 12, DocsRetrieveMs: 13, DedupBudgetMs: 14}
+	b, err := json.Marshal(map[string]interface{}{"stats": stats, "timings": timings})
+	require.NoError(t, err)
+	const want = `{"stats":{"code_results":1,"doc_results":2,"total_tokens":3,"bm25_candidates":6,"vector_candidates":7,"hybrid_after_fuse":8,"after_dedup":9,"chunks_in_budget":10,"tokens_est_all_chunks":11},"timings":{"search_time_ms":4.5,"code_retrieve_ms":12,"docs_retrieve_ms":13,"dedup_budget_ms":14}}`
+	assert.Equal(t, want, string(b))
 }
 
 func retrieveFor(t *testing.T, project, sessionID string, budget int) RetrieveResult {
 	t.Helper()
-	args := map[string]interface{}{"query": "load_model", "include_docs": false, "token_budget": float64(budget)}
+	args := map[string]interface{}{"query": "load_model", "include_docs": false, "include_chunks": true, "token_budget": float64(budget)}
 	if sessionID != "" {
 		args["session_id"] = sessionID
 	}

@@ -21,6 +21,9 @@ import (
 // AC28 allows one second from flags.Set to the notification.
 const listChangedDeadline = time.Second
 
+// testDebounce shortens the list_changed batch window so tests stay fast.
+const testDebounce = 50 * time.Millisecond
+
 // sseEvent is one parsed SSE event: a data message, or a comment such as a keep-alive.
 type sseEvent struct {
 	data    map[string]any
@@ -86,6 +89,48 @@ func enableFlagChanges(t *testing.T) {
 	t.Setenv("AST_FEATURE_HANDOFF", "")
 	Init()
 	require.NoError(t, flags.Set(flags.KeyHandoff, true))
+	setListChangedTiming(t, testDebounce, 0)
+}
+
+// setListChangedTiming shortens the coalescer's package vars for one test and clears its
+// state, under its lock so a timer left by an earlier test never races the write.
+func setListChangedTiming(t *testing.T, debounce, minInterval time.Duration) {
+	t.Helper()
+	listChanged.mu.Lock()
+	origDebounce, origMin := listChangedDebounce, listChangedMinInterval
+	listChangedDebounce, listChangedMinInterval = debounce, minInterval
+	resetListChangedLocked()
+	listChanged.mu.Unlock()
+	t.Cleanup(func() {
+		listChanged.mu.Lock()
+		defer listChanged.mu.Unlock()
+		listChangedDebounce, listChangedMinInterval = origDebounce, origMin
+		resetListChangedLocked()
+	})
+}
+
+func resetListChangedLocked() {
+	if listChanged.timer != nil {
+		listChanged.timer.Stop()
+	}
+	listChanged.timer, listChanged.toolsDirty, listChanged.lastFrame = nil, false, time.Time{}
+}
+
+// assertNoMessage fails if a data event arrives within window.
+func assertNoMessage(t *testing.T, events <-chan sseEvent, window time.Duration) {
+	t.Helper()
+	deadline := time.After(window)
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			assert.Nil(t, ev.data, "unexpected message")
+		case <-deadline:
+			return
+		}
+	}
 }
 
 func legacyStreamRequest(t *testing.T, srv *httptest.Server, session string) *http.Request {
@@ -109,24 +154,48 @@ func listenRequest(t *testing.T, srv *httptest.Server, id any, filter map[string
 	return req
 }
 
-func TestLegacyStreamReceivesListChanged(t *testing.T) {
+func TestLegacySessionToolListFrozen(t *testing.T) {
 	srv := newMCPServer(t)
 	enableFlagChanges(t)
 	initResp, _ := initialize(t, srv, "2025-11-25")
 	sid := initResp.Header.Get(headerSessionID)
 	require.NotEmpty(t, sid)
+	_, before := rpcCall(t, srv, map[string]string{headerSessionID: sid}, rpcRequest(2, "tools/list", nil))
+	require.Contains(t, toolNames(t, resultOf(t, before)), "handoff")
 	resp, events := openStream(t, legacyStreamRequest(t, srv, sid))
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, sseContentType, resp.Header.Get("Content-Type"))
 	require.NoError(t, flags.Set(flags.KeyHandoff, false))
-	msg := nextMessage(t, events, listChangedDeadline)
-	assert.Equal(t, map[string]any{"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}, msg)
+	assertNoMessage(t, events, 4*testDebounce)
 
-	// tools/list over the legacy era still answers with flag-gated tools hidden.
-	_, body := rpcCall(t, srv, map[string]string{headerSessionID: sid}, rpcRequest(2, "tools/list", nil))
+	// The session keeps the list it started with.
+	_, after := rpcCall(t, srv, map[string]string{headerSessionID: sid}, rpcRequest(3, "tools/list", nil))
+	assert.Equal(t, before["result"], after["result"], "a legacy session's tools/list is frozen")
+
+	// A new session sees the change.
+	fresh, _ := initialize(t, srv, "2025-11-25")
+	_, body := rpcCall(t, srv, map[string]string{headerSessionID: fresh.Header.Get(headerSessionID)}, rpcRequest(4, "tools/list", nil))
 	names := toolNames(t, resultOf(t, body))
 	assert.Contains(t, names, "get_context_capsule")
 	assert.NotContains(t, names, "handoff")
+}
+
+func TestListChangedCoalesced(t *testing.T) {
+	srv := newMCPServer(t)
+	enableFlagChanges(t)
+	setListChangedTiming(t, testDebounce, time.Hour)
+	resp, events := openStream(t, listenRequest(t, srv, "sub-1", map[string]any{"toolsListChanged": true}))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "notifications/subscriptions/acknowledged", nextMessage(t, events, listChangedDeadline)["method"])
+	require.NoError(t, flags.Set(flags.KeyHandoff, false))
+	msg := nextMessage(t, events, listChangedDeadline)
+	assert.Equal(t, listChangedMethod, msg["method"], "feature_handoff and its implied children make one frame")
+	assertNoMessage(t, events, 4*testDebounce)
+	require.NoError(t, flags.Set(flags.KeyHandoff, true))
+	assertNoMessage(t, events, 4*testDebounce)
+	listChanged.mu.Lock()
+	assert.True(t, listChanged.toolsDirty, "a change inside the min interval waits for the next frame")
+	listChanged.mu.Unlock()
 }
 
 func TestModernListenReceivesListChanged(t *testing.T) {

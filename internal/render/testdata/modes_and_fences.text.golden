@@ -1,0 +1,13 @@
+retrieve "main" · 3 results · 55 tok
+### main.py:1-2 function main (edit)
+```python
+def main():
+    pass
+```
+### README.md:1-3 section Usage (full)
+````
+```sh
+make
+```
+````
+### /elsewhere/lib.rs function outside

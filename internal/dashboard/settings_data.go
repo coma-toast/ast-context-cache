@@ -11,7 +11,9 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
+	"github.com/coma-toast/ast-context-cache/internal/instance"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
+	"github.com/coma-toast/ast-context-cache/internal/transcripts"
 )
 
 // handoffEnvLocked lists the handoff limit keys overridden by a non-empty environment variable.
@@ -74,6 +76,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		ProjectExcludePaths:      projectExclude,
 		ProjectIndexExcludes:     db.GetProjectIndexExcludes(),
 		IndexLogFiles:            indexLog,
+		TranscriptUsageIngest:    settings[transcripts.SettingKey] == "true",
 		LogRetentionEnabled:      logRetentionEn,
 		LogRetentionRoots:        logRoots,
 		LogRetentionMaxAgeDays:   logRetentionMaxAge,
@@ -97,6 +100,15 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 	}
 	data.EmbedProbeIntervalSec = int(embedder.ProbeInterval().Seconds())
 	data.HandoffLimits, data.HandoffEnvLocked = handoff.LoadLimits(), handoffEnvLocked()
+	cur := instance.Current()
+	if cur.Value == "" && cur.Scope == "" {
+		cur = instance.Update(strings.TrimSpace(db.GetSetting("instance_name", "")), db.GetDataDir())
+	}
+	data.InstanceName = strings.TrimSpace(db.GetSetting("instance_name", ""))
+	data.InstanceNameEffective = cur.Value
+	data.InstanceScope = cur.Scope
+	data.InstanceNameSource = cur.Source
+	data.InstanceNameLocked = instance.IsLocked()
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)

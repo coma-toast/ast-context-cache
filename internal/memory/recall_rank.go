@@ -1,20 +1,26 @@
 package memory
 
 import (
+	"math"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
 const (
 	searchEntriesLikeQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at
+		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
+		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
 		FROM structured_memory WHERE (subject LIKE ? OR predicate LIKE ? OR object LIKE ? OR rule LIKE ?)`
 	// The FTS table has no alias so bm25() and MATCH can name it.
 	searchEntriesFTSQuery = `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
-		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at
+		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,
+		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at, sm.quarantined
 		FROM structured_memory_fts
 		JOIN structured_memory sm ON sm.ref = structured_memory_fts.ref
 		WHERE structured_memory_fts MATCH ?`
@@ -41,7 +47,125 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, map[string]
 		}
 	}
 	entries, scores := fuseEntries(fts, like, vec)
+	entries = applyDecay(entries, scores, in)
+	entries = applyTTLExpiry(entries, in)
 	return entries, scores, nil
+}
+
+// decayFactor returns the recency multiplier for an entry, clamped to 0.3–1.5x (MEM-6).
+// Procedures are exempt by default (MEM-7). Half-lives are settings: session scope
+// defaults to 24 hours, project scope to 30 days, and global scope has no decay.
+//
+// The factor is the product of three independent terms, each clamped to [0.3, 1.5]
+// before the final clamp:
+//
+//	recency  = 0.5^(sinceLastAccess / halfLife)       — decays with time since last access
+//	frequency = 1 + log2(1+accessCount) / k            — grows with more accesses, never decays
+//	age      = 0.5^(age / (halfLife * 4))             — mild decay for stale entries
+//
+// k is chosen so frequency tops out near 1.5 (log2(1+16)/k ≈ 1.5 → k ≈ 4.0).
+func decayFactor(e Entry, in RecallInput) float64 {
+	if e.Kind == KindProcedure {
+		if !db.SettingBool("memory_decay_procedures", "AST_FEATURE_MEMORY_DECAY_PROCEDURES", false) {
+			return 1.0
+		}
+	}
+	if e.Scope == ScopeGlobal {
+		return 1.0
+	}
+	halfLifeDays := 1.0
+	if e.Scope == ScopeProject {
+		halfLifeDays = 30.0
+	}
+	// MEM-6: half-lives are settings. The session half-life is in hours, the
+	// project half-life in days; both fall back to the defaults above.
+	if e.Scope == ScopeSession {
+		if h := db.SettingInt("memory_halflife_session_hours", "AST_MEMORY_HALFLIFE_SESSION_HOURS", 24); h > 0 {
+			halfLifeDays = float64(h) / 24.0
+		}
+	} else if e.Scope == ScopeProject {
+		if d := db.SettingInt("memory_halflife_project_days", "AST_MEMORY_HALFLIFE_PROJECT_DAYS", 30); d > 0 {
+			halfLifeDays = float64(d)
+		}
+	}
+	// recency: half-life since the last access.
+	recency := 1.0
+	if e.LastAccessedAt != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05", e.LastAccessedAt); err == nil {
+			sinceLast := time.Since(t).Hours() / 24.0
+			if sinceLast < 0 {
+				sinceLast = 0
+			}
+			recency = math.Pow(0.5, sinceLast/halfLifeDays)
+		}
+	}
+	// frequency: more accesses raise the factor, never lower it. k=4 tops out near 1.5.
+	frequency := 1.0
+	if e.AccessCount > 0 {
+		frequency = 1.0 + math.Log2(1.0+float64(e.AccessCount))/4.0
+	}
+	// age: mild decay for entries created long ago, independent of access recency.
+	age := 1.0
+	if e.CreatedAt != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05", e.CreatedAt); err == nil {
+			ageDays := time.Since(t).Hours() / 24.0
+			if ageDays < 0 {
+				ageDays = 0
+			}
+			age = math.Pow(0.5, ageDays/(halfLifeDays*4.0))
+		}
+	}
+	factor := recency * frequency * age
+	if factor < 0.3 {
+		factor = 0.3
+	}
+	if factor > 1.5 {
+		factor = 1.5
+	}
+	return factor
+}
+
+// applyDecay multiplies each fused score by its recency factor and re-sorts.
+func applyDecay(entries []Entry, scores map[string]float64, in RecallInput) []Entry {
+	if !flags.Enabled(flags.KeyMemoryV2) {
+		return entries
+	}
+	for i := range entries {
+		if f := decayFactor(entries[i], in); f != 1.0 {
+			scores[entries[i].Ref] *= f
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if si, sj := scores[entries[i].Ref], scores[entries[j].Ref]; si != sj {
+			return si > sj
+		}
+		return entries[i].Ref < entries[j].Ref
+	})
+	return entries
+}
+
+// applyTTLExpiry invalidates entries past their TTL (MEM-8) and removes them from output.
+func applyTTLExpiry(entries []Entry, in RecallInput) []Entry {
+	if !flags.Enabled(flags.KeyMemoryV2) {
+		return entries
+	}
+	now := time.Now().UTC()
+	out := entries[:0]
+	for _, e := range entries {
+		if e.ExpiresAt != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", e.ExpiresAt); err == nil && t.Before(now) {
+				memoryInvalidateTTL(e.Ref)
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func memoryInvalidateTTL(ref string) {
+	db.ContextDB.Exec(`UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`, ReasonTTL, ref)
+	deleteFTS(ref)
 }
 
 // fuseEntries merges ranked entry lists with RRF, ordered by fused score descending then ref.

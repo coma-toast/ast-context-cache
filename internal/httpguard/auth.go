@@ -12,13 +12,17 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/instance"
 )
+
+// SessionCookieName is the name of the session cookie, scoped per instance.
+// It is initialized to the default value and updated via SetCookieScope.
+var SessionCookieName = "astcache_session"
 
 const (
 	// LoginPath serves the dashboard login form (GET) and accepts the access token (POST).
 	LoginPath = "/login"
-	// SessionCookie carries an HMAC of the access token for dashboard browsers, never the token.
-	SessionCookie = "astcache_session"
 
 	sessionMessage      = "astcache_session/v1"
 	sessionMaxAge       = 30 * 24 * time.Hour
@@ -82,7 +86,7 @@ func Authorized(r *http.Request) bool {
 	if tok, ok := bearerToken(r); ok && tokenEqual(tok, st.token) {
 		return true
 	}
-	c, err := r.Cookie(SessionCookie)
+	c, err := r.Cookie(SessionCookieName)
 	return err == nil && tokenEqual(c.Value, st.session)
 }
 
@@ -99,6 +103,48 @@ func RequireMCPAuth(next http.Handler, exempt ...string) http.Handler {
 	})
 }
 
+// legacyCookieName is the original shared session cookie. It is expired on
+// login/logout and whenever the scope rotates, so two instances on one host
+// never read each other's session.
+const legacyCookieName = "astcache_session"
+
+// SetCookieScope updates the session cookie name to scope it per instance.
+// The scope should be a short string like "jd" or "slide" or a hash prefix.
+// Format: astcache_session_<scope>
+func SetCookieScope(scope string) {
+	SessionCookieName = instance.CookieName(scope)
+}
+
+// RotateCookieScope moves the session to the cookie for newScope, carrying over
+// the request's current session value when it is valid, and expiring the old
+// scoped cookie. Call it after the instance name changes so the user stays
+// logged in under the new cookie name.
+func RotateCookieScope(w http.ResponseWriter, r *http.Request, newScope string) {
+	old := SessionCookieName
+	var carried string
+	if c, err := r.Cookie(old); err == nil {
+		if st := access.Load(); st != nil && tokenEqual(c.Value, st.session) {
+			carried = c.Value
+		}
+	}
+	SetCookieScope(newScope)
+	if carried != "" {
+		setSessionCookie(w, r, SessionCookieName, carried)
+	}
+	if old != SessionCookieName {
+		expireCookie(w, legacyCookieName)
+		expireCookie(w, old)
+	}
+}
+
+// instanceName holds the resolved instance name for use in the login page.
+var instanceName string
+
+// SetInstanceName sets the instance name used in the login page title.
+func SetInstanceName(name string) {
+	instanceName = name
+}
+
 // HandleLogin serves the dashboard login form. A POST with the right token sets the
 // session cookie and redirects to the dashboard; a wrong one re-renders the form
 // after a short delay. Without a configured token, or for a client that is already
@@ -110,7 +156,7 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, dashboardHome, http.StatusSeeOther)
 			return
 		}
-		renderLogin(w, http.StatusOK, "")
+		renderLogin(w, http.StatusOK, "", instanceName)
 	case http.MethodPost:
 		postLogin(w, r)
 	default:
@@ -129,32 +175,65 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil || !tokenEqual(strings.TrimSpace(r.PostForm.Get(loginTokenField)), st.token) {
 		logger.Warn("Rejected dashboard login", "remote", r.RemoteAddr)
 		time.Sleep(loginFailureDelay)
-		renderLogin(w, http.StatusUnauthorized, loginWrongToken)
+		renderLogin(w, http.StatusUnauthorized, loginWrongToken, instanceName)
 		return
 	}
+	setSessionCookie(w, r, SessionCookieName, st.session)
+	// Expire the legacy shared cookie so a login on one instance does not
+	// leave a session the other instance on the same host would accept.
+	if SessionCookieName != legacyCookieName {
+		expireCookie(w, legacyCookieName)
+	}
+	logger.Info("Dashboard login", "remote", r.RemoteAddr)
+	http.Redirect(w, r, dashboardHome, http.StatusSeeOther)
+}
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request, name, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     SessionCookie,
-		Value:    st.session,
+		Name:     name,
+		Value:    value,
 		Path:     "/",
 		MaxAge:   int(sessionMaxAge.Seconds()),
 		HttpOnly: true,
 		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 	})
-	logger.Info("Dashboard login", "remote", r.RemoteAddr)
-	http.Redirect(w, r, dashboardHome, http.StatusSeeOther)
 }
 
-func renderLogin(w http.ResponseWriter, status int, errMsg string) {
+func expireCookie(w http.ResponseWriter, name string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:   name,
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+}
+
+// renderLogin renders the login page with the given status and optional error message.
+// If instanceName is provided, it is used in the page title for scoping.
+func renderLogin(w http.ResponseWriter, status int, errMsg string, instanceName string) {
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
 	w.WriteHeader(status)
-	if err := loginPage.Execute(w, map[string]string{"Error": errMsg, "Field": loginTokenField, "Action": LoginPath}); err != nil {
+	if err := loginPage.Execute(w, map[string]interface{}{
+		"Error":        errMsg,
+		"Field":        loginTokenField,
+		"Action":       LoginPath,
+		"InstanceName": instanceName,
+	}); err != nil {
 		logger.Warn("Failed to render login page", "error", err)
 	}
+}
+
+// HandleLogout clears the session cookie and redirects to the login page.
+func HandleLogout(w http.ResponseWriter, r *http.Request) {
+	expireCookie(w, SessionCookieName)
+	// Also clear the legacy shared cookie if it exists
+	expireCookie(w, legacyCookieName)
+	http.Redirect(w, r, LoginPath, http.StatusSeeOther)
 }
 
 // denyDashboard answers an unauthenticated dashboard request: browsers navigating to
@@ -213,7 +292,7 @@ const loginHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>ast-context-cache login</title>
+<title>{{if .InstanceName}}{{.InstanceName}} · ast-context-cache login{{else}}AST Context Cache login{{end}}</title>
 <style>
 :root { color-scheme: light dark; --bg: #f6f8fa; --card: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0; --accent: #0969da; --err: #d1242f; }
 @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --card: #161b22; --fg: #e6edf3; --muted: #9198a1; --border: #30363d; --accent: #4493f8; --err: #f85149; } }
@@ -230,7 +309,7 @@ button { margin-top: 16px; width: 100%; padding: 8px 12px; border: 0; border-rad
 </head>
 <body>
 <form method="post" action="{{.Action}}">
-<h1>ast-context-cache</h1>
+<h1>{{if .InstanceName}}{{.InstanceName}} · {{else}}AST Context Cache{{end}}</h1>
 <p>This server requires an access token for remote connections.</p>
 {{if .Error}}<div class="err" role="alert">{{.Error}}</div>{{end}}
 <label for="token">Access token</label>

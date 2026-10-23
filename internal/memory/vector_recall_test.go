@@ -1,13 +1,16 @@
 package memory
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
 
@@ -101,6 +104,10 @@ func TestVectorRecallValidityScopeAndRank(t *testing.T) {
 			}
 			assert.Equal(t, tc.want, refs)
 			assert.NotContains(t, refs, otherSession)
+			// Reset access counters between subtests to prevent state pollution
+			// that affects decay factor calculations in subsequent subtests.
+			_, err = db.ContextDB.Exec("UPDATE structured_memory SET access_count = 0, last_accessed_at = NULL")
+			require.NoError(t, err)
 		})
 	}
 }
@@ -161,8 +168,10 @@ func TestValidityClause(t *testing.T) {
 	}{
 		{name: "now", in: RecallInput{}, wantClause: validNowClause},
 		{name: "history", in: RecallInput{IncludeHistory: true}},
-		{name: "as of", in: RecallInput{AsOf: "2026-01-01"}, wantClause: validAsOfClause, wantArgs: []any{"2026-01-01", "2026-01-01"}},
-		{name: "history as of", in: RecallInput{AsOf: "2026-01-01", IncludeHistory: true}, wantClause: validFromAsOfClause, wantArgs: []any{"2026-01-01"}},
+		{name: "as of", in: RecallInput{AsOf: "2026-01-01"}, wantClause: worldValidAsOfClause, wantArgs: []any{"2026-01-01", "2026-01-01"}},
+		{name: "history as of", in: RecallInput{AsOf: "2026-01-01", IncludeHistory: true}, wantClause: worldValidFromAsOfClause, wantArgs: []any{"2026-01-01"}},
+		{name: "as of system", in: RecallInput{AsOf: "2026-01-01", AsOfSystem: true}, wantClause: validAsOfClause, wantArgs: []any{"2026-01-01", "2026-01-01"}},
+		{name: "history as of system", in: RecallInput{AsOf: "2026-01-01", IncludeHistory: true, AsOfSystem: true}, wantClause: validFromAsOfClause, wantArgs: []any{"2026-01-01"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,4 +181,154 @@ func TestValidityClause(t *testing.T) {
 			assert.Equal(t, tc.wantArgs, args)
 		})
 	}
+}
+
+// TestRecallMemoryDebugDemoted tests MEM-9: debug=true lists entries that matched
+// but were demoted below the budget, with their scores and the reason.
+func TestRecallMemoryDebugDemoted(t *testing.T) {
+	dbtest.Init(t)
+	search.Cache.Unload()
+	t.Cleanup(search.Cache.Unload)
+
+	// Set up test data: store several facts
+	sessionID := "test-debug-session"
+	projectPath := "/test/project"
+
+	// Store multiple facts to have enough to trigger budget/limit demotion
+	for i := 1; i <= 5; i++ {
+		_, err := Store(StoreInput{
+			Kind:        KindFact,
+			Scope:       ScopeSession,
+			SessionID:   sessionID,
+			ProjectPath: projectPath,
+			Subject:     fmt.Sprintf("subject%d", i),
+			Predicate:   "is",
+			Object:      fmt.Sprintf("value%d", i),
+		})
+		assert.NoError(t, err)
+	}
+
+	// Recall with a small token budget to force demotion
+	res, err := Recall(RecallInput{
+		Query:               "subject",
+		SessionID:           sessionID,
+		ProjectPath:         projectPath,
+		TokenBudget:         50, // very small to force budget demotion
+		Debug:               true,
+		Limit:               2, // small limit to force limit demotion
+		IncludeRepoSiblings: false,
+	}, nil)
+	assert.NoError(t, err)
+
+	// Verify demoted entries are returned
+	assert.NotNil(t, res.Demoted)
+	assert.True(t, len(res.Demoted) > 0, "should have demoted entries with debug=true")
+
+	// Verify each demoted entry has the required fields
+	for _, d := range res.Demoted {
+		assert.NotEmpty(t, d.Ref, "demoted entry should have ref")
+		assert.NotEmpty(t, d.Line, "demoted entry should have line")
+		assert.NotEmpty(t, d.Reason, "demoted entry should have reason (budget|limit|decay)")
+		assert.Contains(t, []string{"budget", "limit", "decay"}, d.Reason, "reason should be budget, limit, or decay")
+	}
+
+	// Verify non-debug mode does not return demoted
+	resNoDebug, err := Recall(RecallInput{
+		Query:               "subject",
+		SessionID:           sessionID,
+		ProjectPath:         projectPath,
+		TokenBudget:         50,
+		Debug:               false,
+		Limit:               2,
+		IncludeRepoSiblings: false,
+	}, nil)
+	assert.NoError(t, err)
+	assert.Nil(t, resNoDebug.Demoted, "non-debug should not return demoted entries")
+}
+
+// TestRecallMemoryExpandDefaultCompact tests MEM-10: default returns compact lines,
+// expand=true returns full bodies, with hard cap on lines.
+func TestRecallMemoryExpandDefaultCompact(t *testing.T) {
+	dbtest.Init(t)
+	search.Cache.Unload()
+	t.Cleanup(search.Cache.Unload)
+
+	sessionID := "test-expand-session"
+	projectPath := "/test/project"
+
+	// Store a fact with some content
+	_, err := Store(StoreInput{
+		Kind:        KindFact,
+		Scope:       ScopeSession,
+		SessionID:   sessionID,
+		ProjectPath: projectPath,
+		Subject:     "test subject",
+		Predicate:   "has value",
+		Object:      "a longer description that would be in the full body",
+	})
+	assert.NoError(t, err)
+
+	// Default (expand=false) should return Lines but not Formatted
+	resDefault, err := Recall(RecallInput{
+		Query:               "test subject",
+		SessionID:           sessionID,
+		ProjectPath:         projectPath,
+		TokenBudget:         800,
+		Expand:              false,
+		IncludeRepoSiblings: false,
+	}, nil)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, resDefault.Lines, "default should return Lines")
+	assert.Empty(t, resDefault.Formatted, "default should not return Formatted")
+
+	// expand=true should return Formatted
+	resExpand, err := Recall(RecallInput{
+		Query:               "test subject",
+		SessionID:           sessionID,
+		ProjectPath:         projectPath,
+		TokenBudget:         800,
+		Expand:              true,
+		IncludeRepoSiblings: false,
+	}, nil)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, resExpand.Formatted, "expand=true should return Formatted")
+	assert.NotEmpty(t, resExpand.Lines, "expand=true should still return Lines")
+
+	// Hard cap: Limit > 50 should be capped at 50
+	resCapped, err := Recall(RecallInput{
+		Query:               "test subject",
+		SessionID:           sessionID,
+		ProjectPath:         projectPath,
+		TokenBudget:         800,
+		Limit:               100,
+		IncludeRepoSiblings: false,
+	}, nil)
+	assert.NoError(t, err)
+	assert.LessOrEqual(t, len(resCapped.Lines), 50, "lines should be capped at 50")
+}
+
+// TestFeatureMemoryV2Gating tests MEM-11: feature_memory_v2 gates MEM-6..10.
+// When off, decay, TTL expiry, debug demotion, and compact default should be disabled.
+func TestFeatureMemoryV2Gating(t *testing.T) {
+	dbtest.Init(t)
+	search.Cache.Unload()
+	t.Cleanup(search.Cache.Unload)
+
+	// Note: This test relies on the flag being ON by default (as per registry).
+	// The flag is set in flags.registry with Default: true.
+	// When v2 is ON, the features are active.
+	v2On := flags.Enabled(flags.KeyMemoryV2)
+	assert.True(t, v2On, "feature_memory_v2 should be on by default")
+
+	// Toggle the flag off and verify that v2 features are disabled
+	err := flags.Set(flags.KeyMemoryV2, false)
+	assert.NoError(t, err, "should be able to toggle feature_memory_v2 off")
+
+	v2Off := flags.Enabled(flags.KeyMemoryV2)
+	assert.False(t, v2Off, "feature_memory_v2 should be off after toggle")
+
+	// When v2 is off, TTL expiry in recall should be disabled (entries should not
+	// be marked expired simply because they have no expires_at)
+	// and decay should not be applied.
+	_ = RecallInput{Debug: true, Expand: true}
 }

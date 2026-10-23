@@ -24,9 +24,14 @@ export function todayMeterFill(today: number, total30d: number): MeterFill {
   return meterFillSegments(today, total30d / 30)
 }
 
+// compact renders 60.67 as "60.7k" and 12.0 as "12k".
+const compact = (v: number, unit: string): string => `${v.toFixed(1).replace(/\.0$/, '')}${unit}`
+
 export function fmtDailyAvg(total30d: number): string {
   if (total30d <= 0) return '0'
   const avg = total30d / 30
+  if (avg >= 1_000_000) return compact(avg / 1_000_000, 'M')
+  if (avg >= 1000) return compact(avg / 1000, 'k')
   if (avg >= 100) return String(Math.round(avg))
   if (avg === Math.floor(avg)) return String(Math.floor(avg))
   return avg.toFixed(1)

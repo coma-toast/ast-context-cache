@@ -27,6 +27,8 @@ func TestMetricsEndpoint(t *testing.T) {
 		"astcache_embed_workers_target",
 		"astcache_index_wal_bytes",
 		"astcache_tokens_saved_today",
+		`astcache_ledger_tokens_saved_today{ledger="compression"}`,
+		`astcache_ledger_tokens_saved_today{ledger="dedup"}`,
 		"astcache_embedder_state",
 		"astcache_query_cache_hit_ratio",
 		"astcache_handoffs_created_total",

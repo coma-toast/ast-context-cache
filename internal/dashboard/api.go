@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
+	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
@@ -32,6 +33,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/selfupdate"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
+	"github.com/coma-toast/ast-context-cache/internal/transcripts"
 	"github.com/coma-toast/ast-context-cache/internal/watcher"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -61,6 +63,14 @@ const (
 	countProjectVectorsQuery     = "SELECT COUNT(*) FROM vectors WHERE project_path = ?"
 	countVectorsQuery            = "SELECT COUNT(*) FROM vectors"
 )
+
+func getPinnedNoteContent(projectPath string) string {
+	note, err := contextnotes.Pinned(projectPath)
+	if err != nil || note == nil {
+		return ""
+	}
+	return note.Content
+}
 
 // NewHandler builds the dashboard HTTP handler. listen is the address the server
 // binds to; httpguard uses it to reject cross-origin writes and DNS-rebinding
@@ -102,6 +112,8 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/embedder/docker-models", handleDockerModels)
 	mux.HandleFunc("/api/pin-project", handlePinProject)
 	mux.HandleFunc("/api/project-label", handleProjectLabel)
+	mux.HandleFunc("/api/pinned-note", handlePinnedNote)
+	mux.HandleFunc("/api/count-tokens", handleCountTokens)
 	mux.HandleFunc("/api/project-excludes", handleProjectExcludes)
 	mux.HandleFunc("/api/project-links", handleProjectLinks)
 	mux.HandleFunc("/api/embed-workers", handleEmbedWorkers)
@@ -116,6 +128,7 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/wal-status", handleWALStatus)
 	mux.HandleFunc("/api/data-dir/move", handleDataDirMove)
 	mux.HandleFunc("/api/data-dir/status", handleDataDirStatus)
+	mux.HandleFunc("/api/data-dir/clear-override", handleDataDirClearOverride)
 	mux.HandleFunc("/api/update/check", handleUpdateCheck)
 	mux.HandleFunc("/api/update/start", handleStartUpdate)
 	mux.HandleFunc("/api/update/status", handleUpdateStatus)
@@ -289,6 +302,8 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 		ps = append(ps, map[string]interface{}{
 			"path": p, "name": filepath.Base(p), "query_count": c,
 			"symbol_count": sc.symbols, "file_count": sc.files,
+			"pinned":     db.IsPinnedProject(p),
+			"PinnedNote": getPinnedNoteContent(p),
 		})
 	}
 	if ps == nil {
@@ -422,8 +437,12 @@ func handleTimeseries(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIndexStats(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode(map[string]string{"error": "index database unavailable"})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	var totalSymbols, totalFiles, totalEdges int
 	if conn, err := db.IndexReader(); err == nil {
 		if pid != "" {
@@ -444,8 +463,12 @@ func handleIndexStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	conn, err := db.IndexReader()
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -473,8 +496,12 @@ func handleSymbolKinds(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	conn, err := db.IndexReader()
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -502,8 +529,12 @@ func handleLanguageStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTopImports(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
 	w.Header().Set("Content-Type", "application/json")
+	if !indexDBReady() {
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+	pid := r.URL.Query().Get("project_id")
 	conn, err := db.IndexReader()
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -681,6 +712,78 @@ func handlePinProject(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "pinned": req.Pinned})
 }
 
+func handlePinnedNote(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet {
+		projectPath := r.URL.Query().Get("project")
+		if projectPath == "" {
+			json.NewEncoder(w).Encode(map[string]string{"error": "project query parameter required"})
+			return
+		}
+		note, err := contextnotes.Pinned(projectPath)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"ref":           "",
+				"project_path":  projectPath,
+				"content":       "",
+				"session_id":    "",
+				"label":         "",
+				"tags":          "",
+				"kind":          "",
+				"metadata_json": "{}",
+				"token_est":     0,
+				"access_count":  0,
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(note)
+		return
+	}
+	if r.Method == http.MethodPut {
+		var req struct {
+			ProjectPath string `json:"project_path"`
+			Content     string `json:"content"`
+			Origin      string `json:"origin"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if req.ProjectPath == "" {
+			json.NewEncoder(w).Encode(map[string]string{"error": "project_path required"})
+			return
+		}
+		if req.Origin == "" {
+			req.Origin = "user"
+		}
+		note, err := contextnotes.StorePinned(req.ProjectPath, req.Content, req.Origin)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(note)
+		return
+	}
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func handleCountTokens(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	tokenEst := db.EstimateTokens(req.Text)
+	json.NewEncoder(w).Encode(map[string]int{"token_est": tokenEst})
+}
+
 func parseEmbedWorkersRequest(r *http.Request) (delta int, count *int, err error) {
 	ct := r.Header.Get("Content-Type")
 	if strings.Contains(ct, "application/json") {
@@ -852,6 +955,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			value = strconv.Itoa(n)
 		}
+		if key == transcripts.SettingKey && !validBoolSetting(value) {
+			writeFlagsError(w, http.StatusBadRequest, key+" must be true or false")
+			return
+		}
 		if key == "embed_worker_max" {
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 1 || n > embedqueue.AbsoluteMaxWorkers {
@@ -876,6 +983,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if key == "EMBED_AUX_BACKEND" {
 			value = normalizeEmbedBackendValue(value)
+		}
+		if key == "instance_name" {
+			saveInstanceName(w, r, value)
+			return
 		}
 		if key == embedder.ProbeIntervalSettingKey {
 			n, err := strconv.Atoi(value)
@@ -996,6 +1107,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		"dashboard_log_line_chars":       "500",
 		netlisten.KeyExtraAddrs:          "",
 		netlisten.KeyTrustedHosts:        "",
+		transcripts.SettingKey:           "false",
+		"instance_name":                  "",
 	}
 	for _, ls := range handoff.LimitSettings() {
 		defaults[ls.Key] = strconv.Itoa(ls.Default)
@@ -1007,6 +1120,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	redactNetworkSettings(settings)
+	applyInstanceSettings(settings)
 	json.NewEncoder(w).Encode(settings)
 }
 
@@ -1494,7 +1608,7 @@ func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := db.GetDataDirMoveSnapshot()
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	result := map[string]interface{}{
 		"active":      s.Active,
 		"done":        s.Done,
 		"phase":       s.Phase,
@@ -1504,7 +1618,31 @@ func handleDataDirStatus(w http.ResponseWriter, r *http.Request) {
 		"error":       s.Error,
 		"recreated":   s.Recreated,
 		"kept":        s.Kept,
-	})
+	}
+	if s.SourceDir != "" {
+		result["source_dir"] = s.SourceDir
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleDataDirClearOverride deletes the location override file so the next restart
+// falls back to the default data directory (or DB_PATH env var). It returns a
+// status that the UI can use to show a "restart now" button.
+func handleDataDirClearOverride(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+		return
+	}
+	overridePath := db.LocationOverridePath()
+	if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to clear override: %v", err)})
+		return
+	}
+	// The override is now cleared; a restart will pick up the default location.
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "cleared", "message": "Override cleared. Restart ast-mcp to use the default data directory."})
 }
 
 // selfUpdateExePath returns the running ast-mcp, symlinks resolved, which an

@@ -13,15 +13,27 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
+	"github.com/coma-toast/ast-context-cache/internal/render"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/trail"
 )
 
 const (
 	selectSymbolLinesQuery = "SELECT COALESCE(start_line,0), COALESCE(end_line,0) FROM symbols WHERE name = ? AND file = ? AND project_path = ? LIMIT 1"
+	// retrieveConservativeBaselineKey carries the conservative baseline beside the result
+	// to the query log; it is never serialized into the tool response.
+	retrieveConservativeBaselineKey = "conservative_baseline"
+	// retrieveTimingsKey and retrieveViewKey carry the call's timings and its full chunks beside
+	// the result to handleToolCall, which places the timings (_meta or body) and renders the
+	// chunks; neither is serialized as is.
+	retrieveTimingsKey = "timings"
+	retrieveViewKey    = "view"
+	// maxRetrieveBudgetMisses ends budgetChunks after this many consecutive chunks over budget.
+	maxRetrieveBudgetMisses = 5
 )
 
 type RetrieveResult struct {
@@ -32,6 +44,12 @@ type RetrieveResult struct {
 	CodeScriptHints []codescripts.Hint `json:"code_script_hints,omitempty"`
 	// Handoff carries the session's handoff tree annotations (OP-9, SP-6); never cached.
 	Handoff map[string]any `json:"handoff,omitempty"`
+	// Withheld counts code hits held back by the relevance floor and chunks the token budget
+	// skipped; NoMatch is set when the top code hit was too weak (no code chunks); Collapsed
+	// lists the test, mock and duplicate code hits folded away.
+	Withheld  *context.Withheld `json:"withheld,omitempty"`
+	NoMatch   *render.NoMatch   `json:"no_match,omitempty"`
+	Collapsed []render.Collapse `json:"collapsed,omitempty"`
 }
 
 type RetrieveChunk struct {
@@ -41,41 +59,61 @@ type RetrieveChunk struct {
 	Kind          string  `json:"kind"`
 	File          string  `json:"file"`
 	StartLine     int     `json:"start_line,omitempty"`
+	EndLine       int     `json:"end_line,omitempty"`
 	Score         float64 `json:"score"`
 	Source        string  `json:"source"`
-	Content       string  `json:"content"`
+	// Content is cleared unless include_chunks is true; the assembled context carries it.
+	Content string `json:"content,omitempty"`
 	// ParentExplored marks a code chunk the session's handoff parent was already returned (OP-10).
 	ParentExplored bool `json:"parent_explored,omitempty"`
 
-	// absFile and endLine locate a code chunk's symbol for dedup logging and
-	// baselines; File is project-relative for display.
+	// absFile locates a code chunk's symbol for dedup logging and baselines; File is
+	// project-relative for display. mode is the mode it was packed in.
 	absFile string
-	endLine int
+	mode    string
 }
 
 type RetrieveStats struct {
-	CodeResults  int     `json:"code_results"`
-	DocResults   int     `json:"doc_results"`
-	TotalTokens  int     `json:"total_tokens"`
-	SearchTimeMs float64 `json:"search_time_ms"`
+	CodeResults int `json:"code_results"`
+	DocResults  int `json:"doc_results"`
+	TotalTokens int `json:"total_tokens"`
 	// Pipeline observability (hybrid search + assembly)
-	BM25Candidates       int     `json:"bm25_candidates,omitempty"`
-	VectorCandidates     int     `json:"vector_candidates,omitempty"`
-	HybridAfterFuse      int     `json:"hybrid_after_fuse,omitempty"`
-	AfterDedup           int     `json:"after_dedup,omitempty"`
-	ChunksInBudget       int     `json:"chunks_in_budget,omitempty"`
-	TokensEstAllChunks   int     `json:"tokens_est_all_chunks,omitempty"`
-	CodeRetrieveMs       float64 `json:"code_retrieve_ms,omitempty"`
-	DocsRetrieveMs       float64 `json:"docs_retrieve_ms,omitempty"`
-	DedupBudgetMs        float64 `json:"dedup_budget_ms,omitempty"`
-	SymbolBaselineTokens int     `json:"symbol_baseline_tokens,omitempty"`
-	DedupTokensSaved     int     `json:"dedup_tokens_saved,omitempty"`
-	DedupedCount         int     `json:"deduped,omitempty"`
-	TokensSaved          int     `json:"tokens_saved,omitempty"`
-	SavingsVsCandidates  int     `json:"savings_vs_candidates,omitempty"`
-	BudgetTokensSaved    int     `json:"budget_tokens_saved,omitempty"`
-	MemoryTokens         int     `json:"memory_tokens,omitempty"`
-	MemoryLines          int     `json:"memory_lines,omitempty"`
+	BM25Candidates       int `json:"bm25_candidates,omitempty"`
+	VectorCandidates     int `json:"vector_candidates,omitempty"`
+	HybridAfterFuse      int `json:"hybrid_after_fuse,omitempty"`
+	AfterDedup           int `json:"after_dedup,omitempty"`
+	ChunksInBudget       int `json:"chunks_in_budget,omitempty"`
+	TokensEstAllChunks   int `json:"tokens_est_all_chunks,omitempty"`
+	SymbolBaselineTokens int `json:"symbol_baseline_tokens,omitempty"`
+	DedupTokensSaved     int `json:"dedup_tokens_saved,omitempty"`
+	DedupedCount         int `json:"deduped,omitempty"`
+	TokensSaved          int `json:"tokens_saved,omitempty"`
+	SavingsVsCandidates  int `json:"savings_vs_candidates,omitempty"`
+	BudgetTokensSaved    int `json:"budget_tokens_saved,omitempty"`
+	MemoryTokens         int `json:"memory_tokens,omitempty"`
+	MemoryLines          int `json:"memory_lines,omitempty"`
+}
+
+// retrieveTimings are a retrieve call's stage timings. They vary run to run, so with
+// feature_stable_responses they go to _meta, and to the body as "timings" only with debug=true.
+type retrieveTimings struct {
+	SearchTimeMs   float64 `json:"search_time_ms"`
+	CodeRetrieveMs float64 `json:"code_retrieve_ms,omitempty"`
+	DocsRetrieveMs float64 `json:"docs_retrieve_ms,omitempty"`
+	DedupBudgetMs  float64 `json:"dedup_budget_ms,omitempty"`
+}
+
+// retrieveView is what rendering a retrieve result needs beyond its body: the delivered chunks
+// with their content, and the memory preamble and format the context was assembled from, so a
+// head of the first n chunks can be reassembled.
+type retrieveView struct {
+	chunks           []RetrieveChunk
+	preamble, format string
+}
+
+// context is the assembled context for the first n chunks.
+func (v *retrieveView) context(n int) string {
+	return v.preamble + assembleContext(v.chunks[:n], v.format)
 }
 
 type codeRetrieveMeta struct {
@@ -84,6 +122,10 @@ type codeRetrieveMeta struct {
 	symbolBaseline int
 	// hits are the trail refs of every code candidate, before session dedup.
 	hits []string
+	// withheld, noMatch and collapsed are the precision pass's outcome for the code part.
+	withheld  context.Withheld
+	noMatch   *render.NoMatch
+	collapsed []render.Collapse
 }
 
 // HandleRetrieve answers a retrieve call with {"result": json.RawMessage} on success, or
@@ -113,6 +155,7 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	if is, ok := args["include_source"].(bool); ok {
 		includeSource = is
 	}
+	includeChunks, _ := args["include_chunks"].(bool)
 
 	format := "markdown"
 	if f, ok := args["format"].(string); ok {
@@ -121,6 +164,9 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	mode := "skeleton"
 	if m, ok := args["mode"].(string); ok && m != "" {
 		mode = m
+	}
+	if mode == "edit" {
+		return map[string]interface{}{"error": "retrieve does not support mode=edit; use get_context_capsule or get_file_context with mode=edit"}
 	}
 	sessionID, _ := args["session_id"].(string)
 	includeMemory := false
@@ -152,7 +198,7 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	tStart := time.Now()
 
 	tCode := time.Now()
-	codeChunks, codeCount, hybridMetrics, codeMeta, hintRows := retrieveCode(query, projectPath, limit, includeSource, mode, sessionID, filters)
+	codeChunks, codeCount, hybridMetrics, codeMeta, hintRows := retrieveCode(query, projectPath, limit, includeSource, mode, sessionID, filters, context.ParsePrecisionArgs(args))
 	codeMs := float64(time.Since(tCode).Milliseconds())
 
 	var docChunks []RetrieveChunk
@@ -173,15 +219,16 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	for _, c := range chunks {
 		tokensEstAll += db.EstimateTokens(c.Content)
 	}
-	chunks, totalTokens := budgetChunks(chunks, tokenBudget)
+	chunks, totalTokens, budgetWithheld := budgetChunks(chunks, tokenBudget)
 	dedupBudgetMs := float64(time.Since(tDedup).Milliseconds())
-	markDeliveredCode(sessionID, projectPath, mode, chunks)
+	markDeliveredCode(sessionID, projectPath, chunks)
 	symbolBaseline := baselineForChunks(chunks, projectPath)
 	budgetSaved := tokensEstAll - totalTokens
 	if budgetSaved < 0 {
 		budgetSaved = 0
 	}
 	savings := context.ComputeSavings(totalTokens, symbolBaseline, 0, codeMeta.dedupTokens)
+	savings.ConservativeBaseline = conservativeBaselineForChunks(chunks)
 	savings.DedupedCount = codeMeta.dedupCount
 	savings.Mode = mode
 
@@ -192,16 +239,12 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 			CodeResults:          codeCount,
 			DocResults:           docCount,
 			TotalTokens:          totalTokens,
-			SearchTimeMs:         float64(time.Since(tStart).Milliseconds()),
 			BM25Candidates:       hybridMetrics.BM25Candidates,
 			VectorCandidates:     hybridMetrics.VectorCandidates,
 			HybridAfterFuse:      hybridMetrics.HybridAfterFuse,
 			AfterDedup:           afterDedup,
 			ChunksInBudget:       len(chunks),
 			TokensEstAllChunks:   tokensEstAll,
-			CodeRetrieveMs:       codeMs,
-			DocsRetrieveMs:       docsMs,
-			DedupBudgetMs:        dedupBudgetMs,
 			SymbolBaselineTokens: symbolBaseline,
 			DedupTokensSaved:     codeMeta.dedupTokens,
 			DedupedCount:         codeMeta.dedupCount,
@@ -213,6 +256,12 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 		},
 	}
 
+	withheld := codeMeta.withheld
+	withheld.Add(budgetWithheld)
+	if withheld.Count > 0 {
+		result.Withheld = &withheld
+	}
+	result.NoMatch, result.Collapsed = codeMeta.noMatch, codeMeta.collapsed
 	result.Context = memoryPreamble + assembleContext(chunks, format)
 	if memoryTokens > 0 {
 		result.Stats.TotalTokens += memoryTokens
@@ -226,8 +275,21 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	}
 	recordSearch(sessionID, entry)
 	result.Handoff = annotateChunks(sessionID, entry, result.Chunks)
+	view := &retrieveView{chunks: result.Chunks, preamble: memoryPreamble, format: format}
+	if !includeChunks {
+		result.Chunks = make([]RetrieveChunk, len(view.chunks))
+		for i, c := range view.chunks {
+			c.Content = ""
+			result.Chunks[i] = c
+		}
+	}
+	timings := retrieveTimings{SearchTimeMs: float64(time.Since(tStart).Milliseconds()), CodeRetrieveMs: codeMs, DocsRetrieveMs: docsMs, DedupBudgetMs: dedupBudgetMs}
 	resultJSON, _ := json.Marshal(result)
-	return map[string]interface{}{"result": json.RawMessage(resultJSON)}
+	// conservative_baseline is for the query log only; it is not part of the response body.
+	return map[string]interface{}{
+		"result": json.RawMessage(resultJSON), retrieveConservativeBaselineKey: savings.ConservativeBaseline,
+		retrieveTimingsKey: timings, retrieveViewKey: view,
+	}
 }
 
 // annotateChunks annotates a retrieve search for a handoff tree session, marking the code chunks
@@ -255,10 +317,11 @@ func annotateChunks(sessionID string, e trail.Entry, chunks []RetrieveChunk) map
 	return ann
 }
 
-// retrieveCode ranks code chunks for query, skipping symbols already returned to
-// sessionID and duplicates within the list. It records nothing: HandleRetrieve
-// marks only the chunks that survive the token budget as returned.
-func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters) ([]RetrieveChunk, int, *search.HybridSearchMetrics, codeRetrieveMeta, []map[string]interface{}) {
+// retrieveCode ranks code chunks for query after the precision pass, skipping symbols
+// already returned to sessionID in a mode at least as rich and duplicates within the list. It
+// records nothing: HandleRetrieve marks only the chunks that survive the token budget as
+// returned.
+func retrieveCode(query, projectPath string, limit int, includeSource bool, mode, sessionID string, filters *search.SearchFilters, precArgs context.PrecisionArgs) ([]RetrieveChunk, int, *search.HybridSearchMetrics, codeRetrieveMeta, []map[string]interface{}) {
 	stage := "retrieve:bm25"
 	if emb != nil {
 		embedqueue.EnsureProjectEmbeddings(projectPath)
@@ -268,8 +331,32 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 	if len(results) > limit {
 		results = results[:limit]
 	}
-	hintRows := make([]map[string]interface{}, 0, len(results))
+	meta := codeRetrieveMeta{}
+	// Resolve every candidate's lines first: the trail covers them all, before the floor and dedup.
 	for _, r := range results {
+		name, _ := r.Data["name"].(string)
+		file, _ := r.Data["file"].(string)
+		if file == "" || name == "" {
+			continue
+		}
+		// Use the hit's own lines: a bare-name lookup can't tell same-named
+		// methods of different classes apart.
+		if startLine, _ := r.Data["start_line"].(int); startLine == 0 {
+			var endLine int
+			if indexDB, err := db.IndexReader(); err == nil {
+				indexDB.QueryRow(selectSymbolLinesQuery, name, file, projectlinks.OwningProject(file, projectPath)).Scan(&startLine, &endLine)
+			}
+			r.Data["start_line"], r.Data["end_line"] = startLine, endLine
+		}
+		startLine, _ := r.Data["start_line"].(int)
+		meta.hits = append(meta.hits, trail.HitRef(db.RelPath(file, projectPath), name, startLine))
+	}
+	fileCache := map[string][]string{}
+	prec := context.ApplyPrecision(results, query, projectPath, precArgs, false)
+	meta.withheld = context.EstimateWithheld(prec.Withheld, projectPath, fileCache)
+	meta.noMatch, meta.collapsed = prec.NoMatch, prec.Collapsed
+	hintRows := make([]map[string]interface{}, 0, len(prec.Kept))
+	for _, r := range prec.Kept {
 		file, _ := r.Data["file"].(string)
 		hintRows = append(hintRows, map[string]interface{}{
 			"name": r.Data["name"],
@@ -277,16 +364,15 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 			"file": db.RelPath(file, projectPath),
 		})
 	}
-	returned := context.ReturnedKeys(sessionID)
-	fileCache := map[string][]string{}
+	returned := context.ReturnedModes(sessionID)
+	v2 := flags.Enabled(flags.KeyModeV2)
 	var chunks []RetrieveChunk
-	meta := codeRetrieveMeta{}
 	fullCount := 0
 	maxScore := 0.0
-	if len(results) > 0 {
-		maxScore = results[0].Score
+	if len(prec.Kept) > 0 {
+		maxScore = prec.Kept[0].Score
 	}
-	for _, r := range results {
+	for _, r := range prec.Kept {
 		name, _ := r.Data["name"].(string)
 		kind, _ := r.Data["kind"].(string)
 		file, _ := r.Data["file"].(string)
@@ -295,30 +381,23 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 		}
 		owner := projectlinks.OwningProject(file, projectPath)
 		qualified, _ := r.Data["qualified_name"].(string)
-		// Use the hit's own lines: a bare-name lookup can't tell same-named
-		// methods of different classes apart.
 		startLine, _ := r.Data["start_line"].(int)
 		endLine, _ := r.Data["end_line"].(int)
-		if startLine == 0 {
-			if indexDB, err := db.IndexReader(); err == nil {
-				indexDB.QueryRow(selectSymbolLinesQuery, name, file, owner).Scan(&startLine, &endLine)
-			}
-		}
-		meta.hits = append(meta.hits, trail.HitRef(db.RelPath(file, projectPath), name, startLine))
+		effective := retrieveMode(mode, includeSource, v2, len(chunks), r.Score, maxScore, fullCount)
 		key := context.SymbolDedupKey(file, name, startLine)
-		if _, dup := returned[key]; dup {
+		if context.DedupCovers(returned, key, effective) {
 			meta.dedupCount++
-			meta.dedupTokens += context.WouldSendTokens(file, name, owner, mode, startLine, endLine, r.Score, maxScore, fullCount, fileCache)
+			meta.dedupTokens += context.WouldSendTokens(file, name, owner, effective, startLine, endLine, 0, 0, 0, fileCache)
 			continue
 		}
-		content := context.SymbolContentForRetrieve(file, name, owner, startLine, endLine, includeSource, mode, r.Score, maxScore, fullCount, fileCache)
+		content := context.SymbolContentForRetrieve(file, name, owner, startLine, endLine, false, effective, 0, 0, 0, fileCache)
 		if content == "" {
 			continue
 		}
-		if includeSource || mode == "full" || (mode == "auto" && context.EffectiveMode("auto", r.Score, maxScore, fullCount) == "full") {
+		if effective == "full" {
 			fullCount++
 		}
-		returned[key] = struct{}{}
+		returned[key] = effective
 		chunks = append(chunks, RetrieveChunk{
 			Type:          "code",
 			Name:          name,
@@ -329,22 +408,39 @@ func retrieveCode(query, projectPath string, limit int, includeSource bool, mode
 			Score:         r.Score,
 			Source:        "code",
 			Content:       content,
+			EndLine:       endLine,
 			absFile:       file,
-			endLine:       endLine,
+			mode:          effective,
 		})
 	}
 	return chunks, len(results), metrics, meta, hintRows
 }
 
-// markDeliveredCode records the code chunks actually sent as returned to sessionID.
-// Chunks cut by the token budget were never seen, so they stay eligible next call.
-func markDeliveredCode(sessionID, projectPath, mode string, chunks []RetrieveChunk) {
+// retrieveMode is the mode a code chunk is packed in: full with include_source or mode=full;
+// for auto, by delivered rank (feature_mode_v2) or score ratio; skeleton otherwise.
+func retrieveMode(mode string, includeSource, v2 bool, rank int, score, maxScore float64, fullCount int) string {
+	switch {
+	case includeSource || mode == "full":
+		return "full"
+	case mode == "auto" && v2:
+		return context.EffectiveModeV2(mode, rank)
+	case mode == "auto" && context.EffectiveMode(mode, score, maxScore, fullCount) == "full":
+		return "full"
+	default:
+		return "skeleton"
+	}
+}
+
+// markDeliveredCode records the code chunks actually sent as returned to sessionID, each in
+// the mode it was packed in. Chunks cut by the token budget were never seen, so they stay
+// eligible next call.
+func markDeliveredCode(sessionID, projectPath string, chunks []RetrieveChunk) {
 	var delivered []context.ReturnedSymbol
 	for _, c := range chunks {
 		if c.Type != "code" || c.absFile == "" {
 			continue
 		}
-		delivered = append(delivered, context.ReturnedSymbol{File: c.absFile, Name: c.Name, ProjectPath: projectPath, StartLine: c.StartLine, Mode: mode, Tokens: db.EstimateTokens(c.Content)})
+		delivered = append(delivered, context.ReturnedSymbol{File: c.absFile, Name: c.Name, ProjectPath: projectPath, StartLine: c.StartLine, Mode: c.mode, Tokens: db.EstimateTokens(c.Content)})
 	}
 	context.MarkReturned(sessionID, delivered...)
 }
@@ -358,9 +454,24 @@ func baselineForChunks(chunks []RetrieveChunk, projectPath string) int {
 			continue
 		}
 		owner := projectlinks.OwningProject(c.absFile, projectPath)
-		total += context.FullSourceTokens(c.absFile, c.Name, owner, c.StartLine, c.endLine, fileCache)
+		total += context.FullSourceTokens(c.absFile, c.Name, owner, c.StartLine, c.EndLine, fileCache)
 	}
 	return total
+}
+
+// conservativeBaselineForChunks is the TL-3 baseline: code chunks widened by 20 lines and
+// merged per file, plus doc chunks as returned.
+func conservativeBaselineForChunks(chunks []RetrieveChunk) int {
+	var spans []context.LineSpan
+	total := 0
+	for _, c := range chunks {
+		if c.Type == "doc" {
+			total += db.EstimateTokens(c.Content)
+			continue
+		}
+		spans = append(spans, context.LineSpan{File: c.absFile, Start: c.StartLine, End: c.EndLine})
+	}
+	return total + context.ConservativeBaselineTokens(spans, map[string][]string{})
 }
 
 func retrieveDocs(query string, limit int) ([]RetrieveChunk, int) {
@@ -428,20 +539,25 @@ func rankAndDedup(chunks []RetrieveChunk) []RetrieveChunk {
 	return unique
 }
 
-func budgetChunks(chunks []RetrieveChunk, budget int) ([]RetrieveChunk, int) {
+// budgetChunks keeps chunks in order while they fit budget. A chunk that does not fit is
+// skipped (a later, smaller one may), and after five consecutive misses the rest are skipped;
+// every skipped chunk is counted in the returned withheld with its token estimate.
+func budgetChunks(chunks []RetrieveChunk, budget int) ([]RetrieveChunk, int, context.Withheld) {
 	var result []RetrieveChunk
-	totalTokens := 0
-
+	var withheld context.Withheld
+	totalTokens, misses := 0, 0
 	for _, c := range chunks {
 		tokens := db.EstimateTokens(c.Content)
-		if totalTokens+tokens > budget {
-			break
+		if misses >= maxRetrieveBudgetMisses || totalTokens+tokens > budget {
+			misses++
+			withheld.Add(context.Withheld{Count: 1, Tokens: tokens})
+			continue
 		}
+		misses = 0
 		totalTokens += tokens
 		result = append(result, c)
 	}
-
-	return result, totalTokens
+	return result, totalTokens, withheld
 }
 
 func assembleContext(chunks []RetrieveChunk, format string) string {
@@ -458,7 +574,7 @@ func assembleContext(chunks []RetrieveChunk, format string) string {
 			sb.WriteString(fmt.Sprintf("## %d. %s (%s)\n\n", i+1, c.Name, c.Type))
 			if c.Type == "code" {
 				sb.WriteString(fmt.Sprintf("**File:** `%s` | **Kind:** `%s` | **Score:** %.3f\n\n", c.File, c.Kind, c.Score))
-				sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n\n", langFromExt(c.File), c.Content))
+				sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n\n", render.LangFromExt(c.File), c.Content))
 			} else {
 				sb.WriteString(fmt.Sprintf("**Source:** Documentation | **Score:** %.3f\n\n", c.Score))
 				sb.WriteString(c.Content + "\n\n")
@@ -482,37 +598,6 @@ func assembleContext(chunks []RetrieveChunk, format string) string {
 	}
 
 	return sb.String()
-}
-
-func langFromExt(file string) string {
-	ext := strings.ToLower(file)
-	if idx := strings.LastIndex(ext, "."); idx >= 0 {
-		ext = ext[idx:]
-	}
-	switch ext {
-	case ".go":
-		return "go"
-	case ".py":
-		return "python"
-	case ".ts", ".tsx":
-		return "typescript"
-	case ".js", ".jsx":
-		return "javascript"
-	case ".rs":
-		return "rust"
-	case ".rb":
-		return "ruby"
-	case ".java":
-		return "java"
-	case ".sh":
-		return "bash"
-	case ".fish":
-		return "fish"
-	case ".yaml", ".yml":
-		return "yaml"
-	default:
-		return ""
-	}
 }
 
 func escapeXML(s string) string {

@@ -26,6 +26,11 @@ func locationOverridePath() string {
 	return filepath.Join(home, ".astcache.location")
 }
 
+// LocationOverridePath is the public accessor for locationOverridePath.
+func LocationOverridePath() string {
+	return locationOverridePath()
+}
+
 func dataDirOverride() string {
 	data, err := os.ReadFile(locationOverridePath())
 	if err != nil {
