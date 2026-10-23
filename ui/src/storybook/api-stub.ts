@@ -93,6 +93,7 @@ export const api = {
   installerApply: noop,
   installerBackups: async () => ({ backups: fixtureInstallerBackups }),
   installerRestore: noop,
+  installerDismissLegacy: noop,
   embedderTest: noop,
   embedderRetry: noop,
   embedderDismissAlert: noop,

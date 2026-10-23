@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Alert, Snackbar } from '@mui/material'
 
-type ToastSeverity = 'success' | 'error' | 'info'
+type ToastSeverity = 'success' | 'error' | 'info' | 'warning'
 
 interface QueuedToast {
   key: number

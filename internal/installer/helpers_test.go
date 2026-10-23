@@ -42,7 +42,9 @@ type testOpts struct {
 	hooks    bool
 	noBridge bool
 	noNpx    bool
-	now      func() time.Time
+	// desktopRunning reports Claude Desktop as running; tests never look at real processes.
+	desktopRunning bool
+	now            func() time.Time
 }
 
 // newTestHome gives the test a temp HOME with an open database.
@@ -60,12 +62,13 @@ func newTestService(t *testing.T, home string, o testOpts) *realService {
 		o.goos = "darwin"
 	}
 	cfg := Config{
-		Home:         home,
-		MCPURL:       o.url,
-		Executable:   testExe,
-		GOOS:         o.goos,
-		HooksEnabled: func() bool { return o.hooks },
-		Now:          o.now,
+		Home:                 home,
+		MCPURL:               o.url,
+		Executable:           testExe,
+		GOOS:                 o.goos,
+		HooksEnabled:         func() bool { return o.hooks },
+		ClaudeDesktopRunning: func() bool { return o.desktopRunning },
+		Now:                  o.now,
 		LookPath: func(name string) (string, error) {
 			switch {
 			case name == "mcp-local" && !o.noBridge:

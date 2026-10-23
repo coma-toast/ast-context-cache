@@ -15,7 +15,7 @@ const (
 	exitOK          = 0
 	exitError       = 1
 	exitConfirm     = 2 // a change needs --yes (or --dry-run to only preview)
-	exitConflict    = 3 // a file changed since preview, or could not be parsed
+	exitConflict    = 3 // a file changed since preview, could not be parsed, or a running host undid the change
 	exitUnsupported = 4 // every requested component is unsupported for a named target
 )
 

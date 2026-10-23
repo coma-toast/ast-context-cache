@@ -124,3 +124,14 @@ func TestSettingInt(t *testing.T) {
 		})
 	}
 }
+
+func TestClaimSetting(t *testing.T) {
+	dbtest.Init(t)
+	ok, err := db.ClaimSetting("test_claim", "1")
+	require.NoError(t, err)
+	assert.True(t, ok, "the first claim sets the key")
+	ok, err = db.ClaimSetting("test_claim", "2")
+	require.NoError(t, err)
+	assert.False(t, ok, "a second claim finds it set")
+	assert.Equal(t, "1", db.GetSetting("test_claim", ""), "a failed claim leaves the value")
+}

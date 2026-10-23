@@ -59,6 +59,10 @@ const (
 // DefaultMCPPort is the MCP server's default port.
 const DefaultMCPPort = 7821
 
+// RecheckDelay is how long the CLI waits before re-verifying components an apply wrote while
+// their host was running (ApplyResult.Recheck).
+const RecheckDelay = 10 * time.Second
+
 const (
 	serverName = "ast-context-cache"
 	planTTL    = 10 * time.Minute
@@ -80,12 +84,20 @@ type Service interface {
 	Apply(planID string) (*ApplyResult, error)
 	// Verify computes status from disk for the given targets (all when empty).
 	Verify(targets []Target) ([]ComponentStatus, error)
+	// Recheck re-verifies ApplyResult.Recheck and warns about each component whose status has
+	// changed since, because its host rewrote the file. It returns the fresh statuses.
+	Recheck(applied []ComponentStatus) ([]ComponentStatus, []string, error)
 	// Backups lists saved backups, newest first.
 	Backups() ([]Backup, error)
 	// Restore writes a backup back to its original path, backing up the current file first.
 	Restore(backupID string) error
-	// LegacyWarnings returns the findings of the one-time pre-4.0 install-record check (IN-13).
+	// LegacyWarnings returns the findings of the one-time pre-4.0 install-record check (IN-13)
+	// until they are dismissed.
 	LegacyWarnings() []string
+	// ClaimLegacyWarnings returns the findings only on their first display, CLI or dashboard.
+	ClaimLegacyWarnings() []string
+	// DismissLegacyWarnings hides the findings everywhere.
+	DismissLegacyWarnings() error
 }
 
 // Config holds the installer's environment. Zero fields take defaults from the process.
@@ -102,6 +114,9 @@ type Config struct {
 	LookPath func(string) (string, error)
 	// HooksEnabled gates the Claude Code hooks component; defaults to the feature_handoff_hooks flag.
 	HooksEnabled func() bool
+	// ClaudeDesktopRunning reports whether Claude Desktop is running, which makes it rewrite its
+	// config underneath us; defaults to a process check for GOOS.
+	ClaudeDesktopRunning func() bool
 	// Now is the clock for backups and plan expiry.
 	Now func() time.Time
 }
@@ -158,6 +173,10 @@ type ApplyResult struct {
 	Backups  []Backup          `json:"backups"`
 	Status   []ComponentStatus `json:"status"`
 	Warnings []string          `json:"warnings"`
+	// Recheck holds the statuses, right after the write, of components written while their host
+	// was running. The host can rewrite the file from memory and undo the change, so callers
+	// pass these to Recheck after RecheckDelay.
+	Recheck []ComponentStatus `json:"recheck,omitempty"`
 }
 
 type realService struct {
@@ -196,6 +215,10 @@ func New(cfg Config) (Service, error) {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.ClaudeDesktopRunning == nil {
+		goos := cfg.GOOS
+		cfg.ClaudeDesktopRunning = func() bool { return claudeDesktopRunning(goos) }
 	}
 	s := &realService{
 		cfg:        cfg,
@@ -345,8 +368,38 @@ func (s *realService) Apply(planID string) (*ApplyResult, error) {
 	}
 	status, err := s.Verify(p.targets)
 	res.Status = status
-	logger.Info("Installer plan applied", "plan_id", planID, "action", p.Action, "written", len(res.Written), "backups", len(res.Backups))
+	res.Recheck = liveRechecks(p.Changes, status)
+	logger.Info("Installer plan applied", "plan_id", planID, "action", p.Action, "written", len(res.Written), "backups", len(res.Backups), "recheck", len(res.Recheck))
 	return res, err
+}
+
+// Recheck re-verifies components an apply wrote while their host was running, and warns about
+// each one the host has changed back since.
+func (s *realService) Recheck(applied []ComponentStatus) ([]ComponentStatus, []string, error) {
+	var targets []Target
+	for _, a := range applied {
+		targets = append(targets, a.Target)
+	}
+	if len(targets) == 0 {
+		return []ComponentStatus{}, []string{}, nil
+	}
+	all, err := s.Verify(targets)
+	if err != nil {
+		return nil, nil, err
+	}
+	fresh, warnings := []ComponentStatus{}, []string{}
+	for _, a := range applied {
+		i := slices.IndexFunc(all, func(c ComponentStatus) bool { return c.Target == a.Target && c.Component == a.Component })
+		if i < 0 {
+			continue
+		}
+		fresh = append(fresh, all[i])
+		if all[i].Status != a.Status {
+			warnings = append(warnings, s.undoneWarning(a, all[i]))
+			logger.Warn("Host undid an installer change", "target", a.Target, "component", a.Component, "was", a.Status, "now", all[i].Status, "path", a.Path)
+		}
+	}
+	return fresh, warnings, nil
 }
 
 // Verify computes every component's status from disk plus installer_state.
@@ -468,6 +521,36 @@ func (s *realService) planTarget(p *Plan, spec targetSpec, req PlanRequest, st s
 		changes = append(changes, FileChange{Target: spec.id, Component: failed.Component, Kind: KindNone, Skipped: true, Reason: failed.Message})
 	}
 	p.Changes = append(p.Changes, changes...)
+}
+
+// liveRechecks picks the statuses of components written while their host was running.
+func liveRechecks(changes []FileChange, status []ComponentStatus) []ComponentStatus {
+	var out []ComponentStatus
+	for _, c := range changes {
+		if c.Skipped || c.live == nil || !c.live.running() {
+			continue
+		}
+		for _, st := range status {
+			if st.Target == c.Target && st.Component == c.Component && !slices.Contains(out, st) {
+				out = append(out, st)
+			}
+		}
+	}
+	return out
+}
+
+// undoneWarning explains a component whose status changed after the apply.
+func (s *realService) undoneWarning(was, now ComponentStatus) string {
+	host, file := string(was.Target), s.displayPath(was.Path)
+	if spec, ok := s.spec(was.Target); ok {
+		host = spec.name
+	}
+	cmd := "install"
+	if was.Status == StatusNotInstalled {
+		cmd = "uninstall"
+	}
+	return host + " rewrote " + file + " after the apply: " + string(was.Target) + "/" + string(was.Component) + " is now " + string(now.Status) +
+		" (was " + string(was.Status) + "). Quit " + host + ", then run `ast-mcp " + cmd + " --target " + string(was.Target) + "` again."
 }
 
 // applyChange backs up and writes one change, then records its state.

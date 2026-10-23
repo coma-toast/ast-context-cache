@@ -1,4 +1,6 @@
 import type {
+  InstallerAction,
+  InstallerApplyResult,
   InstallerChangeKind,
   InstallerComponent,
   InstallerComponentId,
@@ -109,6 +111,25 @@ export const hasExternallyManaged = (target: InstallerTarget, selected: Installe
 /** Changes Apply would actually write; skipped ones are shown with their reason only. */
 export const writableChanges = (changes: InstallerFileChange[]): InstallerFileChange[] =>
   changes.filter((c) => !c.skipped)
+
+export interface ApplyToast {
+  message: string
+  severity: 'success' | 'warning'
+}
+
+/**
+ * The toast after an apply. A host that was running while its file was written (Claude Desktop)
+ * may rewrite the file and undo the change; the server re-checks, and the card's status updates.
+ */
+export const applyToast = (action: InstallerAction, res: InstallerApplyResult, targetName: string): ApplyToast => {
+  const n = res.written.length
+  const message = `${action === 'install' ? 'Installed' : 'Uninstalled'}: ${n} file${n === 1 ? '' : 's'} written`
+  if (!res.recheck?.length) return { message, severity: 'success' }
+  return {
+    message: `${message}, but ${targetName} is running and may undo it. Quit ${targetName}, then apply again if its status changes.`,
+    severity: 'warning',
+  }
+}
 
 /** True when an API error means the plan is stale, expired, or unknown and must be previewed again. */
 export const isRepreviewError = (e: unknown): boolean =>
