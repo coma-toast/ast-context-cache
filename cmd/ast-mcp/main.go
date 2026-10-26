@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -79,6 +80,11 @@ const extraListenRetry = 30 * time.Second
 // shutdownFlushTimeout bounds the final analytics flush so a wedged SQLite write
 // can't stop the process from exiting on SIGTERM.
 const shutdownFlushTimeout = 2 * time.Second
+
+// restartWatchdogTimeout is how long we wait for syscall.Exec before assuming it has hung,
+// dumping goroutine stacks, and falling back to starting a detached new process.
+// Exported for testing (tests may override it with a shorter timeout).
+var restartWatchdogTimeout = 15 * time.Second
 
 const (
 	deleteFromQueryPrefix        = "DELETE FROM "
@@ -333,11 +339,89 @@ func restartProcess(mcpSrv, dashSrv *http.Server) func() {
 			os.Exit(1)
 		}
 		logger.Info("Restarting", "exe", exe)
-		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-			logger.Error("Failed to restart", "exe", exe, "error", err)
-			os.Exit(1)
+		doRestart(exe, syscall.Exec, startRestartChild, os.Exit)
+	}
+}
+
+// doRestart performs the restart: re-exec the current binary in place, with a
+// watchdog that falls back to a detached child process if syscall.Exec hangs.
+// This is extracted for unit testing with fakes for the execution functions.
+func doRestart(exe string, execFn func(string, []string, []string) error, startChild func(string, []string, []string, *os.ProcAttr) (*os.Process, error), exitFn func(int)) {
+	// Start a goroutine that will call syscall.Exec to replace this process.
+	// If it fails (returns an error), it sends the error to execFailed.
+	// If it succeeds, the process is replaced and this goroutine never returns.
+	execFailed := make(chan error, 1)
+	go func() {
+		if err := execFn(exe, os.Args, os.Environ()); err != nil {
+			execFailed <- err
+		}
+	}()
+
+	// Wait for either:
+	// 1. execFailed: syscall.Exec returned an error (process didn't restart successfully)
+	// 2. timeout: syscall.Exec has hung for restartWatchdogTimeout (process likely wedged)
+	// On timeout, dump goroutine stacks and fall back to starting a detached child
+	// process that will serve with the already-shutdown server ports.
+	select {
+	case err := <-execFailed:
+		logger.Error("Failed to restart", "exe", exe, "error", err)
+		exitFn(1)
+	case <-time.After(restartWatchdogTimeout):
+		// syscall.Exec did not return within the timeout: it's hung.
+		// Dump goroutine stacks so the next occurrence shows us why.
+		buf := make([]byte, 10<<20)
+		n := runtime.Stack(buf, true)
+		if n > 0 {
+			logger.Warn("syscall.Exec did not return within timeout; dumping goroutine stacks", "stacks", string(buf[:n]))
+		} else {
+			logger.Warn("syscall.Exec did not return within timeout; unable to dump stacks (buffer too small)")
+		}
+		// Fall back to starting the same binary as a detached new process, which will bind
+		// the already-shutdown server ports (they were closed above). The child runs the same
+		// binary so the data directory exists, and since the run lock already exists,
+		// BeginRunLock in the child will detect the previous run crashed (abnormalPreviousRun)
+		// or see our own PID and continue. os.Exit(0) after startRestartChild ensures this
+		// process terminates and only the child runs.
+		if _, err := startChild(exe, os.Args, os.Environ(), nil); err != nil {
+			logger.Error("Failed to start fallback restart process", "exe", exe, "error", err)
+			exitFn(1)
+		}
+		exitFn(0)
+	}
+}
+
+// startRestartChild starts the current binary as a detached new process that inherits
+// the same command line, environment, and working directory. It is meant to be called
+// only from doRestart after syscall.Exec has hung, and it becomes the new long-running
+// process that will serve requests. The child is a session leader (Setsid) and inherits
+// the log file descriptor so that logs go to the same file.
+func startRestartChild(exe string, args []string, env []string, attr *os.ProcAttr) (*os.Process, error) {
+	logPath := db.DefaultLogPath()
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+
+	pattr := attr
+	if pattr == nil {
+		pattr = &os.ProcAttr{
+			Dir:   "",
+			Env:   env,
+			Files: []*os.File{os.Stdin, logFile, logFile},
+			Sys: &syscall.SysProcAttr{
+				Setsid: true,
+			},
 		}
 	}
+
+	p, err := os.StartProcess(exe, args, pattr)
+	if err != nil {
+		logFile.Close()
+		return nil, err
+	}
+	// The child has inherited the log file descriptor; close our copy.
+	logFile.Close()
+	return p, nil
 }
 
 // listenAndServe serves srv on listenAddr:port and, for the default IPv4 loopback, on
