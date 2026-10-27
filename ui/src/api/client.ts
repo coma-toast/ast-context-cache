@@ -264,7 +264,7 @@ export const api = {
     post<{ started?: boolean; status?: string; error?: string }>('/api/data-dir/move', { target }),
   clearDataDirOverride: () => post<{ status?: string; message?: string }>('/api/data-dir/clear-override', {}),
   dataDirMoveStatus: () => get<DataDirMoveStatus>('/api/data-dir/status'),
-  updateCheck: () => get<UpdateCheckResult>('/api/update/check'),
+  updateCheck: (force = false) => get<UpdateCheckResult>(`/api/update/check${force ? '?force=1' : ''}`),
   startUpdate: () => post<{ started?: boolean; error?: string }>('/api/update/start', {}),
   updateStatus: () => get<UpdateStatus>('/api/update/status'),
   restartNow: () => post<{ status?: string; error?: string }>('/api/restart-now', {}),

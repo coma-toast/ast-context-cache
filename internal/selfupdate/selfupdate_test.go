@@ -12,7 +12,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,14 +24,26 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/version"
 )
 
-// fakeRelease serves a GitHub "latest release" document plus its archive and
-// checksums.txt, the way api.github.com and its download URLs do.
+// fakeRelease serves a release the way github.com does (releases/latest
+// redirects to the tag page; assets and checksums.txt live under
+// releases/download/<tag>/), plus the same release as an api.github.com
+// document for the token path.
 type fakeRelease struct {
-	tag      string
-	archive  []byte
-	checksum string // overrides the archive's real sha256 when set
-	noAsset  bool
-	gate     chan struct{} // the archive download waits on it when set
+	tag       string
+	archive   []byte
+	checksum  string // overrides the archive's real sha256 when set
+	noAsset   bool
+	gate      chan struct{} // the archive download waits on it when set
+	rateLimit bool          // releases/latest answers like an exhausted GitHub rate limit
+}
+
+// fakeGitHub is a running fakeRelease server with request counters.
+type fakeGitHub struct {
+	url        string
+	latestHits atomic.Int32
+	apiHits    atomic.Int32
+	auth       atomic.Value // Authorization header of the last API request
+	release    atomic.Pointer[fakeRelease]
 }
 
 func tarGz(t *testing.T, files map[string]string) []byte {
@@ -47,26 +61,49 @@ func tarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-func serve(t *testing.T, r fakeRelease) {
+func serve(t *testing.T, r fakeRelease) *fakeGitHub {
 	t.Helper()
-	name := assetName(r.tag[1:])
-	sum := sha256.Sum256(r.archive)
-	checksum := hex.EncodeToString(sum[:])
-	if r.checksum != "" {
-		checksum = r.checksum
-	}
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	t.Setenv("AST_GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	f := &fakeGitHub{}
+	f.release.Store(&r)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r := *f.release.Load()
+		name := assetName(r.tag[1:])
+		sum := sha256.Sum256(r.archive)
+		checksum := hex.EncodeToString(sum[:])
+		if r.checksum != "" {
+			checksum = r.checksum
+		}
+		download := "/repo/releases/download/" + r.tag + "/"
 		switch req.URL.Path {
-		case "/latest":
-			assets := []asset{{Name: checksumName, URL: srv.URL + "/checksums.txt"}}
+		case "/repo/releases/latest":
+			f.latestHits.Add(1)
+			if r.rateLimit {
+				w.Header().Set("X-RateLimit-Remaining", "0")
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(30*time.Minute).Unix(), 10))
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			http.Redirect(w, req, "/repo/releases/tag/"+r.tag, http.StatusFound)
+		case "/api/latest":
+			f.apiHits.Add(1)
+			f.auth.Store(req.Header.Get("Authorization"))
+			assets := []asset{{Name: checksumName, URL: f.url + download + checksumName}}
 			if !r.noAsset {
-				assets = append(assets, asset{Name: name, URL: srv.URL + "/archive"})
+				assets = append(assets, asset{Name: name, URL: f.url + download + name})
 			}
 			json.NewEncoder(w).Encode(release{TagName: r.tag, HTMLURL: "https://example.test/" + r.tag, Assets: assets})
-		case "/checksums.txt":
+		case download + checksumName:
 			fmt.Fprintf(w, "%s  %s\n%s  other_archive.tar.gz\n", checksum, name, checksum)
-		case "/archive":
+		case download + name:
+			if r.noAsset {
+				http.NotFound(w, req)
+				return
+			}
+			if req.Method == http.MethodHead {
+				return
+			}
 			if r.gate != nil {
 				<-r.gate
 			}
@@ -76,9 +113,11 @@ func serve(t *testing.T, r fakeRelease) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	prev := LatestReleaseURL
-	LatestReleaseURL = srv.URL + "/latest"
-	t.Cleanup(func() { LatestReleaseURL = prev })
+	f.url = srv.URL
+	prevWeb, prevAPI := ReleasesURL, LatestReleaseURL
+	ReleasesURL, LatestReleaseURL = srv.URL+"/repo/releases", srv.URL+"/api/latest"
+	t.Cleanup(func() { ReleasesURL, LatestReleaseURL = prevWeb, prevAPI })
+	return f
 }
 
 func runningAs(t *testing.T, v, build string) {
@@ -116,19 +155,20 @@ func TestCompareVersions(t *testing.T) {
 
 func TestCheckOffersNewerRelease(t *testing.T) {
 	runningAs(t, "4.0.6", "release")
-	serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x")})
-	c := Check()
+	f := serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x")})
+	c := Check(true)
 	assert.Empty(t, c.Error)
 	assert.True(t, c.UpdateAvailable)
 	assert.False(t, c.SourceBuild)
 	assert.Equal(t, "4.0.7", c.LatestVersion)
-	assert.Equal(t, "https://example.test/v4.0.7", c.ReleaseURL)
+	assert.Equal(t, f.url+"/repo/releases/tag/v4.0.7", c.ReleaseURL)
+	assert.Zero(t, f.apiHits.Load(), "no token, so the API must not be used")
 }
 
 func TestCheckReportsUpToDateRelease(t *testing.T) {
 	runningAs(t, "4.0.7", "release")
 	serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x")})
-	assert.False(t, Check().UpdateAvailable)
+	assert.False(t, Check(true).UpdateAvailable)
 }
 
 // A source build can carry the release's version number while running other
@@ -137,7 +177,7 @@ func TestCheckReportsUpToDateRelease(t *testing.T) {
 func TestCheckOffersReleaseToSourceBuild(t *testing.T) {
 	runningAs(t, "4.0.7", "source")
 	serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x")})
-	c := Check()
+	c := Check(true)
 	assert.True(t, c.UpdateAvailable)
 	assert.True(t, c.SourceBuild)
 }
@@ -145,7 +185,7 @@ func TestCheckOffersReleaseToSourceBuild(t *testing.T) {
 func TestCheckReportsMissingPlatformBuild(t *testing.T) {
 	runningAs(t, "4.0.6", "release")
 	serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x"), noAsset: true})
-	c := Check()
+	c := Check(true)
 	assert.Contains(t, c.Error, "has no build for")
 	assert.False(t, c.UpdateAvailable)
 }
@@ -248,4 +288,50 @@ func TestStartIsExclusiveUnderConcurrency(t *testing.T) {
 	close(gate)
 	waitDone(t)
 	assert.Equal(t, 1, starts)
+}
+
+func TestCheckReusesResultUntilForced(t *testing.T) {
+	runningAs(t, "4.0.6", "release")
+	f := serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x")})
+	Check(true)
+	Check(false)
+	Check(false)
+	assert.Equal(t, int32(1), f.latestHits.Load())
+	Check(true)
+	assert.Equal(t, int32(2), f.latestHits.Load())
+}
+
+func TestCheckReportsRateLimitAndHoldsItUntilReset(t *testing.T) {
+	runningAs(t, "4.0.6", "release")
+	f := serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x"), rateLimit: true})
+	c := Check(true)
+	assert.Contains(t, c.Error, "GitHub rate limit reached; next check after ")
+	assert.False(t, c.UpdateAvailable)
+	f.release.Store(&fakeRelease{tag: "v4.0.7", archive: []byte("x")})
+	assert.Contains(t, Check(false).Error, "rate limit", "a cached rate-limit error is reused until GitHub's reset time")
+	assert.Equal(t, int32(1), f.latestHits.Load())
+	c = Check(true)
+	assert.Empty(t, c.Error)
+	assert.True(t, c.UpdateAvailable)
+}
+
+func TestCheckUsesAPIWithTokenWhenSet(t *testing.T) {
+	runningAs(t, "4.0.6", "release")
+	f := serve(t, fakeRelease{tag: "v4.0.7", archive: []byte("x")})
+	t.Setenv("AST_GITHUB_TOKEN", "test-token")
+	c := Check(true)
+	assert.Empty(t, c.Error)
+	assert.True(t, c.UpdateAvailable)
+	assert.Equal(t, int32(1), f.apiHits.Load())
+	assert.Zero(t, f.latestHits.Load())
+	assert.Equal(t, "Bearer test-token", f.auth.Load())
+}
+
+func TestRateLimitedIgnoresOrdinaryForbidden(t *testing.T) {
+	resp := &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{"X-Ratelimit-Remaining": {"12"}}}
+	assert.NoError(t, rateLimited(resp))
+	resp = &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"60"}}}
+	err := rateLimited(resp)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "next check after")
 }

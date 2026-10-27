@@ -1662,7 +1662,7 @@ func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "GET required"})
 		return
 	}
-	c := selfupdate.Check()
+	c := selfupdate.Check(r.URL.Query().Get("force") == "1")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"current_version":  c.CurrentVersion,
 		"build":            c.Build,
