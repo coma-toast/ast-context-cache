@@ -1,0 +1,138 @@
+{
+    "json_format_version": [1, 0],
+    "smartctl": {
+        "version": [7, 4],
+        "svn_revision_str": "smartmontools-7.4",
+        "argv": [ "smartctl", "-a", "-j", "-d", "auto", "/dev/sda" ],
+        "exit_status": 0
+    },
+    "local_time": {
+        "time_t": 1761560001,
+        "asctime": "Mon Oct 27 12:53:21 2026"
+    },
+    "device": {
+        "name": "/dev/sda",
+        "info_name": "/dev/sda",
+        "type": "auto",
+        "protocol": "ATA"
+    },
+    "smart_status": {
+        "passed": true
+    },
+    "model_name": "Samsung SSD 860 EVO 1TB",
+    "model_family": "Samsung SSD 860 EVO  (2.5 inch, 7mm, SATA 6.0 Gb/s)",
+    "serial_number": "S3W2NBME012345",
+    "firmware_version": "RXT5",
+    "user_capacity": {
+        "blocks": 1953525168,
+        "bytes": 1000204886016
+    },
+    "logical_block_size": 512,
+    "rotation_rate": 0,
+    "form_factor": {
+        "ata_value": 0,
+        "name": "2.5 inches"
+    },
+    "smart_support": {
+        "available": true,
+        "enabled": true
+    },
+    "trim": {
+        "supported": true,
+        "deterministic": false,
+        "zeroed": false
+    },
+    "temperature": {
+        "current": 31
+    },
+    "power_on_time": {
+        "hours": 5432,
+        "minutes": 11
+    },
+    "power_cycle_count": 87,
+    "ata_smart_attributes": {
+        "revision": 1,
+        "table": [
+            {
+                "id": 5,
+                "flags": { "value": 63, "prefailure": true, "updated_online": true, "performance": false, "error_rate": false, "event_count": true, "auto_keep": true },
+                "name": "Reallocated_Sector_Ct",
+                "value": 100,
+                "worst": 100,
+                "thresh": 10,
+                "when_failed": "",
+                "raw": { "value": 0, "string": "0" }
+            },
+            {
+                "id": 9,
+                "flags": { "value": 50, "prefailure": false, "updated_online": true, "performance": true, "error_rate": false, "event_count": false, "auto_keep": false },
+                "name": "Power_On_Hours",
+                "value": 74,
+                "worst": 74,
+                "thresh": 0,
+                "when_failed": "",
+                "raw": { "value": 5432, "string": "5432" }
+            },
+            {
+                "id": 12,
+                "flags": { "value": 50, "prefailure": false, "updated_online": true, "performance": true, "error_rate": false, "event_count": false, "auto_keep": false },
+                "name": "Power_Cycle_Count",
+                "value": 100,
+                "worst": 100,
+                "thresh": 0,
+                "when_failed": "",
+                "raw": { "value": 87, "string": "87" }
+            },
+            {
+                "id": 173,
+                "flags": { "value": 8, "prefailure": false, "updated_online": false, "performance": false, "error_rate": true, "event_count": false, "auto_keep": false },
+                "name": "Reported_Uncorrect",
+                "value": 100,
+                "worst": 100,
+                "thresh": 0,
+                "when_failed": "",
+                "raw": { "value": 0, "string": "0" }
+            },
+            {
+                "id": 197,
+                "flags": { "value": 8, "prefailure": false, "updated_online": false, "performance": false, "error_rate": true, "event_count": false, "auto_keep": false },
+                "name": "Current_Pending_Sector",
+                "value": 100,
+                "worst": 100,
+                "thresh": 0,
+                "when_failed": "",
+                "raw": { "value": 0, "string": "0" }
+            },
+            {
+                "id": 198,
+                "flags": { "value": 8, "prefailure": false, "updated_online": false, "performance": false, "error_rate": true, "event_count": false, "auto_keep": false },
+                "name": "Offline_Uncorrectable",
+                "value": 100,
+                "worst": 100,
+                "thresh": 0,
+                "when_failed": "",
+                "raw": { "value": 0, "string": "0" }
+            },
+            {
+                "id": 199,
+                "flags": { "value": 184, "prefailure": false, "updated_online": false, "performance": false, "error_rate": true, "event_count": false, "auto_keep": false },
+                "name": "UDMA_CRC_Error_Count",
+                "value": 200,
+                "worst": 200,
+                "thresh": 0,
+                "when_failed": "",
+                "raw": { "value": 3, "string": "3" }
+            },
+            {
+                "id": 231,
+                "flags": { "value": 8, "prefailure": false, "updated_online": false, "performance": false, "error_rate": true, "event_count": false, "auto_keep": false },
+                "name": "SSD_Life_Left",
+                "value": 98,
+                "worst": 98,
+                "thresh": 10,
+                "when_failed": "",
+                "raw": { "value": 98, "string": "98" }
+            }
+        ]
+    }
+}

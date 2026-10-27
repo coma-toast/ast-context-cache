@@ -1,0 +1,36 @@
+{
+    "json_format_version": [1, 0],
+    "smartctl": {
+        "version": [7, 4],
+        "svn_revision_str": "smartmontools-7.4",
+        "argv": [ "smartctl", "--scan-open", "-j" ],
+        "exit_status": 0
+    },
+    "devices": [
+        {
+            "name": "/dev/nvme0n1",
+            "info_name": "/dev/nvme0n1",
+            "type": "nvme",
+            "protocol": "NVMe"
+        },
+        {
+            "name": "/dev/sda",
+            "info_name": "/dev/sda",
+            "type": "auto",
+            "protocol": "ATA"
+        },
+        {
+            "name": "/dev/sdb",
+            "info_name": "/dev/sdb",
+            "type": "usbsunplus",
+            "protocol": "SCSI"
+        },
+        {
+            "name": "/dev/sdc",
+            "info_name": "/dev/sdc",
+            "type": "sat",
+            "protocol": "ATA+SCSI",
+            "open_error": "Smartctl open device: /dev/sdc failed: Permission denied"
+        }
+    ]
+}
