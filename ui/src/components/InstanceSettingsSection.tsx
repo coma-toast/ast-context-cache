@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Card, CardContent, Checkbox, FormControlLabel, Stack, TextField, Typography } from '@mui/material'
 
 import type { SettingsData } from '../api/types'
+import { InstanceFaviconPicker } from './InstanceFaviconPicker'
 
 interface InstanceSettingsSectionProps {
   data: SettingsData
@@ -16,7 +17,7 @@ export const OVERRIDE_KEY = 'instance_name_override'
  * General settings card: the instance name. When -name or AST_INSTANCE_NAME sets it, the field
  * shows that value read-only next to an override box; checking the box makes the dashboard name
  * win (it starts as the current name), unchecking goes back to the external value and keeps the
- * stored name for next time.
+ * stored name for next time. The favicon picker below it follows the same pattern.
  */
 export const InstanceSettingsSection = ({ data, save }: InstanceSettingsSectionProps) => {
   const external = data.InstanceNameExternal ?? ''
@@ -70,6 +71,7 @@ export const InstanceSettingsSection = ({ data, save }: InstanceSettingsSectionP
             Active: {data.InstanceNameEffective} (from {data.InstanceNameSource || 'settings'})
           </Typography>
         )}
+        <InstanceFaviconPicker data={data} save={save} />
       </CardContent>
     </Card>
   )
