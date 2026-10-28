@@ -234,6 +234,9 @@ Settings → **Updates** installs the latest release in place and keeps the prev
 | `MODEL_DIR` | Model files | `./model` |
 | `DB_PATH` | Base path for DBs | `~/.astcache/usage.db` |
 | `EMBED_AUX_BACKEND` / `EMBED_AUX_WORKERS` | Aux catch-up pool | `onnx` / `0` |
+| `EMBED_QUEUE_PENDING_CAP` | Embed retry (pending) channel limit, 1–1024; locks Settings → Embed queue | `128` |
+| `EMBED_QUEUE_HIGH_CAP` | Embed priority channel limit, 1–1024 (pinned projects, query boost); overflow goes to background | `128` |
+| `EMBED_QUEUE_LOW_CAP` | Embed background channel limit, 1–16384; when full, indexing waits for workers | `2048` |
 | `AST_CONTEXT_MAX_*` / `AST_CONTEXT_LIMIT_POLICY` | Virtual context quotas | See AGENTS.md / Settings |
 | `AST_LISTEN` | Bind address for MCP and dashboard (`--listen`) | `127.0.0.1` |
 | `AST_LISTEN_EXTRA` | Extra IPs to listen on beside loopback, e.g. a Tailscale IP ([remote access](docs/INSTALL.md#remote-access-tailscale)); locks Settings → Network access | Unset |

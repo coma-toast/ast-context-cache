@@ -99,6 +99,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 		data.EmbedAuxBackend = "onnx"
 	}
 	data.EmbedProbeIntervalSec = int(embedder.ProbeInterval().Seconds())
+	data.EmbedQueueCaps = embedqueue.QueueCapStates()
 	data.HandoffLimits, data.HandoffEnvLocked = handoff.LoadLimits(), handoffEnvLocked()
 	cur := instance.Current()
 	if cur.Value == "" && cur.Scope == "" {

@@ -20,6 +20,7 @@ import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import type {
   DataDirMoveStatus,
+  IndexHealth,
   MCPTier,
   Project,
   PruneStatus,
@@ -31,6 +32,7 @@ import { formatBytes, formatNum } from '../api/client'
 import { RecoveryBanner } from '../components/RecoveryBanner'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
+import { EmbedQueueSettingsSection } from '../components/EmbedQueueSettingsSection'
 import { FeaturesSection } from '../components/FeaturesSection'
 import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
 import { InstallerSection } from '../components/InstallerSection'
@@ -46,6 +48,7 @@ const SECTIONS = [
   { id: 'storage', label: 'Storage' },
   { id: 'features', label: 'Features' },
   { id: 'performance', label: 'Performance' },
+  { id: 'embed-queue', label: 'Embed queue' },
   { id: 'virtual', label: 'Virtual context' },
   { id: 'handoff', label: 'Handoff' },
   { id: 'embedding', label: 'Embedding' },
@@ -61,10 +64,13 @@ export function SettingsTab({
   data,
   onRefresh,
   mcpTier,
+  indexHealth,
 }: {
   data: SettingsData | null
   mcpTier: MCPTier | null
   onRefresh: () => void
+  /** Live index health, for the embed queue depth shown beside each limit. */
+  indexHealth?: IndexHealth | null
 }) {
   const { showToast } = useToast()
   const [linkChild, setLinkChild] = useState<Record<string, string>>({})
@@ -250,6 +256,8 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
           </Typography>
         </CardContent>
       </Card>
+
+      <EmbedQueueSettingsSection data={data} indexHealth={indexHealth} save={save} />
 
       <Card variant="outlined" id="settings-virtual" sx={{ mb: 2 }}>
         <CardContent>

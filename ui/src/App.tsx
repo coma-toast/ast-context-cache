@@ -394,7 +394,7 @@ function DashboardInner() {
           )}
           {tab === 'settings' && (
             <ErrorBoundary label="Settings" onRetry={() => load(['settings', 'indexHealth', 'projects', 'mcpTier'])}>
-              <SettingsTab data={settings} mcpTier={mcpTier} onRefresh={() => load(['settings', 'indexHealth', 'projects'])} />
+              <SettingsTab data={settings} mcpTier={mcpTier} indexHealth={indexHealth} onRefresh={() => load(['settings', 'indexHealth', 'projects'])} />
             </ErrorBoundary>
           )}
         </Box>

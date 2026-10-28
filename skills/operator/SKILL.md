@@ -78,14 +78,29 @@ Settings → Storage covers moving the data directory to another disk (e.g. a US
 - **Tokens saved (today)** — sums `tokens_saved` from **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`**, and **`execute_code`** only (compression + dedup). **`fetch_doc` / `search_docs` / `index_*`** and virtual context / memory writes (**`store_context`**, **`store_memory`**) do not contribute; **0 today** with heavy doc activity is expected. Sublabel shows 30d total, **avg/day**, dedup, and vs-files. **`mode=full`** calls save ~nothing.
 - **Virtual context card** — separate from Tokens saved. **Active inventory** = notes still on disk; **30d stored** = `store_context` volume; **30d accessed** = `fetch_context` + `search_context`; **utilization** = accessed/stored; **orphans** = never fetched. **`GET /api/context-stats`** returns JSON for the same rollup (includes nested **`kv_repair`**). **`POST /api/flush-context`** with `{"all":true}` or `{"session_id":"..."}` (also in Settings).
 - **KV repair card** (Memory tab) — golden text archives for quantized KV recovery. **Archives active** = notes with `kind=kv_repair` or tag `kv_repair`; **30d repairs** = `fetch_context` with `repair_reason`; sublabel splits **miss / quality / manual** from `report_kv_repair_event` + repair fetches; **utilization** = repairs / archives stored; **orphans** = archives never fetched for repair. **`GET /api/kv-repair-stats`** (`?project_id=` optional) returns the rollup JSON.
-- **Embed queue ring** — fill vs combined capacity (priority 128 + background 2048). Green → orange → red as backlog grows.
+- **Embed queue ring** — fill vs combined capacity (priority + background limits, 128 + 2048 by default; see [Embed queue limits](#embed-queue-limits)). Green → orange → red as backlog grows.
 - **Pinned projects** — use when one repo should index faster under load.
 
 MCP coding agents normally use MCP tools only; mention the dashboard when the user asks about indexing progress, embeddings, or server health.
 
+### Embed queue limits
+
+**Settings → Embed queue** sets how many embed jobs each in-memory channel holds. Changes apply live (no restart); the card shows each channel's current depth beside its limit.
+
+| Channel | Setting / env | Default | Range | When it is full |
+|---------|---------------|---------|-------|-----------------|
+| Retry (pending) | `embed_queue_pending_cap` / `EMBED_QUEUE_PENDING_CAP` | 128 | 1–1024 | Failed files stay in the pending table and retry on the next flush |
+| Priority | `embed_queue_high_cap` / `EMBED_QUEUE_HIGH_CAP` | 128 | 1–1024 | Jobs overflow to background; if both are full the submitter waits |
+| Background | `embed_queue_low_cap` / `EMBED_QUEUE_LOW_CAP` | 2048 | 1–16384 | Indexing waits until workers free a slot (backpressure) |
+
+- **Lower** a limit to use less memory and push back on indexing sooner, e.g. on a small machine or when a big re-index floods a slow embedder.
+- **Raise** it to hold bigger bursts in memory, e.g. many watchers firing at once with a fast embedder, so indexing does not stall waiting for slots.
+- Lowering a limit never drops queued jobs: new submissions wait until the depth falls below it.
+- A set env var wins and makes the field read-only (POST answers 409). Out-of-range values answer 400. `/metrics` reports the effective limits as `astcache_embed_queue_cap{queue="pending|high|low"}`.
+
 ### Prometheus scrape
 
-Dashboard exposes Prometheus metrics at **`http://localhost:7830/metrics`** (prefix `astcache_`: process up, embed queue/workers, embedder state, index WAL bytes, tokens saved today, MCP tool call counts + duration). Example scrape job:
+Dashboard exposes Prometheus metrics at **`http://localhost:7830/metrics`** (prefix `astcache_`: process up, embed queue/workers and queue limits, embedder state, index WAL bytes, tokens saved today, MCP tool call counts + duration). Example scrape job:
 
 ```yaml
 - job_name: ast-context-cache

@@ -54,6 +54,8 @@ type IndexHealth struct {
 	EmbedLowQueued           int
 	EmbedHighCap             int
 	EmbedLowCap              int
+	EmbedPendingQueued       int
+	EmbedPendingQueueCap     int
 	EmbedActive              int
 	EmbedActivePrimary       int
 	EmbedAuxActive           int
