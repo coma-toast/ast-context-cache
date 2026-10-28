@@ -24,6 +24,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/docs"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
@@ -598,6 +599,8 @@ func buildHealthPayload() map[string]interface{} {
 		"startup_phase":         string(startup.CurrentPhase()),
 		"startup_message":       startup.Message(),
 		"abnormal_previous_run": embedqueue.AbnormalPreviousRun(),
+		// search_nudge lets "ast-mcp hook search-nudge" and the OpenCode plugin read the flag cheaply.
+		"search_nudge": flags.Enabled(flags.KeySearchNudge),
 	}
 	return payload
 }

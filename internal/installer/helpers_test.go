@@ -40,6 +40,7 @@ type testOpts struct {
 	url      string
 	goos     string
 	hooks    bool
+	nudge    bool
 	noBridge bool
 	noNpx    bool
 	now      func() time.Time
@@ -60,12 +61,13 @@ func newTestService(t *testing.T, home string, o testOpts) *realService {
 		o.goos = "darwin"
 	}
 	cfg := Config{
-		Home:         home,
-		MCPURL:       o.url,
-		Executable:   testExe,
-		GOOS:         o.goos,
-		HooksEnabled: func() bool { return o.hooks },
-		Now:          o.now,
+		Home:               home,
+		MCPURL:             o.url,
+		Executable:         testExe,
+		GOOS:               o.goos,
+		HooksEnabled:       func() bool { return o.hooks },
+		SearchNudgeEnabled: func() bool { return o.nudge },
+		Now:                o.now,
 		LookPath: func(name string) (string, error) {
 			switch {
 			case name == "mcp-local" && !o.noBridge:
@@ -165,6 +167,9 @@ func goldenPlaceholders(t *testing.T) [][2]string {
 	for _, sk := range all {
 		out = append(out, [2]string{sk.Content(), "{{SKILL:" + sk.Name + "}}"})
 	}
+	plugin, err := openCodeNudgePlugin(MCPURL(DefaultMCPPort))
+	require.NoError(t, err)
+	out = append(out, [2]string{string(plugin), "{{OPENCODE_NUDGE_PLUGIN}}"})
 	sort.SliceStable(out, func(i, j int) bool { return len(out[i][0]) > len(out[j][0]) })
 	return out
 }

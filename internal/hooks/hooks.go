@@ -1,5 +1,5 @@
 // Package hooks implements "ast-mcp hook <event>", the Claude Code hook handlers for subagent
-// handoffs (PL-9, PL-10, HI-2, HI-3, HI-4). Each run reads one hook payload from stdin, calls the
+// handoffs (PL-9, PL-10, HI-2, HI-3, HI-4) and the Claude Code and Cursor search-first nudge. Each run reads one hook payload from stdin, calls the
 // running server's MCP tools over HTTP, and writes the hook's JSON response to stdout. Hooks fail
 // open (HI-5): any error, timeout, or unreachable server leaves stdout empty, so Claude Code
 // carries on as if no hook ran. The package never opens the database or starts a server.
@@ -76,13 +76,16 @@ var (
 
 // Handler runs hook events against one MCP endpoint and registry.
 type Handler struct {
-	client   *Client
-	registry *Registry
+	client    *Client
+	registry  *Registry
+	healthURL string
+	nudgeDir  string
 }
 
 // Input is a Claude Code hook payload; each event fills a subset of the fields.
 type Input struct {
 	SessionID            string                     `json:"session_id"`
+	ConversationID       string                     `json:"conversation_id"`
 	TranscriptPath       string                     `json:"transcript_path"`
 	CWD                  string                     `json:"cwd"`
 	HookEventName        string                     `json:"hook_event_name"`
@@ -101,17 +104,20 @@ type Output struct {
 	HookSpecificOutput HookSpecificOutput `json:"hookSpecificOutput"`
 }
 
-// HookSpecificOutput carries the injected context or the rewritten tool input. It never sets
-// permissionDecision: an auto-created handoff must not skip the user's permission prompt.
+// HookSpecificOutput carries the injected context or the rewritten tool input. Only the search
+// nudge sets permissionDecision, and only to deny: an auto-created handoff must not skip the
+// user's permission prompt.
 type HookSpecificOutput struct {
-	HookEventName     string                     `json:"hookEventName"`
-	AdditionalContext string                     `json:"additionalContext,omitempty"`
-	UpdatedInput      map[string]json.RawMessage `json:"updatedInput,omitempty"`
+	HookEventName            string                     `json:"hookEventName"`
+	AdditionalContext        string                     `json:"additionalContext,omitempty"`
+	UpdatedInput             map[string]json.RawMessage `json:"updatedInput,omitempty"`
+	PermissionDecision       string                     `json:"permissionDecision,omitempty"`
+	PermissionDecisionReason string                     `json:"permissionDecisionReason,omitempty"`
 }
 
 // New returns a handler that calls the MCP endpoint at url and keeps its registry in dir.
 func New(url, dir string) *Handler {
-	return &Handler{client: NewClient(url), registry: NewRegistry(dir)}
+	return &Handler{client: NewClient(url), registry: NewRegistry(dir), healthURL: HealthURL(url), nudgeDir: filepath.Join(dir, nudgeDirName)}
 }
 
 // Run handles one hook event and writes its response to stdout. It never fails: an error or
@@ -125,10 +131,13 @@ func (h *Handler) Run(ctx context.Context, event string, stdin io.Reader, stdout
 	}()
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
-	out, err := h.handle(ctx, event, stdin)
-	if err != nil {
+	var out any
+	if event == EventSearchNudge || event == EventCursorSearchNudge {
+		out = h.nudge(ctx, event, stdin)
+	} else if o, err := h.handle(ctx, event, stdin); err != nil {
 		logger.Debug("Hook produced no output", "event", event, "error", err)
-		return
+	} else if o != nil {
+		out = o
 	}
 	if out == nil {
 		return
@@ -141,6 +150,20 @@ func (h *Handler) Run(ctx context.Context, event string, stdin io.Reader, stdout
 	if _, err := stdout.Write(append(data, '\n')); err != nil {
 		logger.Debug("Failed to write hook output", "event", event, "error", err)
 	}
+}
+
+// nudge runs the search-first nudge, allowing on any error (HI-5).
+func (h *Handler) nudge(ctx context.Context, event string, stdin io.Reader) any {
+	in, err := readInput(ctx, stdin)
+	if err != nil {
+		logger.Debug("Search nudge allowed the call", "event", event, "error", err)
+		return nudgeResponse(event, "")
+	}
+	reason, err := h.searchNudge(ctx, in)
+	if err != nil {
+		logger.Debug("Search nudge allowed the call", "event", event, "error", err)
+	}
+	return nudgeResponse(event, reason)
 }
 
 func (h *Handler) handle(ctx context.Context, event string, stdin io.Reader) (*Output, error) {

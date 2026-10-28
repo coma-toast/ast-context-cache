@@ -123,7 +123,7 @@ Adds an `ast-mcp start|start-safe|supervise|stop|restart|status|health|log|build
 
 ## Connect your agents
 
-The installer registers the MCP server and installs skills, rules or instruction blocks, and (opt-in) Claude Code hooks for **Claude Code, Cursor, OpenCode, Codex, Claude Desktop, VS Code, and JetBrains**. It is merge-only: it previews a per-file diff, backs up every file it changes, edits only its own entries and marker blocks, and preserves comments in JSONC and TOML. The exact files and keys per host are in [host-integration.md](host-integration.md).
+The installer registers the MCP server and installs skills, rules or instruction blocks, and hooks (the search-first nudge, plus opt-in Claude Code handoff hooks) for **Claude Code, Cursor, OpenCode, Codex, Claude Desktop, VS Code, and JetBrains**. It is merge-only: it previews a per-file diff, backs up every file it changes, edits only its own entries and marker blocks, and preserves comments in JSONC and TOML. The exact files and keys per host are in [host-integration.md](host-integration.md).
 
 ### Dashboard
 
@@ -148,7 +148,7 @@ ast-mcp version
 | Flag | Applies to | Meaning |
 |---|---|---|
 | `--target` | install, uninstall, verify | `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`, or `all`. Repeatable or comma-separated. Required for install/uninstall; verify defaults to all. |
-| `--component` | install, uninstall | `mcp`, `skills`, `rules`, `hooks` (comma list). Default: every supported component. `hooks` (Claude Code only, opt-in) is offered only when the `feature_handoff_hooks` flag is on; see [handoff.md](handoff.md#claude-code-hooks). |
+| `--component` | install, uninstall | `mcp`, `skills`, `rules`, `hooks` (comma list). Default: every supported component. `hooks` is the [search-first nudge](host-integration.md#search-first-nudge) (Claude Code, Cursor, OpenCode; offered while `feature_search_nudge` is on, the default) plus the Claude Code handoff hooks (only while `feature_handoff_hooks` is on; see [handoff.md](handoff.md#claude-code-hooks)). |
 | `--dry-run` | install, uninstall | Print the diff and statuses without writing. |
 | `--yes` | install, uninstall, restore | Apply. Without `--yes` or `--dry-run`, install/uninstall print the preview and exit 2. |
 | `--mcp-url` | install, uninstall, verify | Register this URL verbatim. |
@@ -164,7 +164,7 @@ ast-mcp version
 | 3 | Conflict: a file changed since the preview, or a config file could not be parsed (nothing was written) |
 | 4 | Unsupported: every requested component is unsupported for a named target |
 
-`ast-mcp hook <event>` is the command the installed Claude Code hooks run; you don't call it yourself except to debug ([handoff.md](handoff.md#claude-code-hooks)).
+`ast-mcp hook <event>` is the command the installed Claude Code and Cursor hooks run; you don't call it yourself except to debug ([handoff.md](handoff.md#claude-code-hooks), [search-first nudge](host-integration.md#search-first-nudge)). To turn the nudge off without uninstalling, switch off `feature_search_nudge` in the dashboard (Settings → Features) or set `AST_FEATURE_SEARCH_NUDGE=false`.
 
 **Backups** live in `~/.astcache/backups/<YYYYMMDD-HHMMSS>/`, one file per modified path with `/` replaced by `%`. The newest 5 per file are kept (setting `installer_backup_keep`). `restore` backs up the current file before writing the old one back.
 
