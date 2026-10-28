@@ -34,6 +34,7 @@ import { DirectoryPicker } from '../components/DirectoryPicker'
 import { FeaturesSection } from '../components/FeaturesSection'
 import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
 import { InstallerSection } from '../components/InstallerSection'
+import { InstanceSettingsSection } from '../components/InstanceSettingsSection'
 import { NetworkAccessSection } from '../components/NetworkAccessSection'
 import { UpdatesSection } from '../components/UpdatesSection'
 import { restartNow } from '../lib/restart'
@@ -171,7 +172,7 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
 
       <UpdatesSection />
 
-      <InstanceSection data={data} save={save} />
+      <InstanceSettingsSection data={data} save={save} />
 
       <StorageSection data={data} save={save} />
 
@@ -656,50 +657,6 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
         </Card>
       )}
     </Box>
-  )
-}
-
-function InstanceSection({ data, save }: { data: SettingsData; save: (key: string, value: string) => Promise<void> }) {
-  const locked = !!data.InstanceNameLocked
-  const [name, setName] = useState(data.InstanceName ?? '')
-  useEffect(() => {
-    setName(data.InstanceName ?? '')
-  }, [data.InstanceName])
-  const lockHint = data.InstanceNameSource === 'flag'
-    ? 'Set by the -name flag; clear the flag to edit here.'
-    : 'Set by the AST_INSTANCE_NAME environment variable; unset it to edit here.'
-  return (
-    <Card variant="outlined" id="settings-general" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
-      <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
-          General
-        </Typography>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', flexWrap: 'wrap' }} useFlexGap>
-          <TextField
-            label="Instance name"
-            size="small"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={locked}
-            helperText={
-              locked
-                ? lockHint
-                : '1–40 chars: letters, digits, spaces, - _ . · Shown in the tab title; scopes the session cookie and stored UI state. Empty clears it.'
-            }
-            slotProps={{ htmlInput: { maxLength: 40 } }}
-            sx={{ minWidth: 240 }}
-          />
-          <Button size="small" variant="outlined" disabled={locked || name === (data.InstanceName ?? '')} onClick={() => save('instance_name', name.trim())}>
-            Save
-          </Button>
-        </Stack>
-        {data.InstanceNameEffective && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            Active: {data.InstanceNameEffective} (from {data.InstanceNameSource || 'db'})
-          </Typography>
-        )}
-      </CardContent>
-    </Card>
   )
 }
 

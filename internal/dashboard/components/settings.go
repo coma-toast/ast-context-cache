@@ -68,12 +68,40 @@ type SettingsData struct {
 	TranscriptUsageIngest bool
 	// InstanceName is the raw instance_name DB setting (what the field edits).
 	InstanceName string
-	// InstanceNameEffective is the live name (flag > env > setting > empty).
+	// InstanceNameEffective is the live name (flag > env > setting > empty; with
+	// InstanceNameOverride a non-empty setting comes first).
 	InstanceNameEffective string
 	// InstanceScope is the cookie/localStorage scope for the effective name.
 	InstanceScope string
-	// InstanceNameSource is flag|env|db|default.
+	// InstanceNameSource is flag|env|settings|override|default.
 	InstanceNameSource string
-	// InstanceNameLocked is true when the flag or env var sets the name.
+	// InstanceNameLocked is true when the flag or env var sets the name and the
+	// override is off: the dashboard may not change instance_name.
 	InstanceNameLocked bool
+	// InstanceNameOverride is the instance_name_override setting: the setting wins
+	// over the flag and env var.
+	InstanceNameOverride bool
+	// InstanceNameExternal is the -name flag or AST_INSTANCE_NAME value, if any.
+	InstanceNameExternal string
+	// InstanceNameExternalSource is flag|env for InstanceNameExternal.
+	InstanceNameExternalSource string
+	// InstanceFaviconMode, InstanceFaviconColor and InstanceFaviconBadge are the
+	// stored favicon settings (mode default|color|upload).
+	InstanceFaviconMode, InstanceFaviconColor, InstanceFaviconBadge string
+	// InstanceFaviconUploadType and InstanceFaviconUploadBytes describe the stored upload, if any.
+	InstanceFaviconUploadType  string
+	InstanceFaviconUploadBytes int
+	// InstanceFaviconEffectiveMode is the mode in effect after the env vars and fallbacks.
+	InstanceFaviconEffectiveMode string
+	// InstanceFaviconSource is env|override|settings|default.
+	InstanceFaviconSource string
+	// InstanceFaviconURL is the favicon path with its ?v= content hash.
+	InstanceFaviconURL string
+	// InstanceFaviconOverride is the instance_favicon_override setting: the settings win over the env vars.
+	InstanceFaviconOverride bool
+	// InstanceFaviconLocked is true when an AST_INSTANCE_FAVICON_* env var sets the
+	// favicon and the override is off.
+	InstanceFaviconLocked bool
+	// InstanceFaviconExternalColor and InstanceFaviconExternalBadge are the valid env values, if any.
+	InstanceFaviconExternalColor, InstanceFaviconExternalBadge string
 }

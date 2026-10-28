@@ -410,14 +410,44 @@ export interface SettingsData {
   HandoffEnvLocked?: string[] | null
   /** Raw instance_name DB setting (what the settings field edits). */
   InstanceName?: string
-  /** Effective instance name (flag > env > setting > empty). */
+  /** Effective instance name (flag > env > setting > empty; with the override a non-empty setting first). */
   InstanceNameEffective?: string
   /** Cookie/localStorage scope for the effective name. */
   InstanceScope?: string
-  /** flag|env|db|default — where the effective name came from. */
+  /** flag|env|settings|override|default — where the effective name came from. */
   InstanceNameSource?: string
-  /** True when the -name flag or AST_INSTANCE_NAME env var sets the name. */
+  /** True when the -name flag or AST_INSTANCE_NAME sets the name and the override is off. */
   InstanceNameLocked?: boolean
+  /** instance_name_override: the dashboard name wins over the flag and env var. */
+  InstanceNameOverride?: boolean
+  /** The -name flag or AST_INSTANCE_NAME value, if any. */
+  InstanceNameExternal?: string
+  /** flag|env for InstanceNameExternal. */
+  InstanceNameExternalSource?: string
+  /** Stored instance_favicon_mode: default|color|upload (empty means default). */
+  InstanceFaviconMode?: string
+  /** Stored instance_favicon_color (#rrggbb). */
+  InstanceFaviconColor?: string
+  /** Stored instance_favicon_badge (0–2 letters or digits). */
+  InstanceFaviconBadge?: string
+  /** Content type of the stored upload, empty when there is none. */
+  InstanceFaviconUploadType?: string
+  /** Size of the stored upload in bytes. */
+  InstanceFaviconUploadBytes?: number
+  /** Mode in effect after the env vars and fallbacks. */
+  InstanceFaviconEffectiveMode?: string
+  /** env|override|settings|default — where the favicon in effect came from. */
+  InstanceFaviconSource?: string
+  /** Favicon path with its ?v= content hash; changes whenever the favicon does. */
+  InstanceFaviconURL?: string
+  /** instance_favicon_override: the dashboard favicon wins over the env vars. */
+  InstanceFaviconOverride?: boolean
+  /** True when AST_INSTANCE_FAVICON_COLOR/BADGE set the favicon and the override is off. */
+  InstanceFaviconLocked?: boolean
+  /** Valid AST_INSTANCE_FAVICON_COLOR value, if any. */
+  InstanceFaviconExternalColor?: string
+  /** Valid AST_INSTANCE_FAVICON_BADGE value, if any. */
+  InstanceFaviconExternalBadge?: string
 }
 
 export interface MemoryData {
