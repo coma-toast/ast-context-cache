@@ -15,10 +15,11 @@ export function UpdatesSection() {
   const [starting, setStarting] = useState(false)
   const [restarting, setRestarting] = useState(false)
 
-  const runCheck = useCallback(async () => {
+  // A page load reuses the server's cached check; the Check button asks GitHub again.
+  const runCheck = useCallback(async (force = false) => {
     setChecking(true)
     try {
-      setCheck(await api.updateCheck())
+      setCheck(await api.updateCheck(force))
     } catch (e) {
       showToast(String(e), 'error')
     } finally {
@@ -66,7 +67,7 @@ export function UpdatesSection() {
       checking={checking}
       starting={starting}
       restarting={restarting}
-      onCheck={runCheck}
+      onCheck={() => runCheck(true)}
       onUpdate={startUpdate}
       onRestart={() => restartNow(showToast, setRestarting)}
     />

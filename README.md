@@ -241,6 +241,7 @@ Settings → **Updates** installs the latest release in place and keeps the prev
 | `AST_ACCESS_TOKEN` | Bearer token required from non-loopback clients (dashboard: `/login`) | Unset (no token) |
 | `AST_MCP_PORT` / `AST_DASHBOARD_PORT` | MCP and dashboard ports (`--mcp-port` / `--dashboard-port`). `ast-mcp install` and the Claude Code hooks read `AST_MCP_PORT` too | `7821` / `7830` |
 | `AST_LOG_FORMAT` / `AST_LOG_LEVEL` | Log format (`text` / `json`) and level | `text` / `info` |
+| `AST_GITHUB_TOKEN` (or `GITHUB_TOKEN`) | Token for the Settings → Updates check. Without one, the check reads github.com's releases pages, which have no API rate limit; results are cached for an hour | Unset |
 | `AST_MCP_TIER` / `AST_MCP_CODE_MODE` / `AST_MCP_TOOLS_CONFIG` | Tool tier, `execute_code` switch, `tools.json` path | `complete` / on / `~/.astcache/tools.json` |
 | `AST_FEATURE_*` | Feature-flag locks (e.g. `AST_FEATURE_HANDOFF=false`) | Unset (dashboard toggle) |
 | `AST_HANDOFF_*` | Handoff TTL, caps, summary size ([docs](docs/handoff.md#settings-and-limits)) | See docs |

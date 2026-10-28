@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -35,11 +36,34 @@ const (
 	maxArchiveBytes = 512 << 20
 )
 
+const (
+	// checkCacheTTL is how long a successful check is reused, so dashboard loads
+	// and several instances behind one IP don't re-ask GitHub every time.
+	checkCacheTTL = time.Hour
+	// checkErrorTTL is how long a failed check is reused, unless GitHub said
+	// when its rate limit resets.
+	checkErrorTTL = 5 * time.Minute
+)
+
+// ReleasesURL is the repo's GitHub releases page. Its /latest redirects to the
+// newest tag and /download/<tag>/<asset> serves assets; neither counts against
+// GitHub's anonymous API limit of 60 requests an hour per IP, which every
+// machine behind one home connection shares. A var so tests can use a fake.
+var ReleasesURL = "https://github.com/coma-toast/ast-context-cache/releases"
+
 // LatestReleaseURL is the GitHub API endpoint for the newest published
-// release (a var so tests can point it at a fake server).
+// release, used only when AST_GITHUB_TOKEN or GITHUB_TOKEN is set (a var so
+// tests can point it at a fake server).
 var LatestReleaseURL = "https://api.github.com/repos/coma-toast/ast-context-cache/releases/latest"
 
 var httpClient = &http.Client{Timeout: 5 * time.Minute}
+
+// redirectClient stops at the first redirect so the releases/latest Location
+// header can be read instead of followed.
+var redirectClient = &http.Client{
+	Timeout:       30 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 // Snapshot is a point-in-time view of an update for the dashboard.
 type Snapshot struct {
@@ -86,6 +110,19 @@ var (
 	snapshot Snapshot
 )
 
+// cachedCheck is the last check result for one release source.
+type cachedCheck struct {
+	source  string
+	result  CheckResult
+	rel     *release
+	expires time.Time
+}
+
+var (
+	cacheMu sync.Mutex
+	cache   cachedCheck
+)
+
 // GetSnapshot returns the current update state for the dashboard.
 func GetSnapshot() Snapshot {
 	mu.Lock()
@@ -116,19 +153,42 @@ func fail(err error) {
 	set(s)
 }
 
-// Check fetches the latest release and reports whether it should replace the
-// running build. It changes nothing, so the dashboard can call it on load.
-func Check() CheckResult {
-	c, _ := check()
+// Check reports whether the latest release should replace the running build.
+// It changes nothing, so the dashboard can call it on load; results are reused
+// for checkCacheTTL (failures for checkErrorTTL or until GitHub's rate limit
+// resets) unless force is set.
+func Check(force bool) CheckResult {
+	source := releaseSource()
+	cacheMu.Lock()
+	if !force && cache.source == source && time.Now().Before(cache.expires) {
+		c := cache.result
+		cacheMu.Unlock()
+		return c
+	}
+	cacheMu.Unlock()
+	c, rel, err := check()
+	expires := time.Now().Add(checkCacheTTL)
+	if err != nil {
+		expires = time.Now().Add(checkErrorTTL)
+		if retry, ok := errs.FieldsOf(err)["retry_after"].(time.Time); ok && retry.After(time.Now()) {
+			expires = retry
+			if limit := time.Now().Add(checkCacheTTL); retry.After(limit) {
+				expires = limit
+			}
+		}
+	}
+	cacheMu.Lock()
+	cache = cachedCheck{source: source, result: c, rel: rel, expires: expires}
+	cacheMu.Unlock()
 	return c
 }
 
-func check() (CheckResult, *release) {
+func check() (CheckResult, *release, error) {
 	c := CheckResult{CurrentVersion: version.Version, Build: version.Build, SourceBuild: version.Build != "release"}
 	rel, err := latestRelease()
 	if err != nil {
 		c.Error = err.Error()
-		return c, nil
+		return c, nil, err
 	}
 	c.LatestVersion = strings.TrimPrefix(rel.TagName, "v")
 	c.ReleaseURL = rel.HTMLURL
@@ -136,23 +196,102 @@ func check() (CheckResult, *release) {
 	c.AssetName = assetName(c.LatestVersion)
 	if findAsset(rel, c.AssetName) == nil {
 		c.Error = fmt.Sprintf("release v%s has no build for %s/%s", c.LatestVersion, runtime.GOOS, runtime.GOARCH)
-		return c, rel
+		return c, rel, nil
 	}
 	c.UpdateAvailable = c.SourceBuild || compareVersions(c.LatestVersion, c.CurrentVersion) > 0
-	return c, rel
+	return c, rel, nil
 }
 
+// githubToken returns the token for the GitHub API, if one is configured.
+func githubToken() string {
+	if t := os.Getenv("AST_GITHUB_TOKEN"); t != "" {
+		return t
+	}
+	return os.Getenv("GITHUB_TOKEN")
+}
+
+// releaseSource names where check reads releases from, so a cached result is
+// only reused for the same source.
+func releaseSource() string {
+	if githubToken() != "" {
+		return "api " + LatestReleaseURL
+	}
+	return "web " + ReleasesURL
+}
+
+// latestRelease reads the newest release from the GitHub API when a token is
+// set (5,000 requests an hour) and from the unmetered releases pages otherwise.
 func latestRelease() (*release, error) {
+	if token := githubToken(); token != "" {
+		return apiRelease(token)
+	}
+	return webRelease()
+}
+
+// webRelease finds the newest tag from the releases/latest redirect and builds
+// the asset URLs from it. The platform archive is listed only if it exists, so
+// check can still report a release with no build for this platform.
+func webRelease() (*release, error) {
+	resp, err := redirectClient.Get(ReleasesURL + "/latest")
+	if err != nil {
+		return nil, errs.WrapMessage("failed to reach GitHub releases", err)
+	}
+	resp.Body.Close()
+	if err := rateLimited(resp); err != nil {
+		return nil, err
+	}
+	loc, err := resp.Location()
+	if err != nil || !strings.Contains(loc.Path, "/releases/tag/") {
+		return nil, errs.New("GitHub releases did not point to a latest release", "status", resp.Status)
+	}
+	tag := path.Base(loc.Path)
+	download := ReleasesURL + "/download/" + tag + "/"
+	rel := &release{TagName: tag, HTMLURL: loc.String(), Assets: []asset{{Name: checksumName, URL: download + checksumName}}}
+	name := assetName(strings.TrimPrefix(tag, "v"))
+	ok, err := assetExists(download + name)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		rel.Assets = append(rel.Assets, asset{Name: name, URL: download + name})
+	}
+	return rel, nil
+}
+
+// assetExists reports whether a release download URL serves a file.
+func assetExists(url string) (bool, error) {
+	resp, err := httpClient.Head(url)
+	if err != nil {
+		return false, errs.WrapMessage("failed to reach GitHub releases", err, "url", url)
+	}
+	resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return true, nil
+	case resp.StatusCode == http.StatusNotFound:
+		return false, nil
+	}
+	if err := rateLimited(resp); err != nil {
+		return false, err
+	}
+	return false, errs.New("GitHub releases returned an unexpected status", "url", url, "status", resp.Status)
+}
+
+func apiRelease(token string) (*release, error) {
 	req, err := http.NewRequest(http.MethodGet, LatestReleaseURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, errs.WrapMessage("failed to reach GitHub releases", err)
 	}
 	defer resp.Body.Close()
+	if err := rateLimited(resp); err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, errs.New("GitHub releases returned an unexpected status", "status", resp.Status)
 	}
@@ -164,6 +303,21 @@ func latestRelease() (*release, error) {
 		return nil, errs.New("latest release has no tag")
 	}
 	return &rel, nil
+}
+
+// rateLimited turns GitHub's rate-limit answer (429, or 403 with no requests
+// remaining) into an error that says when the next check can succeed.
+func rateLimited(resp *http.Response) error {
+	if resp.StatusCode != http.StatusTooManyRequests && (resp.StatusCode != http.StatusForbidden || resp.Header.Get("X-RateLimit-Remaining") != "0") {
+		return nil
+	}
+	retry := time.Now().Add(checkErrorTTL)
+	if s, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+		retry = time.Unix(s, 0)
+	} else if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil {
+		retry = time.Now().Add(time.Duration(s) * time.Second)
+	}
+	return errs.New("GitHub rate limit reached; next check after "+retry.Local().Format("15:04"), "retry_after", retry)
 }
 
 func assetName(v string) string {
@@ -223,7 +377,7 @@ func Start(exePath string) (started bool, errMsg string) {
 	if !tryClaim() {
 		return false, "an update is already in progress"
 	}
-	c, rel := check()
+	c, rel, _ := check()
 	if c.Error != "" {
 		set(Snapshot{})
 		return false, c.Error

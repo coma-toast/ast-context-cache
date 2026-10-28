@@ -28,9 +28,11 @@ func releasesDown(t *testing.T) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	t.Cleanup(srv.Close)
-	prev := selfupdate.LatestReleaseURL
-	selfupdate.LatestReleaseURL = srv.URL
-	t.Cleanup(func() { selfupdate.LatestReleaseURL = prev })
+	t.Setenv("AST_GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	prevWeb, prevAPI := selfupdate.ReleasesURL, selfupdate.LatestReleaseURL
+	selfupdate.ReleasesURL, selfupdate.LatestReleaseURL = srv.URL, srv.URL
+	t.Cleanup(func() { selfupdate.ReleasesURL, selfupdate.LatestReleaseURL = prevWeb, prevAPI })
 }
 
 func TestHandleUpdateCheckReportsReleaseLookupFailure(t *testing.T) {
