@@ -120,7 +120,7 @@ func TestInstallerAPIOverview(t *testing.T) {
 	require.Len(t, ov.Targets, 7)
 	assert.Equal(t, installer.AllTargets()[0], ov.Targets[0].ID, "display order")
 	assert.NotNil(t, ov.LegacyWarnings)
-	assert.False(t, ov.HooksEnabled)
+	assert.True(t, ov.HooksEnabled, "feature_search_nudge is on by default, so the Hooks row shows")
 	for _, tg := range ov.Targets {
 		assert.Len(t, tg.Components, 4, tg.ID)
 		assert.NotEmpty(t, tg.Name, tg.ID)

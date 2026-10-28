@@ -4,6 +4,7 @@
  */
 import type {
   ContextSessionsResponse,
+  FeatureCoverage,
   FlagState,
   HandoffLimits,
   HandoffTreesResponse,
@@ -137,6 +138,51 @@ export const fixtureWeeklyDigest: WeeklyDigest = {
   VirtualStoredTokens: 21_000,
   VirtualFetchedTokens: 13_400,
   VirtualRecalledTokens: 1_100,
+  Coverage: {
+    WindowDays: 7,
+    ActiveSessions: 42,
+    PrevActiveSessions: 37,
+    SearchlessSessions: 25,
+    PrevSearchlessSessions: 26,
+    SearchlessPct: 59.5,
+    PrevSearchlessPct: 70.3,
+    Features: [
+      { Feature: 'search', Label: 'Code search', Sessions: 17, Pct: 40.5, PrevPct: 29.7, DeltaPct: 10.8 },
+      { Feature: 'impact', Label: 'Impact analysis', Sessions: 6, Pct: 14.3, PrevPct: 10.8, DeltaPct: 3.5 },
+      { Feature: 'virtual_context', Label: 'Virtual context', Sessions: 22, Pct: 52.4, PrevPct: 56.8, DeltaPct: -4.4 },
+      { Feature: 'memory', Label: 'Structured memory', Sessions: 31, Pct: 73.8, PrevPct: 70.3, DeltaPct: 3.5 },
+      { Feature: 'docs', Label: 'Docs cache', Sessions: 9, Pct: 21.4, PrevPct: 21.6, DeltaPct: -0.2 },
+      { Feature: 'code_mode', Label: 'Code mode', Sessions: 2, Pct: 4.8, PrevPct: 0, DeltaPct: 4.8 },
+      { Feature: 'handoff', Label: 'Handoff', Sessions: 8, Pct: 19, PrevPct: 13.5, DeltaPct: 5.5 },
+      { Feature: 'context_fn', Label: 'Context functions', Sessions: 1, Pct: 2.4, PrevPct: 0, DeltaPct: 2.4 },
+      { Feature: 'analysis', Label: 'Code analysis', Sessions: 0, Pct: 0, PrevPct: 2.7, DeltaPct: -2.7 },
+      { Feature: 'index', Label: 'Indexing', Sessions: 12, Pct: 28.6, PrevPct: 32.4, DeltaPct: -3.8 },
+    ],
+  },
+}
+
+export const fixtureFeatureCoverage: FeatureCoverage = {
+  WindowDays: 7,
+  Since: '2026-10-21T12:00:00-04:00',
+  Until: '2026-10-28T12:00:00-04:00',
+  ActiveSessions: 42,
+  AnonymousSessions: 5,
+  Calls: 1_120,
+  ErrorCalls: 6,
+  SearchlessSessions: 25,
+  SearchlessPct: 59.5,
+  Features: (fixtureWeeklyDigest.Coverage?.Features ?? []).map((f) => ({
+    Feature: f.Feature,
+    Label: f.Label,
+    Sessions: f.Sessions,
+    Pct: f.Pct,
+    Calls: f.Sessions * 7,
+  })),
+  TopProjects: [
+    { ProjectPath: '/Users/demo/ast-context-cache', Sessions: 18, Calls: 610, SearchSessions: 11 },
+    { ProjectPath: '/Users/demo/console', Sessions: 12, Calls: 300, SearchSessions: 4 },
+    { ProjectPath: '', Sessions: 7, Calls: 120, SearchSessions: 0 },
+  ],
 }
 
 export const fixtureContextSessions: ContextSessionsResponse = {

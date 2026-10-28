@@ -120,7 +120,7 @@ ast-mcp install --target cursor --yes         # apply
 ast-mcp verify                                # status for every host
 ```
 
-Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains` (or `all`). Components: `mcp`, `skills`, `rules`, `hooks` (opt-in Claude Code subagent-handoff hooks, behind the `feature_handoff_hooks` flag; see [`docs/handoff.md`](docs/handoff.md#claude-code-hooks)). The dashboard offers the same under Settings → **Agent integration**. CLI reference, exit codes, and backups: [`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents). Exact files and keys per host: [`docs/host-integration.md`](docs/host-integration.md).
+Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains` (or `all`). Components: `mcp`, `skills`, `rules`, `hooks` (the [search-first nudge](docs/host-integration.md#search-first-nudge) for Claude Code, Cursor and OpenCode, on by default behind `feature_search_nudge`; plus opt-in Claude Code subagent-handoff hooks behind `feature_handoff_hooks`, see [`docs/handoff.md`](docs/handoff.md#claude-code-hooks)). The dashboard offers the same under Settings → **Agent integration**. CLI reference, exit codes, and backups: [`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents). Exact files and keys per host: [`docs/host-integration.md`](docs/host-integration.md).
 
 `ast-mcp` here is the [shell function](#shell-function-optional) from `make install`; `./ast-mcp` takes the same subcommands.
 
@@ -136,7 +136,7 @@ Manual config is a URL entry, for example Cursor's `~/.cursor/mcp.json`:
 
 Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` and other server settings on the `ast-mcp` process.
 
-**Agents:** the workflow, tool tiers, virtual context, handoff, and token tips are in **[`AGENTS.md`](AGENTS.md)** and [`skills/usage/SKILL.md`](skills/usage/SKILL.md). The installer ships the same guidance to each host as skills and an instruction block.
+**Agents:** the workflow, tool tiers, virtual context, handoff, and token tips are in **[`AGENTS.md`](AGENTS.md)** and [`skills/usage/SKILL.md`](skills/usage/SKILL.md). The installer ships the same guidance to each host as skills and one usage protocol ([`rules/protocol.md`](rules/protocol.md)) written into `CLAUDE.md` / `AGENTS.md` / the Cursor rule.
 
 ## More features
 
@@ -144,6 +144,7 @@ Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` an
 |--|--|
 | **Languages** | Python, JS/JSX, TS/TSX, Go, Bash, Fish, YAML |
 | **File watcher** | Incremental re-index with debounce and ignore globs: one FSEvents stream per project on macOS (no descriptor per file), `fsnotify` elsewhere |
+| **Spaces and worktrees** | A new worktree copies unchanged files' symbols and vectors from an indexed checkout of the same repo; a wtg space root is indexed as its separate checkouts and searched across them; `ast-mcp index <dir>` and `ast-mcp prune-projects --space-roots` ([docs](docs/spaces-indexing.md)) |
 | **Embedding backends** | ONNX, Ollama, HTTP, OpenAI/LiteLLM, Docker Model Runner, plus an auxiliary catch-up pool when the primary is down or slow ([docs](docs/embedding-backends.md)) |
 | **Context functions** | `define_context_fn` / `apply_context_fn` / `list_context_fns`: reusable transforms over stored notes, off by default ([docs](docs/context-fn.md)) |
 | **KV repair** | `report_kv_repair_event`, golden-text archives, success-rate stats on the dashboard |
@@ -206,7 +207,7 @@ The handoff tools are core even though they write, so delegation works at every 
 
 ## Upgrading
 
-Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** switches over. From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0, 4.0 and 5.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
+Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** quiesces ast-mcp and switches over (on macOS by starting a new process and exiting once it is healthy; set `AST_RESTART_STRATEGY` to `exec`, `spawn` or `exit` to choose: [`docs/INSTALL.md`](docs/INSTALL.md#restarting)). From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0, 4.0 and 5.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
 
 ## Architecture
 

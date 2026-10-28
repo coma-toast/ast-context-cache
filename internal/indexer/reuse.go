@@ -98,41 +98,69 @@ func FindReuseSource(projectPath string) *ReuseSource {
 // symbols copied and whether reuse happened; callers fall back to IndexFile when
 // it reports false.
 func ReuseFile(filePath, projectPath string, src *ReuseSource) (int, bool) {
+	n, _, ok := reuseFile(filePath, projectPath, src)
+	return n, ok
+}
+
+// Outcome is what IndexOrReuse did for one file.
+type Outcome struct {
+	Symbols, FullTokens, SkeletonTokens int
+	// Reused is true when the rows were copied from a sibling checkout.
+	Reused bool
+	// NeedsEmbed is true when the file still lacks current code vectors: always
+	// after a fresh parse, and after reuse only when the sibling had not finished
+	// embedding it.
+	NeedsEmbed bool
+}
+
+// IndexOrReuse copies filePath's rows from src when the sibling holds a
+// byte-identical copy and falls back to IndexFile otherwise. Every first-index
+// path (directory jobs, watcher catch-up) goes through it so they agree on when
+// reuse applies.
+func IndexOrReuse(filePath, projectPath string, src *ReuseSource) (Outcome, error) {
+	if n, needsEmbed, ok := reuseFile(filePath, projectPath, src); ok {
+		return Outcome{Symbols: n, Reused: true, NeedsEmbed: needsEmbed}, nil
+	}
+	n, full, skel, err := IndexFile(filePath, projectPath)
+	return Outcome{Symbols: n, FullTokens: full, SkeletonTokens: skel, NeedsEmbed: err == nil}, err
+}
+
+func reuseFile(filePath, projectPath string, src *ReuseSource) (int, bool, bool) {
 	if src == nil {
-		return 0, false
+		return 0, false, false
 	}
 	filePath = filepath.Clean(filePath)
 	projectPath = projectlinks.NormalizePath(projectPath)
 	rel, err := filepath.Rel(projectPath, filePath)
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return 0, false
+		return 0, false, false
 	}
 	sibFile := filepath.Join(src.ProjectPath, rel)
 	if !sameFileContent(filePath, sibFile) {
-		return 0, false
+		return 0, false, false
 	}
 
 	conn, err := db.IndexReader()
 	if err != nil {
-		return 0, false
+		return 0, false, false
 	}
 	// The sibling's rows are only worth copying if today's parser produced them.
 	var version int
 	if conn.QueryRow(selectIndexedFileParserVerQuery, sibFile, src.ProjectPath).Scan(&version) != nil || version < ParserVersion(filePath) {
-		return 0, false
+		return 0, false, false
 	}
 
 	symbols, err := readReuseSymbols(conn, sibFile, src.ProjectPath)
 	if err != nil {
-		return 0, false
+		return 0, false, false
 	}
 	edges, err := readReuseEdges(conn, sibFile, src.ProjectPath)
 	if err != nil {
-		return 0, false
+		return 0, false, false
 	}
 	vectors, err := readReuseVectors(conn, sibFile, src.ProjectPath)
 	if err != nil {
-		return 0, false
+		return 0, false, false
 	}
 
 	// Identical bytes mean identical parse output: code, fqn (basename-derived),
@@ -171,19 +199,37 @@ func ReuseFile(filePath, projectPath string, src *ReuseSource) (int, bool) {
 		return db.UpsertIndexedFileWith(tx, filePath, projectPath, time.Now())
 	})
 	if err != nil {
-		return 0, false
+		return 0, false, false
 	}
 
 	search.Cache.DeleteByFile(filePath, projectPath)
-	copyReuseVectors(vectors, newIDs, filePath, projectPath)
+	copiedAll := copyReuseVectors(vectors, newIDs, filePath, projectPath)
 	db.InvalidateSummariesForFile(filePath, projectPath)
 	notifyIndexCommitted(projectPath)
-	return copied, true
+	return copied, !copiedAll || !vectorsCover(symbols, vectors), true
 }
 
-func copyReuseVectors(vectors []reuseVector, newIDs map[int64]int64, filePath, projectPath string) {
+// vectorsCover reports whether every symbol has a code vector for its current
+// embed_hash, the same test embedqueue uses to find files missing vectors.
+func vectorsCover(symbols []reuseSymbol, vectors []reuseVector) bool {
+	have := make(map[int64]string, len(vectors))
+	for _, v := range vectors {
+		have[v.symbolID] = v.hash
+	}
+	for _, s := range symbols {
+		h, ok := have[s.id]
+		if !ok || (s.embed != "" && h != s.embed) {
+			return false
+		}
+	}
+	return true
+}
+
+// copyReuseVectors stores the sibling's vectors under the new symbol ids and
+// reports whether every one of them was copied.
+func copyReuseVectors(vectors []reuseVector, newIDs map[int64]int64, filePath, projectPath string) bool {
 	if len(vectors) == 0 {
-		return
+		return true
 	}
 	entries := make([]search.VectorEntry, 0, len(vectors))
 	for _, v := range vectors {
@@ -203,11 +249,13 @@ func copyReuseVectors(vectors []reuseVector, newIDs map[int64]int64, filePath, p
 		})
 	}
 	if len(entries) == 0 {
-		return
+		return false
 	}
 	if err := search.Cache.Upsert(entries); err != nil {
 		logger.Warn("Failed to copy reused vectors", "file", filePath, "error", err)
+		return false
 	}
+	return len(entries) == len(vectors)
 }
 
 func readReuseSymbols(conn *sql.DB, file, projectPath string) ([]reuseSymbol, error) {

@@ -43,7 +43,7 @@ Open after `make run` or `ast-mcp dash`. The UI is a **React + MUI** SPA embedde
 
 | Tab | What it shows |
 |-----|----------------|
-| **Overview** | Query activity, virtual context summary, index & runtime (embed queue, corpus, watchers) |
+| **Overview** | Query activity, weekly digest, feature coverage, virtual context summary, index & runtime (embed queue, corpus, watchers) |
 | **Memory** | Virtual context stats, doc sources (add/refresh/delete, **Add starter doc pack**) |
 | **Activity** | Time series (daily/hourly, queries vs tokens saved) |
 | **Analytics** | Tool performance table, symbol/language/import charts |
@@ -78,6 +78,8 @@ Settings → Storage covers moving the data directory to another disk (e.g. a US
 - **Tokens saved (today)** — sums `tokens_saved` from **`get_context_capsule`**, **`get_file_context`**, **`search_semantic`**, **`retrieve`**, and **`execute_code`** only (compression + dedup). **`fetch_doc` / `search_docs` / `index_*`** and virtual context / memory writes (**`store_context`**, **`store_memory`**) do not contribute; **0 today** with heavy doc activity is expected. Sublabel shows 30d total, **avg/day**, dedup, and vs-files. **`mode=full`** calls save ~nothing.
 - **Virtual context card** — separate from Tokens saved. **Active inventory** = notes still on disk; **30d stored** = `store_context` volume; **30d accessed** = `fetch_context` + `search_context`; **utilization** = accessed/stored; **orphans** = never fetched. **`GET /api/context-stats`** returns JSON for the same rollup (includes nested **`kv_repair`**). **`POST /api/flush-context`** with `{"all":true}` or `{"session_id":"..."}` (also in Settings).
 - **KV repair card** (Memory tab) — golden text archives for quantized KV recovery. **Archives active** = notes with `kind=kv_repair` or tag `kv_repair`; **30d repairs** = `fetch_context` with `repair_reason`; sublabel splits **miss / quality / manual** from `report_kv_repair_event` + repair fetches; **utilization** = repairs / archives stored; **orphans** = archives never fetched for repair. **`GET /api/kv-repair-stats`** (`?project_id=` optional) returns the rollup JSON.
+- **Feature coverage card** (Overview) — of the sessions with at least one agent tool call in the window (default 7 days, `file_watcher` rows excluded), the share that used each feature at least once: code search, impact, virtual context, memory, docs, code mode, handoff, context functions, analysis, indexing. The grouping is `internal/coverage` (`coverage.Features`), the one source for the card, the digest and `/metrics`. The highlighted **search-less sessions** count is sessions that never called a search tool (`get_context_capsule`, `search_semantic`, `retrieve`, `get_file_context`, `get_project_map`, `check_symbol_exists`); it turns orange at 50% or more. Chips show the week-over-week change in points from the weekly digest. **Without session_id** counts hourly buckets for calls made without a `session_id`, so many of them mean agents are not passing one and coverage is understated. **Unmapped tools** lists tools missing from `coverage.Features`. Follows the project filter. API: **`GET /api/dashboard/feature-coverage`** (`?project_id=`, `?days=` up to 90); the weekly digest (`GET /api/dashboard/weekly-digest`) carries the same per-feature % with the previous week's under `Coverage`.
+  - **Reading low coverage:** a high search-less share with docs/memory/handoff traffic means agents load the MCP server but explore with grep and whole-file reads; check that their rules carry the usage protocol (`ast-mcp install --component rules`). Low virtual context or memory on long sessions means plans are lost to host compaction. Low impact means exported symbols change without a blast-radius check. A feature at 0% across many sessions is usually not exposed at the host's tier or is behind a flag, not unused by choice.
 - **Embed queue ring** — fill vs combined capacity (priority + background limits, 128 + 2048 by default; see [Embed queue limits](#embed-queue-limits)). Green → orange → red as backlog grows.
 - **Pinned projects** — use when one repo should index faster under load.
 
@@ -100,7 +102,7 @@ MCP coding agents normally use MCP tools only; mention the dashboard when the us
 
 ### Prometheus scrape
 
-Dashboard exposes Prometheus metrics at **`http://localhost:7830/metrics`** (prefix `astcache_`: process up, embed queue/workers and queue limits, embedder state, index WAL bytes, tokens saved today, MCP tool call counts + duration). Example scrape job:
+Dashboard exposes Prometheus metrics at **`http://localhost:7830/metrics`** (prefix `astcache_`: process up, embed queue/workers and queue limits, embedder state, index WAL bytes, tokens saved today, MCP tool call counts + duration, 7-day feature coverage: `astcache_feature_session_coverage_ratio{feature=…}` (0..1), `astcache_coverage_active_sessions`, `astcache_coverage_searchless_sessions`, cached for a minute per scrape). Example scrape job:
 
 ```yaml
 - job_name: ast-context-cache

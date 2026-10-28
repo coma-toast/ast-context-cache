@@ -13,7 +13,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/coma-toast/ast-context-cache/instructions"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/version"
@@ -40,6 +39,7 @@ type testOpts struct {
 	url      string
 	goos     string
 	hooks    bool
+	nudge    bool
 	noBridge bool
 	noNpx    bool
 	now      func() time.Time
@@ -60,12 +60,13 @@ func newTestService(t *testing.T, home string, o testOpts) *realService {
 		o.goos = "darwin"
 	}
 	cfg := Config{
-		Home:         home,
-		MCPURL:       o.url,
-		Executable:   testExe,
-		GOOS:         o.goos,
-		HooksEnabled: func() bool { return o.hooks },
-		Now:          o.now,
+		Home:               home,
+		MCPURL:             o.url,
+		Executable:         testExe,
+		GOOS:               o.goos,
+		HooksEnabled:       func() bool { return o.hooks },
+		SearchNudgeEnabled: func() bool { return o.nudge },
+		Now:                o.now,
 		LookPath: func(name string) (string, error) {
 			switch {
 			case name == "mcp-local" && !o.noBridge:
@@ -155,16 +156,17 @@ func goldenPlaceholders(t *testing.T) [][2]string {
 	t.Helper()
 	all, err := skills.All()
 	require.NoError(t, err)
-	front, body := splitFrontmatter(rules.CursorRule)
-	cursorBlock := renderBlock(testVersion, body, "\n")
+	block := renderBlock(testVersion, rules.Protocol, "\n")
 	out := [][2]string{
-		{front + "\n" + cursorBlock + "\n", "{{CURSOR_RULE_FILE}}"},
-		{cursorBlock, "{{CURSOR_BLOCK}}"},
-		{renderBlock(testVersion, instructions.AgentsBlock, "\n"), "{{AGENTS_BLOCK}}"},
+		{rules.CursorFrontmatter + "\n" + block + "\n", "{{CURSOR_RULE_FILE}}"},
+		{block, "{{AGENTS_BLOCK}}"},
 	}
 	for _, sk := range all {
 		out = append(out, [2]string{sk.Content(), "{{SKILL:" + sk.Name + "}}"})
 	}
+	plugin, err := openCodeNudgePlugin(MCPURL(DefaultMCPPort))
+	require.NoError(t, err)
+	out = append(out, [2]string{string(plugin), "{{OPENCODE_NUDGE_PLUGIN}}"})
 	sort.SliceStable(out, func(i, j int) bool { return len(out[i][0]) > len(out[j][0]) })
 	return out
 }

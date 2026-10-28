@@ -148,16 +148,19 @@ func (u unsupportedUnit) plan(e *env) ([]FileChange, []string, error) {
 }
 
 // unsupportedReason reports whether u can't be installed, and why.
-func unsupportedReason(u unit, hooksEnabled bool) (string, bool) {
+func (s *realService) unsupportedReason(u unit) (string, bool) {
 	switch v := u.(type) {
 	case unsupportedUnit:
 		return v.reason, true
-	case hooksUnit:
-		if !hooksEnabled {
-			return hooksDisabledReason, true
-		}
+	case gatedUnit:
+		return v.disabledReason(s.cfg)
 	}
 	return "", false
+}
+
+// gatedUnit is a unit feature flags can switch off; it is unsupported while they are off.
+type gatedUnit interface {
+	disabledReason(cfg Config) (string, bool)
 }
 
 // lookPath wraps exec.LookPath so tests can stub it through Config.

@@ -1,7 +1,7 @@
 package installer
 
 import (
-	"github.com/coma-toast/ast-context-cache/instructions"
+	"github.com/coma-toast/ast-context-cache/rules"
 )
 
 const claudeJSONWarning = "Claude Code rewrites ~/.claude.json while running; apply with Claude Code closed"
@@ -18,7 +18,7 @@ func (s *realService) claudeCodeSpec() targetSpec {
 			warnings: []string{claudeJSONWarning},
 		},
 		ComponentSkills: skillsUnit{root: s.homePath(".claude", "skills"), host: "Claude Code"},
-		ComponentRules:  mdBlockUnit{file: s.homePath(".claude", "CLAUDE.md"), body: instructions.AgentsBlock},
+		ComponentRules:  mdBlockUnit{file: s.homePath(".claude", "CLAUDE.md"), body: rules.Protocol},
 		ComponentHooks:  hooksUnit{file: s.homePath(".claude", "settings.json"), exe: s.cfg.Executable},
 	}}
 }

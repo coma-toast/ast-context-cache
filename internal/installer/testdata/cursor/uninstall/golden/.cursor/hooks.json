@@ -1,0 +1,12 @@
+{
+  // user hooks
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      { "command": "./hooks/guard-shell.sh", "matcher": "Shell" }
+    ],
+    "beforeShellExecution": [
+      { "command": "./hooks/audit.sh" }
+    ]
+  }
+}

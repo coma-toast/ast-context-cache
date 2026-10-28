@@ -4,5 +4,12 @@
     "component": "rules",
     "path": ".config/opencode/AGENTS.md",
     "entry_hash": "fc406e346d47"
+  },
+  {
+    "target": "opencode",
+    "component": "hooks",
+    "path": ".config/opencode/plugins/ast-context-cache-search-nudge.js",
+    "content": "// ast-context-cache search-first nudge for OpenCode (older version).\nexport const AstContextCacheSearchNudge = async () => ({})\n",
+    "created": 1
   }
 ]

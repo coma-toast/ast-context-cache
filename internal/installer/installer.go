@@ -100,8 +100,11 @@ type Config struct {
 	GOOS string
 	// LookPath finds bridge commands for Claude Desktop; defaults to exec.LookPath.
 	LookPath func(string) (string, error)
-	// HooksEnabled gates the Claude Code hooks component; defaults to the feature_handoff_hooks flag.
+	// HooksEnabled gates the Claude Code handoff hooks; defaults to the feature_handoff_hooks flag.
 	HooksEnabled func() bool
+	// SearchNudgeEnabled gates the search-first nudge hooks (Claude Code, Cursor, OpenCode);
+	// defaults to the feature_search_nudge flag.
+	SearchNudgeEnabled func() bool
 	// Now is the clock for backups and plan expiry.
 	Now func() time.Time
 }
@@ -194,6 +197,9 @@ func New(cfg Config) (Service, error) {
 	if cfg.HooksEnabled == nil {
 		cfg.HooksEnabled = func() bool { return flags.Enabled(flags.KeyHandoffHooks) }
 	}
+	if cfg.SearchNudgeEnabled == nil {
+		cfg.SearchNudgeEnabled = func() bool { return flags.Enabled(flags.KeySearchNudge) }
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -249,7 +255,7 @@ func (s *realService) Targets() []TargetInfo {
 		for _, c := range allComponents {
 			u := spec.units[c]
 			ci := ComponentInfo{Component: c, Path: u.path()}
-			if r, ok := unsupportedReason(u, s.cfg.HooksEnabled()); ok {
+			if r, ok := s.unsupportedReason(u); ok {
 				ci.Reason = r
 			} else {
 				ci.Supported = true
@@ -442,7 +448,7 @@ func (s *realService) planTarget(p *Plan, spec targetSpec, req PlanRequest, st s
 		u := spec.units[c]
 		e := &env{s: s, target: spec.id, component: c, action: req.Action, replaceExternal: req.ReplaceExternal, state: st}
 		cs := u.status(e)
-		if _, unsupported := unsupportedReason(u, s.cfg.HooksEnabled()); unsupported && !explicit && cs.Status == StatusUnsupported {
+		if _, unsupported := s.unsupportedReason(u); unsupported && !explicit && cs.Status == StatusUnsupported {
 			continue
 		}
 		p.Status = append(p.Status, cs)

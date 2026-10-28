@@ -36,7 +36,7 @@ func runGolden(t *testing.T, target Target, scenario string) {
 	copyTree(t, filepath.Join(dir, "in"), home)
 	seedState(t, home, filepath.Join(dir, "state.json"))
 	before := snapshotTree(t, home)
-	s := newTestService(t, home, testOpts{hooks: true})
+	s := newTestService(t, home, testOpts{hooks: true, nudge: true})
 	req := PlanRequest{Targets: []Target{target}, Action: ActionInstall}
 	applyPlan(t, s, req)
 	if scenario == "uninstall" {

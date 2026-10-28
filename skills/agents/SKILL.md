@@ -118,7 +118,7 @@ Restart ast-mcp after changing `tools.json`. Example file: [`skills/tools.json.e
 
 ## Agent Instructions Block (paste into AGENTS.md or CLAUDE.md)
 
-The installer writes the short canonical block from [`instructions/agents-block.md`](../../instructions/agents-block.md) into each host's global instructions file. For a project `AGENTS.md` / `CLAUDE.md` that wants the full tool surface, paste this longer block:
+The installer writes the usage protocol from [`rules/protocol.md`](../../rules/protocol.md) into each host's global instructions file; paste that file into a project `AGENTS.md` / `CLAUDE.md` for the same workflow. For a longer reference of the full tool surface, paste this block:
 
 ```markdown
 # MCP Code Search (ast-context-cache)
@@ -292,6 +292,6 @@ Avoid using grep/read for:
 
 ## Cursor Rules (global or project)
 
-The canonical always-apply rule is [`rules/cursor/ast-context-cache.mdc`](../../rules/cursor/ast-context-cache.mdc) (`alwaysApply: true`): session ids, efficient exploration, host compaction, and subagent handoffs. `ast-mcp install --target cursor --component rules --yes` writes it to `~/.cursor/rules/ast-context-cache.mdc` between version-stamped markers. Cursor documents global rules as Settings → Rules (User Rules) only, so if the global file is not picked up, paste the rule body there instead.
+The canonical always-apply rule is the usage protocol [`rules/protocol.md`](../../rules/protocol.md) under `alwaysApply: true` frontmatter: session ids, start of work, exploration before grep, impact checks, virtual context, memory, compaction, and subagent handoffs. `ast-mcp install --target cursor --component rules --yes` writes it to `~/.cursor/rules/ast-context-cache.mdc` between version-stamped markers. Cursor documents global rules as Settings → Rules (User Rules) only, so if the global file is not picked up, paste the rule body there instead.
 
 **Project optional:** copy the same file to `.cursor/rules/ast-context-cache.mdc`.
