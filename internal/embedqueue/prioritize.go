@@ -102,18 +102,13 @@ func promotePendingToHigh(projectPath string) int {
 	return len(promoted)
 }
 
+// pushHigh queues j on the priority channel, overflowing to background when priority is at
+// its soft limit, and blocks while both are full.
 func pushHigh(j job) {
 	if highCh == nil {
 		return
 	}
-	select {
-	case highCh <- j:
-	default:
-		select {
-		case highCh <- j:
-		case lowCh <- j:
-		}
-	}
+	sendWait(j, lane{highCh, highGate}, lane{lowCh, lowGate})
 }
 
 func stealProjectJob(projectPath string) (job, bool) {

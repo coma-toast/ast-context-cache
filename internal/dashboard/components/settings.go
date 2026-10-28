@@ -1,6 +1,9 @@
 package components
 
-import "github.com/coma-toast/ast-context-cache/internal/handoff"
+import (
+	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
+	"github.com/coma-toast/ast-context-cache/internal/handoff"
+)
 
 type SettingsData struct {
 	IdleUnloadMinutes        int
@@ -59,6 +62,8 @@ type SettingsData struct {
 	EmbedProbeIntervalSec    int
 	DataDir                  string
 	DataDirSize              string
+	// EmbedQueueCaps are the embed queue soft limits with their current depth and env lock.
+	EmbedQueueCaps []embedqueue.QueueCapState
 	// HandoffLimits are the effective handoff limits (env > setting > default).
 	HandoffLimits handoff.Limits
 	// HandoffEnvLocked lists the handoff limit settings keys whose AST_HANDOFF_* env var is set:

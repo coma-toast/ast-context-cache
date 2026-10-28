@@ -56,6 +56,21 @@ func registerPrometheusMetrics() {
 				Help: "Embed jobs currently in high+low channels.",
 			}, func() float64 { return float64(embedqueue.Snapshot().Queued) }),
 			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Name:        "astcache_embed_queue_cap",
+				Help:        "Effective embed queue soft limit (jobs) by channel: pending (retry), high (priority), low (background).",
+				ConstLabels: prometheus.Labels{"queue": "pending"},
+			}, func() float64 { return float64(embedqueue.Snapshot().PendingQueueCap) }),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Name:        "astcache_embed_queue_cap",
+				Help:        "Effective embed queue soft limit (jobs) by channel: pending (retry), high (priority), low (background).",
+				ConstLabels: prometheus.Labels{"queue": "high"},
+			}, func() float64 { return float64(embedqueue.Snapshot().HighCap) }),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Name:        "astcache_embed_queue_cap",
+				Help:        "Effective embed queue soft limit (jobs) by channel: pending (retry), high (priority), low (background).",
+				ConstLabels: prometheus.Labels{"queue": "low"},
+			}, func() float64 { return float64(embedqueue.Snapshot().LowCap) }),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 				Name: "astcache_embed_in_flight",
 				Help: "Embed jobs currently running.",
 			}, func() float64 { return float64(embedqueue.Snapshot().InFlight) }),

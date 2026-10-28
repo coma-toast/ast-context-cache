@@ -1,10 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { StoryFrame } from '../storybook/StoryFrame'
 import { SettingsTab } from '../tabs/SettingsTab'
+import { EmbedQueueSettingsSection } from '../components/EmbedQueueSettingsSection'
 import { FeaturesSection } from '../components/FeaturesSection'
 import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
 import { NetworkAccessSection } from '../components/NetworkAccessSection'
-import { fixtureMcpTier, fixtureSettings } from '../storybook/fixtures'
+import { fixtureIndexHealth, fixtureMcpTier, fixtureSettings } from '../storybook/fixtures'
 
 const meta: Meta = {
   title: 'Dashboard/Settings',
@@ -45,6 +46,15 @@ export const NetworkAccess: Story = {
   render: () => (
     <StoryFrame>
       <NetworkAccessSection />
+    </StoryFrame>
+  ),
+}
+
+/** Embed queue limits card: live depth beside each limit, background locked by EMBED_QUEUE_LOW_CAP. */
+export const EmbedQueue: Story = {
+  render: () => (
+    <StoryFrame>
+      <EmbedQueueSettingsSection data={fixtureSettings} indexHealth={fixtureIndexHealth} save={async () => {}} />
     </StoryFrame>
   ),
 }

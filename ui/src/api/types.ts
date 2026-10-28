@@ -288,6 +288,9 @@ export interface IndexHealth {
   EmbedLowQueued?: number
   EmbedHighCap?: number
   EmbedLowCap?: number
+  /** Retry (pending) channel depth and its effective soft limit. */
+  EmbedPendingQueued?: number
+  EmbedPendingQueueCap?: number
   EmbedActive?: number
   EmbedActivePrimary?: number
   EmbedAuxActive?: number
@@ -357,6 +360,20 @@ export interface Project {
   LinkedParent: string
 }
 
+/** One embed queue soft limit, mirroring embedqueue.QueueCapState. */
+export interface QueueCapState {
+  key: string
+  env: string
+  label: string
+  default: number
+  hard_max: number
+  /** Effective limit (env > setting > default). */
+  value: number
+  /** Jobs in the channel when settings were loaded. */
+  used: number
+  env_locked: boolean
+}
+
 export interface SettingsData {
   IdleUnloadMinutes: number
   EmbedWorkerMax?: number
@@ -408,6 +425,8 @@ export interface SettingsData {
   HandoffLimits?: HandoffLimits
   /** Handoff limit settings keys locked by their AST_HANDOFF_* env var. */
   HandoffEnvLocked?: string[] | null
+  /** Embed queue soft limits (pending, high, low) with current depth and env lock. */
+  EmbedQueueCaps?: QueueCapState[] | null
   /** Raw instance_name DB setting (what the settings field edits). */
   InstanceName?: string
   /** Effective instance name (flag > env > setting > empty; with the override a non-empty setting first). */

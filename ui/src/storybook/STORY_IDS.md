@@ -11,6 +11,7 @@
 - `dashboard-settings--features`
 - `dashboard-settings--handoff`
 - `dashboard-settings--network-access`
+- `dashboard-settings--embed-queue`
 - `dashboard-installer--default`
 - `dashboard-installer--preview-open`
 - `dashboard-handoffs--overview`

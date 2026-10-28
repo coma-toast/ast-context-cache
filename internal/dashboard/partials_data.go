@@ -100,6 +100,10 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 	h.EmbedFailed = eq.Failed
 	h.EmbedHighQueued = eq.HighUsed
 	h.EmbedLowQueued = eq.LowUsed
+	h.EmbedHighCap = eq.HighCap
+	h.EmbedLowCap = eq.LowCap
+	h.EmbedPendingQueued = eq.PendingQueueUsed
+	h.EmbedPendingQueueCap = eq.PendingQueueCap
 	h.EmbedActive = int(eq.InFlight)
 	h.EmbedActivePrimary = int(eq.InFlightPrimary)
 	h.EmbedAuxActive = int(eq.InFlightAux)
@@ -219,6 +223,8 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.EmbedLowQueued = eq.LowUsed
 	h.EmbedHighCap = eq.HighCap
 	h.EmbedLowCap = eq.LowCap
+	h.EmbedPendingQueued = eq.PendingQueueUsed
+	h.EmbedPendingQueueCap = eq.PendingQueueCap
 	h.EmbedActive = int(eq.InFlight)
 	h.EmbedActivePrimary = int(eq.InFlightPrimary)
 	h.EmbedAuxActive = int(eq.InFlightAux)

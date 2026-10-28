@@ -14,9 +14,6 @@ import (
 
 // ring buffer for throughput (last 5 seconds, 10 slots @ 500ms)
 const (
-	pendingCap       = 128
-	highCap          = 128
-	lowCap           = 2048
 	throughputSlots  = 10
 	throughputWindow = 500 * time.Millisecond
 
@@ -91,9 +88,10 @@ func queueEmbedder() embedder.Interface {
 func Start(e embedder.Interface) {
 	started.Do(func() {
 		SetEmbedder(e)
-		pendingCh = make(chan job, pendingCap)
-		highCh = make(chan job, highCap)
-		lowCh = make(chan job, lowCap)
+		LoadQueueCaps()
+		pendingCh = make(chan job, PendingCapHardMax)
+		highCh = make(chan job, HighCapHardMax)
+		lowCh = make(chan job, LowCapHardMax)
 		workerStop = make(chan struct{}, AbsoluteMaxWorkers)
 		beginProcessingWindow()
 		workerMu.Lock()
@@ -109,7 +107,7 @@ func Start(e embedder.Interface) {
 			return Snapshot().InFlight > 0
 		})
 		embedder.SetOnRecovery(func() { RecoverAfterEmbedder() })
-		logger.Info("Embed queue started", "workers", n, "pending_cap", pendingCap, "high_cap", highCap, "low_cap", lowCap)
+		logger.Info("Embed queue started", "workers", n, "pending_cap", pendingGate.limit.Load(), "high_cap", highGate.limit.Load(), "low_cap", lowGate.limit.Load())
 		startPendingDBFlusher()
 		LoadPendingFromDB()
 		go flushPendingIfReady()
@@ -176,6 +174,7 @@ func run(j job) {
 }
 
 func runWithEmbedder(j job, e embedder.Interface, aux bool) {
+	signalSpace()
 	atomic.AddInt64(&inFlight, 1)
 	pool := &inFlightPrimary
 	if aux {
@@ -267,20 +266,10 @@ func SubmitPriority(file, projectPath string, high bool) {
 		return
 	}
 	if high {
-		select {
-		case highCh <- j:
-			realtime.Notify(realtime.EmbedFinished)
-		default:
-			select {
-			case highCh <- j:
-				realtime.Notify(realtime.EmbedFinished)
-			case lowCh <- j:
-				realtime.Notify(realtime.EmbedFinished)
-			}
-		}
-		return
+		pushHigh(j)
+	} else {
+		sendWait(j, lane{lowCh, lowGate})
 	}
-	lowCh <- j
 	realtime.Notify(realtime.EmbedFinished)
 }
 
@@ -327,13 +316,16 @@ func ThroughputLast5s() int64 {
 
 // QueueSnapshot is queue depth and worker state for dashboards.
 type QueueSnapshot struct {
-	Queued              int
-	Pending             int
-	PendingPeak         int
-	HighUsed            int
-	LowUsed             int
+	Queued      int
+	Pending     int
+	PendingPeak int
+	HighUsed    int
+	LowUsed     int
+	// HighCap, LowCap and PendingQueueCap are the effective soft limits (see caps.go).
 	HighCap             int
 	LowCap              int
+	PendingQueueUsed    int
+	PendingQueueCap     int
 	Workers             int
 	WorkersEffective    int
 	WorkersLive         int
@@ -357,7 +349,7 @@ func InFlight() int64 {
 
 // Snapshot returns current queue and worker metrics.
 func Snapshot() QueueSnapshot {
-	s := QueueSnapshot{HighCap: highCap, LowCap: lowCap, Workers: WorkerTarget(), WorkersEffective: WorkerCount(), WorkersLive: WorkerLive(), AuxWorkers: AuxWorkerTarget(), AuxWorkersEffective: AuxWorkerCount(), AuxWorkersLive: AuxWorkerLive()}
+	s := QueueSnapshot{HighCap: int(highGate.limit.Load()), LowCap: int(lowGate.limit.Load()), PendingQueueCap: int(pendingGate.limit.Load()), Workers: WorkerTarget(), WorkersEffective: WorkerCount(), WorkersLive: WorkerLive(), AuxWorkers: AuxWorkerTarget(), AuxWorkersEffective: AuxWorkerCount(), AuxWorkersLive: AuxWorkerLive()}
 	s.InFlight = atomic.LoadInt64(&inFlight)
 	s.InFlightPrimary = atomic.LoadInt64(&inFlightPrimary)
 	s.InFlightAux = atomic.LoadInt64(&inFlightAux)
@@ -372,6 +364,7 @@ func Snapshot() QueueSnapshot {
 	}
 	s.HighUsed = len(highCh)
 	s.LowUsed = len(lowCh)
+	s.PendingQueueUsed = len(pendingCh)
 	s.Queued = s.HighUsed + s.LowUsed
 	return s
 }
@@ -467,18 +460,12 @@ func enqueuePendingRetryOn(ch chan job, j job) bool {
 	}
 	pendingChQueued[k] = struct{}{}
 	pendingMu.Unlock()
-	if ch == nil {
+	if !trySend(ch, pendingGate, j) {
 		unmarkPendingChQueued(j)
 		return false
 	}
-	select {
-	case ch <- j:
-		realtime.Notify(realtime.EmbedFinished)
-		return true
-	default:
-		unmarkPendingChQueued(j)
-		return false
-	}
+	realtime.Notify(realtime.EmbedFinished)
+	return true
 }
 
 func unmarkPendingChQueued(j job) {
@@ -495,6 +482,7 @@ func drainCh(ch chan job, reason string, clearPendingQueued bool) int {
 	for {
 		select {
 		case j := <-ch:
+			signalSpace()
 			if clearPendingQueued {
 				unmarkPendingChQueued(j)
 			}

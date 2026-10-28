@@ -257,6 +257,8 @@ export const fixtureIndexHealth: IndexHealth = {
   EmbedLowQueued: 10,
   EmbedHighCap: 128,
   EmbedLowCap: 2048,
+  EmbedPendingQueued: 2,
+  EmbedPendingQueueCap: 128,
   EmbedActive: 2,
   EmbedActivePrimary: 2,
   EmbedAuxActive: 0,
@@ -442,6 +444,11 @@ export const fixtureSettings: SettingsData = {
   ProjectsLoading: false,
   HandoffLimits: handoffLimits,
   HandoffEnvLocked: ['handoff_max_depth'],
+  EmbedQueueCaps: [
+    { key: 'embed_queue_pending_cap', env: 'EMBED_QUEUE_PENDING_CAP', label: 'Retry (pending)', default: 128, hard_max: 1024, value: 128, used: 0, env_locked: false },
+    { key: 'embed_queue_high_cap', env: 'EMBED_QUEUE_HIGH_CAP', label: 'Priority', default: 128, hard_max: 1024, value: 128, used: 12, env_locked: false },
+    { key: 'embed_queue_low_cap', env: 'EMBED_QUEUE_LOW_CAP', label: 'Background', default: 2048, hard_max: 16384, value: 4096, used: 340, env_locked: true },
+  ],
 }
 
 export const fixtureMcpTier: MCPTier = {

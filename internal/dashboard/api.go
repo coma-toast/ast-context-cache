@@ -956,6 +956,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			saveNetworkSetting(w, key, value)
 			return
 		}
+		if embedqueue.IsQueueCapSetting(key) {
+			saveQueueCapSetting(w, key, value)
+			return
+		}
 		if handoff.IsLimitSetting(key) {
 			n, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil || n < 1 {
@@ -1125,6 +1129,9 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, ls := range handoff.LimitSettings() {
 		defaults[ls.Key] = strconv.Itoa(ls.Default)
+	}
+	for _, c := range embedqueue.QueueCaps() {
+		defaults[c.Key] = strconv.Itoa(c.Default)
 	}
 	settings := db.GetAllSettings()
 	for k, v := range defaults {
