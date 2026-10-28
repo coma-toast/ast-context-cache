@@ -136,7 +136,7 @@ Manual config is a URL entry, for example Cursor's `~/.cursor/mcp.json`:
 
 Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` and other server settings on the `ast-mcp` process.
 
-**Agents:** the workflow, tool tiers, virtual context, handoff, and token tips are in **[`AGENTS.md`](AGENTS.md)** and [`skills/usage/SKILL.md`](skills/usage/SKILL.md). The installer ships the same guidance to each host as skills and an instruction block.
+**Agents:** the workflow, tool tiers, virtual context, handoff, and token tips are in **[`AGENTS.md`](AGENTS.md)** and [`skills/usage/SKILL.md`](skills/usage/SKILL.md). The installer ships the same guidance to each host as skills and one usage protocol ([`rules/protocol.md`](rules/protocol.md)) written into `CLAUDE.md` / `AGENTS.md` / the Cursor rule.
 
 ## More features
 

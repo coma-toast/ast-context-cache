@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/coma-toast/ast-context-cache/instructions"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/rules"
 )
 
 const cursorWithServers = `{
@@ -154,12 +154,25 @@ func TestBlockStatusFromDisk(t *testing.T) {
 	applyPlan(t, s, req)
 	assert.Equal(t, StatusInstalled, statusOf(t, s, TargetClaudeCode, ComponentRules).Status)
 	content := readFile(t, path)
-	writeFile(t, path, strings.Replace(content, "Prefer the", "Always prefer the", 1))
+	writeFile(t, path, strings.Replace(content, "Pick one stable", "Always pick one stable", 1))
 	assert.Equal(t, StatusModifiedByUser, statusOf(t, s, TargetClaudeCode, ComponentRules).Status)
-	writeFile(t, path, "# Mine\n\n"+renderBlock("3.9.0", instructions.AgentsBlock, "\n")+"\n")
+	writeFile(t, path, "# Mine\n\n"+renderBlock("3.9.0", rules.Protocol, "\n")+"\n")
 	assert.Equal(t, StatusOutdated, statusOf(t, s, TargetClaudeCode, ComponentRules).Status)
 	os.Remove(path)
 	assert.Equal(t, StatusMissing, statusOf(t, s, TargetClaudeCode, ComponentRules).Status)
+}
+
+// A same-version block whose body predates the current protocol reads Outdated, and install
+// replaces it in place without touching the user's text around it.
+func TestOutdatedRulesBlockUpgradesInPlace(t *testing.T) {
+	home := newTestHome(t)
+	path := filepath.Join(home, ".codex", "AGENTS.md")
+	writeFile(t, path, "# Mine\n\n"+renderBlock(testVersion, "## ast-context-cache\n\nOld short paragraph.", "\n")+"\n\n# Tail\n")
+	s := newTestService(t, home, testOpts{})
+	assert.Equal(t, StatusOutdated, statusOf(t, s, TargetCodex, ComponentRules).Status)
+	applyPlan(t, s, PlanRequest{Targets: []Target{TargetCodex}, Components: []Component{ComponentRules}})
+	assert.Equal(t, StatusInstalled, statusOf(t, s, TargetCodex, ComponentRules).Status)
+	assert.Equal(t, "# Mine\n\n"+renderBlock(testVersion, rules.Protocol, "\n")+"\n\n# Tail\n", readFile(t, path))
 }
 
 // AC36: a file changed between preview and apply fails with CodeConflict and nothing is written.

@@ -186,7 +186,7 @@ If you prefer to edit config yourself, use the same entries the installer writes
 | Claude Desktop | `claude_desktop_config.json` | `"mcpServers": {"ast-context-cache": {"command": "/abs/path/to/mcp-local", "args": ["bridge", "http://127.0.0.1:7821/mcp"]}}` (needs [mcp-local](https://github.com/coma-toast/mcp-local) with the `bridge` command), or `{"command": "npx", "args": ["-y", "mcp-remote", "http://127.0.0.1:7821/mcp"]}` |
 | JetBrains AI Assistant | Settings → Tools → AI Assistant → Model Context Protocol (MCP) → Add, server level Global | `{"mcpServers": {"ast-context-cache": {"url": "http://127.0.0.1:7821/mcp"}}}` |
 
-For agent instructions, paste [`instructions/agents-block.md`](../instructions/agents-block.md) into the host's global instructions file (for example `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`), or for Cursor use [`rules/cursor/ast-context-cache.mdc`](../rules/cursor/ast-context-cache.mdc).
+For agent instructions, paste the usage protocol [`rules/protocol.md`](../rules/protocol.md) into the host's global instructions file (for example `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`), or for Cursor into Settings → Rules → User Rules. It is the single source the installer's `rules` component writes for every host.
 
 ## Tool tiers and feature flags
 

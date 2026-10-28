@@ -10,7 +10,7 @@ Copy-paste and editor-agnostic instruction blocks live here. These files are als
 | [operator/SKILL.md](operator/SKILL.md) | Embeddings, dashboard settings, feature flags, handoff limits, log indexing (operators) |
 | [tools.json.example](tools.json.example) | Per-tool tier overrides |
 
-Other canonical installer assets: the instruction block [`instructions/agents-block.md`](../instructions/agents-block.md) (written between markers into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`) and the Cursor rule [`rules/cursor/ast-context-cache.mdc`](../rules/cursor/ast-context-cache.mdc). Keep all of them consistent with [AGENTS.md](../AGENTS.md) and [docs/handoff.md](../docs/handoff.md).
+Other canonical installer asset: the usage protocol [`rules/protocol.md`](../rules/protocol.md), written between markers into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, and (under `alwaysApply` frontmatter) `~/.cursor/rules/ast-context-cache.mdc`. Keep all of them consistent with [AGENTS.md](../AGENTS.md) and [docs/handoff.md](../docs/handoff.md).
 
 ## Cursor (discoverable project skills)
 
@@ -25,7 +25,7 @@ Cursor loads skills from [`.cursor/skills/`](../.cursor/skills/) with YAML `name
 | `.cursor/skills/ast-rebuild/` | maintained in-repo (repo-relative paths) |
 | `.cursor/skills/ast-operator/` | `skills/operator/SKILL.md` |
 
-**Global Cursor rule:** `~/.cursor/rules/ast-context-cache.mdc` (`alwaysApply: true`), installed by `ast-mcp install --target cursor --component rules --yes` from [`rules/cursor/ast-context-cache.mdc`](../rules/cursor/ast-context-cache.mdc).
+**Global Cursor rule:** `~/.cursor/rules/ast-context-cache.mdc` (`alwaysApply: true`), installed by `ast-mcp install --target cursor --component rules --yes` from [`rules/protocol.md`](../rules/protocol.md).
 
 After editing portable skills, re-sync the Cursor copies. The sync drops the canonical `# Title` line and rewrites relative links, since the copies sit one directory deeper:
 

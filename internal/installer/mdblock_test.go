@@ -87,13 +87,3 @@ func TestMarkdownBlockMalformed(t *testing.T) {
 		})
 	}
 }
-
-func TestSplitFrontmatter(t *testing.T) {
-	t.Parallel()
-	front, body := splitFrontmatter("---\na: 1\n---\n\nbody\n")
-	assert.Equal(t, "---\na: 1\n---\n", front)
-	assert.Equal(t, "\nbody\n", body)
-	front, body = splitFrontmatter("no frontmatter")
-	assert.Empty(t, front)
-	assert.Equal(t, "no frontmatter", body)
-}
