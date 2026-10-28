@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/coma-toast/ast-context-cache/internal/cache"
+	"github.com/coma-toast/ast-context-cache/internal/coverage"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
@@ -19,6 +20,8 @@ const (
 	// ledgerSavedTodayMetric is the per-ledger split of astcache_tokens_saved_today. It has its
 	// own name: Prometheus rejects one metric name registered with and without labels.
 	ledgerSavedTodayMetric = "astcache_ledger_tokens_saved_today"
+	// featureCoverageMetric is per-feature 7-day session coverage, one series per feature.
+	featureCoverageMetric = "astcache_feature_session_coverage_ratio"
 )
 
 var (
@@ -102,6 +105,7 @@ func registerPrometheusMetrics() {
 			mcpToolDuration,
 		)
 		mustRegister(handoff.Collectors()...)
+		mustRegister(coverageCollectors()...)
 		logger.Info("Registered prometheus metrics", "path", "/metrics")
 	})
 }
@@ -159,6 +163,30 @@ func ledgerSavedToday() [2]int {
 	tomorrowStart := time.Now().AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00"
 	if err := db.DB.QueryRow(selectLedgerSavedTodayQuery, todayStart, tomorrowStart).Scan(&out[0], &out[1]); err != nil {
 		return [2]int{}
+	}
+	return out
+}
+
+// coverageCollectors are the 7-day feature coverage gauges (all projects), read from a
+// report cached for coverageMetricsTTL.
+func coverageCollectors() []prometheus.Collector {
+	out := []prometheus.Collector{
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "astcache_coverage_active_sessions",
+			Help: "Sessions with at least one non-internal tool call in the last 7 days.",
+		}, func() float64 { return float64(cachedCoverageReport().ActiveSessions) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "astcache_coverage_searchless_sessions",
+			Help: "Sessions in the last 7 days that never called a code-search tool.",
+		}, func() float64 { return float64(cachedCoverageReport().SearchlessSessions) }),
+	}
+	for _, f := range coverage.Features {
+		name := f.Name
+		out = append(out, prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name:        featureCoverageMetric,
+			Help:        "Share (0..1) of the last 7 days' active sessions that used a feature at least once.",
+			ConstLabels: prometheus.Labels{"feature": name},
+		}, func() float64 { return featureCoverageRatio(name) }))
 	}
 	return out
 }

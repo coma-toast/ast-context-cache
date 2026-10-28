@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 const panelToQuery: Record<string, string[]> = {
   'health-bar': ['health'],
-  stats: ['stats', 'weeklyDigest', 'contextSessions'],
+  stats: ['stats', 'weeklyDigest', 'featureCoverage', 'contextSessions'],
   'index-health': ['indexHealth'],
   memory: ['memory', 'contextSessions'],
   recent: ['recent'],

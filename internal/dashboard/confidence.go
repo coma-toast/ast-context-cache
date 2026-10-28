@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/coma-toast/ast-context-cache/internal/coverage"
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 )
@@ -80,6 +81,8 @@ type WeeklyDigest struct {
 	TopTools         []WeeklyDigestTool           `json:"TopTools"`
 	EmbedReliability WeeklyDigestEmbedReliability `json:"EmbedReliability"`
 	Heuristic        ValueHeuristic               `json:"Heuristic"`
+	// Coverage is per-feature session coverage against the previous window; nil on error.
+	Coverage *coverage.Digest `json:"Coverage"`
 	ledgerTotals
 }
 
@@ -238,6 +241,7 @@ func buildWeeklyDigest(projectID string) WeeklyDigest {
 		TopTools:         queryTopToolsWindow(projectID, days, 5),
 		EmbedReliability: buildEmbedReliability(),
 		Heuristic:        computeValueHeuristic(saved, returned, baseline, days),
+		Coverage:         weeklyCoverage(projectID, days),
 		ledgerTotals:     queryLedgerWindow(projectID, days),
 	}
 }

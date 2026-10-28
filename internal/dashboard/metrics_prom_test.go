@@ -43,6 +43,10 @@ func TestMetricsEndpoint(t *testing.T) {
 		"astcache_handoff_repeat_search_ratio",
 		"astcache_handoff_tree_tokens",
 		"astcache_handoff_claim_wait_seconds",
+		"astcache_coverage_active_sessions",
+		"astcache_coverage_searchless_sessions",
+		`astcache_feature_session_coverage_ratio{feature="search"}`,
+		`astcache_feature_session_coverage_ratio{feature="handoff"}`,
 	} {
 		if !strings.Contains(body, name) {
 			t.Errorf("missing metric %s", name)
