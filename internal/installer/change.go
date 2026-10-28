@@ -67,6 +67,8 @@ type FileChange struct {
 	// viaLink marks a file written into a path whose external symlink an earlier change in the
 	// same plan deletes; that change's check covers it.
 	viaLink bool
+	// live is the host that rewrites Path from memory while it runs, if any.
+	live    *liveHost
 	upserts []stateRow
 	deletes []stateKey
 }

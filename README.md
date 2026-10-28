@@ -208,6 +208,11 @@ The handoff tools are core even though they write, so delegation works at every 
 
 Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** switches over. From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0, 4.0 and 5.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
 
+| Change | What to do |
+|--------|------------|
+| **Pre-4.0 installs.** The old installer overwrote whole files; its Claude Code target could write markdown over `~/.claude.json`. | Re-run `ast-mcp install --target <host> --yes` (or `--target all`). The first 4.0 start re-checks old install records and shows legacy warnings in `verify` and the dashboard. If Claude Code lost its config, restore `~/.claude.json` from `~/.claude/backups/` first. |
+| **Claude Desktop** needs a stdio bridge: the installer writes `mcp-local bridge <url>`, or `npx -y mcp-remote <url>` when mcp-local is not on `PATH`. | Install the [mcp-local](https://github.com/coma-toast/mcp-local) release that adds the `bridge` command (the companion of this release), or have Node.js for `npx`, then re-run `ast-mcp install --target claude_desktop --yes`. |
+
 ## Architecture
 
 ```
