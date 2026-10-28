@@ -38,6 +38,12 @@ func runCLIWith(args []string, stdout, stderr io.Writer) (int, bool) {
 		return runInstaller(args[0], args[1:], stdout, stderr), true
 	case "hook":
 		return runHook(args[1:], os.Stdin, stdout, stderr), true
+	case "index":
+		setupCLILogging(stderr)
+		return runIndex(args[1:], stdout, stderr), true
+	case "prune-projects":
+		setupCLILogging(stderr)
+		return runPruneProjects(args[1:], stdout, stderr), true
 	}
 	return exitOK, false
 }
