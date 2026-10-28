@@ -303,17 +303,19 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			} else if info.IsDir() {
 				// Directories run as a background job; see index_jobs.go.
 				result = withLinkedProjects(handleIndexDirectory(path, projectPath), projectPath)
+			} else if fileProject := spaceFileProject(path, projectPath); fileProject == "" {
+				result = map[string]string{"error": "path is in a wtg space but outside every checkout; index it with its own project_path"}
 			} else {
-				n, _, _, indexErr := indexer.IndexFile(path, projectPath)
+				n, _, _, indexErr := indexer.IndexFile(path, fileProject)
 				if indexErr != nil {
 					result = map[string]string{"error": indexErr.Error()}
 				} else {
-					projectmeta.ClearDeleted(projectPath)
-					embedqueue.UnmarkProjectCancelled(projectPath)
+					projectmeta.ClearDeleted(fileProject)
+					embedqueue.UnmarkProjectCancelled(fileProject)
 					if emb != nil {
-						go embedqueue.SubmitPriority(path, projectPath, db.IsPinnedProject(projectPath))
+						go embedqueue.SubmitPriority(path, fileProject, db.IsPinnedProject(fileProject))
 					}
-					result = withLinkedProjects(map[string]interface{}{"indexed": n}, projectPath)
+					result = withLinkedProjects(map[string]interface{}{"indexed": n, "project_path": fileProject}, projectPath)
 				}
 			}
 		}

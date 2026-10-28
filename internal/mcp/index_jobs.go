@@ -175,12 +175,29 @@ func runIndexJob(job *indexJob, lock *sync.Mutex) {
 }
 
 func defaultAfterIndexDirectory(projectPath string) {
-	projectmeta.ClearDeleted(projectPath)
-	embedqueue.UnmarkProjectCancelled(projectPath)
-	watcher.EnsureWatcher(projectPath)
-	if emb != nil {
-		go embedqueue.EnqueueAllSymbolsFiles(projectPath)
+	// A wtg space root was indexed as its checkouts, so they are the projects to
+	// watch and embed; EnsureWatcher on the root starts one watcher per checkout.
+	for _, p := range projectlinks.IndexTargets(projectPath) {
+		projectmeta.ClearDeleted(p)
+		embedqueue.UnmarkProjectCancelled(p)
+		if emb != nil {
+			go embedqueue.EnqueueAllSymbolsFiles(p)
+		}
 	}
+	watcher.EnsureWatcher(projectPath)
+}
+
+// spaceFileProject is the project a single file indexed with projectPath belongs
+// to: the checkout holding it when projectPath is a wtg space root ("" when it is
+// outside every checkout), else projectPath itself.
+func spaceFileProject(filePath, projectPath string) string {
+	if !projectlinks.IsSpaceRoot(projectPath) {
+		return projectPath
+	}
+	if abs, err := filepath.Abs(filePath); err == nil {
+		filePath = abs
+	}
+	return projectlinks.OwningCheckout(filePath, projectPath)
 }
 
 // pruneIndexJobsLocked drops the oldest finished jobs beyond maxFinishedIndexJobs.
