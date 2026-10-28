@@ -22,6 +22,7 @@ import { ToastProvider, useToast } from './context/ToastContext'
 import { panelsToKeys, useWebSocket } from './hooks/useWebSocket'
 import { shouldHoldIndexToast } from './lib/toastStack'
 import { setInstanceScope } from './lib/scopedStorage'
+import { setFavicon } from './lib/favicon'
 import { useResizableSidebar } from './hooks/useResizableSidebar'
 import { OverviewTab } from './tabs/OverviewTab'
 import { IndexHealthSection } from './tabs/IndexHealthSection'
@@ -154,6 +155,11 @@ function DashboardInner() {
   useEffect(() => {
     document.title = instanceName ? `${instanceName} · AST Context Cache` : 'AST Context Cache'
   }, [instanceName])
+
+  const faviconURL = settings?.InstanceFaviconURL
+  useEffect(() => {
+    if (faviconURL) setFavicon(faviconURL)
+  }, [faviconURL])
 
   useEffect(() => {
     if (settings?.InstanceScope) setInstanceScope(settings.InstanceScope)
