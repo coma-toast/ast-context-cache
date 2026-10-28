@@ -1647,12 +1647,10 @@ func handleDataDirClearOverride(w http.ResponseWriter, r *http.Request) {
 
 // selfUpdateExePath returns the running ast-mcp, symlinks resolved, which an
 // update replaces in place so model/ and the .ortlib sidecar beside it still apply.
+// It is the path resolved at startup: after one update os.Executable can name the
+// renamed ast-mcp.prev on Linux, and a second update would then replace the wrong file.
 func selfUpdateExePath() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(exe)
+	return sys.Executable()
 }
 
 func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
@@ -1720,7 +1718,7 @@ func handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 // handleRestartNow is the explicit, user-initiated trigger for db.RestartProcess —
 // shared by the "Restart now" buttons on the Move-data-directory and Update cards.
 // Both flows finish (copy/download+install) without restarting automatically; see
-// db.RestartProcess's doc comment for why an automatic restart isn't safe yet.
+// db.RestartProcess's doc comment for why a restart stays an explicit action.
 func handleRestartNow(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {

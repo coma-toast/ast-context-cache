@@ -114,6 +114,7 @@ func main() {
 	flag.Parse()
 	// JoinHostPort adds IPv6 brackets itself; "[::1]" would otherwise become "[[::1]]:7821".
 	listenAddr = strings.Trim(strings.TrimSpace(listenAddr), "[]")
+	readRestartedFrom()
 	// Cancelled on SIGINT/SIGTERM so background loops stop before the final flush.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,7 +140,10 @@ func main() {
 	// first request; the settings-backed values are applied once the databases open.
 	netlisten.Apply()
 
-	logger.Info("Initializing")
+	logger.Info("Initializing", "pid", os.Getpid())
+	if restartedFrom > 0 {
+		logger.Info("Started by a restart", "previous_pid", restartedFrom)
+	}
 	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
 		logPath := db.DefaultLogPath()
 		_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
@@ -230,7 +234,7 @@ func main() {
 		mcpSrv := &http.Server{Addr: net.JoinHostPort(listenAddr, strconv.Itoa(mcpPort)), Handler: httpguard.RequireMCPAuth(mcpMux, "/health")}
 		// Shutdown waits for idle connections, which open SSE streams never become.
 		mcpSrv.RegisterOnShutdown(mcp.CloseStreams)
-		db.RestartProcess = restartProcess(mcpSrv, dashSrv)
+		db.RestartProcess = restartProcess(mcpSrv, dashSrv, cancel)
 		netlisten.Register(netlisten.NewManager("mcp", mcpSrv, mcpPort), dashListeners)
 		if cfg := netlisten.Apply(); len(cfg.ExtraAddrs) > 0 && cfg.Token == "" {
 			logger.Warn("Extra listen addresses have no access token; anyone who can reach them can use the server", "extra", cfg.ExtraAddrs)
@@ -274,8 +278,8 @@ func main() {
 
 // serveWithRestartOutcome runs serve and decides what main does when it returns: an error
 // is fatal; a nil return during an exit (restart or signal) blocks so the owner —
-// syscall.Exec in restartProcess, or the signal goroutine's os.Exit(0) after the flush —
-// can finish. A nil return otherwise is an unexpected shutdown and exits 1 so supervisors
+// restartProcess (spawn, exec or exit), or the signal goroutine's os.Exit(0) after the
+// flush — can finish. A nil return otherwise is an unexpected shutdown and exits 1 so supervisors
 // restart us. The logic is extracted here for unit testing with fakes.
 func serveWithRestartOutcome(serve func() error, exiting func() bool, exit func(int), block func()) {
 	err := serve()
@@ -289,54 +293,6 @@ func serveWithRestartOutcome(serve func() error, exiting func() bool, exit func(
 	default:
 		logger.Error("Dashboard server stopped unexpectedly")
 		exit(1)
-	}
-}
-
-// restartProcess returns the hook wired to db.RestartProcess: drain both HTTP servers
-// (stop accepting new connections, let in-flight requests finish), pause the embed
-// queue the same way WAL maintenance already does before a risky operation, then
-// re-exec the current binary in place so a fresh main() and db.Init() pick up whatever
-// just changed on disk (a moved data directory, an updated binary after `git pull` +
-// rebuild).
-func restartProcess(mcpSrv, dashSrv *http.Server) func() {
-	return func() {
-		// Tell main() we are re-executing so it does not return from listenAndServe
-		// (which is what happens when dashSrv.Shutdown() closes the server) and exit 0.
-		exiting.Store(true)
-		logger.Info("Draining connections to restart")
-		// db.RequestShutdown aborts any in-progress WAL checkpoint quickly, but it also
-		// unconditionally calls AfterForceCheckpoint (wired below to
-		// embedqueue.RestoreAfterMaintenance) as a side effect — harmless for its
-		// original SIGINT/SIGTERM use (the process exits right after), but it would
-		// silently undo the embed-queue pause below if called after it. Call it first
-		// so PauseAllForMaintenance has the final say and workers stay paused through
-		// the drain and into the exec.
-		db.RequestShutdown()
-		embedqueue.PauseAllForMaintenance(2 * time.Minute)
-		logger.Info("Embed queue paused, shutting down servers")
-
-		// Closed first so the retry loop or a settings save can't reopen one mid-drain.
-		netlisten.CloseAll()
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := mcpSrv.Shutdown(ctx); err != nil {
-			logger.Warn("Failed to shut down MCP server", "error", err)
-		}
-		if err := dashSrv.Shutdown(ctx); err != nil {
-			logger.Warn("Failed to shut down dashboard server", "error", err)
-		}
-		logger.Info("Servers shut down")
-
-		exe, err := os.Executable()
-		if err != nil {
-			logger.Error("Failed to resolve executable to restart", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("Restarting", "exe", exe)
-		if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-			logger.Error("Failed to restart", "exe", exe, "error", err)
-			os.Exit(1)
-		}
 	}
 }
 
@@ -362,17 +318,18 @@ func listenAndServe(srv *http.Server, port int) error {
 }
 
 // listeners opens listenAddr:port, adding [::1]:port when listenAddr is the default. A
-// host without IPv6 loopback just keeps the IPv4 listener.
+// host without IPv6 loopback just keeps the IPv4 listener. After a restart each bind is
+// retried briefly (listenRetry) while the previous process's sockets close.
 func listeners(port int) ([]net.Listener, error) {
 	p := strconv.Itoa(port)
-	primary, err := net.Listen("tcp", net.JoinHostPort(listenAddr, p))
+	primary, err := listenRetry(net.JoinHostPort(listenAddr, p))
 	if err != nil {
 		return nil, err
 	}
 	if listenAddr != defaultListenAddr {
 		return []net.Listener{primary}, nil
 	}
-	v6, err := net.Listen("tcp", net.JoinHostPort(ipv6LoopbackAddr, p))
+	v6, err := listenRetry(net.JoinHostPort(ipv6LoopbackAddr, p))
 	if err != nil {
 		logger.Debug("Not listening on IPv6 loopback", "port", port, "error", err)
 		return []net.Listener{primary}, nil
@@ -588,6 +545,7 @@ func buildHealthPayload() map[string]interface{} {
 		"status":                status,
 		"service":               "ast-context-cache",
 		"version":               version.Version,
+		"pid":                   os.Getpid(),
 		"instance":              cur.Value,
 		"instance_name":         cur.Value,
 		"embedder":              embedder.IsLoaded(),

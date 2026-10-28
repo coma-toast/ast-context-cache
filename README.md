@@ -206,7 +206,7 @@ The handoff tools are core even though they write, so delegation works at every 
 
 ## Upgrading
 
-Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** switches over. From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0, 4.0 and 5.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
+Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** quiesces ast-mcp and switches over (on macOS by starting a new process and exiting once it is healthy; set `AST_RESTART_STRATEGY` to `exec`, `spawn` or `exit` to choose: [`docs/INSTALL.md`](docs/INSTALL.md#restarting)). From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0, 4.0 and 5.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
 
 ## Architecture
 
