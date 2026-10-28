@@ -1,7 +1,7 @@
 package installer
 
 import (
-	"github.com/coma-toast/ast-context-cache/instructions"
+	"github.com/coma-toast/ast-context-cache/rules"
 )
 
 // codexSpec: [mcp_servers.ast-context-cache] url in ~/.codex/config.toml (streamable HTTP is
@@ -11,7 +11,7 @@ func (s *realService) codexSpec() targetSpec {
 	return targetSpec{id: TargetCodex, name: "Codex", units: map[Component]unit{
 		ComponentMCP:    tomlTableUnit{file: s.homePath(".codex", "config.toml"), parent: "mcp_servers", url: s.cfg.MCPURL},
 		ComponentSkills: skillsUnit{root: s.homePath(".agents", "skills"), host: "Codex"},
-		ComponentRules:  mdBlockUnit{file: s.homePath(".codex", "AGENTS.md"), body: instructions.AgentsBlock},
+		ComponentRules:  mdBlockUnit{file: s.homePath(".codex", "AGENTS.md"), body: rules.Protocol},
 		ComponentHooks:  unsupportedUnit{reason: "handoff hooks are Claude Code only"},
 	}}
 }

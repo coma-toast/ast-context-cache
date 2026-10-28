@@ -13,7 +13,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/coma-toast/ast-context-cache/instructions"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/version"
@@ -157,12 +156,10 @@ func goldenPlaceholders(t *testing.T) [][2]string {
 	t.Helper()
 	all, err := skills.All()
 	require.NoError(t, err)
-	front, body := splitFrontmatter(rules.CursorRule)
-	cursorBlock := renderBlock(testVersion, body, "\n")
+	block := renderBlock(testVersion, rules.Protocol, "\n")
 	out := [][2]string{
-		{front + "\n" + cursorBlock + "\n", "{{CURSOR_RULE_FILE}}"},
-		{cursorBlock, "{{CURSOR_BLOCK}}"},
-		{renderBlock(testVersion, instructions.AgentsBlock, "\n"), "{{AGENTS_BLOCK}}"},
+		{rules.CursorFrontmatter + "\n" + block + "\n", "{{CURSOR_RULE_FILE}}"},
+		{block, "{{AGENTS_BLOCK}}"},
 	}
 	for _, sk := range all {
 		out = append(out, [2]string{sk.Content(), "{{SKILL:" + sk.Name + "}}"})

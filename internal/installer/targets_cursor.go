@@ -11,7 +11,6 @@ const cursorRulesWarning = "Cursor: loading rules from the global ~/.cursor/rule
 // loads ours from ~/.claude/skills or ~/.agents/skills. Hooks: the search-first nudge as a
 // preToolUse hook in ~/.cursor/hooks.json; handoff hooks are Claude Code only.
 func (s *realService) cursorSpec() targetSpec {
-	front, body := splitFrontmatter(rules.CursorRule)
 	return targetSpec{id: TargetCursor, name: "Cursor", units: map[Component]unit{
 		ComponentMCP: jsonEntryUnit{
 			file:  s.homePath(".cursor", "mcp.json"),
@@ -21,8 +20,8 @@ func (s *realService) cursorSpec() targetSpec {
 		ComponentSkills: s.agentsSkills("Cursor"),
 		ComponentRules: mdBlockUnit{
 			file:        s.homePath(".cursor", "rules", "ast-context-cache.mdc"),
-			body:        body,
-			frontmatter: front,
+			body:        rules.Protocol,
+			frontmatter: rules.CursorFrontmatter,
 			warnings:    []string{cursorRulesWarning},
 		},
 		ComponentHooks: cursorHooksUnit{file: s.homePath(".cursor", "hooks.json"), exe: s.cfg.Executable},

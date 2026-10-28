@@ -106,6 +106,27 @@ func reloadRuntime() error {
 	return nil
 }
 
+// destroyRuntime is destroyONNXRuntime; a variable so tests keep the shared environment.
+var destroyRuntime = destroyONNXRuntime
+
+// Shutdown releases every native embedder resource before the process restarts or
+// exits: the connectivity probe, the primary and aux embedders (their ONNX sessions and
+// intra-op thread pools), and finally the ONNX Runtime environment. On macOS an execve
+// can't complete while another thread sits in an uninterruptible kernel wait, so the
+// restart path calls this before it execs. Embed calls afterwards fail instead of
+// loading a new session.
+func Shutdown() {
+	stopConnectivityProbe()
+	runtimeMu.Lock()
+	prev := runtimeTracked
+	runtimeRaw, runtimeTracked, runtimeLoaded = nil, nil, nil
+	runtimeMu.Unlock()
+	shutdownEmbedder(prev)
+	stopAux()
+	destroyRuntime()
+	logger.Info("Embedder shut down")
+}
+
 func shutdownEmbedder(e Interface) {
 	if e == nil {
 		return

@@ -132,16 +132,3 @@ func newlineOf(data string) string {
 	}
 	return "\n"
 }
-
-// splitFrontmatter splits a "---" YAML frontmatter header from the rest of a file.
-func splitFrontmatter(s string) (string, string) {
-	if !strings.HasPrefix(s, "---\n") {
-		return "", s
-	}
-	end := strings.Index(s[4:], "\n---\n")
-	if end < 0 {
-		return "", s
-	}
-	cut := 4 + end + len("\n---\n")
-	return s[:cut], s[cut:]
-}

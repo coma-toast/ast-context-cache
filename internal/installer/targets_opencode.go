@@ -3,7 +3,7 @@ package installer
 import (
 	"os"
 
-	"github.com/coma-toast/ast-context-cache/instructions"
+	"github.com/coma-toast/ast-context-cache/rules"
 )
 
 // openCodeSpec: MCP under the "mcp" key of ~/.config/opencode/opencode.jsonc (or .json) as a
@@ -21,7 +21,7 @@ func (s *realService) openCodeSpec() targetSpec {
 			entry: jsonObj{{"type", "remote"}, {"url", s.cfg.MCPURL}, {"enabled", true}},
 		},
 		ComponentSkills: s.agentsSkills("OpenCode"),
-		ComponentRules:  mdBlockUnit{file: s.homePath(".config", "opencode", "AGENTS.md"), body: instructions.AgentsBlock},
+		ComponentRules:  mdBlockUnit{file: s.homePath(".config", "opencode", "AGENTS.md"), body: rules.Protocol},
 		ComponentHooks:  s.openCodeNudgeUnit(),
 	}}
 }
