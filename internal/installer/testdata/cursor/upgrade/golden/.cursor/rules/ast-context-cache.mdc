@@ -3,4 +3,4 @@ description: old
 alwaysApply: true
 ---
 
-{{CURSOR_BLOCK}}
+{{AGENTS_BLOCK}}
