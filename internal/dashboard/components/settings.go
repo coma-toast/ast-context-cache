@@ -68,12 +68,21 @@ type SettingsData struct {
 	TranscriptUsageIngest bool
 	// InstanceName is the raw instance_name DB setting (what the field edits).
 	InstanceName string
-	// InstanceNameEffective is the live name (flag > env > setting > empty).
+	// InstanceNameEffective is the live name (flag > env > setting > empty; with
+	// InstanceNameOverride a non-empty setting comes first).
 	InstanceNameEffective string
 	// InstanceScope is the cookie/localStorage scope for the effective name.
 	InstanceScope string
-	// InstanceNameSource is flag|env|db|default.
+	// InstanceNameSource is flag|env|settings|override|default.
 	InstanceNameSource string
-	// InstanceNameLocked is true when the flag or env var sets the name.
+	// InstanceNameLocked is true when the flag or env var sets the name and the
+	// override is off: the dashboard may not change instance_name.
 	InstanceNameLocked bool
+	// InstanceNameOverride is the instance_name_override setting: the setting wins
+	// over the flag and env var.
+	InstanceNameOverride bool
+	// InstanceNameExternal is the -name flag or AST_INSTANCE_NAME value, if any.
+	InstanceNameExternal string
+	// InstanceNameExternalSource is flag|env for InstanceNameExternal.
+	InstanceNameExternalSource string
 }

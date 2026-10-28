@@ -984,8 +984,8 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "EMBED_AUX_BACKEND" {
 			value = normalizeEmbedBackendValue(value)
 		}
-		if key == "instance_name" {
-			saveInstanceName(w, r, value)
+		if isInstanceSettingKey(key) {
+			saveInstanceSetting(w, r, key, value)
 			return
 		}
 		if key == embedder.ProbeIntervalSettingKey {

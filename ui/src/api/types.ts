@@ -351,14 +351,20 @@ export interface SettingsData {
   HandoffEnvLocked?: string[] | null
   /** Raw instance_name DB setting (what the settings field edits). */
   InstanceName?: string
-  /** Effective instance name (flag > env > setting > empty). */
+  /** Effective instance name (flag > env > setting > empty; with the override a non-empty setting first). */
   InstanceNameEffective?: string
   /** Cookie/localStorage scope for the effective name. */
   InstanceScope?: string
-  /** flag|env|db|default — where the effective name came from. */
+  /** flag|env|settings|override|default — where the effective name came from. */
   InstanceNameSource?: string
-  /** True when the -name flag or AST_INSTANCE_NAME env var sets the name. */
+  /** True when the -name flag or AST_INSTANCE_NAME sets the name and the override is off. */
   InstanceNameLocked?: boolean
+  /** instance_name_override: the dashboard name wins over the flag and env var. */
+  InstanceNameOverride?: boolean
+  /** The -name flag or AST_INSTANCE_NAME value, if any. */
+  InstanceNameExternal?: string
+  /** flag|env for InstanceNameExternal. */
+  InstanceNameExternalSource?: string
 }
 
 export interface MemoryData {

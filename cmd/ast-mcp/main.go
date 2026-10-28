@@ -161,7 +161,7 @@ func main() {
 	// dashboard serves with a scoped cookie before the DB opens. The DB
 	// setting is picked up again after db.Init below.
 	instance.Init(strings.TrimSpace(*nameFlag))
-	applyInstanceName("")
+	applyInstanceName("", false)
 
 	dashHandler := dashboard.NewHandler(listenAddr)
 	// Constructed here (before the db.Init() goroutine below reads it via restartHook)
@@ -178,9 +178,10 @@ func main() {
 			dbReady <- err
 			return
 		}
-		// The DB setting is readable now: re-resolve (flag > env > setting)
-		// and re-scope the cookie before serving authenticated traffic.
-		applyInstanceName(strings.TrimSpace(db.GetSetting("instance_name", "")))
+		// The DB settings are readable now: re-resolve (flag > env > setting,
+		// or the setting first with instance_name_override) and re-scope the
+		// cookie before serving authenticated traffic.
+		applyInstanceName(dashboard.StoredInstanceName())
 		// If data directory is unavailable (override path missing/not-writable),
 		// still start MCP and dashboard in degraded mode, but skip post-init work.
 		if startup.DataDirUnavailable() {
@@ -553,10 +554,11 @@ func handleEmbedHealthHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // applyInstanceName resolves the effective instance name from dbSetting
-// (flag > env > setting > empty), scopes the session cookie and the login
-// page to it. An empty dbSetting keeps the flag/env/fallback resolution.
-func applyInstanceName(dbSetting string) {
-	n := instance.Update(dbSetting, db.GetDataDir())
+// (flag > env > setting > empty; override puts a non-empty setting first),
+// scopes the session cookie and the login page to it. An empty dbSetting keeps
+// the flag/env/fallback resolution.
+func applyInstanceName(dbSetting string, override bool) {
+	n := instance.Update(dbSetting, override, db.GetDataDir())
 	httpguard.SetCookieScope(n.Scope)
 	httpguard.SetInstanceName(n.Value)
 }

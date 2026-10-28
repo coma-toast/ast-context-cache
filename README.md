@@ -239,6 +239,7 @@ Settings → **Updates** installs the latest release in place and keeps the prev
 | `AST_LISTEN_EXTRA` | Extra IPs to listen on beside loopback, e.g. a Tailscale IP ([remote access](docs/INSTALL.md#remote-access-tailscale)); locks Settings → Network access | Unset |
 | `AST_TRUSTED_HOSTS` | Extra hostnames (e.g. MagicDNS) accepted in `Host` / `Origin` | Unset |
 | `AST_ACCESS_TOKEN` | Bearer token required from non-loopback clients (dashboard: `/login`) | Unset (no token) |
+| `AST_INSTANCE_NAME` | Instance name for the tab title and the login cookie / UI state scope (`-name` wins). Read-only in Settings → General unless you check *Override the environment value*, which makes the dashboard name win and persists across restarts | Unset (Settings name, else a data-dir hash scope) |
 | `AST_MCP_PORT` / `AST_DASHBOARD_PORT` | MCP and dashboard ports (`--mcp-port` / `--dashboard-port`). `ast-mcp install` and the Claude Code hooks read `AST_MCP_PORT` too | `7821` / `7830` |
 | `AST_LOG_FORMAT` / `AST_LOG_LEVEL` | Log format (`text` / `json`) and level | `text` / `info` |
 | `AST_GITHUB_TOKEN` (or `GITHUB_TOKEN`) | Token for the Settings → Updates check. Without one, the check reads github.com's releases pages, which have no API rate limit; results are cached for an hour | Unset |
