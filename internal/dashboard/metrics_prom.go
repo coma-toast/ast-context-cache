@@ -11,6 +11,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
+	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
 
 const (
@@ -100,6 +101,7 @@ func registerPrometheusMetrics() {
 			}, cache.Candidates.HitRatio),
 			mcpToolCalls,
 			mcpToolDuration,
+			diskMetricsCollector{},
 		)
 		mustRegister(handoff.Collectors()...)
 		logger.Info("Registered prometheus metrics", "path", "/metrics")
@@ -114,6 +116,78 @@ func mustRegister(cs ...prometheus.Collector) {
 			}
 			logger.Warn("Failed to register prometheus collector", "error", err)
 		}
+	}
+}
+
+// disk metric descriptors: one gauge per device attribute from the latest
+// sample. Device names are label values, so the set is emitted by a
+// Collector rather than fixed GaugeFuncs.
+var (
+	diskCountDesc     = prometheus.NewDesc("astcache_disk_count", "Disks in the latest disk health sample.", nil, nil)
+	diskSamplerOkDesc = prometheus.NewDesc("astcache_disk_sampler_ok", "1 when the last disk sample completed without internal error, 0 otherwise.", nil, nil)
+	diskSampleAgeDesc = prometheus.NewDesc("astcache_disk_sample_age_seconds", "Seconds since the last disk health sample; 0 before the first sample.", nil, nil)
+	diskWarningDesc   = prometheus.NewDesc("astcache_disk_warning", "Disk warning level from the latest sample: ok=0 warning=1 critical=2.", []string{"device"}, nil)
+	diskTempDesc      = prometheus.NewDesc("astcache_disk_temperature_c", "Disk temperature in Celsius from the latest sample; -1 when unknown.", []string{"device"}, nil)
+	diskWearDesc      = prometheus.NewDesc("astcache_disk_wear_pct", "NVMe lifetime wear used in percent from the latest sample; -1 when unknown.", []string{"device"}, nil)
+	diskSpareDesc     = prometheus.NewDesc("astcache_disk_spare_pct", "NVMe available spare in percent from the latest sample; -1 when unknown.", []string{"device"}, nil)
+	diskLifeLeftDesc  = prometheus.NewDesc("astcache_disk_life_left_pct", "SSD life left in percent from the latest sample; -1 when unknown.", []string{"device"}, nil)
+	diskReallocDesc   = prometheus.NewDesc("astcache_disk_reallocated_sectors", "Reallocated sectors from the latest sample; -1 when unknown.", []string{"device"}, nil)
+	diskPendingDesc   = prometheus.NewDesc("astcache_disk_pending_sectors", "Pending sectors from the latest sample; -1 when unknown.", []string{"device"}, nil)
+	diskOfflineDesc   = prometheus.NewDesc("astcache_disk_offline_uncorrectable", "Offline uncorrectable sectors from the latest sample; -1 when unknown.", []string{"device"}, nil)
+)
+
+var diskDescs = []*prometheus.Desc{
+	diskCountDesc, diskSamplerOkDesc, diskSampleAgeDesc,
+	diskWarningDesc, diskTempDesc, diskWearDesc, diskSpareDesc,
+	diskLifeLeftDesc, diskReallocDesc, diskPendingDesc, diskOfflineDesc,
+}
+
+// diskSnapshotFunc is replaced by tests.
+var diskSnapshotFunc = sys.DiskSamplerStatus
+
+type diskMetricsCollector struct{}
+
+func (diskMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	for _, d := range diskDescs {
+		ch <- d
+	}
+}
+
+func (diskMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	snap := diskSnapshotFunc()
+
+	age := 0.0
+	if !snap.LastSampleAt.IsZero() {
+		age = time.Since(snap.LastSampleAt).Seconds()
+	}
+	samplerOK := 0.0
+	if snap.LastOK {
+		samplerOK = 1
+	}
+	ch <- prometheus.MustNewConstMetric(diskCountDesc, prometheus.GaugeValue, float64(len(snap.Disks)))
+	ch <- prometheus.MustNewConstMetric(diskSamplerOkDesc, prometheus.GaugeValue, samplerOK)
+	ch <- prometheus.MustNewConstMetric(diskSampleAgeDesc, prometheus.GaugeValue, age)
+
+	for _, d := range snap.Disks {
+		ch <- prometheus.MustNewConstMetric(diskWarningDesc, prometheus.GaugeValue, diskWarningLevelValue(d.WarningLevel), d.Device)
+		ch <- prometheus.MustNewConstMetric(diskTempDesc, prometheus.GaugeValue, d.TemperatureC, d.Device)
+		ch <- prometheus.MustNewConstMetric(diskWearDesc, prometheus.GaugeValue, float64(d.WearUsedPct), d.Device)
+		ch <- prometheus.MustNewConstMetric(diskSpareDesc, prometheus.GaugeValue, float64(d.SparePct), d.Device)
+		ch <- prometheus.MustNewConstMetric(diskLifeLeftDesc, prometheus.GaugeValue, float64(d.SSDLifeLeft), d.Device)
+		ch <- prometheus.MustNewConstMetric(diskReallocDesc, prometheus.GaugeValue, float64(d.ReallocatedSectors), d.Device)
+		ch <- prometheus.MustNewConstMetric(diskPendingDesc, prometheus.GaugeValue, float64(d.PendingSectors), d.Device)
+		ch <- prometheus.MustNewConstMetric(diskOfflineDesc, prometheus.GaugeValue, float64(d.OfflineUncorrectable), d.Device)
+	}
+}
+
+func diskWarningLevelValue(level string) float64 {
+	switch level {
+	case sys.WarningCritical:
+		return 2
+	case sys.WarningWarning:
+		return 1
+	default:
+		return 0
 	}
 }
 
