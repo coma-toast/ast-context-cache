@@ -82,3 +82,49 @@ func TestCLIHookFailsOpen(t *testing.T) {
 		})
 	}
 }
+
+func TestCLIHookSearchNudge(t *testing.T) {
+	cliHome(t)
+	t.Setenv("AST_HOOK_DEBUG", "")
+	t.Setenv("AST_FEATURE_SEARCH_NUDGE", "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"healthy","search_nudge":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("AST_MCP_URL", srv.URL+"/mcp")
+	grep := []byte(`{"session_id":"cli-nudge","hook_event_name":"PreToolUse","tool_name":"Grep","tool_input":{"pattern":"func main"}}`)
+	code, out, errOut := runHookTest(t, grep, "search-nudge")
+	assert.Equal(t, exitOK, code)
+	assert.Empty(t, errOut)
+	var resp map[string]map[string]string
+	require.NoError(t, json.Unmarshal([]byte(out), &resp))
+	assert.Equal(t, "deny", resp["hookSpecificOutput"]["permissionDecision"])
+	assert.Contains(t, resp["hookSpecificOutput"]["permissionDecisionReason"], "get_context_capsule")
+	_, out, _ = runHookTest(t, grep, "search-nudge")
+	assert.Empty(t, out, "the nudge blocks once per session")
+}
+
+func TestCLIHookSearchNudgeFailsOpen(t *testing.T) {
+	cliHome(t)
+	t.Setenv("AST_HOOK_DEBUG", "")
+	t.Setenv("AST_MCP_URL", downURL(t))
+	grep := []byte(`{"session_id":"cli-nudge-down","conversation_id":"cli-nudge-down","tool_name":"Grep","tool_input":{"pattern":"x"}}`)
+	tests := []struct {
+		name, event string
+		stdin       []byte
+		want        string
+	}{
+		{name: "claude server down", event: "search-nudge", stdin: grep},
+		{name: "claude malformed", event: "search-nudge", stdin: []byte("nope")},
+		{name: "cursor server down", event: "cursor-search-nudge", stdin: grep, want: `{"permission":"allow"}` + "\n"},
+		{name: "cursor malformed", event: "cursor-search-nudge", stdin: []byte("nope"), want: `{"permission":"allow"}` + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, out, errOut := runHookTest(t, tt.stdin, tt.event)
+			assert.Equal(t, exitOK, code)
+			assert.Equal(t, tt.want, out)
+			assert.Empty(t, errOut)
+		})
+	}
+}

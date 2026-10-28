@@ -8,7 +8,8 @@ const cursorRulesWarning = "Cursor: loading rules from the global ~/.cursor/rule
 
 // cursorSpec: MCP in ~/.cursor/mcp.json (url only), the always-apply rule as
 // ~/.cursor/rules/ast-context-cache.mdc, and skills in ~/.agents/skills unless Cursor already
-// loads ours from ~/.claude/skills or ~/.agents/skills. Cursor hooks are not part of v4.
+// loads ours from ~/.claude/skills or ~/.agents/skills. Hooks: the search-first nudge as a
+// preToolUse hook in ~/.cursor/hooks.json; handoff hooks are Claude Code only.
 func (s *realService) cursorSpec() targetSpec {
 	return targetSpec{id: TargetCursor, name: "Cursor", units: map[Component]unit{
 		ComponentMCP: jsonEntryUnit{
@@ -23,7 +24,7 @@ func (s *realService) cursorSpec() targetSpec {
 			frontmatter: rules.CursorFrontmatter,
 			warnings:    []string{cursorRulesWarning},
 		},
-		ComponentHooks: unsupportedUnit{reason: "handoff hooks are Claude Code only"},
+		ComponentHooks: cursorHooksUnit{file: s.homePath(".cursor", "hooks.json"), exe: s.cfg.Executable},
 	}}
 }
 

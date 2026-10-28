@@ -9,6 +9,7 @@ import (
 	"github.com/tailscale/hujson"
 
 	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/hooks"
 )
 
 // hooksUnit owns our entries in ~/.claude/settings.json "hooks". It appends matcher groups to
@@ -19,11 +20,14 @@ type hooksUnit struct {
 	exe  string
 }
 
-// hookSpec is one Claude Code hook event the handoff hooks listen on (docs/spikes/claude-code-hooks.md).
+// hookSpec is one Claude Code hook event our hooks listen on (docs/spikes/claude-code-hooks.md).
+// nudge marks the search-first nudge, gated by feature_search_nudge; the rest are handoff hooks,
+// gated by feature_handoff_hooks.
 type hookSpec struct {
 	event   string
 	matcher string
 	sub     string
+	nudge   bool
 }
 
 // ourHook locates one of our hook commands: group gi of an event's array, inner hook hi.
@@ -38,7 +42,8 @@ type ourHook struct {
 const (
 	hooksKey            = "hooks"
 	hookTimeoutSeconds  = 3
-	hooksDisabledReason = "enable the feature_handoff_hooks flag to install Claude Code handoff hooks"
+	hooksDisabledReason = "enable the feature_handoff_hooks or feature_search_nudge flag to install Claude Code hooks"
+	nudgeDisabledReason = "enable the feature_search_nudge flag to install the search-first nudge"
 )
 
 var claudeHookSpecs = []hookSpec{
@@ -46,6 +51,17 @@ var claudeHookSpecs = []hookSpec{
 	{event: "SubagentStart", sub: "subagent-start"},
 	{event: "SubagentStop", sub: "subagent-stop"},
 	{event: "PreToolUse", matcher: "Agent", sub: "pre-tool-use-agent"},
+	{event: "PreToolUse", matcher: "Grep|Glob|Read", sub: hooks.EventSearchNudge, nudge: true},
+}
+
+// specs are the hook events the enabled flags call for.
+func (u hooksUnit) specs(cfg Config) []hookSpec {
+	handoff, nudge := cfg.HooksEnabled(), cfg.SearchNudgeEnabled()
+	return slices.DeleteFunc(slices.Clone(claudeHookSpecs), func(s hookSpec) bool { return s.nudge && !nudge || !s.nudge && !handoff })
+}
+
+func (u hooksUnit) disabledReason(cfg Config) (string, bool) {
+	return hooksDisabledReason, len(u.specs(cfg)) == 0
 }
 
 func (u hooksUnit) path() string {
@@ -61,9 +77,9 @@ func (u hooksUnit) group(spec hookSpec) jsonObj {
 	return jsonObj{{"matcher", spec.matcher}, {"hooks", []any{hook}}}
 }
 
-func (u hooksUnit) desiredHash() (string, error) {
+func (u hooksUnit) desiredHash(specs []hookSpec) (string, error) {
 	var all []byte
-	for _, spec := range claudeHookSpecs {
+	for _, spec := range specs {
 		b, err := canonicalJSON(u.group(spec))
 		if err != nil {
 			return "", err
@@ -75,6 +91,7 @@ func (u hooksUnit) desiredHash() (string, error) {
 
 func (u hooksUnit) status(e *env) ComponentStatus {
 	row := e.row(u.file)
+	specs := u.specs(e.s.cfg)
 	data, err := readOptional(u.file)
 	if err != nil {
 		return e.cs(absentStatus(row), u.file, err.Error())
@@ -90,12 +107,12 @@ func (u hooksUnit) status(e *env) ComponentStatus {
 		}
 	}
 	if len(found) == 0 {
-		if row == nil && !e.s.cfg.HooksEnabled() {
+		if row == nil && len(specs) == 0 {
 			return e.cs(StatusUnsupported, u.file, hooksDisabledReason)
 		}
 		return e.cs(absentStatus(row), u.file, "")
 	}
-	ok, err := u.installed(found)
+	ok, err := u.installed(found, specs)
 	if err != nil {
 		return e.cs(StatusNotInstalled, u.file, err.Error())
 	}
@@ -112,7 +129,8 @@ func (u hooksUnit) status(e *env) ComponentStatus {
 }
 
 func (u hooksUnit) plan(e *env) ([]FileChange, []string, error) {
-	if e.action == ActionInstall && !e.s.cfg.HooksEnabled() {
+	specs := u.specs(e.s.cfg)
+	if e.action == ActionInstall && len(specs) == 0 {
 		return []FileChange{e.skip(u.file, "unsupported: "+hooksDisabledReason)}, nil, nil
 	}
 	data, err := readOptional(u.file)
@@ -130,7 +148,7 @@ func (u hooksUnit) plan(e *env) ([]FileChange, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	dh, err := u.desiredHash()
+	dh, err := u.desiredHash(specs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -138,20 +156,20 @@ func (u hooksUnit) plan(e *env) ([]FileChange, []string, error) {
 	if e.action == ActionUninstall {
 		return u.planUninstall(e, data, doc, found, row)
 	}
-	if ok, err := u.installed(found); err != nil || ok {
+	if ok, err := u.installed(found, specs); err != nil || ok {
 		c := e.skip(u.file, "already installed")
 		c.upserts = []stateRow{e.stateRow(u.file, dh, 0)}
 		return []FileChange{c}, nil, err
 	}
 	keep := map[string]bool{}
-	for _, spec := range claudeHookSpecs {
+	for _, spec := range specs {
 		keep[spec.event] = true
 	}
 	if err := removeOurHooks(doc, found, keep); err != nil {
 		return nil, nil, err
 	}
 	created := 0
-	for _, spec := range claudeHookSpecs {
+	for _, spec := range specs {
 		n, ok := doc.find(hooksKey, spec.event)
 		if !ok {
 			createdParent, err := doc.set([]string{hooksKey, spec.event}, []any{u.group(spec)})
@@ -240,12 +258,12 @@ func (u hooksUnit) scan(doc *jsonDoc) ([]ourHook, error) {
 	return out, nil
 }
 
-// installed reports whether found is exactly one current group per hook event.
-func (u hooksUnit) installed(found []ourHook) (bool, error) {
-	if len(found) != len(claudeHookSpecs) {
+// installed reports whether found is exactly one current group per wanted hook spec.
+func (u hooksUnit) installed(found []ourHook, specs []hookSpec) (bool, error) {
+	if len(found) != len(specs) {
 		return false, nil
 	}
-	for _, spec := range claudeHookSpecs {
+	for _, spec := range specs {
 		want, err := canonicalJSON(u.group(spec))
 		if err != nil {
 			return false, err
@@ -258,13 +276,17 @@ func (u hooksUnit) installed(found []ourHook) (bool, error) {
 	return true, nil
 }
 
-// isOurs recognizes "<path>/ast-mcp hook <event>", including an ast-mcp at an older path.
 func (u hooksUnit) isOurs(cmd string) bool {
+	return isOurHookCommand(u.exe, cmd)
+}
+
+// isOurHookCommand recognizes "<path>/ast-mcp hook <event>", including an ast-mcp at an older path.
+func isOurHookCommand(exe, cmd string) bool {
 	f := shellFields(cmd)
 	if len(f) < 2 || f[1] != "hook" {
 		return false
 	}
-	return f[0] == u.exe || filepath.Base(f[0]) == "ast-mcp"
+	return f[0] == exe || filepath.Base(f[0]) == "ast-mcp"
 }
 
 // removeOurHooks deletes our hooks: whole groups that hold only ours, otherwise just our inner

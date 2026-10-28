@@ -7,6 +7,7 @@ const (
 	KeyHandoffClaims      = "feature_handoff_claims"
 	KeyHandoffLiveTrail   = "feature_handoff_live_trail"
 	KeyHandoffHooks       = "feature_handoff_hooks"
+	KeySearchNudge        = "feature_search_nudge"
 	KeyContextEdit        = "feature_context_edit"
 	KeyContextFn          = "feature_context_fn"
 	KeySharedQueryCache   = "feature_shared_query_cache"
@@ -53,6 +54,12 @@ var registry = []Flag{
 		Env:         "AST_FEATURE_HANDOFF_HOOKS",
 		Description: "Installer offers Claude Code hooks that create and open handoffs.",
 		Default:     false,
+	},
+	{
+		Key:         KeySearchNudge,
+		Env:         "AST_FEATURE_SEARCH_NUDGE",
+		Description: "Search-first nudge: installed Claude Code, OpenCode and Cursor hooks block an agent's first Grep, Glob or whole-file Read of code once per session, until it has used an ast-context-cache tool, and name the tool to use instead.",
+		Default:     true,
 	},
 	{
 		Key:         KeySharedQueryCache,

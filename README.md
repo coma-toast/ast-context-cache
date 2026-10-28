@@ -120,7 +120,7 @@ ast-mcp install --target cursor --yes         # apply
 ast-mcp verify                                # status for every host
 ```
 
-Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains` (or `all`). Components: `mcp`, `skills`, `rules`, `hooks` (opt-in Claude Code subagent-handoff hooks, behind the `feature_handoff_hooks` flag; see [`docs/handoff.md`](docs/handoff.md#claude-code-hooks)). The dashboard offers the same under Settings → **Agent integration**. CLI reference, exit codes, and backups: [`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents). Exact files and keys per host: [`docs/host-integration.md`](docs/host-integration.md).
+Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains` (or `all`). Components: `mcp`, `skills`, `rules`, `hooks` (the [search-first nudge](docs/host-integration.md#search-first-nudge) for Claude Code, Cursor and OpenCode, on by default behind `feature_search_nudge`; plus opt-in Claude Code subagent-handoff hooks behind `feature_handoff_hooks`, see [`docs/handoff.md`](docs/handoff.md#claude-code-hooks)). The dashboard offers the same under Settings → **Agent integration**. CLI reference, exit codes, and backups: [`docs/INSTALL.md`](docs/INSTALL.md#connect-your-agents). Exact files and keys per host: [`docs/host-integration.md`](docs/host-integration.md).
 
 `ast-mcp` here is the [shell function](#shell-function-optional) from `make install`; `./ast-mcp` takes the same subcommands.
 

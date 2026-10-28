@@ -44,6 +44,16 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "Grep|Glob|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/ast/bin/ast-mcp hook search-nudge",
+            "timeout": 3
+          }
+        ]
       }
     ]
   }

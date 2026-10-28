@@ -3,7 +3,7 @@
 For each agent host the v4.0 installer supports, this document lists exactly which files and keys it writes per component, how it reports status, and the host research behind each choice. The installer lives in `internal/installer`; run it with `ast-mcp install` (see [INSTALL.md](INSTALL.md#connect-your-agents)) or from the dashboard (Settings → Agent integration).
 
 - **Targets:** `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`. Global (user) scope only; project-scope installs were removed in 4.0.
-- **Components:** `mcp` (server registration), `skills`, `rules` (rule file or instruction block), `hooks` (Claude Code subagent-handoff hooks; available, opt-in behind the `feature_handoff_hooks` flag).
+- **Components:** `mcp` (server registration), `skills`, `rules` (rule file or instruction block), `hooks` (the [search-first nudge](#search-first-nudge) for Claude Code, Cursor and OpenCode, on by default behind `feature_search_nudge`; and the Claude Code subagent-handoff hooks, opt-in behind `feature_handoff_hooks`).
 - **Server name:** `ast-context-cache` everywhere.
 - **Server URL:** `http://127.0.0.1:<port>/mcp`. The dashboard uses the running server's MCP port; the CLI uses `--mcp-url`, else `--mcp-port`, else `$AST_MCP_PORT`, else 7821.
 - **Platforms:** macOS and Linux. On Windows every component reports `unsupported` ("Windows is not supported yet").
@@ -15,9 +15,9 @@ For each agent host the v4.0 installer supports, this document lists exactly whi
 
 | Target | `mcp` | `skills` | `rules` | `hooks` |
 |---|---|---|---|---|
-| `claude_code` | `~/.claude.json` → top-level `mcpServers["ast-context-cache"]` = `{"type": "http", "url": …}` | `~/.claude/skills/ast-context-cache-<name>/SKILL.md` | Marker block in `~/.claude/CLAUDE.md` | `~/.claude/settings.json` → `hooks` (only when `feature_handoff_hooks` is on; see [handoff.md](handoff.md#claude-code-hooks)) |
-| `cursor` | `~/.cursor/mcp.json` → `mcpServers["ast-context-cache"]` = `{"url": …}` | `~/.agents/skills/ast-context-cache-<name>/SKILL.md`, or `covered` when ours are already in `~/.claude/skills` or `~/.agents/skills` | `~/.cursor/rules/ast-context-cache.mdc` (whole file: `alwaysApply` frontmatter + marker block) | — Cursor hooks are not part of v4 |
-| `opencode` | `~/.config/opencode/opencode.jsonc` if it exists, else `opencode.json` → `mcp["ast-context-cache"]` = `{"type": "remote", "url": …, "enabled": true}` | Same as Cursor (`~/.agents/skills`, or `covered`) | Marker block in `~/.config/opencode/AGENTS.md` | — needs a plugin |
+| `claude_code` | `~/.claude.json` → top-level `mcpServers["ast-context-cache"]` = `{"type": "http", "url": …}` | `~/.claude/skills/ast-context-cache-<name>/SKILL.md` | Marker block in `~/.claude/CLAUDE.md` | `~/.claude/settings.json` → `hooks`: the search-nudge `PreToolUse` group while `feature_search_nudge` is on, the handoff hooks while `feature_handoff_hooks` is on (see [handoff.md](handoff.md#claude-code-hooks)) |
+| `cursor` | `~/.cursor/mcp.json` → `mcpServers["ast-context-cache"]` = `{"url": …}` | `~/.agents/skills/ast-context-cache-<name>/SKILL.md`, or `covered` when ours are already in `~/.claude/skills` or `~/.agents/skills` | `~/.cursor/rules/ast-context-cache.mdc` (whole file: `alwaysApply` frontmatter + marker block) | `~/.cursor/hooks.json` → one `hooks.preToolUse` entry running `ast-mcp hook cursor-search-nudge` (while `feature_search_nudge` is on); handoff hooks are Claude Code only |
+| `opencode` | `~/.config/opencode/opencode.jsonc` if it exists, else `opencode.json` → `mcp["ast-context-cache"]` = `{"type": "remote", "url": …, "enabled": true}` | Same as Cursor (`~/.agents/skills`, or `covered`) | Marker block in `~/.config/opencode/AGENTS.md` | `~/.config/opencode/plugins/ast-context-cache-search-nudge.js`, a whole file we own (while `feature_search_nudge` is on) |
 | `codex` | `~/.codex/config.toml` → `[mcp_servers.ast-context-cache]` with `url = …`, preceded by `# managed by ast-context-cache v<version>` | `~/.agents/skills/ast-context-cache-<name>/SKILL.md` | Marker block in `~/.codex/AGENTS.md` | — |
 | `claude_desktop` | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux) → `mcpServers["ast-context-cache"]` = `{"command": "<abs path>/mcp-local", "args": ["bridge", url]}`, or `{"command": "npx", "args": ["-y", "mcp-remote", url]}` when `mcp-local` is not on `PATH` (with a preview warning, and a second one if `npx` is missing too) | — no documented location | — no documented location | — |
 | `vscode` | `~/Library/Application Support/Code/User/mcp.json` (macOS) or `~/.config/Code/User/mcp.json` (Linux) → `servers["ast-context-cache"]` = `{"type": "http", "url": …}` | — user-scope path unverified | — user-scope path unverified | — |
@@ -32,7 +32,7 @@ The skills are the four canonical skills from [`skills/`](../skills/README.md) (
 - **Markdown blocks** sit between `<!-- ast-context-cache:begin v=<version> sha=<hash> -->` and `<!-- ast-context-cache:end -->`. Upgrades replace only the text between the markers; text outside them is never touched. A second or malformed begin marker, or a begin without an end, aborts the edit.
 - **Skills** are our own `ast-context-cache-<name>` directories. A skill file the installer did not create, a symlinked skill directory resolving outside `~/.astcache`, or the legacy un-suffixed `ast-context-cache` skill directory is `externally_managed` and skipped unless you pass `--replace-external` (dashboard: "replace external"), which backs it up first. A symlink is recorded in the backup and removed; a real directory is left in place with a warning to remove it by hand.
 - **The Cursor rule file** is ours as a whole. An existing `~/.cursor/rules/ast-context-cache.mdc` without our markers is `externally_managed` and skipped unless `--replace-external`.
-- **Hooks** are appended as separate matcher groups to each event array in `~/.claude/settings.json` (`SessionStart` matcher `startup|resume|compact`, `SubagentStart`, `SubagentStop`, and `PreToolUse` matcher `Agent`, each with a 3-second timeout); your own hooks are never replaced. Ours are recognized by their command (`<abs path>/ast-mcp hook <event>`). Behavior: [handoff.md](handoff.md#claude-code-hooks).
+- **Hooks** are appended as separate matcher groups to each event array in `~/.claude/settings.json` (`SessionStart` matcher `startup|resume|compact`, `SubagentStart`, `SubagentStop`, and `PreToolUse` matcher `Agent` for handoffs; `PreToolUse` matcher `Grep|Glob|Read` for the search nudge; each with a 3-second timeout); your own hooks are never replaced. Which groups are written follows the two flags, so turning one off makes an existing install `outdated` until you re-run install. In `~/.cursor/hooks.json` our single `preToolUse` entry is appended the same way (and `"version": 1` added if missing). Ours are recognized by their command (`<abs path>/ast-mcp hook <event>`). The OpenCode plugin file is ours as a whole: one the installer did not create is `externally_managed`. Behavior: [handoff.md](handoff.md#claude-code-hooks), [search-first nudge](#search-first-nudge).
 - **Uninstall** removes only our entry, block, hook groups, or skill files. A file, the top-level key holding our entry, or a `hooks` object is deleted only when the installer created it and it is otherwise empty.
 - **Backups:** before any write each modified file is copied to `~/.astcache/backups/<YYYYMMDD-HHMMSS>/<path with / replaced by %>`. The newest 5 per file are kept (setting `installer_backup_keep`). List with `ast-mcp backups`; restore with `ast-mcp restore --yes <id>` (the current file is backed up first).
 - **Preview first:** a plan is held for 10 minutes. Apply re-hashes every file and fails with a conflict, writing nothing, if any changed since the preview.
@@ -51,7 +51,27 @@ The skills are the four canonical skills from [`skills/`](../skills/README.md) (
 | `not_installed` | Nothing of ours is present and nothing is recorded. |
 | `externally_managed` | A path we would write belongs to something else (see above). Skipped unless replaced explicitly. |
 | `covered` | The host already loads our skills from a directory another target installs into (Cursor and OpenCode read `~/.claude/skills` and `~/.agents/skills`), so a second copy would only duplicate them. |
-| `unsupported` | The host has no supported location for the component; the reason says why (and, for JetBrains MCP, how to add it by hand). The `hooks` component is also `unsupported` while `feature_handoff_hooks` is off. |
+| `unsupported` | The host has no supported location for the component; the reason says why (and, for JetBrains MCP, how to add it by hand). The `hooks` component is also `unsupported` while its flags are off: Claude Code needs `feature_handoff_hooks` or `feature_search_nudge`, Cursor and OpenCode need `feature_search_nudge`. |
+
+### Search-first nudge
+
+Agents tend to reach for their built-in Grep, Glob and Read even when ast-context-cache is connected. The `hooks` component installs a small nudge in each host that supports one: the **first** time in a session that an agent calls Grep, Glob, or Read on a whole code file (no `offset`/`limit`; extensions the indexer parses: `.go .py .js .jsx .mjs .cjs .ts .tsx .sh .bash .fish .tf`), and it has not called any ast-context-cache tool yet, the call is denied once with a short reason naming the better tool:
+
+- Grep → `get_context_capsule` (`mode=auto`) or `search_semantic`
+- Glob → `get_project_map` (`depth=2`), or `get_context_capsule` / `search_semantic`
+- whole-file Read of code → `get_file_context` (default `skeleton`), then `mode=edit` or a ranged Read
+
+Every later call in that session goes through, so an agent that really needs grep just calls it again. Markdown, JSON, YAML, images and ranged reads are never blocked.
+
+| Host | Mechanism | How "already used ast-context-cache" is detected | Per-session state |
+|---|---|---|---|
+| Claude Code | `PreToolUse` hook (matcher `Grep\|Glob\|Read`) → `ast-mcp hook search-nudge`, which answers `permissionDecision: "deny"` | An earlier `mcp__ast-context-cache__*` (or gateway-prefixed `mcp__<gw>__…<tool>`) call in the agent's transcript; a subagent checks its own transcript and gets its own nudge | Marker file per session (and subagent) in `~/.astcache/hooks/nudge/`, created atomically so parallel calls block once; pruned after 7 days |
+| Cursor | `preToolUse` hook in `~/.cursor/hooks.json` (matcher `Read\|Grep\|Glob\|MCP:.*`) → `ast-mcp hook cursor-search-nudge`, which answers `{"permission": "deny", "agent_message": …}` and otherwise always `{"permission": "allow"}` | The hook also sees `MCP:<tool>` calls and marks the conversation when the tool is one of ours | Same marker files, keyed by `conversation_id` |
+| OpenCode | Global plugin `~/.config/opencode/plugins/ast-context-cache-search-nudge.js` using `tool.execute.before`; it throws the reason as an error | Any `ast-context-cache_*` tool call seen by the plugin | In memory, per `sessionID` |
+
+Codex, Claude Desktop, VS Code and JetBrains have no nudge.
+
+**Turning it off.** The nudge is behind the `feature_search_nudge` flag (default on). Switch it off in the dashboard (Settings → Features) and it stops immediately: every hook reads the flag from the server's `/health` (`"search_nudge": true|false`) before it blocks. `AST_FEATURE_SEARCH_NUDGE=false` on the server does the same, and set in an agent's environment it disables the hook for that agent only. To remove the hook entries as well, run `ast-mcp uninstall --component hooks --target <host>` (or re-run install with the flag off). Everything fails open: a server that is down, an older server without the field, a malformed payload, or any hook error lets the call through.
 
 ### Legacy (pre-4.0) installs
 
@@ -173,7 +193,7 @@ The user's existing entry is `{"url":"http://localhost:7821/mcp"}`. Interpolatio
 - **`~/.cursor/rules/` is not a documented global location.** The user has `~/.cursor/rules/*.mdc` files, but whether Cursor loads them globally is **UNVERIFIED**.
 - **Installer behavior:** the installer still writes the always-apply rule to `~/.cursor/rules/ast-context-cache.mdc`, because that is where users keep global `.mdc` rules today, and the preview warns: "loading rules from the global ~/.cursor/rules directory is unverified; Settings → Rules (User Rules) is the documented path". If Cursor does not pick the rule up, paste [`rules/protocol.md`](../rules/protocol.md) into Settings → Rules → User Rules.
 
-**Hooks.** Global hooks are `~/.cursor/hooks.json` with `{"version":1,"hooks":{"<event>":[{"command":"…"}]}}`, and scripts conventionally go in `~/.cursor/hooks/`. Project hooks are `.cursor/hooks.json`. MDM system paths: macOS `/Library/Application Support/Cursor/hooks.json`, Linux `/etc/cursor/hooks.json`, Windows `C:\ProgramData\Cursor\hooks.json`.
+**Hooks.** Global hooks are `~/.cursor/hooks.json` with `{"version":1,"hooks":{"<event>":[{"command":"…"}]}}`, and scripts conventionally go in `~/.cursor/hooks/`. Project hooks are `.cursor/hooks.json`. MDM system paths: macOS `/Library/Application Support/Cursor/hooks.json`, Linux `/etc/cursor/hooks.json`, Windows `C:\ProgramData\Cursor\hooks.json`. The generic `preToolUse` hook (matcher tested against the tool type: `Read`, `Grep`, `Shell`, … and `MCP:<tool_name>` for MCP tools) receives `conversation_id`, `tool_name` and `tool_input`, and can answer `{"permission":"deny","agent_message":…}`; crashes, timeouts and non-zero exits other than 2 are allowed through unless `failClosed` is set, while invalid JSON blocks, so the search-nudge hook always prints a decision. Checked against https://cursor.com/docs/agent/hooks on 2026-10-28.
 
 Windows path for `~/.cursor/mcp.json`: the docs say "home directory". `%USERPROFILE%\.cursor\mcp.json` is **UNVERIFIED** but implied.
 
@@ -224,7 +244,7 @@ Configs are **merged**, not replaced, across these layers: remote `.well-known/o
 
 **Skills.** Global locations are `~/.config/opencode/skills/<name>/SKILL.md`, `~/.claude/skills/<name>/SKILL.md` and `~/.agents/skills/<name>/SKILL.md`. Same dedup risk as Cursor.
 
-**Hooks.** There is no declarative hooks file. Hooks are implemented as plugins in `~/.config/opencode/plugins/` or via npm `"plugin": [...]`. Treat this as "Unsupported (plugin required)" for v4.0.
+**Hooks.** There is no declarative hooks file. Hooks are implemented as plugins in `~/.config/opencode/plugins/` (loaded at startup) or via npm `"plugin": [...]`. The installer writes the [search-first nudge](#search-first-nudge) as a local plugin there; handoff hooks are not ported to OpenCode.
 
 ---
 
