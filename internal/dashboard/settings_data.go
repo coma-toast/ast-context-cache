@@ -11,7 +11,6 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
-	"github.com/coma-toast/ast-context-cache/internal/instance"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/transcripts"
 )
@@ -101,15 +100,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 	data.EmbedProbeIntervalSec = int(embedder.ProbeInterval().Seconds())
 	data.EmbedQueueCaps = embedqueue.QueueCapStates()
 	data.HandoffLimits, data.HandoffEnvLocked = handoff.LoadLimits(), handoffEnvLocked()
-	cur := instance.Current()
-	if cur.Value == "" && cur.Scope == "" {
-		cur = instance.Update(strings.TrimSpace(db.GetSetting("instance_name", "")), db.GetDataDir())
-	}
-	data.InstanceName = strings.TrimSpace(db.GetSetting("instance_name", ""))
-	data.InstanceNameEffective = cur.Value
-	data.InstanceScope = cur.Scope
-	data.InstanceNameSource = cur.Source
-	data.InstanceNameLocked = instance.IsLocked()
+	populateInstanceData(&data)
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)

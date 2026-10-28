@@ -10,10 +10,19 @@ import (
 )
 
 const (
-	SourceFlag    = "flag"
-	SourceEnv     = "env"
-	SourceDB      = "db"
-	SourceDefault = "default"
+	SourceFlag     = "flag"
+	SourceEnv      = "env"
+	SourceSettings = "settings"
+	SourceOverride = "override"
+	SourceDefault  = "default"
+)
+
+const (
+	// SettingKey is the settings key holding the dashboard-set name.
+	SettingKey = "instance_name"
+	// OverrideKey is the settings key that, when "true", lets the dashboard-set
+	// name win over -name and AST_INSTANCE_NAME.
+	OverrideKey = "instance_name_override"
 )
 
 // Name holds the resolved instance name, its scope (used for cookie/localStorage
@@ -36,16 +45,23 @@ func Init(flagNameValue string) {
 	flagName = strings.TrimSpace(flagNameValue)
 }
 
-// IsLocked returns true when an external name source (env var or flag) is set,
-// meaning the instance_name setting cannot be changed from the dashboard.
-func IsLocked() bool {
+// External returns the name set by the -name flag (source flag) or
+// AST_INSTANCE_NAME (source env), flag first, or empty strings when neither is set.
+func External() (value, source string) {
 	if flagName != "" {
-		return true
+		return flagName, SourceFlag
 	}
 	if v := strings.TrimSpace(os.Getenv("AST_INSTANCE_NAME")); v != "" {
-		return true
+		return v, SourceEnv
 	}
-	return false
+	return "", ""
+}
+
+// IsLocked returns true when an external name source (env var or flag) is set.
+// Without the override the instance_name setting cannot be changed from the dashboard.
+func IsLocked() bool {
+	v, _ := External()
+	return v != ""
 }
 
 // Slugify turns a name into a safe scope identifier: lowercase [a-z0-9-],
@@ -82,17 +98,18 @@ func FallbackScope(dataDir string) string {
 	return fmt.Sprintf("%x", hash[:5]) // 5 bytes = 10 hex chars
 }
 
-// Resolve creates a Name from a raw string, computing a scope for cookie/localStorage
-// isolation. If name is empty, it falls back to a hash of the data directory.
-func Resolve(name string, dataDir string) Name {
-	src := SourceDB
-	val := strings.TrimSpace(name)
-	if flagName != "" {
-		src = SourceFlag
-		val = flagName
-	} else if env := strings.TrimSpace(os.Getenv("AST_INSTANCE_NAME")); env != "" {
-		src = SourceEnv
-		val = env
+// Resolve creates a Name from the instance_name setting, computing a scope for
+// cookie/localStorage isolation. Order: flag > env > setting, except that with
+// override on a non-empty setting beats flag and env. If the result is empty, the
+// scope falls back to a hash of the data directory.
+func Resolve(name string, override bool, dataDir string) Name {
+	src, val := SourceSettings, strings.TrimSpace(name)
+	if ext, extSrc := External(); ext != "" {
+		if override && val != "" {
+			src = SourceOverride
+		} else {
+			src, val = extSrc, ext
+		}
 	}
 
 	scope := Slugify(val)
@@ -108,11 +125,11 @@ func Resolve(name string, dataDir string) Name {
 	}
 }
 
-// Update resolves the name from the given DB setting value (flag > env >
-// setting > empty), stores it as the process-wide current name, and returns it.
-// dataDir scopes the fallback hash when no name is set.
-func Update(dbSetting, dataDir string) Name {
-	n := Resolve(strings.TrimSpace(dbSetting), dataDir)
+// Update resolves the name from the instance_name setting and the override
+// setting (see Resolve), stores it as the process-wide current name, and returns
+// it. dataDir scopes the fallback hash when no name is set.
+func Update(dbSetting string, override bool, dataDir string) Name {
+	n := Resolve(strings.TrimSpace(dbSetting), override, dataDir)
 	mu.Lock()
 	current = n
 	mu.Unlock()
