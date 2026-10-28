@@ -85,4 +85,23 @@ type SettingsData struct {
 	InstanceNameExternal string
 	// InstanceNameExternalSource is flag|env for InstanceNameExternal.
 	InstanceNameExternalSource string
+	// InstanceFaviconMode, InstanceFaviconColor and InstanceFaviconBadge are the
+	// stored favicon settings (mode default|color|upload).
+	InstanceFaviconMode, InstanceFaviconColor, InstanceFaviconBadge string
+	// InstanceFaviconUploadType and InstanceFaviconUploadBytes describe the stored upload, if any.
+	InstanceFaviconUploadType  string
+	InstanceFaviconUploadBytes int
+	// InstanceFaviconEffectiveMode is the mode in effect after the env vars and fallbacks.
+	InstanceFaviconEffectiveMode string
+	// InstanceFaviconSource is env|override|settings|default.
+	InstanceFaviconSource string
+	// InstanceFaviconURL is the favicon path with its ?v= content hash.
+	InstanceFaviconURL string
+	// InstanceFaviconOverride is the instance_favicon_override setting: the settings win over the env vars.
+	InstanceFaviconOverride bool
+	// InstanceFaviconLocked is true when an AST_INSTANCE_FAVICON_* env var sets the
+	// favicon and the override is off.
+	InstanceFaviconLocked bool
+	// InstanceFaviconExternalColor and InstanceFaviconExternalBadge are the valid env values, if any.
+	InstanceFaviconExternalColor, InstanceFaviconExternalBadge string
 }

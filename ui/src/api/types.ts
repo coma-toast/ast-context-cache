@@ -424,6 +424,30 @@ export interface SettingsData {
   InstanceNameExternal?: string
   /** flag|env for InstanceNameExternal. */
   InstanceNameExternalSource?: string
+  /** Stored instance_favicon_mode: default|color|upload (empty means default). */
+  InstanceFaviconMode?: string
+  /** Stored instance_favicon_color (#rrggbb). */
+  InstanceFaviconColor?: string
+  /** Stored instance_favicon_badge (0–2 letters or digits). */
+  InstanceFaviconBadge?: string
+  /** Content type of the stored upload, empty when there is none. */
+  InstanceFaviconUploadType?: string
+  /** Size of the stored upload in bytes. */
+  InstanceFaviconUploadBytes?: number
+  /** Mode in effect after the env vars and fallbacks. */
+  InstanceFaviconEffectiveMode?: string
+  /** env|override|settings|default — where the favicon in effect came from. */
+  InstanceFaviconSource?: string
+  /** Favicon path with its ?v= content hash; changes whenever the favicon does. */
+  InstanceFaviconURL?: string
+  /** instance_favicon_override: the dashboard favicon wins over the env vars. */
+  InstanceFaviconOverride?: boolean
+  /** True when AST_INSTANCE_FAVICON_COLOR/BADGE set the favicon and the override is off. */
+  InstanceFaviconLocked?: boolean
+  /** Valid AST_INSTANCE_FAVICON_COLOR value, if any. */
+  InstanceFaviconExternalColor?: string
+  /** Valid AST_INSTANCE_FAVICON_BADGE value, if any. */
+  InstanceFaviconExternalBadge?: string
 }
 
 export interface MemoryData {

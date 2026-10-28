@@ -143,6 +143,10 @@ func NewHandler(listen string) http.Handler {
 	// WebSocket
 	mux.HandleFunc("/ws", handleWS)
 
+	// Instance favicon (also answers the browser's /favicon.ico probe)
+	mux.HandleFunc(FaviconPath, handleFavicon)
+	mux.HandleFunc("/favicon.ico", handleFavicon)
+
 	// React SPA
 	mux.HandleFunc("/dashboard/", handleUISPA)
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
@@ -928,9 +932,13 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		ct := r.Header.Get("Content-Type")
 		var key, value string
+		r.Body = http.MaxBytesReader(w, r.Body, settingsMaxBodyBytes)
 		if strings.Contains(ct, "application/json") {
 			var req map[string]string
-			json.NewDecoder(r.Body).Decode(&req)
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeFlagsError(w, http.StatusBadRequest, "invalid settings request: "+err.Error())
+				return
+			}
 			key, value = req["key"], req["value"]
 		} else {
 			r.ParseForm()
@@ -987,6 +995,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if isInstanceSettingKey(key) {
 			saveInstanceSetting(w, r, key, value)
+			return
+		}
+		if isFaviconSettingKey(key) {
+			saveFaviconSetting(w, key, value)
 			return
 		}
 		if key == embedder.ProbeIntervalSettingKey {
@@ -1122,6 +1134,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	redactNetworkSettings(settings)
 	applyInstanceSettings(settings)
+	applyFaviconSettings(settings)
 	json.NewEncoder(w).Encode(settings)
 }
 

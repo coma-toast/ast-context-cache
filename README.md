@@ -153,6 +153,7 @@ Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` an
 | **Code mode** | `execute_code` sandbox and repo scripts in `scripts/code-mode/` |
 | **Pinning and queue** | Bounded embed queue; pinned projects get priority |
 | **Analysis** | Dead code, complexity |
+| **Instance name and favicon** | Settings → General names the instance (tab title, cookie scope) and picks its favicon: the default icon, the icon in a color with an optional 1–2 character badge, or an uploaded PNG, SVG or ICO up to 64 KB (stored in the settings; SVG with scripts, event handlers or external references is rejected). Open tabs switch icons live; the icon is served at `/dashboard/favicon?v=<hash>` |
 | **Remote access** | Extra listen addresses, trusted hosts, and an optional access token, applied live ([docs](docs/INSTALL.md#remote-access-tailscale)) |
 | **Supervise / Docker** | `ast-mcp supervise` or [`docker/ast-mcp`](docker/ast-mcp/README.md) |
 | **Metrics** | Prometheus at `http://127.0.0.1:7830/metrics` (`astcache_` prefix) |
@@ -241,6 +242,8 @@ Settings → **Updates** installs the latest release in place and keeps the prev
 | `AST_TRUSTED_HOSTS` | Extra hostnames (e.g. MagicDNS) accepted in `Host` / `Origin` | Unset |
 | `AST_ACCESS_TOKEN` | Bearer token required from non-loopback clients (dashboard: `/login`) | Unset (no token) |
 | `AST_INSTANCE_NAME` | Instance name for the tab title and the login cookie / UI state scope (`-name` wins). Read-only in Settings → General unless you check *Override the environment value*, which makes the dashboard name win and persists across restarts | Unset (Settings name, else a data-dir hash scope) |
+| `AST_INSTANCE_FAVICON_COLOR` | Favicon color (`#rgb` or `#rrggbb`): the default icon in that color. Setting this or the badge locks Settings → General → Favicon to color mode unless you check *Override the environment favicon*. Invalid values are ignored with a warning | Unset (Settings favicon) |
+| `AST_INSTANCE_FAVICON_BADGE` | 1–2 letters or digits drawn on the favicon (with the color above, or the default purple) | Unset |
 | `AST_MCP_PORT` / `AST_DASHBOARD_PORT` | MCP and dashboard ports (`--mcp-port` / `--dashboard-port`). `ast-mcp install` and the Claude Code hooks read `AST_MCP_PORT` too | `7821` / `7830` |
 | `AST_LOG_FORMAT` / `AST_LOG_LEVEL` | Log format (`text` / `json`) and level | `text` / `info` |
 | `AST_GITHUB_TOKEN` (or `GITHUB_TOKEN`) | Token for the Settings → Updates check. Without one, the check reads github.com's releases pages, which have no API rate limit; results are cached for an hour | Unset |

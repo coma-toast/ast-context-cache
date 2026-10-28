@@ -88,6 +88,7 @@ func populateInstanceData(data *components.SettingsData) {
 	data.InstanceNameEffective, data.InstanceScope, data.InstanceNameSource = cur.Value, cur.Scope, cur.Source
 	data.InstanceNameExternal, data.InstanceNameExternalSource = instance.External()
 	data.InstanceNameLocked = instanceNameWriteLocked()
+	populateFaviconData(data)
 }
 
 // applyInstanceSettings enriches the generic settings GET with the effective
