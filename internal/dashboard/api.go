@@ -94,6 +94,7 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/start-watcher-space", handleStartWatcherSpace)
 	mux.HandleFunc("/api/reconcile-spaces", handleReconcileSpaces)
 	mux.HandleFunc("/api/index-project", handleIndexProject)
+	mux.HandleFunc("/api/prune-space-roots", handlePruneSpaceRoots)
 	mux.HandleFunc("/api/delete-watcher", handleDeleteWatcher)
 	mux.HandleFunc("/api/timeseries", handleTimeseries)
 	mux.HandleFunc("/api/index-stats", handleIndexStats)
@@ -1324,12 +1325,17 @@ func handleIndexProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	watcher.EnsureWatcher(projectPath)
+	// A wtg space root is indexed as its checkouts (see indexer.IndexDirectory),
+	// so those are the projects that need embedding.
+	targets := projectlinks.IndexTargets(projectPath)
 	if mcp.GetEmbedder() != nil {
-		go embedqueue.EnqueueAllSymbolsFiles(projectPath)
+		for _, p := range targets {
+			go embedqueue.EnqueueAllSymbolsFiles(p)
+		}
 	}
 	realtime.Notify(realtime.IndexCommitted | realtime.IndexHealth)
 	w.Header().Set("X-Indexed-Symbols", strconv.Itoa(n))
-	respondWatcherAction(w, r, "indexed", projectPath, map[string]interface{}{"symbols": n})
+	respondWatcherAction(w, r, "indexed", projectPath, map[string]interface{}{"symbols": n, "projects": targets})
 }
 
 // deleteProjectData is the Watchers panel's delete action. It used to duplicate

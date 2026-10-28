@@ -144,6 +144,7 @@ Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` an
 |--|--|
 | **Languages** | Python, JS/JSX, TS/TSX, Go, Bash, Fish, YAML |
 | **File watcher** | Incremental re-index with debounce and ignore globs: one FSEvents stream per project on macOS (no descriptor per file), `fsnotify` elsewhere |
+| **Spaces and worktrees** | A new worktree copies unchanged files' symbols and vectors from an indexed checkout of the same repo; a wtg space root is indexed as its separate checkouts and searched across them; `ast-mcp index <dir>` and `ast-mcp prune-projects --space-roots` ([docs](docs/spaces-indexing.md)) |
 | **Embedding backends** | ONNX, Ollama, HTTP, OpenAI/LiteLLM, Docker Model Runner, plus an auxiliary catch-up pool when the primary is down or slow ([docs](docs/embedding-backends.md)) |
 | **Context functions** | `define_context_fn` / `apply_context_fn` / `list_context_fns`: reusable transforms over stored notes, off by default ([docs](docs/context-fn.md)) |
 | **KV repair** | `report_kv_repair_event`, golden-text archives, success-rate stats on the dashboard |
