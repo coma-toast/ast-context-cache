@@ -1,23 +1,29 @@
 package db
 
-// RestartProcess, when set, gracefully drains the HTTP servers (no new
-// connections; in-flight requests finish), quiesces background work, and
-// re-execs the current binary in place — so a fresh db.Init() can pick up a
-// change that only takes effect at startup (a moved data directory, an
-// updated binary) without the operator restarting ast-mcp by hand.
+// RestartProcess, when set, replaces the running ast-mcp with a fresh copy of the
+// installed binary so a change that only takes effect at startup (a moved data
+// directory, an updated binary) applies without the operator restarting by hand.
 //
-// KNOWN RISK: restarting in place while there's significant concurrent
-// background goroutine activity (a busy embed queue, in particular) has been
-// observed to crash the process outright instead of restarting it, and the
-// exact mechanism isn't understood yet — reordering the drain steps,
-// spawning a child process instead of exec'ing in place, and a detached
-// watchdog process were all tried and none reliably avoided it. Until this is
-// root-caused, callers should treat this as an explicit, user-initiated
-// action (a "Restart now" button) rather than something to trigger
-// automatically after an unrelated operation succeeds — a failed automatic
-// restart is silent downtime, worse than requiring one more click.
+// It first quiesces everything that holds threads, native resources or files: background
+// loops, WAL maintenance, the embed queue, both HTTP servers, file watchers (FSEvents
+// streams), the embedder (ONNX sessions, the aux embedder, the ONNX Runtime environment),
+// buffered writes and the database pools. It then restarts by AST_RESTART_STRATEGY:
+// spawn a detached replacement and exit once it serves /health (the macOS default),
+// exec in place (the default elsewhere), or exit for a supervisor to restart.
 //
-// Wired from cmd/ast-mcp/main.go, which owns the *http.Server values db
-// can't import directly. Callers must nil-check before calling — it stays
-// nil in tests and any build that doesn't wire it up.
+// The in-place exec used to hang on macOS (2026-10-23, 2026-10-28): Darwin's execve has
+// to stop every other thread and waits indefinitely on one stuck in an uninterruptible
+// kernel wait, and while it waits the Go runtime holds its exec lock, so the process can
+// neither finish the exec nor start a thread to recover. Earlier crashes under a busy
+// embed queue were the same un-quiesced native threads. Spawning avoids execve in a
+// process that has run them at all; the exec path keeps a watchdog that exits 1 if the
+// exec has not completed after 20s.
+//
+// It stays an explicit, user-initiated action (the dashboard's "Restart now") rather
+// than something triggered automatically after another operation succeeds: a restart
+// drops in-flight MCP streams and the dashboard's connection.
+//
+// Wired from cmd/ast-mcp/main.go, which owns the *http.Server values db can't import
+// directly. Callers must nil-check before calling — it stays nil in tests and any build
+// that doesn't wire it up. It does not return when the restart succeeds.
 var RestartProcess func()

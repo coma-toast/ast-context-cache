@@ -77,10 +77,22 @@ func reloadAuxRuntime() error {
 	}
 	b, m, _, _, _ := SnapshotForSettings(s)
 	auxMu.Lock()
+	prev := auxRaw
 	auxRaw = raw
 	auxBackend = b
 	auxModel = m
 	auxMu.Unlock()
+	// The replaced aux embedder would otherwise keep its idle loop and ONNX session.
+	shutdownEmbedder(prev)
 	logger.Info("Aux embedder active", "backend", b, "model", m)
 	return nil
+}
+
+// stopAux stops the auxiliary embedder and forgets it.
+func stopAux() {
+	auxMu.Lock()
+	prev := auxRaw
+	auxRaw = nil
+	auxMu.Unlock()
+	shutdownEmbedder(prev)
 }

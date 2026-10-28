@@ -5,13 +5,21 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	ort "github.com/yalue/onnxruntime_go"
+
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
 var (
 	ortInitOnce sync.Once
 	ortInitErr  error
+)
+
+var (
+	errONNXRuntimeShutDown = errs.New("onnx runtime shut down")
+	ortShutDown            atomic.Bool
 )
 
 func resolveORTLibPath() string {
@@ -62,5 +70,23 @@ func ensureONNXRuntime() error {
 		ort.SetSharedLibraryPath(resolveORTLibPath())
 		ortInitErr = ort.InitializeEnvironment()
 	})
+	if ortShutDown.Load() {
+		return errONNXRuntimeShutDown
+	}
 	return ortInitErr
+}
+
+// destroyONNXRuntime tears down the ONNX Runtime environment if this process created
+// one. Sessions must already be destroyed. The environment is not created again: later
+// session creation fails, which is what a process on its way out wants.
+func destroyONNXRuntime() {
+	ortShutDown.Store(true)
+	// Marks a never-initialized runtime done, so a racing ensureONNXRuntime can't create it.
+	ortInitOnce.Do(func() { ortInitErr = errONNXRuntimeShutDown })
+	if ortInitErr != nil || !ort.IsInitialized() {
+		return
+	}
+	if err := ort.DestroyEnvironment(); err != nil {
+		logger.Warn("Failed to destroy ONNX Runtime environment", "error", err)
+	}
 }
