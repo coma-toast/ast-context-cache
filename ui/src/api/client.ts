@@ -3,6 +3,7 @@ import type {
   BrowseDirResult,
   ContextSessionsResponse,
   DataDirMoveStatus,
+  FeatureCoverage,
   FlagsResponse,
   FlushHandoffTreeResponse,
   HandoffTreesResponse,
@@ -170,6 +171,7 @@ export const api = {
   health: () => get<Health>('/api/dashboard/health'),
   stats: (projectId?: string) => get<Stats>(`/api/dashboard/stats${qs(projectId)}`),
   weeklyDigest: (projectId?: string) => get<WeeklyDigest>(`/api/dashboard/weekly-digest${qs(projectId)}`),
+  featureCoverage: (projectId?: string) => get<FeatureCoverage>(`/api/dashboard/feature-coverage${qs(projectId)}`),
   hostUsage: () => get<HostUsageResponse>('/api/dashboard/host-usage'),
   contextSessions: (projectId?: string) =>
     get<ContextSessionsResponse>(`/api/dashboard/context-sessions${qs(projectId)}`),

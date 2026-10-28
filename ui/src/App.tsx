@@ -15,7 +15,7 @@ import {
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import { api } from './api/client'
-import type { ContextSessionsResponse, HandoffTreesResponse, Health, HostUsageResponse, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
+import type { ContextSessionsResponse, FeatureCoverage, HandoffTreesResponse, Health, HostUsageResponse, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
 import { HealthBar } from './components/HealthBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
@@ -66,6 +66,7 @@ function DashboardInner() {
   const [health, setHealth] = useState<Health | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [weeklyDigest, setWeeklyDigest] = useState<WeeklyDigest | null>(null)
+  const [featureCoverage, setFeatureCoverage] = useState<FeatureCoverage | null>(null)
   const [contextSessions, setContextSessions] = useState<ContextSessionsResponse | null>(null)
   const [handoffTrees, setHandoffTrees] = useState<HandoffTreesResponse | null>(null)
   const [hostUsage, setHostUsage] = useState<HostUsageResponse | null>(null)
@@ -101,6 +102,7 @@ function DashboardInner() {
       if (keys.includes('health')) tasks.push(run('health', api.health(), setHealth))
       if (keys.includes('stats')) tasks.push(run('stats', api.stats(pid), setStats))
       if (keys.includes('weeklyDigest')) tasks.push(run('weeklyDigest', api.weeklyDigest(pid), setWeeklyDigest))
+      if (keys.includes('featureCoverage')) tasks.push(run('featureCoverage', api.featureCoverage(pid), setFeatureCoverage))
       if (keys.includes('contextSessions')) {
         tasks.push(run('contextSessions', api.contextSessions(pid), setContextSessions))
       }
@@ -146,7 +148,7 @@ function DashboardInner() {
   )
 
   const loadAll = useCallback(() => {
-    load(['health', 'stats', 'weeklyDigest', 'contextSessions', 'handoffTrees', 'hostUsage', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
+    load(['health', 'stats', 'weeklyDigest', 'featureCoverage', 'contextSessions', 'handoffTrees', 'hostUsage', 'indexHealth', 'memory', 'settings', 'mcpTier', 'timeseries', 'tools', 'symbolKinds', 'languageStats', 'topImports', 'recent', 'projects'])
   }, [load])
 
   const instanceName = settings?.InstanceNameEffective || health?.InstanceName || ''
@@ -341,7 +343,7 @@ function DashboardInner() {
           {tab === 'overview' && (
             <ErrorBoundary
               label="Overview"
-              onRetry={() => load(['indexHealth', 'health', 'projects', 'settings', 'stats', 'weeklyDigest', 'contextSessions', 'handoffTrees'])}
+              onRetry={() => load(['indexHealth', 'health', 'projects', 'settings', 'stats', 'weeklyDigest', 'featureCoverage', 'contextSessions', 'handoffTrees'])}
             >
               {!!health?.AbnormalPreviousRun && !abnormalDismissed && (
                 <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setAbnormalDismissed(true)}>
@@ -352,11 +354,12 @@ function DashboardInner() {
               <OverviewTab
                 stats={stats}
                 weeklyDigest={weeklyDigest}
+                featureCoverage={featureCoverage}
                 contextSessions={contextSessions}
                 handoffTrees={handoffTrees}
                 hostUsage={hostUsage}
                 projectPath={pid}
-                onChanged={() => load(['stats', 'weeklyDigest', 'contextSessions', 'indexHealth'])}
+                onChanged={() => load(['stats', 'weeklyDigest', 'featureCoverage', 'contextSessions', 'indexHealth'])}
                 onHandoffsChanged={() => load(['handoffTrees', 'stats'])}
               />
               {indexHealth && (
