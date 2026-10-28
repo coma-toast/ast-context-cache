@@ -1,29 +1,37 @@
-import { Box, Card, CardContent, Chip, Grid, Tooltip, Typography } from '@mui/material'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { Box, Card, CardContent, Chip, Grid, Stack, Tooltip, Typography } from '@mui/material'
 import { Gauge, gaugeClasses } from '@mui/x-charts/Gauge'
-import type { IndexHealth } from '../api/types'
+import type { IndexHealth, DiskInfo } from '../api/types'
 import { chartColors } from '../lib/chartColors'
 import {
   cpuGaugePct,
   diskFootprintPct,
   diskIoPct,
   diskSizeLabel,
+  diskHealthLevel,
+  diskLabel,
+  diskSubtitle,
+  diskTempColor,
+  diskTone,
   fdColor,
   fdLabel,
   fdPct,
   formatDiskIo,
+  formatPowerOnHours,
   loadAvgBarWidth,
   loadAvgLabel,
   memoryPct,
   ssdSmartTone,
   ssdWearColor,
 } from '../lib/resourceGauges'
+import { useToast } from '../context/ToastContext'
 
 const CPUS = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 1 : 1
 
 type Row = { label: string; pct: number; display: string; color: string; hint?: string }
 
 function buildRows(data: IndexHealth): Row[] {
-  const diskLabel = diskSizeLabel(
+  const diskLabel$ = diskSizeLabel(
     data.DiskSize || '-',
     data.WalSize || '',
     data.WALMaintenanceActive,
@@ -62,7 +70,7 @@ function buildRows(data: IndexHealth): Row[] {
   rows.push(
     { label: 'Heap', pct: memoryPct(data.MemoryMB ?? data.HeapMB ?? 0), display: `${(data.MemoryMB ?? data.HeapMB ?? 0).toFixed(1)} MB`, color: chartColors.heap },
     { label: 'Vector cache', pct: memoryPct(data.VectorMemMB ?? 0), display: `${(data.VectorMemMB ?? 0).toFixed(2)} MB`, color: chartColors.vector },
-    { label: 'Database', pct: diskFootprintPct(data.DiskMB ?? 0, data.WalMB ?? 0), display: diskLabel, color: chartColors.disk, hint: 'SQLite usage.db + WAL journal on disk' },
+    { label: 'Database', pct: diskFootprintPct(data.DiskMB ?? 0, data.WalMB ?? 0), display: diskLabel$, color: chartColors.disk, hint: 'SQLite usage.db + WAL journal on disk' },
     { label: 'Disk read', pct: diskIoPct(data.DiskReadMBps ?? 0), display: formatDiskIo(data.DiskReadMBps ?? 0), color: chartColors.read, hint: 'Host block device read throughput' },
     { label: 'Disk write', pct: diskIoPct(data.DiskWriteMBps ?? 0), display: formatDiskIo(data.DiskWriteMBps ?? 0), color: chartColors.write, hint: 'Host block device write throughput' },
   )
@@ -93,8 +101,216 @@ function ResourceBarRow({ row }: { row: Row }) {
   )
 }
 
+function DiskChip({ label, tone }: { label: string; tone: 'success' | 'warning' | 'error' | 'default' }) {
+  const colorMap: Record<string, 'success' | 'warning' | 'error' | 'default'> = { success: 'success', warning: 'warning', error: 'error', default: 'default' }
+  return (
+    <Chip
+      size="small"
+      label={label}
+      color={colorMap[tone] || 'default'}
+      variant="outlined"
+      sx={{
+        borderColor: tone === 'default' ? 'divider' : undefined,
+        color: tone === 'default' ? 'text.secondary' : undefined,
+        fontWeight: 600,
+      }}
+    />
+  )
+}
+
+function DiskGauge({ value }: { value: number }) {
+  const color = ssdWearColor(value)
+  return (
+    <Gauge
+      width={56}
+      height={56}
+      value={value}
+      valueMax={100}
+      startAngle={-110}
+      endAngle={110}
+      innerRadius="72%"
+      outerRadius="100%"
+      text={`${value}%`}
+      sx={{
+        [`& .${gaugeClasses.referenceArc}`]: { fill: chartColors.track },
+        [`& .${gaugeClasses.valueArc}`]: { fill: color },
+        [`& .${gaugeClasses.valueText}`]: { fill: '#e6edf3', fontSize: 11 },
+      }}
+    />
+  )
+}
+
+function DiskHealthSection({ disks }: { disks: DiskInfo[] }) {
+  return (
+    <Box sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+      <Typography variant="subtitle2" gutterBottom>
+        Disk health
+      </Typography>
+      {disks.map((disk, idx) => {
+        const tone = diskTone(disk.SmartStatus)
+        const level = diskHealthLevel(disk)
+        const tempColor = diskTempColor(disk.TemperatureC)
+        const label$ = diskLabel(disk)
+        const subtitle$ = diskSubtitle(disk)
+        return (
+          <Box key={disk.Serial || disk.Device || idx} sx={{ mb: 2 }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+              <Typography variant="subtitle2" noWrap sx={{ maxWidth: 300 }}>
+                {label$}
+              </Typography>
+              <DiskChip label={disk.SmartStatus || 'Unknown'} tone={tone} />
+              {disk.DataDirDisk && <Chip size="small" label={disk.DataDirDisk} variant="outlined" />}
+              {disk.ProxmoxNode && <Chip size="small" label={disk.ProxmoxNode} color="info" variant="outlined" />}
+              {disk.ZFSPool && <Chip size="small" label={disk.ZFSPool} color="secondary" variant="outlined" />}
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              {subtitle$}
+            </Typography>
+            <Grid container spacing={1.5}>
+              {(disk.WearUsedPct ?? -1) >= 0 && (
+                <Grid size={{ xs: 12, sm: 8 }}>
+                  <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                    <DiskGauge value={disk.WearUsedPct!} />
+                    <Box>
+                      <Typography variant="body2">Wear Used</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {disk.SSDLifeLeft != null ? `Life left: ${disk.SSDLifeLeft}%` : 'NVMe percentage used'}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Grid>
+              )}
+              {(disk.TemperatureC ?? -1) >= 0 && (
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                    <Typography variant="h6" sx={{ fontSize: '1.25rem', lineHeight: 1, color: tempColor, minWidth: 48 }}>
+                      {disk.TemperatureC}°
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Temperature
+                    </Typography>
+                  </Stack>
+                </Grid>
+              )}
+              <Grid size={{ xs: 6, sm: 3 }}>
+                <DiskItem label="Capacity" value={disk.Capacity || '-'} />
+              </Grid>
+              {disk.FreeSpace && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="Free" value={disk.FreeSpace} />
+                </Grid>
+              )}
+              {disk.SparePct != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="Spare" value={`${disk.SparePct}%`} />
+                </Grid>
+              )}
+              {disk.DataWrittenTB != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="Written" value={disk.DataWrittenTB >= 100 ? `${Math.round(disk.DataWrittenTB)} TB` : `${disk.DataWrittenTB.toFixed(1)} TB`} />
+                </Grid>
+              )}
+              {disk.PowerOnHours != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="Power on" value={formatPowerOnHours(disk.PowerOnHours)} />
+                </Grid>
+              )}
+              {disk.ReallocatedSectors != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="Realloc" value={disk.ReallocatedSectors.toString()} />
+                </Grid>
+              )}
+              {disk.PendingSectors != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="Pending" value={disk.PendingSectors.toString()} />
+                </Grid>
+              )}
+              {disk.SmartType && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="SMART" value={disk.SmartType} />
+                </Grid>
+              )}
+              {disk.SolidState != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="Type" value={disk.SolidState ? 'SSD/NVMe' : 'HDD'} />
+                </Grid>
+              )}
+              {disk.TrimSupport != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="TRIM" value={disk.TrimSupport ? 'Yes' : 'No'} />
+                </Grid>
+              )}
+              {disk.ZFSHealth && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="ZFS" value={disk.ZFSHealth} />
+                </Grid>
+              )}
+              {disk.ZFSCapacityPct != null && (
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <DiskItem label="ZFS cap" value={`${disk.ZFSCapacityPct}%`} />
+                </Grid>
+              )}
+            </Grid>
+            {disk.WarningMsg && (
+              <Typography variant="caption" color={level === 'critical' ? 'error' : 'warning.main'} sx={{ display: 'block', mt: 1 }}>
+                ⚠ {disk.WarningMsg}
+              </Typography>
+            )}
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
+function DiskItem({ label, value }: { label: string; value: string }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" noWrap>
+        {value}
+      </Typography>
+    </Box>
+  )
+}
+
 export function ResourceUtilCard({ data }: { data: IndexHealth }) {
+  const { showToast } = useToast()
   const rows = buildRows(data)
+  const prevLevelRef = useRef<string>('')
+
+  const prevLevel = useMemo(() => {
+    if (!data.Disks || data.Disks.length === 0) return ''
+    const level = data.Disks.map((d) => diskHealthLevel(d)).sort().reverse().join('')
+    return level
+  }, [data.Disks])
+
+  useEffect(() => {
+    if (!data.Disks || data.Disks.length === 0) return
+    const prev = prevLevelRef.current
+    if (prev && prev === prevLevel) return
+    prevLevelRef.current = prevLevel
+
+    for (const disk of data.Disks) {
+      const level = diskHealthLevel(disk)
+      if (level === 'critical') {
+        const key = disk.Serial || disk.Device || 'disk'
+        showToast(
+          `${disk.Device || key}: ${disk.WarningMsg || 'Critical health'}`,
+          'error',
+        )
+      } else if (level === 'warn') {
+        const key = disk.Serial || disk.Device || 'disk'
+        showToast(
+          `${disk.Device || key}: ${disk.WarningMsg || 'Warning threshold reached'}`,
+          'warning',
+        )
+      }
+    }
+  }, [data.Disks, showToast, prevLevel])
+
   return (
     <Card variant="outlined" sx={{ height: '100%' }}>
       <CardContent>
@@ -107,7 +323,9 @@ export function ResourceUtilCard({ data }: { data: IndexHealth }) {
           ))}
         </Box>
 
-        {data.SSDAvailable && (
+        {data.Disks && data.Disks.length > 0 ? (
+          <DiskHealthSection disks={data.Disks} />
+        ) : data.SSDAvailable ? (
           <Box sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -176,7 +394,7 @@ export function ResourceUtilCard({ data }: { data: IndexHealth }) {
               </Grid>
             </Grid>
           </Box>
-        )}
+        ) : null}
 
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
           Server-wide · relative load (soft caps for gauges)

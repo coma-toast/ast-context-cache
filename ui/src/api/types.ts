@@ -336,6 +336,8 @@ export interface IndexHealth {
   WALPressure?: string | number
   DriveDisconnected?: boolean
   DriveDisconnectedPath?: string
+  Disks?: DiskInfo[]
+  ProxmoxSettings?: ProxmoxSettings
   /** Unix seconds of last stuck-worker auto-recover, or 0. */
   LastAutoRecoverUnix?: number
   Watchers: WatcherInfo[]
@@ -437,6 +439,7 @@ export interface SettingsData {
   InstanceNameSource?: string
   /** True when the -name flag or AST_INSTANCE_NAME sets the name and the override is off. */
   InstanceNameLocked?: boolean
+  ProxmoxSettings?: ProxmoxSettings
   /** instance_name_override: the dashboard name wins over the flag and env var. */
   InstanceNameOverride?: boolean
   /** The -name flag or AST_INSTANCE_NAME value, if any. */
@@ -590,6 +593,54 @@ export interface UpdateStatus {
   finished_at: string
   from_version: string
   to_version: string
+}
+
+export interface DiskInfo {
+  Device?: string
+  Model?: string
+  Serial?: string
+  Protocol?: string
+  SmartType?: string
+  SmartStatus?: string
+  SmartSource?: string
+  Capacity?: string
+  FreeSpace?: string
+  IsExternal?: boolean
+  SolidState?: boolean
+  TrimSupport?: boolean
+  DataDirDisk?: string
+  WarningLevel?: string
+  WarningMsg?: string
+  WearUsedPct?: number
+  SparePct?: number
+  DataWrittenTB?: number
+  TemperatureC?: number
+  PowerOnHours?: number
+  PowerCycles?: number
+  UnsafeShutdowns?: number
+  MediaErrors?: number
+  CriticalWarning?: number
+  ReallocatedSectors?: number
+  PendingSectors?: number
+  OfflineUncorrectable?: number
+  UDMACRCErrors?: number
+  SSDLifeLeft?: number
+  SASGrownDefects?: number
+  SASUncorrectedErrors?: number
+  ZFSPool?: string
+  ZFSHealth?: string
+  ZFSCapacityPct?: number
+  ZFSFragPct?: number
+  ProxmoxNode?: string
+}
+
+export interface ProxmoxSettings {
+  URL?: string
+  Node?: string
+  TokenID?: string
+  Secret?: string
+  Insecure?: boolean
+  Timeout?: number
 }
 
 export interface PruneStatus {

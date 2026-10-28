@@ -5,8 +5,10 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
   MenuItem,
@@ -47,6 +49,7 @@ const SECTIONS = [
   { id: 'general', label: 'General' },
   { id: 'updates', label: 'Updates' },
   { id: 'storage', label: 'Storage' },
+  { id: 'proxmox', label: 'Proxmox' },
   { id: 'features', label: 'Features' },
   { id: 'performance', label: 'Performance' },
   { id: 'embed-queue', label: 'Embed queue' },
@@ -108,6 +111,8 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
       showToast(String(e), 'error')
     }
   }
+
+  const saveSettingField = (key: string, value: string) => save(key, value)
 
   const projects = data.Projects || []
   const projectExcludes = (path: string) => data.ProjectIndexExcludes?.[path] ?? []
@@ -181,6 +186,115 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
       <InstanceSettingsSection data={data} save={save} />
 
       <StorageSection data={data} save={save} />
+
+      <Card variant="outlined" id="settings-proxmox" sx={{ mb: 2 }}>
+        <CardContent>
+          <Typography variant="subtitle1" gutterBottom>
+            Proxmox
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Connect to Proxmox VE to monitor VM disk health alongside local disks.
+          </Typography>
+          <Stack spacing={1.5}>
+            <TextField
+              label="API URL"
+              size="small"
+              fullWidth
+              defaultValue={data.ProxmoxSettings?.URL || ''}
+              helperText="https://proxmox.example.com:8006/api2/json"
+              onBlur={(e) => saveSettingField('proxmox_url', e.target.value)}
+            />
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
+              <TextField
+                label="Node"
+                size="small"
+                defaultValue={data.ProxmoxSettings?.Node || ''}
+                helperText="Proxmox node name (e.g. pve)"
+                onBlur={(e) => saveSettingField('proxmox_node', e.target.value)}
+              />
+              <TextField
+                label="Token ID"
+                size="small"
+                fullWidth
+                defaultValue={data.ProxmoxSettings?.TokenID || ''}
+                helperText="root@pam!tokenid"
+                onBlur={(e) => saveSettingField('proxmox_token_id', e.target.value)}
+              />
+            </Stack>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
+              <TextField
+                label="Secret"
+                size="small"
+                fullWidth
+                type="password"
+                defaultValue={data.ProxmoxSettings?.Secret || ''}
+                helperText="API token secret"
+                onBlur={(e) => saveSettingField('proxmox_secret', e.target.value)}
+              />
+              <FormControl size="small" sx={{ minWidth: 180 }}>
+                <InputLabel>Timeout (sec)</InputLabel>
+                <Select label="Timeout" defaultValue={data.ProxmoxSettings?.Timeout ?? 10} onChange={(e) => saveSettingField('proxmox_timeout', String(e.target.value))}>
+                  {['5', '10', '15', '30', '60'].map((v) => (
+                    <MenuItem key={v} value={v}>{v}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={data.ProxmoxSettings?.Insecure ?? false}
+                    onChange={() => saveSettingField('proxmox_insecure', String(!(data.ProxmoxSettings?.Insecure ?? false)))}
+                    size="small"
+                  />
+                }
+                label="Allow self-signed certificates"
+                sx={{ mt: 0.25 }}
+              />
+            </Stack>
+            <Button
+              size="small"
+              variant="outlined"
+              color="primary"
+              disabled={!data.ProxmoxSettings?.URL || !data.ProxmoxSettings?.TokenID || !data.ProxmoxSettings?.Secret}
+              onClick={async () => {
+                try {
+                  await api.proxmoxTest()
+                  showToast('Proxmox connection OK', 'success')
+                } catch (e) {
+                  showToast(String(e), 'error')
+                }
+              }}
+            >
+              Test connection
+            </Button>
+          </Stack>
+          <Box sx={{ mt: 1.5, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Configured:
+            </Typography>
+            <Stack spacing={0.5}>
+              <Typography variant="caption">
+                URL:{' '}
+                <Box component="span" sx={{ fontFamily: 'monospace', ml: 0.5 }}>
+                  {data.ProxmoxSettings?.URL || '—'}
+                </Box>
+              </Typography>
+              <Typography variant="caption">
+                Node:{' '}
+                <Box component="span" sx={{ fontFamily: 'monospace', ml: 0.5 }}>
+                  {data.ProxmoxSettings?.Node || '—'}
+                </Box>
+              </Typography>
+              <Typography variant="caption">
+                Token:{' '}
+                <Box component="span" sx={{ fontFamily: 'monospace', ml: 0.5 }}>
+                  {data.ProxmoxSettings?.TokenID ? '••••••••' : '—'}
+                </Box>
+              </Typography>
+            </Stack>
+          </Box>
+        </CardContent>
+      </Card>
 
       <RecoveryBanner />
 
