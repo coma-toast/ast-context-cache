@@ -311,7 +311,7 @@ A POST to an env-locked flag returns 409. Flags are separate from `tools.json`: 
 
 ## Host instructions
 
-The installer ships the same guidance to each host it supports (`ast-mcp install --target <host>`, or Settings → Agent integration): an always-on block or rule, plus the skills where the host has a skills directory. The canonical text lives in [`instructions/agents-block.md`](../instructions/agents-block.md), [`rules/cursor/ast-context-cache.mdc`](../rules/cursor/ast-context-cache.mdc), and [`skills/usage/SKILL.md`](../skills/usage/SKILL.md#subagent-handoff).
+The installer ships the same guidance to each host it supports (`ast-mcp install --target <host>`, or Settings → Agent integration): an always-on block or rule, plus the skills where the host has a skills directory. The canonical text lives in [`rules/protocol.md`](../rules/protocol.md) (the block and the Cursor rule) and [`skills/usage/SKILL.md`](../skills/usage/SKILL.md#subagent-handoff).
 
 | Host | Handoff path | What the installer adds |
 |---|---|---|

@@ -94,6 +94,7 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/start-watcher-space", handleStartWatcherSpace)
 	mux.HandleFunc("/api/reconcile-spaces", handleReconcileSpaces)
 	mux.HandleFunc("/api/index-project", handleIndexProject)
+	mux.HandleFunc("/api/prune-space-roots", handlePruneSpaceRoots)
 	mux.HandleFunc("/api/delete-watcher", handleDeleteWatcher)
 	mux.HandleFunc("/api/timeseries", handleTimeseries)
 	mux.HandleFunc("/api/index-stats", handleIndexStats)
@@ -1324,12 +1325,17 @@ func handleIndexProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	watcher.EnsureWatcher(projectPath)
+	// A wtg space root is indexed as its checkouts (see indexer.IndexDirectory),
+	// so those are the projects that need embedding.
+	targets := projectlinks.IndexTargets(projectPath)
 	if mcp.GetEmbedder() != nil {
-		go embedqueue.EnqueueAllSymbolsFiles(projectPath)
+		for _, p := range targets {
+			go embedqueue.EnqueueAllSymbolsFiles(p)
+		}
 	}
 	realtime.Notify(realtime.IndexCommitted | realtime.IndexHealth)
 	w.Header().Set("X-Indexed-Symbols", strconv.Itoa(n))
-	respondWatcherAction(w, r, "indexed", projectPath, map[string]interface{}{"symbols": n})
+	respondWatcherAction(w, r, "indexed", projectPath, map[string]interface{}{"symbols": n, "projects": targets})
 }
 
 // deleteProjectData is the Watchers panel's delete action. It used to duplicate
@@ -1647,12 +1653,10 @@ func handleDataDirClearOverride(w http.ResponseWriter, r *http.Request) {
 
 // selfUpdateExePath returns the running ast-mcp, symlinks resolved, which an
 // update replaces in place so model/ and the .ortlib sidecar beside it still apply.
+// It is the path resolved at startup: after one update os.Executable can name the
+// renamed ast-mcp.prev on Linux, and a second update would then replace the wrong file.
 func selfUpdateExePath() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(exe)
+	return sys.Executable()
 }
 
 func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
@@ -1720,7 +1724,7 @@ func handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 // handleRestartNow is the explicit, user-initiated trigger for db.RestartProcess —
 // shared by the "Restart now" buttons on the Move-data-directory and Update cards.
 // Both flows finish (copy/download+install) without restarting automatically; see
-// db.RestartProcess's doc comment for why an automatic restart isn't safe yet.
+// db.RestartProcess's doc comment for why a restart stays an explicit action.
 func handleRestartNow(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {

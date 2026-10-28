@@ -26,6 +26,7 @@ func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/health", handleDashboardHealthJSON)
 	mux.HandleFunc("/api/dashboard/stats", handleDashboardStatsJSON)
 	mux.HandleFunc("/api/dashboard/weekly-digest", handleDashboardWeeklyDigestJSON)
+	mux.HandleFunc("/api/dashboard/feature-coverage", handleDashboardFeatureCoverageJSON)
 	mux.HandleFunc("/api/dashboard/context-sessions", handleDashboardContextSessionsJSON)
 	mux.HandleFunc("/api/dashboard/index-health", handleDashboardIndexHealthJSON)
 	mux.HandleFunc("/api/dashboard/memory", handleDashboardMemoryJSON)

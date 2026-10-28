@@ -114,6 +114,63 @@ export interface WeeklyDigestEmbedReliability {
   Note?: string
 }
 
+/** One feature's session coverage (internal/coverage.FeatureUsage). */
+export interface FeatureUsage {
+  Feature: string
+  Label: string
+  Sessions: number
+  /** Share of active sessions that used the feature, 0–100, one decimal. */
+  Pct: number
+  Calls: number
+}
+
+export interface ProjectUsage {
+  ProjectPath: string
+  Sessions: number
+  Calls: number
+  SearchSessions: number
+}
+
+/** GET /api/dashboard/feature-coverage (internal/coverage.Report). */
+export interface FeatureCoverage {
+  WindowDays: number
+  Since: string
+  Until: string
+  ProjectPath?: string
+  ActiveSessions: number
+  /** Hourly buckets for calls made without a session_id. */
+  AnonymousSessions: number
+  Calls: number
+  ErrorCalls: number
+  SearchlessSessions: number
+  SearchlessPct: number
+  Features: FeatureUsage[]
+  /** Calls to tools no feature maps. */
+  OtherTools?: Record<string, number>
+  TopProjects: ProjectUsage[]
+}
+
+export interface FeatureTrend {
+  Feature: string
+  Label: string
+  Sessions: number
+  Pct: number
+  PrevPct: number
+  DeltaPct: number
+}
+
+/** Weekly digest coverage section: this window against the one before it. */
+export interface CoverageDigest {
+  WindowDays: number
+  ActiveSessions: number
+  PrevActiveSessions: number
+  SearchlessSessions: number
+  PrevSearchlessSessions: number
+  SearchlessPct: number
+  PrevSearchlessPct: number
+  Features: FeatureTrend[]
+}
+
 export interface WeeklyDigest extends LedgerTotals {
   WindowDays: number
   TokensSaved: number
@@ -122,6 +179,8 @@ export interface WeeklyDigest extends LedgerTotals {
   VirtualAccessed: number
   TopTools: WeeklyDigestTool[]
   EmbedReliability: WeeklyDigestEmbedReliability
+  /** Per-feature session coverage week over week; null when the query failed. */
+  Coverage?: CoverageDigest | null
   Heuristic: {
     ApproxBaselineTokens: number
     ApproxTokensReturned: number

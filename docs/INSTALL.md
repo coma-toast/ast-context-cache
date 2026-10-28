@@ -30,7 +30,21 @@ The binary needs no build tools. The local ONNX embedding backend also needs the
 
 ### Updating
 
-Dashboard **Settings → Updates** compares the running build with the latest release. **Update** downloads the archive for this platform, checks it against `checksums.txt`, and replaces `ast-mcp` in place, keeping the old binary as `ast-mcp.prev`; **Restart now** then switches over. A build from source is offered the release too, with a warning, since its version number may not match its code. If a supervisor rebuilds ast-mcp from source on restart (for example an mcp-local `build_command`), remove that step, or it will overwrite the installed release.
+Dashboard **Settings → Updates** compares the running build with the latest release. **Update** downloads the archive for this platform, checks it against `checksums.txt`, and replaces `ast-mcp` in place, keeping the old binary as `ast-mcp.prev`; **Restart now** then switches over to the path ast-mcp was started from (resolved at startup, so it never re-runs `ast-mcp.prev`). A build from source is offered the release too, with a warning, since its version number may not match its code. If a supervisor rebuilds ast-mcp from source on restart (for example an mcp-local `build_command`), remove that step, or it will overwrite the installed release.
+
+### Restarting
+
+**Restart now** (after an update or a data-directory move) first quiesces the process: it stops background loops and the embed queue, drains the MCP and dashboard servers, stops file watchers, closes the embedder's ONNX sessions and the ONNX Runtime environment, flushes buffered writes and closes the databases. It then replaces the process one of three ways, chosen by `AST_RESTART_STRATEGY`:
+
+| Strategy | Default on | What happens |
+|---|---|---|
+| `spawn` | macOS | Starts the binary again as a detached process (same arguments, environment, stdout and stderr; new session), waits up to 60s for it to answer `/health` on the MCP port, then exits 0. If the new process exits or never answers, it is killed and ast-mcp falls back to `exec`, logging `RESTART FALLBACK`. |
+| `exec` | Linux and others | Replaces the process in place (`execve`), keeping its PID, which is what systemd and other PID-tracking supervisors expect. A watchdog exits 1 if the exec hasn't completed after 20s, logging `RESTART HUNG` and the goroutine stacks captured just before it. |
+| `exit` | — | Exits with status 75 for a supervisor to start the new binary (systemd `Restart=on-failure` or `always`, launchd `KeepAlive`). |
+
+macOS defaults to `spawn` because an in-place exec there can hang for good: `execve` must stop every other thread and waits on one stuck in the kernel, and meanwhile the Go runtime can't start threads to recover, so the service stays down with its ports closed. Under a supervisor that restarts on failure, the `exec` watchdog's exit 1 brings the service back by itself. Under launchd with `KeepAlive`, prefer `exit`: a `spawn` child would race the copy launchd starts.
+
+A process started by a restart retries binding its ports for up to 15s while the old sockets close, and logs `Started by a restart` with the previous PID. `/health` reports `pid`, so a supervisor can see the change. When mcp-local started ast-mcp, a `spawn` restart rewrites the mcp-local PID file (`~/.mcp-local/pids/<service>.pid`) that names the old PID to name the new process, with its start time, so `mcp-local status` and `stop` keep tracking it.
 
 ## Manual steps
 
@@ -123,7 +137,7 @@ Adds an `ast-mcp start|start-safe|supervise|stop|restart|status|health|log|build
 
 ## Connect your agents
 
-The installer registers the MCP server and installs skills, rules or instruction blocks, and (opt-in) Claude Code hooks for **Claude Code, Cursor, OpenCode, Codex, Claude Desktop, VS Code, and JetBrains**. It is merge-only: it previews a per-file diff, backs up every file it changes, edits only its own entries and marker blocks, and preserves comments in JSONC and TOML. The exact files and keys per host are in [host-integration.md](host-integration.md).
+The installer registers the MCP server and installs skills, rules or instruction blocks, and hooks (the search-first nudge, plus opt-in Claude Code handoff hooks) for **Claude Code, Cursor, OpenCode, Codex, Claude Desktop, VS Code, and JetBrains**. It is merge-only: it previews a per-file diff, backs up every file it changes, edits only its own entries and marker blocks, and preserves comments in JSONC and TOML. The exact files and keys per host are in [host-integration.md](host-integration.md).
 
 ### Dashboard
 
@@ -148,7 +162,7 @@ ast-mcp version
 | Flag | Applies to | Meaning |
 |---|---|---|
 | `--target` | install, uninstall, verify | `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`, or `all`. Repeatable or comma-separated. Required for install/uninstall; verify defaults to all. |
-| `--component` | install, uninstall | `mcp`, `skills`, `rules`, `hooks` (comma list). Default: every supported component. `hooks` (Claude Code only, opt-in) is offered only when the `feature_handoff_hooks` flag is on; see [handoff.md](handoff.md#claude-code-hooks). |
+| `--component` | install, uninstall | `mcp`, `skills`, `rules`, `hooks` (comma list). Default: every supported component. `hooks` is the [search-first nudge](host-integration.md#search-first-nudge) (Claude Code, Cursor, OpenCode; offered while `feature_search_nudge` is on, the default) plus the Claude Code handoff hooks (only while `feature_handoff_hooks` is on; see [handoff.md](handoff.md#claude-code-hooks)). |
 | `--dry-run` | install, uninstall | Print the diff and statuses without writing. |
 | `--yes` | install, uninstall, restore | Apply. Without `--yes` or `--dry-run`, install/uninstall print the preview and exit 2. |
 | `--mcp-url` | install, uninstall, verify | Register this URL verbatim. |
@@ -164,7 +178,7 @@ ast-mcp version
 | 3 | Conflict: a file changed since the preview, or a config file could not be parsed (nothing was written) |
 | 4 | Unsupported: every requested component is unsupported for a named target |
 
-`ast-mcp hook <event>` is the command the installed Claude Code hooks run; you don't call it yourself except to debug ([handoff.md](handoff.md#claude-code-hooks)).
+`ast-mcp hook <event>` is the command the installed Claude Code and Cursor hooks run; you don't call it yourself except to debug ([handoff.md](handoff.md#claude-code-hooks), [search-first nudge](host-integration.md#search-first-nudge)). To turn the nudge off without uninstalling, switch off `feature_search_nudge` in the dashboard (Settings → Features) or set `AST_FEATURE_SEARCH_NUDGE=false`.
 
 **Backups** live in `~/.astcache/backups/<YYYYMMDD-HHMMSS>/`, one file per modified path with `/` replaced by `%`. The newest 5 per file are kept (setting `installer_backup_keep`). `restore` backs up the current file before writing the old one back.
 
@@ -186,7 +200,7 @@ If you prefer to edit config yourself, use the same entries the installer writes
 | Claude Desktop | `claude_desktop_config.json` | `"mcpServers": {"ast-context-cache": {"command": "/abs/path/to/mcp-local", "args": ["bridge", "http://127.0.0.1:7821/mcp"]}}` (needs [mcp-local](https://github.com/coma-toast/mcp-local) with the `bridge` command), or `{"command": "npx", "args": ["-y", "mcp-remote", "http://127.0.0.1:7821/mcp"]}` |
 | JetBrains AI Assistant | Settings → Tools → AI Assistant → Model Context Protocol (MCP) → Add, server level Global | `{"mcpServers": {"ast-context-cache": {"url": "http://127.0.0.1:7821/mcp"}}}` |
 
-For agent instructions, paste [`instructions/agents-block.md`](../instructions/agents-block.md) into the host's global instructions file (for example `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`), or for Cursor use [`rules/cursor/ast-context-cache.mdc`](../rules/cursor/ast-context-cache.mdc).
+For agent instructions, paste the usage protocol [`rules/protocol.md`](../rules/protocol.md) into the host's global instructions file (for example `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`), or for Cursor into Settings → Rules → User Rules. It is the single source the installer's `rules` component writes for every host.
 
 ## Tool tiers and feature flags
 

@@ -34,6 +34,8 @@ type installerTarget struct {
 	Components []installerComponent `json:"components"`
 }
 
+// installerOverview is the Agent integration card data. HooksEnabled shows the Hooks row: on
+// while feature_handoff_hooks or feature_search_nudge is.
 type installerOverview struct {
 	Targets        []installerTarget `json:"targets"`
 	LegacyWarnings []string          `json:"legacy_warnings"`
@@ -87,7 +89,7 @@ func handleInstallerOverview(w http.ResponseWriter, r *http.Request) {
 	writeInstallerJSON(w, http.StatusOK, installerOverview{
 		Targets:        mergeInstallerStatus(svc.Targets(), statuses),
 		LegacyWarnings: svc.LegacyWarnings(),
-		HooksEnabled:   flags.Enabled(flags.KeyHandoffHooks),
+		HooksEnabled:   flags.Enabled(flags.KeyHandoffHooks) || flags.Enabled(flags.KeySearchNudge),
 	})
 }
 

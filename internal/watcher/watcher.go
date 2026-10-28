@@ -159,6 +159,10 @@ func StartWatcher(projectPath string) {
 		logRefusalOnce(projectPath, reason)
 		return
 	}
+	if kids := projectlinks.SpaceCheckouts(projectPath); len(kids) > 0 {
+		watchSpace(projectPath, kids)
+		return
+	}
 	mu.Lock()
 	if _, exists := activeWatchers[projectPath]; exists {
 		mu.Unlock()
@@ -242,8 +246,15 @@ func catchUp(projectPath string) {
 	}
 	indexed := db.GetIndexedFiles(projectPath)
 	seen := map[string]bool{}
-	stale := 0
+	stale, reused := 0, 0
 	filter := indexer.NewPathFilter(projectPath)
+	// A project with no index of its own (a new space's checkout) copies every
+	// unchanged file from an indexed sibling checkout instead of re-parsing and
+	// re-embedding it; FindReuseSource returns nil for an already-indexed project.
+	var reuse *indexer.ReuseSource
+	if len(indexed) == 0 {
+		reuse = indexer.FindReuseSource(projectPath)
+	}
 	walkErr := filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -281,18 +292,26 @@ func catchUp(projectPath string) {
 		if projectDeleted(projectPath) {
 			return filepath.SkipAll
 		}
-		n, fullT, skelT, err := indexer.IndexFile(path, projectPath)
-		if err == nil {
+		out, err := indexer.IndexOrReuse(path, projectPath, reuse)
+		if err != nil {
+			return nil
+		}
+		if out.Reused {
+			reused++
+		} else {
 			stale++
-			logger.Debug("Catch-up re-indexed file", "file", path, "symbols", n)
+			logger.Debug("Catch-up re-indexed file", "file", path, "symbols", out.Symbols)
 			// Log baseline token counts for analytics; tokens_saved=0 — savings are calculated when querying.
-			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{TokensUsed: skelT, SymbolBaseline: fullT, FileBaseline: fullT}, projectPath, "")
-			if PostIndexHook != nil {
-				go PostIndexHook(path, projectPath, false)
-			}
+			db.LogQuery("file_watcher", map[string]interface{}{"event": "reindex", "file": path}, db.QueryLogMetrics{TokensUsed: out.SkeletonTokens, SymbolBaseline: out.FullTokens, FileBaseline: out.FullTokens}, projectPath, "")
+		}
+		// Reused files carry the sibling's vectors, so they only need the
+		// embedder when the sibling had not finished embedding them.
+		if out.NeedsEmbed && PostIndexHook != nil {
+			go PostIndexHook(path, projectPath, false)
 		}
 		return nil
 	})
+	indexer.LogReuse(reuse, projectPath, reused, stale)
 	if projectDeleted(projectPath) {
 		return
 	}
@@ -307,8 +326,8 @@ func catchUp(projectPath string) {
 			go PostIndexHook(file, projectPath, true)
 		}
 	}
-	if stale > 0 || removed > 0 {
-		logger.Info("Catch-up complete", "project", projectPath, "reindexed", stale, "removed", removed)
+	if stale > 0 || reused > 0 || removed > 0 {
+		logger.Info("Catch-up complete", "project", projectPath, "reindexed", stale, "reused", reused, "removed", removed)
 	}
 	if removed > 0 {
 		realtime.Notify(realtime.IndexCommitted)

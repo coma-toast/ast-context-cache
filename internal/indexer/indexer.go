@@ -712,14 +712,16 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int)) (int, error) {
 	dirPath = filepath.Clean(dirPath)
 	projectPath = projectlinks.NormalizePath(projectPath)
+	if kids := projectlinks.SpaceCheckouts(projectPath); len(kids) > 0 {
+		return indexSpace(dirPath, projectPath, kids, onFile)
+	}
 	if dirPath == projectPath {
 		projectlinks.SyncAutoLinks(projectPath)
 	}
 	// A fresh checkout of an already-indexed repo copies unchanged files from its
 	// sibling instead of re-parsing and re-embedding them.
 	reuse := FindReuseSource(projectPath)
-	reused := 0
-	count := 0
+	reused, parsed, count := 0, 0, 0
 	filter := NewPathFilter(projectPath)
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -747,33 +749,67 @@ func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int
 		if filter.SkipFile(path) {
 			return nil
 		}
-		if reuse != nil {
-			if n, ok := ReuseFile(path, projectPath, reuse); ok {
-				count += n
-				reused++
-				if onFile != nil {
-					onFile(n)
-				}
-				return nil
-			}
-		}
-		n, _, _, err := IndexFile(path, projectPath)
+		out, err := IndexOrReuse(path, projectPath, reuse)
 		if err != nil {
 			logger.Warn("Failed to index file", "file", path, "error", err)
 		}
-		count += n
+		if out.Reused {
+			reused++
+		} else if err == nil {
+			parsed++
+		}
+		count += out.Symbols
 		if onFile != nil {
-			onFile(n)
+			onFile(out.Symbols)
 		}
 		return nil
 	})
-	if reused > 0 {
-		logger.Info("Reused unchanged files from sibling checkout", "files", reused, "sibling", reuse.ProjectPath, "project", projectPath)
-	}
+	LogReuse(reuse, projectPath, reused, parsed)
 	// Files deleted while no watcher was running (e.g. server down) are never seen
 	// by the walk above; drop their rows so search stops returning them.
 	PruneMissingFiles(dirPath, projectPath)
 	return count, err
+}
+
+// indexSpace indexes a wtg space root as its child checkouts: each becomes its own
+// project (reusing a sibling checkout's index where it can) linked under the root,
+// so the root is never indexed as one project that duplicates them all.
+func indexSpace(dirPath, root string, kids []string, onFile func(symbols int)) (int, error) {
+	projectlinks.LinkSpaceCheckouts(root, kids)
+	total := 0
+	for _, k := range kids {
+		dir := ""
+		switch {
+		case dirPath == root:
+			dir = k
+		case projectlinks.IsUnderPath(dirPath, k):
+			dir = dirPath
+		default:
+			continue
+		}
+		n, err := IndexDirectoryProgress(dir, k, onFile)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if dirPath != root {
+			return total, nil
+		}
+	}
+	if dirPath != root {
+		return 0, errs.NewCode(errs.CodeInvalidInput, "path is in a wtg space but outside every checkout; index it with its own project_path", "path", dirPath, "space", root)
+	}
+	logger.Info("Indexed space checkouts", "space", root, "checkouts", len(kids), "symbols", total)
+	return total, nil
+}
+
+// LogReuse logs how many files a first index copied from a sibling checkout
+// versus parsed, so reuse (or its absence) shows up in the server log.
+func LogReuse(src *ReuseSource, projectPath string, reused, parsed int) {
+	if src == nil || reused == 0 {
+		return
+	}
+	logger.Info("Reused unchanged files from sibling checkout", "files", reused, "parsed", parsed, "sibling", src.ProjectPath, "project", projectPath)
 }
 
 func GetIndexStats(projectPath string) (map[string]interface{}, error) {

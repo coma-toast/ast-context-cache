@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      { "command": "./hooks/guard-shell.sh", "matcher": "Shell" },
+      {
+        "command": "/opt/ast/bin/ast-mcp hook cursor-search-nudge",
+        "matcher": "Read|Grep|Glob|MCP:.*",
+        "timeout": 3
+      }
+    ]
+  }
+}

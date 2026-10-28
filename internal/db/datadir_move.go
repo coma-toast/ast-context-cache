@@ -204,10 +204,10 @@ func runDataDirMove(target string) {
 	snap.Kept = kept
 	setDataDirMove(snap)
 
-	// Restarting in place has a demonstrated, not-yet-understood crash risk under
-	// concurrent background load (see RestartProcess's doc comment) — require an
-	// explicit follow-up action (the dashboard's "Restart now" button, wired to
-	// RestartProcess directly) rather than triggering it automatically here.
+	// A restart drops in-flight MCP streams and the dashboard connection (see
+	// RestartProcess's doc comment) — require an explicit follow-up action (the
+	// dashboard's "Restart now" button, wired to RestartProcess directly) rather than
+	// triggering it automatically here.
 }
 
 func joinOrNone(items []string) string {

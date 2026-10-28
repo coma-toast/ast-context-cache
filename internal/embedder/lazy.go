@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
@@ -15,7 +16,10 @@ type LazyEmbedder struct {
 	inner    *Embedder
 	lastUsed time.Time
 	stopIdle chan struct{}
+	stopped  bool
 }
+
+var errEmbedderStopped = errs.New("embedder stopped")
 
 func NewLazy(modelDir string) *LazyEmbedder {
 	le := &LazyEmbedder{modelDir: modelDir, stopIdle: make(chan struct{})}
@@ -30,6 +34,11 @@ func NewLazy(modelDir string) *LazyEmbedder {
 // ticker acquire le.mu and Close() the same *Embedder instance while a caller
 // was still mid-call on it, a use-after-close race for a large in-flight batch.
 func (le *LazyEmbedder) getLocked() (*Embedder, error) {
+	// A stopped embedder must not lazy-load a fresh ONNX session behind the restart or
+	// swap that stopped it (and its idle loop is gone, so it would never unload).
+	if le.stopped {
+		return nil, errEmbedderStopped
+	}
 	le.lastUsed = time.Now()
 	if le.inner != nil {
 		return le.inner, nil
@@ -82,8 +91,17 @@ func (le *LazyEmbedder) Close() {
 	}
 }
 
+// Stop ends the idle loop and closes the ONNX session for good; later calls fail with
+// errEmbedderStopped instead of reloading the model. It is safe to call more than once.
 func (le *LazyEmbedder) Stop() {
+	le.mu.Lock()
+	if le.stopped {
+		le.mu.Unlock()
+		return
+	}
+	le.stopped = true
 	close(le.stopIdle)
+	le.mu.Unlock()
 	le.Close()
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Alert,
   Box,
@@ -17,14 +17,16 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
+import { FeatureCoverageCard } from '../components/FeatureCoverageCard'
 import { HandoffTreesCard } from '../components/HandoffTreesCard'
 import { RingGauge } from '../components/charts/RingGauge'
 import { RecoveryBanner } from '../components/RecoveryBanner'
 import { useToast } from '../context/ToastContext'
-import type { ContextSessionStory, ContextSessionsResponse, HandoffTreesResponse, HostUsageResponse, Stats, WeeklyDigest } from '../api/types'
+import type { ContextSessionStory, ContextSessionsResponse, FeatureCoverage, HandoffTreesResponse, HostUsageResponse, Stats, WeeklyDigest } from '../api/types'
 import { formatStat } from '../components/HealthBar'
 import { MetricStatCard } from '../components/charts/MetricStatCard'
 import { chartColors } from '../lib/chartColors'
+import { SEARCHLESS_WARN_PCT } from '../lib/coverage'
 import { fmtDailyAvg, meterFillSegments, todayMeterFill } from '../lib/statMeters'
 import { hostUsageBars, hostUsageTotals, ledgerSplit, showHostUsage, tokensSavedDetail, tokensSavedSub, virtualLedger } from '../lib/ledger'
 
@@ -35,6 +37,7 @@ const mono = '"JetBrains Mono", ui-monospace, monospace'
 export function OverviewTab({
   stats,
   weeklyDigest,
+  featureCoverage,
   contextSessions,
   handoffTrees,
   hostUsage,
@@ -44,6 +47,8 @@ export function OverviewTab({
 }: {
   stats: Stats | null
   weeklyDigest?: WeeklyDigest | null
+  /** Feature coverage report; undefined hides the card, null shows it loading. */
+  featureCoverage?: FeatureCoverage | null
   contextSessions?: ContextSessionsResponse | null
   /** Handoff trees (OB-4); undefined hides the card, null shows it loading. */
   handoffTrees?: HandoffTreesResponse | null
@@ -122,6 +127,11 @@ export function OverviewTab({
             onChanged={onChanged}
           />
         </Grid>
+        {featureCoverage !== undefined && (
+          <Grid size={{ xs: 12 }}>
+            <FeatureCoverageCard data={featureCoverage} trend={weeklyDigest?.Coverage} />
+          </Grid>
+        )}
         {showHostUsage(hostUsage) && (
           <Grid size={{ xs: 12 }}>
             <HostUsageCard data={hostUsage} />
@@ -209,6 +219,13 @@ function WeekCard({ digest, onChanged }: { digest: WeeklyDigest | null; onChange
             value={(digest.Heuristic?.ApproxRoundsAvoided ?? 0).toFixed(1)}
             color={chartColors.purple}
           />
+          {digest.Coverage && digest.Coverage.ActiveSessions > 0 && (
+            <InlineStat
+              label="Search-less sessions"
+              value={`${formatStat(digest.Coverage.SearchlessSessions)} / ${formatStat(digest.Coverage.ActiveSessions)}`}
+              color={digest.Coverage.SearchlessPct >= SEARCHLESS_WARN_PCT ? chartColors.orange : undefined}
+            />
+          )}
         </Stack>
         {pendingFailures > 0 && (
           <Alert
