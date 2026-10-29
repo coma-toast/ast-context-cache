@@ -76,6 +76,10 @@ func Init() error {
 	if err != nil {
 		return fmtOpenErr("index", idxPath, err)
 	}
+	indexWriteDB, err = openIndexWritePool(idxPath)
+	if err != nil {
+		return fmtOpenErr("index write", idxPath, err)
+	}
 	ContextDB, err = openPool(ctxPath)
 	if err != nil {
 		return fmtOpenErr("context", ctxPath, err)
