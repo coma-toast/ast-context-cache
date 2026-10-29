@@ -709,9 +709,17 @@ func IndexDirectory(dirPath, projectPath string) (int, error) {
 
 // IndexDirectoryProgress is IndexDirectory with an optional per-file callback (symbols
 // indexed or reused for that file), used by async index_files jobs to report progress.
+//
+// A projectPath that is itself a symlink to a directory is keyed under its target
+// (projectlinks.CanonicalProject), and a dirPath reaching into the project through
+// a symlink is respelled under it, so the walk never starts at a link: Walk Lstats
+// its root and would visit a linked root as a single non-directory entry.
 func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int)) (int, error) {
-	dirPath = filepath.Clean(dirPath)
-	projectPath = projectlinks.NormalizePath(projectPath)
+	projectPath = projectlinks.CanonicalProject(projectPath)
+	dirPath = projectlinks.RebaseIntoProject(projectlinks.CanonicalProject(dirPath), projectPath)
+	if fi, err := os.Stat(dirPath); err == nil && !fi.IsDir() {
+		return 0, errs.NewCode(errs.CodeInvalidInput, "path is not a directory", "path", dirPath, "project", projectPath)
+	}
 	if kids := projectlinks.SpaceCheckouts(projectPath); len(kids) > 0 {
 		return indexSpace(dirPath, projectPath, kids, onFile)
 	}
@@ -721,7 +729,7 @@ func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int
 	// A fresh checkout of an already-indexed repo copies unchanged files from its
 	// sibling instead of re-parsing and re-embedding them.
 	reuse := FindReuseSource(projectPath)
-	reused, parsed, count := 0, 0, 0
+	reused, parsed, count, files := 0, 0, 0, 0
 	filter := NewPathFilter(projectPath)
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -749,6 +757,7 @@ func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int
 		if filter.SkipFile(path) {
 			return nil
 		}
+		files++
 		out, err := IndexOrReuse(path, projectPath, reuse)
 		if err != nil {
 			logger.Warn("Failed to index file", "file", path, "error", err)
@@ -765,6 +774,9 @@ func IndexDirectoryProgress(dirPath, projectPath string, onFile func(symbols int
 		return nil
 	})
 	LogReuse(reuse, projectPath, reused, parsed)
+	if err == nil && files == 0 {
+		logger.Warn("No code files found to index", "path", dirPath, "project", projectPath)
+	}
 	// Files deleted while no watcher was running (e.g. server down) are never seen
 	// by the walk above; drop their rows so search stops returning them.
 	PruneMissingFiles(dirPath, projectPath)

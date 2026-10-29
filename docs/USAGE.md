@@ -93,6 +93,8 @@ Hosts clear old tool results from the chat window on their own (Claude Code cont
    → Verify indexing completed
 ```
 
+**Symlinked project roots.** When `project_path` is itself a symlink to a directory (`/home/u/configSync -> /syncthing/configSync`), the project is indexed, watched and stored under the link's target (`/syncthing/configSync`). Every tool resolves the link the same way, so `index_status` and searches answer for either spelling, and an `index_files` `path` given through the link is respelled under the target. A path whose only symlinks are parent directories (macOS `/tmp -> /private/tmp`) keeps its spelling. Symlinks inside the tree are not followed as directories. A directory job that finds no code files still completes, but with a `warning`.
+
 ### 2. Finding Code
 ```
 # Specific function/class

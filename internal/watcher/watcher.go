@@ -61,16 +61,11 @@ var PostIndexHook func(filePath, projectPath string, removed bool)
 // re-index finishes, with the project's new drain generation.
 var QueueDrainedHook func(projectPath string, gen uint64)
 
-// NormalizeProjectPath returns a canonical absolute path for watcher map keys.
+// NormalizeProjectPath returns a canonical absolute path for watcher map keys. A
+// path that is itself a symlink to a directory resolves to its target (see
+// projectlinks.ResolveRootLink), so the link and real spellings are one project.
 func NormalizeProjectPath(projectPath string) string {
-	projectPath = strings.TrimSpace(projectPath)
-	if projectPath == "" {
-		return ""
-	}
-	if abs, err := filepath.Abs(projectPath); err == nil {
-		projectPath = abs
-	}
-	return filepath.Clean(projectPath)
+	return projectlinks.CanonicalProject(projectPath)
 }
 
 // RegisterKnownProject records a project in the dashboard list without starting a watcher.
