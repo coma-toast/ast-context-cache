@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { InstallerComponent, InstallerFileChange, InstallerStatus, InstallerTarget } from '../api/types'
 
 import {
+  applyToast,
   changeKindLabel,
   classifyDiffLine,
   componentLabel,
@@ -138,6 +139,22 @@ describe('writableChanges', () => {
   it('drops skipped changes', () => {
     const kept = change()
     expect(writableChanges([kept, change({ skipped: true, kind: 'none', reason: 'same file as cursor' })])).toEqual([kept])
+  })
+})
+
+describe('applyToast', () => {
+  const res = { plan_id: 'plan_1', written: ['/a'], backups: [], status: [], warnings: [] }
+
+  it('reports success when no host needs a recheck', () => {
+    expect(applyToast('install', res, 'Cursor')).toEqual({ message: 'Installed: 1 file written', severity: 'success' })
+    expect(applyToast('uninstall', { ...res, written: [], recheck: [] }, 'Cursor').message).toBe('Uninstalled: 0 files written')
+  })
+
+  it('warns when the running host may undo the change', () => {
+    const recheck = [{ target: 'claude_desktop' as const, component: 'mcp' as const, status: 'installed' as const, path: '/c.json' }]
+    const t = applyToast('install', { ...res, recheck }, 'Claude Desktop')
+    expect(t.severity).toBe('warning')
+    expect(t.message).toContain('Claude Desktop is running and may undo it. Quit Claude Desktop')
   })
 })
 

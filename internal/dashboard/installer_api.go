@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/flags"
@@ -18,6 +19,10 @@ const installerUnavailableMsg = "installer not ready; the database is still open
 var (
 	installerMu  sync.RWMutex
 	installerSvc installer.Service
+
+	// installerRecheckDelays are when, after an apply, components written while their host was
+	// running are re-verified. Claude Desktop has been seen dropping an entry 30s after the write.
+	installerRecheckDelays = []time.Duration{10 * time.Second, 30 * time.Second, 60 * time.Second}
 )
 
 // installerComponent is one target × component cell: where it is written plus its on-disk status.
@@ -72,6 +77,7 @@ func registerInstallerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/installer/apply", handleInstallerApply)
 	mux.HandleFunc("/api/dashboard/installer/backups", handleInstallerBackups)
 	mux.HandleFunc("/api/dashboard/installer/restore", handleInstallerRestore)
+	mux.HandleFunc("/api/dashboard/installer/legacy/dismiss", handleInstallerLegacyDismiss)
 }
 
 // handleInstallerOverview lists every target's components with their status from disk (IN-8),
@@ -86,11 +92,31 @@ func handleInstallerOverview(w http.ResponseWriter, r *http.Request) {
 		writeInstallerError(w, err)
 		return
 	}
+	legacy := svc.LegacyWarnings()
+	if len(legacy) > 0 {
+		// Showing them here is their one-time display: later CLI installs stay quiet, while
+		// this card keeps them until dismissed.
+		svc.ClaimLegacyWarnings()
+	}
 	writeInstallerJSON(w, http.StatusOK, installerOverview{
 		Targets:        mergeInstallerStatus(svc.Targets(), statuses),
-		LegacyWarnings: svc.LegacyWarnings(),
+		LegacyWarnings: legacy,
 		HooksEnabled:   flags.Enabled(flags.KeyHandoffHooks) || flags.Enabled(flags.KeySearchNudge),
 	})
+}
+
+// handleInstallerLegacyDismiss hides the pre-4.0 install warnings everywhere.
+func handleInstallerLegacyDismiss(w http.ResponseWriter, r *http.Request) {
+	svc, ok := installerFor(w, r, http.MethodPost)
+	if !ok {
+		return
+	}
+	if err := svc.DismissLegacyWarnings(); err != nil {
+		writeInstallerError(w, err)
+		return
+	}
+	realtime.Notify(realtime.SettingsChanged)
+	writeInstallerJSON(w, http.StatusOK, map[string]string{"status": "dismissed"})
 }
 
 // handleInstallerPreview plans an install or uninstall and returns the per-file diff. Nothing is
@@ -134,7 +160,28 @@ func handleInstallerApply(w http.ResponseWriter, r *http.Request) {
 		writeApplyError(w, err)
 		return
 	}
+	if len(res.Recheck) > 0 {
+		go recheckInstall(svc, res.Recheck, installerRecheckDelays)
+	}
 	writeInstallerJSON(w, http.StatusOK, res)
+}
+
+// recheckInstall re-verifies components written while their host was running, stopping at the
+// first change: Recheck logs it, and listeners refresh to show the new status and its reason.
+func recheckInstall(svc installer.Service, applied []installer.ComponentStatus, delays []time.Duration) {
+	start := time.Now()
+	for _, d := range delays {
+		time.Sleep(time.Until(start.Add(d)))
+		_, warnings, err := svc.Recheck(applied)
+		if err != nil {
+			logger.Warn("Installer recheck failed", "error", err)
+			return
+		}
+		if len(warnings) > 0 {
+			realtime.Notify(realtime.SettingsChanged)
+			return
+		}
+	}
 }
 
 // handleInstallerBackups lists saved backups, newest first.

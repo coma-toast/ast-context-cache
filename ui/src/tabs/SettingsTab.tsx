@@ -1,14 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Box,
   Button,
   Card,
   CardContent,
-  Checkbox,
   Chip,
   FormControl,
-  FormControlLabel,
   IconButton,
   InputLabel,
   MenuItem,
@@ -32,6 +30,10 @@ import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
 import { RecoveryBanner } from '../components/RecoveryBanner'
+import { DraftSwitch, EmbeddingSection, PerformanceSection, ProxmoxSection, RetentionSection, VirtualContextSection, WatcherSection } from '../components/SettingsFormSections'
+import { SettingsSaveBar } from '../components/SettingsSaveBar'
+import { SettingsSaveContext, useSettingsDraft, type SettingsSaveApi } from '../hooks/useSettingsDraft'
+import { settingsCardSx, storageSaved } from '../lib/settingsSections'
 import { ConfirmDeleteButton } from '../components/ConfirmDeleteButton'
 import { DirectoryPicker } from '../components/DirectoryPicker'
 import { EmbedQueueSettingsSection } from '../components/EmbedQueueSettingsSection'
@@ -72,7 +74,8 @@ export function SettingsTab({
 }: {
   data: SettingsData | null
   mcpTier: MCPTier | null
-  onRefresh: () => void
+  /** Reloads settings; a section keeps showing what it saved until this settles. */
+  onRefresh: () => void | Promise<void>
   /** Live index health, for the embed queue depth shown beside each limit. */
   indexHealth?: IndexHealth | null
 }) {
@@ -84,6 +87,25 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
 	const [pendingPaths, setPendingPaths] = useState<Record<string, boolean>>({})
 	const [editingExcludes, setEditingExcludes] = useState<Record<string, string>>({})
 	const [editingPinned, setEditingPinned] = useState<Record<string, string>>({})
+  const [dirtySections, setDirtySections] = useState<Record<string, boolean>>({})
+  const markDirty = useCallback(
+    (section: string, dirty: boolean) => setDirtySections((prev) => (!!prev[section] === dirty ? prev : { ...prev, [section]: dirty })),
+    [],
+  )
+  const saveApi = useMemo<SettingsSaveApi>(
+    () => ({ saveBatch: (changes) => api.saveSettings(changes), refresh: onRefresh, markDirty }),
+    [onRefresh, markDirty],
+  )
+  const anyDirty = Object.values(dirtySections).some(Boolean)
+  useEffect(() => {
+    if (!anyDirty) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [anyDirty])
 
   if (!data) return <Typography color="text.secondary">Loading settings…</Typography>
 
@@ -101,18 +123,6 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
       })
     }
   }
-
-  const save = async (key: string, value: string) => {
-    try {
-      await api.saveSetting(key, value)
-      showToast('Setting saved', 'success')
-      onRefresh()
-    } catch (e) {
-      showToast(String(e), 'error')
-    }
-  }
-
-  const saveSettingField = (key: string, value: string) => save(key, value)
 
   const projects = data.Projects || []
   const projectExcludes = (path: string) => data.ProjectIndexExcludes?.[path] ?? []
@@ -163,6 +173,7 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
   )
 
   return (
+    <SettingsSaveContext.Provider value={saveApi}>
     <Box>
       <Stack direction="row" spacing={1} useFlexGap sx={{
         flexWrap: 'wrap',
@@ -177,293 +188,45 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
         borderColor: 'divider',
       }}>
         {SECTIONS.map((s) => (
-          <Chip key={s.id} label={s.label} component="a" href={`#settings-${s.id}`} clickable variant="outlined" size="small" />
+          <Chip
+            key={s.id}
+            label={dirtySections[s.id] ? `${s.label} •` : s.label}
+            title={dirtySections[s.id] ? 'Unsaved changes' : undefined}
+            color={dirtySections[s.id] ? 'warning' : 'default'}
+            component="a"
+            href={`#settings-${s.id}`}
+            clickable
+            variant="outlined"
+            size="small"
+          />
         ))}
       </Stack>
 
       <UpdatesSection />
 
-      <InstanceSettingsSection data={data} save={save} />
+      <InstanceSettingsSection data={data} />
 
-      <StorageSection data={data} save={save} />
+      <StorageSection data={data} />
 
-      <Card variant="outlined" id="settings-proxmox" sx={{ mb: 2 }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            Proxmox
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Connect to Proxmox VE to monitor VM disk health alongside local disks.
-          </Typography>
-          <Stack spacing={1.5}>
-            <TextField
-              label="API URL"
-              size="small"
-              fullWidth
-              defaultValue={data.ProxmoxSettings?.URL || ''}
-              helperText="https://proxmox.example.com:8006/api2/json"
-              onBlur={(e) => saveSettingField('proxmox_url', e.target.value)}
-            />
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
-              <TextField
-                label="Node"
-                size="small"
-                defaultValue={data.ProxmoxSettings?.Node || ''}
-                helperText="Proxmox node name (e.g. pve)"
-                onBlur={(e) => saveSettingField('proxmox_node', e.target.value)}
-              />
-              <TextField
-                label="Token ID"
-                size="small"
-                fullWidth
-                defaultValue={data.ProxmoxSettings?.TokenID || ''}
-                helperText="root@pam!tokenid"
-                onBlur={(e) => saveSettingField('proxmox_token_id', e.target.value)}
-              />
-            </Stack>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
-              <TextField
-                label="Secret"
-                size="small"
-                fullWidth
-                type="password"
-                defaultValue={data.ProxmoxSettings?.Secret || ''}
-                helperText="API token secret"
-                onBlur={(e) => saveSettingField('proxmox_secret', e.target.value)}
-              />
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>Timeout (sec)</InputLabel>
-                <Select label="Timeout" defaultValue={data.ProxmoxSettings?.Timeout ?? 10} onChange={(e) => saveSettingField('proxmox_timeout', String(e.target.value))}>
-                  {['5', '10', '15', '30', '60'].map((v) => (
-                    <MenuItem key={v} value={v}>{v}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={data.ProxmoxSettings?.Insecure ?? false}
-                    onChange={() => saveSettingField('proxmox_insecure', String(!(data.ProxmoxSettings?.Insecure ?? false)))}
-                    size="small"
-                  />
-                }
-                label="Allow self-signed certificates"
-                sx={{ mt: 0.25 }}
-              />
-            </Stack>
-            <Button
-              size="small"
-              variant="outlined"
-              color="primary"
-              disabled={!data.ProxmoxSettings?.URL || !data.ProxmoxSettings?.TokenID || !data.ProxmoxSettings?.Secret}
-              onClick={async () => {
-                try {
-                  await api.proxmoxTest()
-                  showToast('Proxmox connection OK', 'success')
-                } catch (e) {
-                  showToast(String(e), 'error')
-                }
-              }}
-            >
-              Test connection
-            </Button>
-          </Stack>
-          <Box sx={{ mt: 1.5, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-              Configured:
-            </Typography>
-            <Stack spacing={0.5}>
-              <Typography variant="caption">
-                URL:{' '}
-                <Box component="span" sx={{ fontFamily: 'monospace', ml: 0.5 }}>
-                  {data.ProxmoxSettings?.URL || '—'}
-                </Box>
-              </Typography>
-              <Typography variant="caption">
-                Node:{' '}
-                <Box component="span" sx={{ fontFamily: 'monospace', ml: 0.5 }}>
-                  {data.ProxmoxSettings?.Node || '—'}
-                </Box>
-              </Typography>
-              <Typography variant="caption">
-                Token:{' '}
-                <Box component="span" sx={{ fontFamily: 'monospace', ml: 0.5 }}>
-                  {data.ProxmoxSettings?.TokenID ? '••••••••' : '—'}
-                </Box>
-              </Typography>
-            </Stack>
-          </Box>
-        </CardContent>
-      </Card>
+      <ProxmoxSection data={data} />
 
       <RecoveryBanner />
 
       <FeaturesSection refreshKey={data} />
 
-      <Card variant="outlined" id="settings-performance" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            Performance
-          </Typography>
-          <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }} useFlexGap>
-            <TextField
-              label="Idle unload (minutes)"
-              type="number"
-              size="small"
-              defaultValue={data.IdleUnloadMinutes}
-              onBlur={(e) => save('idle_unload_minutes', e.target.value)}
-            />
-            <TextField
-              label="Max embed workers"
-              type="number"
-              size="small"
-              slotProps={{ htmlInput: { min: 1, max: 64 } }}
-              defaultValue={data.EmbedWorkerMax ?? 15}
-              onBlur={(e) => save('embed_worker_max', e.target.value)}
-              helperText="Primary pool +/− cap"
-            />
-            <TextField
-              label="Max aux embed workers"
-              type="number"
-              size="small"
-              slotProps={{ htmlInput: { min: 1, max: 32 } }}
-              defaultValue={data.EmbedAuxWorkerMax ?? 10}
-              onBlur={(e) => save('embed_aux_worker_max', e.target.value)}
-              helperText="Aux catch-up pool cap"
-            />
-            <TextField
-              label="Aux embed workers"
-              type="number"
-              size="small"
-              slotProps={{ htmlInput: { min: 0, max: data.EmbedAuxWorkerMax ?? 10 } }}
-              defaultValue={data.EmbedAuxWorkers ?? 0}
-              onBlur={(e) => save('EMBED_AUX_WORKERS', e.target.value)}
-              helperText="Also adjustable on Overview"
-            />
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel id="embed-aux-backend">Aux embed backend</InputLabel>
-              <Select
-                labelId="embed-aux-backend"
-                label="Aux embed backend"
-                defaultValue={data.EmbedAuxBackend || 'onnx'}
-                onChange={(e) => save('EMBED_AUX_BACKEND', String(e.target.value))}
-              >
-                <MenuItem value="onnx">onnx (local)</MenuItem>
-                <MenuItem value="http">http</MenuItem>
-                <MenuItem value="ollama">ollama</MenuItem>
-                <MenuItem value="openai">openai / litellm</MenuItem>
-                <MenuItem value="docker">docker (DMR)</MenuItem>
-              </Select>
-            </FormControl>
-            {data.EmbedProbeIntervalSec != null && (
-              <TextField
-                label="Probe interval (sec)"
-                type="number"
-                size="small"
-                slotProps={{ htmlInput: { min: 5, max: 600 } }}
-                defaultValue={data.EmbedProbeIntervalSec}
-                onBlur={(e) => save('embed_probe_interval_seconds', e.target.value)}
-              />
-            )}
-          </Stack>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-            Aux controls appear on the embeddings card when the aux backend differs from the primary backend.
-          </Typography>
-        </CardContent>
-      </Card>
+      <PerformanceSection data={data} />
 
-      <EmbedQueueSettingsSection data={data} indexHealth={indexHealth} save={save} />
+      <EmbedQueueSettingsSection data={data} indexHealth={indexHealth} />
 
-      <Card variant="outlined" id="settings-virtual" sx={{ mb: 2 }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            Virtual context
-          </Typography>
-          <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }} useFlexGap>
-            <TextField label="Max notes / session" type="number" size="small" defaultValue={data.ContextMaxNotesSession} onBlur={(e) => save('context_max_notes_session', e.target.value)} />
-            <TextField label="Max tokens / session" type="number" size="small" defaultValue={data.ContextMaxTokensSession} onBlur={(e) => save('context_max_tokens_session', e.target.value)} />
-            <TextField label="Max notes global" type="number" size="small" defaultValue={data.ContextMaxNotesGlobal} onBlur={(e) => save('context_max_notes_global', e.target.value)} />
-            <TextField label="Max tokens global" type="number" size="small" defaultValue={data.ContextMaxTokensGlobal} onBlur={(e) => save('context_max_tokens_global', e.target.value)} />
-          </Stack>
-          <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'error.dark', borderRadius: 1 }}>
-            <Typography variant="subtitle2" color="error">
-              Danger zone
-            </Typography>
-            <Button color="error" variant="outlined" size="small" sx={{ mt: 1 }} onClick={async () => {
-              if (!confirm('Flush ALL virtual context across every session and project? This is irreversible.')) return
-              try {
-                await api.flushContextAll()
-                showToast('Flushed all virtual context', 'success')
-              } catch (e) {
-                showToast(String(e), 'error')
-              }
-            }}>
-              Flush all virtual context
-            </Button>
-          </Box>
-        </CardContent>
-      </Card>
+      <VirtualContextSection data={data} />
 
-      <HandoffSettingsSection data={data} save={save} />
+      <HandoffSettingsSection data={data} />
 
-      <Card variant="outlined" id="settings-embedding" sx={{ mb: 2 }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            Embedding backend
-          </Typography>
-          <Chip label={`Active: ${data.EmbedActiveBackend} / ${data.EmbedActiveModel}`} size="small" sx={{ mb: 2 }} />
-          <Stack spacing={2}>
-            <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel>Backend</InputLabel>
-              <Select label="Backend" defaultValue={data.EmbedBackend || 'onnx'} onChange={(e) => save('EMBED_BACKEND', e.target.value)}>
-                {['onnx', 'ollama', 'http', 'openai', 'docker'].map((b) => (
-                  <MenuItem key={b} value={b}>
-                    {b}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <TextField label="HTTP URL" size="small" fullWidth defaultValue={data.EmbedHTTPURL} onBlur={(e) => save('EMBED_HTTP_URL', e.target.value)} />
-            <TextField label="HTTP bearer" size="small" fullWidth type="password" defaultValue={data.EmbedHTTPBearer} onBlur={(e) => save('EMBED_HTTP_BEARER', e.target.value)} />
-            <TextField label="OpenAI API key" size="small" fullWidth type="password" defaultValue={data.EmbedOpenAIAPIKey} onBlur={(e) => save('EMBED_OPENAI_API_KEY', e.target.value)} />
-            <Button variant="outlined" size="small" onClick={async () => {
-              try {
-                await api.embedderTest()
-                showToast('Embedder test OK', 'success')
-              } catch (e) {
-                showToast(String(e), 'error')
-              }
-            }}>
-              Test embedder
-            </Button>
-          </Stack>
-        </CardContent>
-      </Card>
+      <EmbeddingSection data={data} onRefresh={onRefresh} />
 
-      <Card variant="outlined" id="settings-watcher" sx={{ mb: 2 }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            File watcher & indexing
-          </Typography>
-          <TextField label="Watcher ignore globs (JSON)" multiline minRows={2} fullWidth size="small" defaultValue={data.WatcherIgnoreGlobs} onBlur={(e) => save('watcher_ignore_globs', e.target.value)} sx={{ mb: 1 }} />
-          <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
-            Applies to every project. Each repo's .gitignore (nested), .stignore and .astignore are also honored, and
-            per-project excludes live under Projects → Excludes. Excluded directories are pruned, not walked.
-          </Typography>
-          <Button size="small" onClick={() => save('index_log_files', data.IndexLogFiles ? 'false' : 'true')}>
-            Index .log files: {data.IndexLogFiles ? 'On' : 'Off'}
-          </Button>
-        </CardContent>
-      </Card>
+      <WatcherSection data={data} />
 
-      <Card variant="outlined" id="settings-retention" sx={{ mb: 2 }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            Retention
-          </Typography>
-          <TextField label="Query retention max age (days)" type="number" size="small" defaultValue={data.QueryRetentionMaxAgeDays} onBlur={(e) => save('query_retention_max_age_days', e.target.value)} />
-        </CardContent>
-      </Card>
+      <RetentionSection data={data} />
 
       <Card variant="outlined" id="settings-projects" sx={{ mb: 2 }}>
         <CardContent>
@@ -779,11 +542,13 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
         </Card>
       )}
     </Box>
+    </SettingsSaveContext.Provider>
   )
 }
 
-function StorageSection({ data, save }: { data: SettingsData; save: (key: string, value: string) => Promise<void> }) {
+function StorageSection({ data }: { data: SettingsData }) {
   const { showToast } = useToast()
+  const draft = useSettingsDraft('storage', 'Storage', storageSaved(data))
   const [target, setTarget] = useState('')
   const [status, setStatus] = useState<DataDirMoveStatus | null>(null)
   const [starting, setStarting] = useState(false)
@@ -856,7 +621,7 @@ function StorageSection({ data, save }: { data: SettingsData; save: (key: string
   }
 
   return (
-    <Card variant="outlined" id="settings-storage" sx={{ mb: 2 }}>
+    <Card variant="outlined" id="settings-storage" sx={settingsCardSx(draft.dirty)}>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Storage
@@ -865,13 +630,12 @@ function StorageSection({ data, save }: { data: SettingsData; save: (key: string
           Current data directory: <code>{data.DataDir || '—'}</code> ({data.DataDirSize || '—'})
         </Typography>
         <Box sx={{ mt: 2 }}>
-          <Button size="small" onClick={() => save('transcript_usage_ingest', data.TranscriptUsageIngest ? 'false' : 'true')}>
-            Transcript usage ingest: {data.TranscriptUsageIngest ? 'On' : 'Off'}
-          </Button>
+          <DraftSwitch draft={draft} k="transcript_usage_ingest" label="Transcript usage ingest" />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
             Hourly, reads token usage counts from ~/.claude/projects transcripts for the Overview host usage card. Only
             per-day token totals are stored, never transcript text.
           </Typography>
+          <SettingsSaveBar draft={draft} label="Storage" />
         </Box>
         <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'warning.dark', borderRadius: 1 }}>
           <Typography variant="subtitle2" color="warning.main">

@@ -75,7 +75,7 @@ export const api = {
   handoffTrees: async () => fixtureHandoffTrees,
   flushHandoffTree: noop,
   saveSetting: noop,
-  saveEmbedSettings: noop,
+  saveSettings: noop,
   pinProject: noop,
   resetProject: noop,
   deleteWatcher: noop,
@@ -101,6 +101,7 @@ export const api = {
   installerApply: noop,
   installerBackups: async () => ({ backups: fixtureInstallerBackups }),
   installerRestore: noop,
+  installerDismissLegacy: noop,
   embedderTest: noop,
   embedderRetry: noop,
   embedderDismissAlert: noop,
@@ -114,4 +115,5 @@ export const api = {
   startUpdate: noop,
   updateStatus: async () => fixtureUpdateStatus,
   restartNow: noop,
+  installONNXRuntime: noop,
 }

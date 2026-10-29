@@ -376,12 +376,46 @@ export interface QueueCapState {
   env_locked: boolean
 }
 
+/** ONNX Runtime load state and the managed install (embedder.ORTStatus). */
+export interface ONNXRuntimeStatus {
+  /** True when the runtime loaded, or (before first load) its library exists. */
+  available: boolean
+  reason?: string
+  loaded: boolean
+  version?: string
+  path: string
+  /** env | sidecar | managed | default */
+  source: string
+  managed: boolean
+  /** Newest managed install on disk. */
+  installed?: string
+  /** Version `ast-mcp install` and the Install button put in place. */
+  pinned: string
+  update_available: boolean
+  /** A managed install on disk is not the library this process loaded. */
+  restart_required: boolean
+  install_supported: boolean
+}
+
+export interface ONNXRuntimeInstallResult {
+  status?: string
+  version?: string
+  path?: string
+  restart_required?: boolean
+  onnxruntime?: ONNXRuntimeStatus
+  error?: string
+}
+
 export interface SettingsData {
   IdleUnloadMinutes: number
   EmbedWorkerMax?: number
   EmbedAuxWorkerMax?: number
   EmbedAuxWorkers?: number
   EmbedAuxBackend?: string
+  /** False when the aux backend is onnx and ONNX Runtime can't load: aux controls are hidden. */
+  AuxAvailable?: boolean
+  AuxUnavailableReason?: string
+  ONNXRuntime?: ONNXRuntimeStatus
   EmbedProbeIntervalSec?: number
   DataDir?: string
   DataDirSize?: string
@@ -407,11 +441,15 @@ export interface SettingsData {
   EmbedBackend: string
   EmbedModelDir: string
   EmbedHTTPURL: string
+  /** Always empty from the dashboard API; see EmbedHTTPBearerSet. */
   EmbedHTTPBearer: string
+  EmbedHTTPBearerSet?: boolean
   EmbedOllamaHost: string
   EmbedOllamaModel: string
   EmbedOpenAIBaseURL: string
+  /** Always empty from the dashboard API; see EmbedOpenAIAPIKeySet. */
   EmbedOpenAIAPIKey: string
+  EmbedOpenAIAPIKeySet?: boolean
   EmbedOpenAIModel: string
   EmbedOpenAIDimensions: string
   EmbedDockerURL: string
@@ -638,7 +676,8 @@ export interface ProxmoxSettings {
   URL?: string
   Node?: string
   TokenID?: string
-  Secret?: string
+  /** Whether a token secret is stored; the API never returns the secret itself. */
+  SecretSet?: boolean
   Insecure?: boolean
   Timeout?: number
 }
@@ -932,6 +971,8 @@ export interface InstallerApplyResult {
   backups: InstallerBackup[]
   status: InstallerComponentStatus[]
   warnings: string[]
+  /** Components written while their host app was running; it may rewrite the file and undo them. */
+  recheck?: InstallerComponentStatus[]
 }
 
 export interface InstallerBackupsResponse {
@@ -942,4 +983,16 @@ export interface InstallerBackupsResponse {
 export interface ApiError extends Error {
   code: string
   repreview: boolean
+  /** Settings saves: the message for each rejected key. */
+  fields: Record<string, string>
+}
+
+/** POST /api/settings/batch success: the stored values (secrets blank) and the embedder reload result. */
+export interface SettingsBatchResult {
+  status: string
+  values: Record<string, string>
+  reloaded?: boolean
+  reload_error?: string
+  embed_backend?: string
+  embed_model?: string
 }

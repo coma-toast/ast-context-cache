@@ -56,6 +56,36 @@ func TestBareLogValuerGroupIsInlined(t *testing.T) {
 	assert.Contains(t, buf.String(), "handoff=hof_abc tokens=12")
 }
 
+// An explicit key wins over the error field of the same name, so each key appears once.
+func TestExplicitKeyWinsOverErrorField(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(NewHandler(&buf, FormatJSON, slog.LevelInfo))
+	err := errs.WrapMessage("fetch failed", errs.New("timeout", "url", "https://x.test"), "source_id", "inner")
+	logger.Warn("Failed to refresh doc source", "source_id", "src_1", "error", err)
+	line := strings.TrimSpace(buf.String())
+	assert.Equal(t, 1, strings.Count(line, `"source_id"`), line)
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &rec))
+	assert.Equal(t, "src_1", rec["source_id"], "the explicit value wins")
+	assert.Equal(t, "https://x.test", rec["url"], "other error fields stay")
+}
+
+func TestErrorFieldDedupedAgainstWithAttrsAndOtherErrors(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(NewHandler(&buf, FormatText, slog.LevelInfo)).With("tree", "hft_outer")
+	logger.Warn("Failed", "error", errs.New("a", "tree", "hft_a", "n", 1), "cause", errs.New("b", "n", 2))
+	out := buf.String()
+	assert.Equal(t, 1, strings.Count(out, "tree="), out)
+	assert.Contains(t, out, "tree=hft_outer")
+	assert.Equal(t, 1, strings.Count(out, " n="), out)
+	assert.Contains(t, out, "n=1", "the first error's field is kept")
+	buf.Reset()
+	logger.WithGroup("g").Warn("Grouped", "error", errs.New("c", "tree", "hft_c"))
+	assert.Contains(t, buf.String(), "g.tree=hft_c", "a group is its own namespace")
+}
+
 func TestJSONFormatAndLevel(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer

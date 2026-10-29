@@ -562,7 +562,19 @@ func buildHealthPayload() map[string]interface{} {
 		// search_nudge lets "ast-mcp hook search-nudge" and the OpenCode plugin read the flag cheaply.
 		"search_nudge": flags.Enabled(flags.KeySearchNudge),
 	}
+	addORTHealth(payload, embedder.ONNXRuntimeStatus(), embedder.AuxBackend())
 	return payload
+}
+
+// addORTHealth adds the ONNX Runtime and aux embedder availability to a health payload.
+// Only the onnx aux backend needs ONNX Runtime.
+func addORTHealth(payload map[string]interface{}, st embedder.ORTStatus, auxBackend string) {
+	auxOK, reason := embedder.AuxAvailableFor(auxBackend, st)
+	payload["aux_available"] = auxOK
+	payload["aux_unavailable_reason"] = reason
+	payload["onnxruntime_version"] = st.Version
+	payload["onnxruntime_path"] = st.Path
+	payload["onnxruntime_source"] = st.Source
 }
 
 func handleEmbedHTTP(w http.ResponseWriter, r *http.Request) {

@@ -47,30 +47,43 @@ func quiesceIndexPool() error {
 	// until the next Init. maintainWAL skips quiescing while one is running, so this
 	// normally returns at once.
 	waitFTSRebuild()
-	if IndexDB == nil {
-		return nil
+	var err error
+	for _, pool := range []**sql.DB{&indexWriteDB, &IndexDB} {
+		if *pool == nil {
+			continue
+		}
+		if cerr := (*pool).Close(); cerr != nil && err == nil {
+			err = errs.WrapMessage("failed to close index pool", cerr)
+		}
+		*pool = nil
 	}
-	if err := IndexDB.Close(); err != nil {
-		return errs.WrapMessage("failed to close index pool", err)
-	}
-	IndexDB = nil
 	syncPoolsOpen()
-	return nil
+	return err
 }
 
+// restoreIndexPool reopens whichever of IndexDB and indexWriteDB is closed and
+// restarts the index writer, then lifts the read gate.
 func restoreIndexPool() error {
-	if IndexDB != nil {
-		indexReadGate.Store(false)
+	defer indexReadGate.Store(false)
+	if IndexDB != nil && indexWriteDB != nil {
 		return nil
 	}
-	conn, err := openPool(indexDBPath())
-	if err != nil {
-		indexReadGate.Store(false)
-		return err
+	path := indexDBPath()
+	if IndexDB == nil {
+		conn, err := openPool(path)
+		if err != nil {
+			return err
+		}
+		IndexDB = conn
+		syncPoolsOpen()
 	}
-	IndexDB = conn
-	syncPoolsOpen()
+	if indexWriteDB == nil {
+		conn, err := openIndexWritePool(path)
+		if err != nil {
+			return err
+		}
+		indexWriteDB = conn
+	}
 	resetIndexWriter()
-	indexReadGate.Store(false)
 	return nil
 }

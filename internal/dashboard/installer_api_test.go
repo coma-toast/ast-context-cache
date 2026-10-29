@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/flags"
@@ -29,9 +30,11 @@ const testCursorConfig = `{
 `
 
 type installerTestEnv struct {
-	h    http.Handler
-	home string
-	now  time.Time
+	h              http.Handler
+	svc            installer.Service
+	home           string
+	now            time.Time
+	desktopRunning bool
 }
 
 // setupInstallerAPI opens a fresh database under a temp HOME and injects an installer rooted
@@ -44,20 +47,28 @@ func setupInstallerAPI(t *testing.T) *installerTestEnv {
 	t.Cleanup(flags.Reload)
 	env := &installerTestEnv{home: dbtest.Init(t), now: time.Now()}
 	flags.Reload()
-	svc, err := installer.New(installer.Config{
-		Home:         env.home,
-		MCPURL:       installer.MCPURL(7821),
-		Executable:   "/opt/ast/bin/ast-mcp",
-		GOOS:         "darwin",
-		HooksEnabled: func() bool { return false },
-		LookPath:     func(name string) (string, error) { return "", errs.New("not found", "name", name) },
-		Now:          func() time.Time { return env.now },
-	})
-	require.NoError(t, err)
-	SetInstaller(svc)
+	env.newInstaller(t)
 	t.Cleanup(func() { SetInstaller(nil) })
 	env.h = NewHandler("127.0.0.1")
 	return env
+}
+
+// newInstaller (re)creates the injected service, which reruns its one-time legacy check.
+func (e *installerTestEnv) newInstaller(t *testing.T) {
+	t.Helper()
+	svc, err := installer.New(installer.Config{
+		Home:                 e.home,
+		MCPURL:               installer.MCPURL(7821),
+		Executable:           "/opt/ast/bin/ast-mcp",
+		GOOS:                 "darwin",
+		HooksEnabled:         func() bool { return false },
+		LookPath:             func(name string) (string, error) { return "", errs.New("not found", "name", name) },
+		ClaudeDesktopRunning: func() bool { return e.desktopRunning },
+		Now:                  func() time.Time { return e.now },
+	})
+	require.NoError(t, err)
+	e.svc = svc
+	SetInstaller(svc)
 }
 
 // serve sends an Origin-less request, as a CLI or curl would, and decodes the JSON reply into out.
@@ -304,4 +315,46 @@ func TestInstallerAPIGuardsWrites(t *testing.T) {
 	}
 	_, err := os.Stat(filepath.Join(env.home, ".cursor", "mcp.json"))
 	assert.True(t, os.IsNotExist(err), "the guarded apply wrote nothing")
+}
+
+// The legacy warnings stay on the card until dismissed, but showing them there counts as their
+// one-time display, so a later CLI install stays quiet.
+func TestInstallerAPILegacyWarningsDismiss(t *testing.T) {
+	env := setupInstallerAPI(t)
+	assert.Empty(t, env.overview(t).LegacyWarnings)
+	_, err := db.DB.Exec("INSERT INTO agent_configs (agent_type, install_path, is_global, instructions_hash) VALUES ('cursor', '~/.cursor/mcp.json', 1, 'h')")
+	require.NoError(t, err)
+	require.NoError(t, db.SetSetting("installer_legacy_migrated", ""))
+	env.newInstaller(t)
+	require.Len(t, env.overview(t).LegacyWarnings, 1)
+	assert.Empty(t, env.svc.ClaimLegacyWarnings(), "the dashboard already showed them")
+	require.Len(t, env.overview(t).LegacyWarnings, 1, "still shown until dismissed")
+	assert.Equal(t, http.StatusMethodNotAllowed, env.serve(t, http.MethodGet, "/api/dashboard/installer/legacy/dismiss", "", nil))
+	var out map[string]string
+	require.Equal(t, http.StatusOK, env.serve(t, http.MethodPost, "/api/dashboard/installer/legacy/dismiss", "", &out))
+	assert.Equal(t, "dismissed", out["status"])
+	assert.Empty(t, env.overview(t).LegacyWarnings)
+}
+
+// Applying while Claude Desktop runs returns the components to recheck; when the app drops the
+// entry, the recheck sees it and the overview explains the missing status.
+func TestInstallerAPIRecheckSeesDroppedDesktopEntry(t *testing.T) {
+	env := setupInstallerAPI(t)
+	prev := installerRecheckDelays
+	installerRecheckDelays = nil
+	t.Cleanup(func() { installerRecheckDelays = prev })
+	env.desktopRunning = true
+	const desktopConfig = "{\"mcpServers\": {}}\n"
+	path := env.writeHomeFile(t, "Library/Application Support/Claude/claude_desktop_config.json", desktopConfig)
+	plan := env.preview(t, `{"targets":["claude_desktop"],"components":["mcp"]}`)
+	assert.Contains(t, strings.Join(plan.Warnings, "\n"), "Claude Desktop is running and rewrites claude_desktop_config.json from memory, which would undo this change: quit Claude Desktop, then apply")
+	var res installer.ApplyResult
+	require.Equal(t, http.StatusOK, env.serve(t, http.MethodPost, "/api/dashboard/installer/apply", `{"plan_id":"`+plan.ID+`"}`, &res))
+	require.Len(t, res.Recheck, 1)
+	assert.Equal(t, installer.StatusInstalled, res.Recheck[0].Status)
+	require.NoError(t, os.WriteFile(path, []byte(desktopConfig), 0o644))
+	recheckInstall(env.svc, res.Recheck, []time.Duration{0})
+	mcp := componentStatus(t, env.overview(t), installer.TargetClaudeDesktop, installer.ComponentMCP)
+	assert.Equal(t, installer.StatusMissing, mcp.Status)
+	assert.Contains(t, mcp.StatusReason, "quit Claude Desktop, then install again")
 }

@@ -1,4 +1,4 @@
-export type ToastSeverity = 'success' | 'error' | 'info'
+export type ToastSeverity = 'success' | 'error' | 'info' | 'warning'
 
 export interface StackedToast {
   key: number

@@ -8,13 +8,7 @@ import "testing"
 // for the re-added project until ast-mcp restarts.
 func TestUnmarkProjectCancelledResumesQueuing(t *testing.T) {
 	resetCancelledProjectsForTest()
-	highCh = make(chan job, 8)
-	lowCh = make(chan job, 8)
-	pendingCh = make(chan job, 8)
-	pendingMu.Lock()
-	pending = map[string]job{}
-	pendingChQueued = map[string]struct{}{}
-	pendingMu.Unlock()
+	l := resetLanesForTest(t, 8)
 
 	proj := "/proj/reindexed"
 	markProjectCancelled(proj)
@@ -22,7 +16,7 @@ func TestUnmarkProjectCancelledResumesQueuing(t *testing.T) {
 		t.Fatal("project should be cancelled")
 	}
 	SubmitPriority("/tmp/a.go", proj, false)
-	if len(highCh)+len(lowCh) != 0 {
+	if len(l.high)+len(l.low) != 0 {
 		t.Fatal("cancelled project should not enqueue")
 	}
 
@@ -31,7 +25,7 @@ func TestUnmarkProjectCancelledResumesQueuing(t *testing.T) {
 		t.Fatal("project should no longer be cancelled after UnmarkProjectCancelled")
 	}
 	SubmitPriority("/tmp/b.go", proj, false)
-	if len(highCh)+len(lowCh) == 0 {
+	if len(l.high)+len(l.low) == 0 {
 		t.Fatal("re-indexed project should resume enqueuing after UnmarkProjectCancelled")
 	}
 }

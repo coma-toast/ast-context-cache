@@ -101,6 +101,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 	data.EmbedQueueCaps = embedqueue.QueueCapStates()
 	data.HandoffLimits, data.HandoffEnvLocked = handoff.LoadLimits(), handoffEnvLocked()
 	populateInstanceData(&data)
+	populateORTData(&data)
 	PopulateEmbedSettings(settings, &data)
 	populateContextSettings(settings, &data)
 	applyActiveEmbedderSettings(&data)

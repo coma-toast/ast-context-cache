@@ -17,6 +17,7 @@ import (
 const (
 	selectSettingQuery     = "SELECT value FROM settings WHERE key = ?"
 	upsertSettingQuery     = "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+	insertSettingQuery     = "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING"
 	selectAllSettingsQuery = "SELECT key, value FROM settings"
 	upsertIndexedFileQuery = `INSERT INTO indexed_files (file, project_path, indexed_at, parser_version) VALUES (?, ?, ?, ?)
 		ON CONFLICT(file, project_path) DO UPDATE SET indexed_at = excluded.indexed_at, parser_version = excluded.parser_version`
@@ -76,6 +77,10 @@ func Init() error {
 	if err != nil {
 		return fmtOpenErr("index", idxPath, err)
 	}
+	indexWriteDB, err = openIndexWritePool(idxPath)
+	if err != nil {
+		return fmtOpenErr("index write", idxPath, err)
+	}
 	ContextDB, err = openPool(ctxPath)
 	if err != nil {
 		return fmtOpenErr("context", ctxPath, err)
@@ -120,6 +125,20 @@ func GetSetting(key, defaultValue string) string {
 func SetSetting(key, value string) error {
 	_, err := DB.Exec(upsertSettingQuery, key, value)
 	return err
+}
+
+// ClaimSetting sets key only when it is unset, reporting whether this call set it. Concurrent
+// processes sharing the database see exactly one claim succeed.
+func ClaimSetting(key, value string) (bool, error) {
+	res, err := DB.Exec(insertSettingQuery, key, value)
+	if err != nil {
+		return false, errs.WrapMessage("failed to claim setting", err, "key", key)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, errs.WrapMessage("failed to claim setting", err, "key", key)
+	}
+	return n == 1, nil
 }
 
 func GetAllSettings() map[string]string {

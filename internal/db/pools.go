@@ -19,7 +19,7 @@ const (
 	pragmaWALAutocheckpoint = `PRAGMA wal_autocheckpoint=200`
 	pragmaForeignKeysOn     = `PRAGMA foreign_keys=ON`
 	poolDSNParams           = "?_journal_mode=WAL"
-	handoffTxLockParam      = "&_txlock=immediate"
+	immediateTxLockParam    = "&_txlock=immediate"
 	// astcacheDriver is "sqlite3" plus connPragmas applied to every new connection, so the
 	// settings hold on each pooled connection rather than whichever one Exec happened to use.
 	astcacheDriver = "sqlite3_astcache"
@@ -53,6 +53,10 @@ var (
 	// IMMEDIATE. Every handoff, scratchpad, and claim write goes through it (see HandoffTx), so
 	// they are linearized and a read-then-write never has to upgrade a DEFERRED transaction.
 	HandoffWriteDB *sql.DB
+	// indexWriteDB is the index writer's own one-connection pool on index.db, whose
+	// transactions begin IMMEDIATE (see indexWriteTx). It is opened, quiesced and closed
+	// together with IndexDB.
+	indexWriteDB *sql.DB
 )
 
 // Index returns the code index pool (read-only callers may use directly).
@@ -86,12 +90,17 @@ func openPool(path string) (*sql.DB, error) {
 
 // openHandoffWritePool opens HandoffWriteDB's single connection on the context database.
 func openHandoffWritePool(path string) (*sql.DB, error) {
-	return openPoolWith(astcacheDriver, path, poolDSNParams+handoffTxLockParam, 1)
+	return openPoolWith(astcacheDriver, path, poolDSNParams+immediateTxLockParam, 1)
+}
+
+// openIndexWritePool opens indexWriteDB's single connection on the index database.
+func openIndexWritePool(path string) (*sql.DB, error) {
+	return openPoolWith(astcacheDriver, path, poolDSNParams+immediateTxLockParam, 1)
 }
 
 // openStepPool opens a one-connection pool whose transactions begin IMMEDIATE, for runSteps.
 func openStepPool(path string) (*sql.DB, error) {
-	return openPoolWith(astcacheDriver, path, poolDSNParams+handoffTxLockParam, 1)
+	return openPoolWith(astcacheDriver, path, poolDSNParams+immediateTxLockParam, 1)
 }
 
 func openPoolWith(driver, path, params string, conns int) (*sql.DB, error) {
@@ -119,12 +128,12 @@ func Close() {
 	stopWriteBatchers()
 	stopIndexWriter()
 	cancelFTSRebuild()
-	for _, c := range []*sql.DB{IndexDB, HandoffWriteDB, ContextDB, DB} {
+	for _, c := range []*sql.DB{indexWriteDB, IndexDB, HandoffWriteDB, ContextDB, DB} {
 		if c != nil {
 			c.Close()
 		}
 	}
-	IndexDB, HandoffWriteDB, ContextDB, DB = nil, nil, nil, nil
+	indexWriteDB, IndexDB, HandoffWriteDB, ContextDB, DB = nil, nil, nil, nil, nil
 	syncPoolsOpen()
 }
 

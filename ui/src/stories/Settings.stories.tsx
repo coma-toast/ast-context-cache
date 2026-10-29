@@ -36,7 +36,7 @@ export const Features: Story = {
 export const Handoff: Story = {
   render: () => (
     <StoryFrame>
-      <HandoffSettingsSection data={fixtureSettings} save={async () => {}} />
+      <HandoffSettingsSection data={fixtureSettings} />
     </StoryFrame>
   ),
 }
@@ -54,7 +54,7 @@ export const NetworkAccess: Story = {
 export const EmbedQueue: Story = {
   render: () => (
     <StoryFrame>
-      <EmbedQueueSettingsSection data={fixtureSettings} indexHealth={fixtureIndexHealth} save={async () => {}} />
+      <EmbedQueueSettingsSection data={fixtureSettings} indexHealth={fixtureIndexHealth} />
     </StoryFrame>
   ),
 }

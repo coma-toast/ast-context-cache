@@ -20,9 +20,9 @@ func RemoveProject(projectPath string) (queuedRemoved, pendingRemoved int) {
 	markProjectCancelled(projectPath)
 	drainMu.Lock()
 	defer drainMu.Unlock()
-	queuedRemoved = discardChannelJobs(highCh, projectPath)
-	queuedRemoved += discardChannelJobs(lowCh, projectPath)
-	queuedRemoved += discardChannelJobs(pendingCh, projectPath)
+	queuedRemoved = discardChannelJobs(highCh(), projectPath)
+	queuedRemoved += discardChannelJobs(lowCh(), projectPath)
+	queuedRemoved += discardChannelJobs(pendingCh(), projectPath)
 	pendingMu.Lock()
 	for k, j := range pending {
 		if j.projectPath != projectPath {

@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/version"
 )
 
@@ -23,7 +26,16 @@ func cliHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("DB_PATH", "")
 	t.Setenv("AST_MCP_PORT", "")
+	setDesktopRunning(t, false)
 	return home
+}
+
+// setDesktopRunning stubs the Claude Desktop process check, so no test depends on whether the
+// developer's own Claude Desktop is open.
+func setDesktopRunning(t *testing.T, running bool) {
+	t.Helper()
+	claudeDesktopRunning = func() bool { return running }
+	t.Cleanup(func() { claudeDesktopRunning = nil })
 }
 
 func runCLITest(t *testing.T, args ...string) (int, string, string) {
@@ -194,4 +206,73 @@ func readTestFile(t *testing.T, path string) string {
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(b)
+}
+
+// mcp-local runs one install per target: the pre-4.0 warnings print on the first run only, while
+// verify keeps showing them with a pointer to dismiss them.
+func TestCLILegacyWarningsPrintOnce(t *testing.T) {
+	cliHome(t)
+	require.NoError(t, db.InitUsage())
+	_, err := db.DB.Exec("INSERT INTO agent_configs (agent_type, install_path, is_global, instructions_hash) VALUES ('cursor', '~/.cursor/mcp.json', 1, 'h')")
+	db.Close()
+	require.NoError(t, err)
+	legacy := func(out string) int {
+		var res cliOutput
+		require.NoError(t, json.Unmarshal([]byte(out), &res))
+		n := 0
+		for _, w := range res.Warnings {
+			if strings.Contains(w, "pre-4.0") {
+				n++
+			}
+		}
+		return n
+	}
+	_, out, _ := runCLITest(t, "install", "--target", "cursor", "--dry-run", "--json")
+	assert.Equal(t, 1, legacy(out), "first run shows them")
+	for _, target := range []string{"cursor", "codex", "opencode"} {
+		_, out, _ = runCLITest(t, "install", "--target", target, "--dry-run", "--json")
+		assert.Zero(t, legacy(out), target)
+	}
+	_, out, _ = runCLITest(t, "verify", "--target", "cursor")
+	assert.Contains(t, out, "pre-4.0 install replaced ~/.cursor/mcp.json")
+	assert.Contains(t, out, "Dismiss the pre-4.0 install warnings in the dashboard")
+}
+
+// Applying while Claude Desktop runs waits and re-verifies: an entry the app drops in the
+// meantime is reported as missing, with exit 3.
+func TestCLIRecheckReportsDroppedDesktopEntry(t *testing.T) {
+	home := cliHome(t)
+	setDesktopRunning(t, true)
+	path := filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
+	if runtime.GOOS == "darwin" {
+		path = filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+	}
+	const config = "{\n  \"mcpServers\": {}\n}\n"
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(config), 0o644))
+	var waited time.Duration
+	recheckSleep = func(d time.Duration) {
+		waited = d
+		// Claude Desktop writes back the config it holds in memory.
+		require.NoError(t, os.WriteFile(path, []byte(config), 0o644))
+	}
+	t.Cleanup(func() { recheckSleep = time.Sleep })
+
+	code, out, errOut := runCLITest(t, "install", "--target", "claude_desktop", "--component", "mcp", "--yes", "--json")
+	assert.Equal(t, exitConflict, code, errOut)
+	assert.Equal(t, 10*time.Second, waited)
+	var res cliOutput
+	require.NoError(t, json.Unmarshal([]byte(out), &res))
+	require.NotEmpty(t, res.Status)
+	assert.Equal(t, "mcp", res.Status[0].Component)
+	assert.Equal(t, "missing", res.Status[0].Status)
+	joined := strings.Join(res.Warnings, "\n")
+	assert.Contains(t, joined, "Claude Desktop is running")
+	assert.Contains(t, joined, "is now missing (was installed)")
+
+	waited = 0
+	code, out, errOut = runCLITest(t, "install", "--target", "claude_desktop", "--component", "mcp", "--yes", "--recheck", "0")
+	assert.Equal(t, exitOK, code, errOut)
+	assert.Zero(t, waited, "--recheck 0 skips the wait")
+	assert.Contains(t, out, "quit Claude Desktop, then apply")
 }

@@ -474,7 +474,7 @@ export const fixtureSettings: SettingsData = {
     URL: 'https://pve.example.com:8006/api2/json',
     Node: 'pve-01',
     TokenID: 'root@pam!astcache',
-    Secret: 'hidden',
+    SecretSet: true,
     Insecure: false,
     Timeout: 10,
   },

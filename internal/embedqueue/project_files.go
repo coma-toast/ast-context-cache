@@ -26,9 +26,9 @@ func RemoveProjectFilesUnder(parent, child string) (queuedRemoved, pendingRemove
 	}
 	drainMu.Lock()
 	defer drainMu.Unlock()
-	queuedRemoved = discardChannelJobsMatch(highCh, match)
-	queuedRemoved += discardChannelJobsMatch(lowCh, match)
-	queuedRemoved += discardChannelJobsMatch(pendingCh, match)
+	queuedRemoved = discardChannelJobsMatch(highCh(), match)
+	queuedRemoved += discardChannelJobsMatch(lowCh(), match)
+	queuedRemoved += discardChannelJobsMatch(pendingCh(), match)
 	pendingMu.Lock()
 	for k, j := range pending {
 		if !match(j.file, j.projectPath) {

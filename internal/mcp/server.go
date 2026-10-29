@@ -17,6 +17,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/impact"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
+	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
@@ -297,6 +298,9 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 		if path == "" || projectPath == "" {
 			result = map[string]string{"error": "path and project_path required"}
 		} else {
+			// project_path may name a symlink to the project (keyed under its target),
+			// so respell path under the canonical project before indexing.
+			path = projectlinks.RebaseIntoProject(projectlinks.CanonicalProject(path), projectPath)
 			info, statErr := os.Stat(path)
 			if statErr != nil {
 				result = map[string]string{"error": "path not found: " + statErr.Error()}
