@@ -38,6 +38,7 @@ import { HandoffSettingsSection } from '../components/HandoffSettingsSection'
 import { InstallerSection } from '../components/InstallerSection'
 import { InstanceSettingsSection } from '../components/InstanceSettingsSection'
 import { NetworkAccessSection } from '../components/NetworkAccessSection'
+import { AuxEmbedControls, OnnxRuntimeSection } from '../components/OnnxRuntimeSection'
 import { UpdatesSection } from '../components/UpdatesSection'
 import { restartNow } from '../lib/restart'
 
@@ -208,39 +209,7 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
               onBlur={(e) => save('embed_worker_max', e.target.value)}
               helperText="Primary pool +/− cap"
             />
-            <TextField
-              label="Max aux embed workers"
-              type="number"
-              size="small"
-              slotProps={{ htmlInput: { min: 1, max: 32 } }}
-              defaultValue={data.EmbedAuxWorkerMax ?? 10}
-              onBlur={(e) => save('embed_aux_worker_max', e.target.value)}
-              helperText="Aux catch-up pool cap"
-            />
-            <TextField
-              label="Aux embed workers"
-              type="number"
-              size="small"
-              slotProps={{ htmlInput: { min: 0, max: data.EmbedAuxWorkerMax ?? 10 } }}
-              defaultValue={data.EmbedAuxWorkers ?? 0}
-              onBlur={(e) => save('EMBED_AUX_WORKERS', e.target.value)}
-              helperText="Also adjustable on Overview"
-            />
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel id="embed-aux-backend">Aux embed backend</InputLabel>
-              <Select
-                labelId="embed-aux-backend"
-                label="Aux embed backend"
-                defaultValue={data.EmbedAuxBackend || 'onnx'}
-                onChange={(e) => save('EMBED_AUX_BACKEND', String(e.target.value))}
-              >
-                <MenuItem value="onnx">onnx (local)</MenuItem>
-                <MenuItem value="http">http</MenuItem>
-                <MenuItem value="ollama">ollama</MenuItem>
-                <MenuItem value="openai">openai / litellm</MenuItem>
-                <MenuItem value="docker">docker (DMR)</MenuItem>
-              </Select>
-            </FormControl>
+            <AuxEmbedControls data={data} save={save} />
             {data.EmbedProbeIntervalSec != null && (
               <TextField
                 label="Probe interval (sec)"
@@ -298,6 +267,7 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
             Embedding backend
           </Typography>
           <Chip label={`Active: ${data.EmbedActiveBackend} / ${data.EmbedActiveModel}`} size="small" sx={{ mb: 2 }} />
+          <OnnxRuntimeSection data={data} onRefresh={onRefresh} />
           <Stack spacing={2}>
             <FormControl size="small" sx={{ minWidth: 160 }}>
               <InputLabel>Backend</InputLabel>
