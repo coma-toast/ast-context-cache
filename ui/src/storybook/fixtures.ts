@@ -341,7 +341,6 @@ export const fixtureIndexHealth: IndexHealth = {
       UnsafeShutdowns: 3,
       MediaErrors: 0,
       CriticalWarning: 0,
-      ProxmoxNode: 'pve-01',
     },
     {
       Device: '/dev/sda',
@@ -363,7 +362,6 @@ export const fixtureIndexHealth: IndexHealth = {
       TemperatureC: 41,
       PowerOnHours: 28400,
       PowerCycles: 48,
-      ProxmoxNode: 'pve-01',
       ZFSPool: 'tank0',
       ZFSHealth: 'ONLINE',
       ZFSCapacityPct: 67,
@@ -470,14 +468,6 @@ export const fixtureSettings: SettingsData = {
   EmbedInSync: true,
   EmbedderState: 'healthy',
   EmbedderError: '',
-  ProxmoxSettings: {
-    URL: 'https://pve.example.com:8006/api2/json',
-    Node: 'pve-01',
-    TokenID: 'root@pam!astcache',
-    SecretSet: true,
-    Insecure: false,
-    Timeout: 10,
-  },
   Projects: [
     {
       Path: '/Users/demo/project',

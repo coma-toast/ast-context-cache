@@ -160,7 +160,6 @@ function DiskHealthSection({ disks }: { disks: DiskInfo[] }) {
               </Typography>
               <DiskChip label={disk.SmartStatus || 'Unknown'} tone={tone} />
               {disk.DataDirDisk && <Chip size="small" label={disk.DataDirDisk} variant="outlined" />}
-              {disk.ProxmoxNode && <Chip size="small" label={disk.ProxmoxNode} color="info" variant="outlined" />}
               {disk.ZFSPool && <Chip size="small" label={disk.ZFSPool} color="secondary" variant="outlined" />}
             </Stack>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>

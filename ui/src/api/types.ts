@@ -337,7 +337,6 @@ export interface IndexHealth {
   DriveDisconnected?: boolean
   DriveDisconnectedPath?: string
   Disks?: DiskInfo[]
-  ProxmoxSettings?: ProxmoxSettings
   /** Unix seconds of last stuck-worker auto-recover, or 0. */
   LastAutoRecoverUnix?: number
   Watchers: WatcherInfo[]
@@ -477,7 +476,6 @@ export interface SettingsData {
   InstanceNameSource?: string
   /** True when the -name flag or AST_INSTANCE_NAME sets the name and the override is off. */
   InstanceNameLocked?: boolean
-  ProxmoxSettings?: ProxmoxSettings
   /** instance_name_override: the dashboard name wins over the flag and env var. */
   InstanceNameOverride?: boolean
   /** The -name flag or AST_INSTANCE_NAME value, if any. */
@@ -669,17 +667,6 @@ export interface DiskInfo {
   ZFSHealth?: string
   ZFSCapacityPct?: number
   ZFSFragPct?: number
-  ProxmoxNode?: string
-}
-
-export interface ProxmoxSettings {
-  URL?: string
-  Node?: string
-  TokenID?: string
-  /** Whether a token secret is stored; the API never returns the secret itself. */
-  SecretSet?: boolean
-  Insecure?: boolean
-  Timeout?: number
 }
 
 export interface PruneStatus {

@@ -29,9 +29,6 @@ import {
   EMBED_SECRET_KEYS,
   embeddingSaved,
   performanceSaved,
-  PROXMOX_SECRET_KEYS,
-  PROXMOX_TIMEOUTS,
-  proxmoxSaved,
   retentionSaved,
   settingsCardSx,
   virtualContextSaved,
@@ -274,54 +271,3 @@ export const RetentionSection = ({ data }: { data: SettingsData }) => {
 
 export { DraftSwitch }
 
-/**
- * Proxmox VE API access for host disk health (LXC/VM instances). URL, node and token save
- * together; the token secret is write-only.
- */
-export const ProxmoxSection = ({ data }: { data: SettingsData }) => {
-  const { showToast } = useToast()
-  const saved = proxmoxSaved(data)
-  const draft = useSettingsDraft('proxmox', 'Proxmox', saved, { secrets: PROXMOX_SECRET_KEYS })
-  const configured = !!saved.proxmox_url && !!saved.proxmox_token_id && saved.proxmox_secret === SECRET_SET
-  return (
-    <DraftCard id="proxmox" title="Proxmox" draft={draft}>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Connect to Proxmox VE to monitor the host's disk health when this instance runs in an LXC container or VM.
-      </Typography>
-      <Stack spacing={1.5}>
-        <TextField label="API URL" size="small" fullWidth {...draftField(draft, 'proxmox_url', 'https://proxmox.example.com:8006/api2/json')} />
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
-          <TextField label="Node" size="small" {...draftField(draft, 'proxmox_node', 'Proxmox node name (e.g. pve)')} />
-          <TextField label="Token ID" size="small" sx={{ flex: 1, minWidth: 240 }} {...draftField(draft, 'proxmox_token_id', 'user@realm!tokenid (PVEAuditor is enough)')} />
-        </Stack>
-        <SecretField draft={draft} k="proxmox_secret" label="Token secret" saved={saved} />
-        <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', alignItems: 'center' }} useFlexGap>
-          <DraftSelect draft={draft} k="proxmox_timeout" label="Timeout (sec)" options={PROXMOX_TIMEOUTS.map((v) => [v, v])} />
-          <DraftSwitch draft={draft} k="proxmox_insecure" label="Allow self-signed certificates" />
-        </Stack>
-        <Box>
-          <Button
-            variant="outlined"
-            size="small"
-            disabled={draft.dirty || !configured}
-            onClick={async () => {
-              try {
-                await api.proxmoxTest()
-                showToast('Proxmox connection OK', 'success')
-              } catch (e) {
-                showToast(String(e), 'error')
-              }
-            }}
-          >
-            Test connection
-          </Button>
-          {draft.dirty && (
-            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-              Save first: the test uses the saved settings.
-            </Typography>
-          )}
-        </Box>
-      </Stack>
-    </DraftCard>
-  )
-}

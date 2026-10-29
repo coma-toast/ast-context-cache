@@ -79,17 +79,3 @@ export const retentionSaved = (data: SettingsData): Record<string, string> => ({
 export const storageSaved = (data: SettingsData): Record<string, string> => ({
   transcript_usage_ingest: String(!!data.TranscriptUsageIngest),
 })
-
-/** The Proxmox API token secret is write-only, like the embedding secrets. */
-export const PROXMOX_SECRET_KEYS = ['proxmox_secret']
-
-export const PROXMOX_TIMEOUTS = ['5', '10', '15', '30', '60']
-
-export const proxmoxSaved = (data: SettingsData): Record<string, string> => ({
-  proxmox_url: data.ProxmoxSettings?.URL ?? '',
-  proxmox_node: data.ProxmoxSettings?.Node ?? '',
-  proxmox_token_id: data.ProxmoxSettings?.TokenID ?? '',
-  proxmox_secret: data.ProxmoxSettings?.SecretSet ? SECRET_SET : '',
-  proxmox_timeout: String(data.ProxmoxSettings?.Timeout ?? 10),
-  proxmox_insecure: String(!!data.ProxmoxSettings?.Insecure),
-})
