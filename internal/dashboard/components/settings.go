@@ -1,6 +1,7 @@
 package components
 
 import (
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
 )
@@ -59,9 +60,15 @@ type SettingsData struct {
 	EmbedAuxWorkerMax        int
 	EmbedAuxWorkers          int
 	EmbedAuxBackend          string
-	EmbedProbeIntervalSec    int
-	DataDir                  string
-	DataDirSize              string
+	// AuxAvailable is false when the aux backend is onnx and ONNX Runtime can't load; the
+	// dashboard then hides the aux controls and offers the managed install.
+	AuxAvailable         bool
+	AuxUnavailableReason string
+	// ONNXRuntime is the ONNX Runtime load state, managed install and pinned version.
+	ONNXRuntime           embedder.ORTStatus
+	EmbedProbeIntervalSec int
+	DataDir               string
+	DataDirSize           string
 	// EmbedQueueCaps are the embed queue soft limits with their current depth and env lock.
 	EmbedQueueCaps []embedqueue.QueueCapState
 	// HandoffLimits are the effective handoff limits (env > setting > default).
