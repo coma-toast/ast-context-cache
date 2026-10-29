@@ -118,7 +118,7 @@ func applyAuxWorkerCountLocked(n int, persist bool) error {
 		return errAuxQueueNotStarted
 	}
 	for auxWorkerCount < n {
-		go auxWorker()
+		startAuxWorker()
 		auxWorkerCount++
 	}
 	for auxWorkerCount > n {
@@ -189,14 +189,19 @@ func StartAux(e embedder.Interface) {
 		n := auxWorkerCount
 		auxWorkerMu.Unlock()
 		for i := 0; i < n; i++ {
-			go auxWorker()
+			startAuxWorker()
 		}
 		logger.Info("Aux workers started (backend catch-up pool)", "workers", n)
 	})
 }
 
-func auxWorker() {
+// startAuxWorker counts the aux worker live before launching it, like startWorker.
+func startAuxWorker() {
 	auxWorkerLive.Add(1)
+	go auxWorker()
+}
+
+func auxWorker() {
 	defer func() {
 		auxWorkerLive.Add(-1)
 		notifyWorkerPoolLiveChange()
@@ -208,20 +213,21 @@ func auxWorker() {
 			return
 		default:
 		}
+		l := queueLanes()
 		select {
 		case <-auxWorkerStop:
 			return
-		case j := <-pendingCh:
+		case j := <-l.pending:
 			runWithEmbedder(j, queueAuxEmbedder(), true)
 		default:
 			select {
 			case <-auxWorkerStop:
 				return
-			case j := <-pendingCh:
+			case j := <-l.pending:
 				runWithEmbedder(j, queueAuxEmbedder(), true)
-			case j := <-highCh:
+			case j := <-l.high:
 				runWithEmbedder(j, queueAuxEmbedder(), true)
-			case j := <-lowCh:
+			case j := <-l.low:
 				runWithEmbedder(j, queueAuxEmbedder(), true)
 			}
 		}

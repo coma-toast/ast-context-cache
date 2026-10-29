@@ -113,11 +113,11 @@ func gateFor(key string) *gate {
 func chanFor(key string) chan job {
 	switch key {
 	case PendingCapSetting:
-		return pendingCh
+		return pendingCh()
 	case HighCapSetting:
-		return highCh
+		return highCh()
 	default:
-		return lowCh
+		return lowCh()
 	}
 }
 

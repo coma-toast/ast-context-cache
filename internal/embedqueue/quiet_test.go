@@ -20,7 +20,10 @@ func TestRunQuietPeriodDoesNotPanic(t *testing.T) {
 // against the embedder being swapped out.
 func TestQuietOnWorkersPausedKeepsSwapPause(t *testing.T) {
 	Start(stubEmbedder{})
-	resetPauseStateForTest()
+	// The quiet goroutine only exits once the queue is idle, so start with no
+	// workers, queued or pending jobs left by Start or earlier tests.
+	stopWorkersForTest(t)
+	resetLanesForTest(t, 8)
 	held := false
 	release := func() {
 		if held {
@@ -30,8 +33,7 @@ func TestQuietOnWorkersPausedKeepsSwapPause(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		release()
-		SetWorkerCount(0)
-		resetPauseStateForTest()
+		stopWorkersForTest(t)
 	})
 	if _, err := SetWorkerCount(2); err != nil {
 		t.Fatal(err)

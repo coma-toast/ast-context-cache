@@ -11,17 +11,15 @@ import (
 )
 
 func TestFlushPendingIfReadyQueuesJobs(t *testing.T) {
-	pendingCh = make(chan job, 4)
-	highCh = make(chan job, 4)
-	lowCh = make(chan job, 4)
-	emb = &noopEmbedder{}
+	l := resetLanesForTest(t, 4)
+	SetEmbedder(&noopEmbedder{})
 	pendingMu.Lock()
 	pending = map[string]job{jobKey(job{file: "/tmp/a.go", projectPath: "/proj"}): {file: "/tmp/a.go", projectPath: "/proj"}}
 	pendingMu.Unlock()
 	embedder.MarkReady()
 	flushPendingIfReady()
 	select {
-	case <-pendingCh:
+	case <-l.pending:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("expected pending job queued")
 	}
@@ -37,10 +35,8 @@ func TestFlushPendingBlockedOnPrimaryErrorWithoutAux(t *testing.T) {
 		auxWorkerCount = 0
 		auxWorkerMu.Unlock()
 	})
-	pendingCh = make(chan job, 4)
-	highCh = make(chan job, 4)
-	lowCh = make(chan job, 4)
-	emb = &noopEmbedder{}
+	l := resetLanesForTest(t, 4)
+	SetEmbedder(&noopEmbedder{})
 	SetAuxEmbedder(nil)
 	auxWorkerMu.Lock()
 	auxWorkerTarget = 0
@@ -53,7 +49,7 @@ func TestFlushPendingBlockedOnPrimaryErrorWithoutAux(t *testing.T) {
 	embedder.MarkError(errors.New("connectivity probe: timeout after 2m0s"))
 	flushPendingIfReady()
 	select {
-	case <-pendingCh:
+	case <-l.pending:
 		t.Fatal("expected no flush while primary error and aux unavailable")
 	case <-time.After(50 * time.Millisecond):
 	}
@@ -69,10 +65,8 @@ func TestFlushPendingIfReadyDuringPrimaryErrorWithAux(t *testing.T) {
 		auxWorkerCount = 0
 		auxWorkerMu.Unlock()
 	})
-	pendingCh = make(chan job, 4)
-	highCh = make(chan job, 4)
-	lowCh = make(chan job, 4)
-	emb = &noopEmbedder{}
+	l := resetLanesForTest(t, 4)
+	SetEmbedder(&noopEmbedder{})
 	SetAuxEmbedder(&noopEmbedder{})
 	auxWorkerMu.Lock()
 	auxWorkerTarget = 2
@@ -91,7 +85,7 @@ func TestFlushPendingIfReadyDuringPrimaryErrorWithAux(t *testing.T) {
 	}
 	flushPendingIfReady()
 	select {
-	case j := <-pendingCh:
+	case j := <-l.pending:
 		if j.file != "/tmp/aux.go" {
 			t.Fatalf("queued %s", j.file)
 		}
@@ -110,10 +104,8 @@ func TestSubmitPriorityDuringPrimaryErrorWithAux(t *testing.T) {
 		auxWorkerCount = 0
 		auxWorkerMu.Unlock()
 	})
-	pendingCh = make(chan job, 4)
-	highCh = make(chan job, 4)
-	lowCh = make(chan job, 4)
-	emb = &noopEmbedder{}
+	l := resetLanesForTest(t, 4)
+	SetEmbedder(&noopEmbedder{})
 	SetAuxEmbedder(&noopEmbedder{})
 	auxWorkerMu.Lock()
 	auxWorkerTarget = 1
@@ -126,7 +118,7 @@ func TestSubmitPriorityDuringPrimaryErrorWithAux(t *testing.T) {
 	embedder.MarkError(errors.New("connectivity probe: timeout after 2m0s"))
 	SubmitPriority("/tmp/new.go", "/proj", false)
 	select {
-	case j := <-lowCh:
+	case j := <-l.low:
 		if j.file != "/tmp/new.go" {
 			t.Fatalf("queued %s", j.file)
 		}
@@ -139,14 +131,9 @@ func TestSubmitPriorityDuringPrimaryErrorWithAux(t *testing.T) {
 }
 
 func TestDrainQueueToPendingOnError(t *testing.T) {
-	pendingCh = make(chan job, 4)
-	highCh = make(chan job, 4)
-	lowCh = make(chan job, 4)
-	pendingMu.Lock()
-	pending = map[string]job{}
-	pendingMu.Unlock()
-	highCh <- job{file: "/tmp/a.go", projectPath: "/proj"}
-	lowCh <- job{file: "/tmp/b.go", projectPath: "/proj"}
+	l := resetLanesForTest(t, 4)
+	l.high <- job{file: "/tmp/a.go", projectPath: "/proj"}
+	l.low <- job{file: "/tmp/b.go", projectPath: "/proj"}
 	if n := DrainQueueToPending(); n != 2 {
 		t.Fatalf("drained=%d", n)
 	}
@@ -160,13 +147,8 @@ func TestDrainQueueToPendingOnError(t *testing.T) {
 }
 
 func TestRecoveryBeforeSyncRace(t *testing.T) {
-	pendingCh = make(chan job, 8)
-	highCh = make(chan job, 8)
-	lowCh = make(chan job, 8)
-	emb = &noopEmbedder{}
-	pendingMu.Lock()
-	pending = map[string]job{}
-	pendingMu.Unlock()
+	l := resetLanesForTest(t, 8)
+	SetEmbedder(&noopEmbedder{})
 	embedder.MarkReady()
 	markPendingIfNew(job{file: "/tmp/late.go", projectPath: "/proj"}, pendingReasonSync)
 	flushPendingIfReady()
@@ -174,7 +156,7 @@ func TestRecoveryBeforeSyncRace(t *testing.T) {
 		t.Fatalf("pending=%d", PendingCount())
 	}
 	select {
-	case j := <-pendingCh:
+	case j := <-l.pending:
 		if j.file != "/tmp/late.go" {
 			t.Fatalf("queued %s", j.file)
 		}
@@ -204,6 +186,7 @@ func TestPurgeOrphanCodeVectors(t *testing.T) {
 }
 
 func TestStaleVectorDetectedByEmbedHashSQL(t *testing.T) {
+	t.Cleanup(clearPendingForTest)
 	project := "stale-hash-test"
 	file := "/tmp/stale.go"
 	db.IndexDB.Exec(`DELETE FROM vectors WHERE project_path = ?`, project)
@@ -227,6 +210,7 @@ func TestStaleVectorDetectedByEmbedHashSQL(t *testing.T) {
 }
 
 func TestFlushPendingDBBatch(t *testing.T) {
+	t.Cleanup(clearPendingForTest)
 	project := "/proj-batch-test"
 	db.IndexDB.Exec(`DELETE FROM embed_pending WHERE project_path = ?`, project)
 	pendingMu.Lock()
@@ -247,6 +231,7 @@ func TestFlushPendingDBBatch(t *testing.T) {
 }
 
 func TestEmbedPendingPersistAndLoad(t *testing.T) {
+	t.Cleanup(clearPendingForTest)
 	db.IndexDB.Exec(`DELETE FROM embed_pending`)
 	pendingMu.Lock()
 	pending = map[string]job{}
@@ -296,10 +281,8 @@ func (n *noopEmbedder) EmbedSingle(text string) ([]float32, error) {
 }
 
 func TestRetryPendingNowQueuesAndReportsCount(t *testing.T) {
-	pendingCh = make(chan job, 4)
-	highCh = make(chan job, 4)
-	lowCh = make(chan job, 4)
-	emb = &noopEmbedder{}
+	l := resetLanesForTest(t, 4)
+	SetEmbedder(&noopEmbedder{})
 	pendingMu.Lock()
 	pending = map[string]job{
 		jobKey(job{file: "/tmp/a.go", projectPath: "/proj"}): {file: "/tmp/a.go", projectPath: "/proj"},
@@ -315,7 +298,7 @@ func TestRetryPendingNowQueuesAndReportsCount(t *testing.T) {
 	}
 	for i := 0; i < 2; i++ {
 		select {
-		case <-pendingCh:
+		case <-l.pending:
 		case <-time.After(200 * time.Millisecond):
 			t.Fatalf("expected 2 jobs queued, got %d", i)
 		}
@@ -327,8 +310,8 @@ func TestRetryPendingNowRefusesWhileEmbedderDown(t *testing.T) {
 		embedder.SetOnError(nil)
 		embedder.MarkReady()
 	})
-	pendingCh = make(chan job, 4)
-	emb = &noopEmbedder{}
+	l := resetLanesForTest(t, 4)
+	SetEmbedder(&noopEmbedder{})
 	SetAuxEmbedder(nil)
 	auxWorkerMu.Lock()
 	auxWorkerTarget = 0
@@ -346,7 +329,7 @@ func TestRetryPendingNowRefusesWhileEmbedderDown(t *testing.T) {
 		t.Fatalf("queued=%d blocked=%q, want a refusal while the embedder is down", queued, blocked)
 	}
 	select {
-	case <-pendingCh:
+	case <-l.pending:
 		t.Fatal("nothing should be queued while the embedder is down")
 	case <-time.After(50 * time.Millisecond):
 	}

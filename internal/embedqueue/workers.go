@@ -144,7 +144,7 @@ func applyWorkerCountLocked(n int, persist bool) error {
 		return errQueueNotStarted
 	}
 	for workerCount < n {
-		go worker()
+		startWorker()
 		workerCount++
 	}
 	for workerCount > n {
