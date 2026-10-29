@@ -373,12 +373,90 @@ func TestClaudeDesktopBridgeFallback(t *testing.T) {
 	require.NotEmpty(t, p.Changes)
 	assert.Contains(t, string(p.Changes[0].After), `"command": "npx"`)
 	assert.Contains(t, string(p.Changes[0].After), `"mcp-remote"`)
-	assert.Len(t, p.Warnings, 1)
+	require.Len(t, p.Warnings, 2)
+	assert.Contains(t, p.Warnings[0], "mcp-remote")
 	s = newTestService(t, home, testOpts{noBridge: true, noNpx: true})
 	p, err = s.Plan(PlanRequest{Targets: []Target{TargetClaudeDesktop}})
 	require.NoError(t, err)
-	assert.Len(t, p.Warnings, 2)
+	require.Len(t, p.Warnings, 3)
 	assert.Contains(t, p.Warnings[1], "npx is not on PATH")
+}
+
+// Claude Desktop rewrites its config from memory while it runs, so every write to it warns,
+// explicitly so when it is running now.
+func TestClaudeDesktopRunningWarning(t *testing.T) {
+	home := newTestHome(t)
+	s := newTestService(t, home, testOpts{})
+	p, err := s.Plan(PlanRequest{Targets: []Target{TargetClaudeDesktop}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Claude Desktop rewrites claude_desktop_config.json from memory while it runs, undoing changes made underneath it; apply with Claude Desktop quit"}, p.Warnings)
+	s = newTestService(t, home, testOpts{desktopRunning: true})
+	p, err = s.Plan(PlanRequest{Targets: []Target{TargetClaudeDesktop}})
+	require.NoError(t, err)
+	require.Len(t, p.Warnings, 1)
+	assert.Contains(t, p.Warnings[0], "Claude Desktop is running")
+	assert.Contains(t, p.Warnings[0], "quit Claude Desktop, then apply")
+	_, res := applyPlan(t, s, PlanRequest{Targets: []Target{TargetClaudeDesktop}})
+	require.NotEmpty(t, res.Recheck)
+	p, err = s.Plan(PlanRequest{Targets: []Target{TargetClaudeDesktop}, Action: ActionUninstall})
+	require.NoError(t, err)
+	require.Len(t, p.Warnings, 1, "uninstall warns too: the running app would put the entry back")
+	assert.Contains(t, p.Warnings[0], "Claude Desktop is running")
+}
+
+// A running Claude Desktop that drops the entry after apply is caught by Recheck, and verify
+// explains the missing status.
+func TestClaudeDesktopRecheckCatchesDroppedEntry(t *testing.T) {
+	home := newTestHome(t)
+	path := filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+	const desktopConfig = "{\n  \"mcpServers\": {\n    \"other\": {\"command\": \"other\"}\n  }\n}\n"
+	writeFile(t, path, desktopConfig)
+	s := newTestService(t, home, testOpts{})
+	_, res := applyPlan(t, s, PlanRequest{Targets: []Target{TargetClaudeDesktop}})
+	assert.Empty(t, res.Recheck, "nothing to recheck while Claude Desktop is quit")
+
+	s = newTestService(t, home, testOpts{desktopRunning: true})
+	_, res = applyPlan(t, s, PlanRequest{Targets: []Target{TargetClaudeDesktop}, Action: ActionUninstall})
+	require.Len(t, res.Recheck, 1)
+	assert.Equal(t, StatusNotInstalled, res.Recheck[0].Status)
+	_, res = applyPlan(t, s, PlanRequest{Targets: []Target{TargetClaudeDesktop}})
+	require.Equal(t, []ComponentStatus{{Target: TargetClaudeDesktop, Component: ComponentMCP, Status: StatusInstalled, Path: path}}, res.Recheck)
+	fresh, warnings, err := s.Recheck(res.Recheck)
+	require.NoError(t, err)
+	assert.Empty(t, warnings, "still installed")
+	assert.Equal(t, res.Recheck, fresh)
+
+	// Claude Desktop writes back the config it holds in memory.
+	writeFile(t, path, desktopConfig)
+	fresh, warnings, err = s.Recheck(res.Recheck)
+	require.NoError(t, err)
+	require.Len(t, fresh, 1)
+	assert.Equal(t, StatusMissing, fresh[0].Status)
+	assert.Contains(t, fresh[0].Reason, "quit Claude Desktop, then install again")
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "Claude Desktop rewrote ~/Library/Application Support/Claude/claude_desktop_config.json after the apply")
+	assert.Contains(t, warnings[0], "is now missing (was installed)")
+	assert.Contains(t, warnings[0], "`ast-mcp install --target claude_desktop`")
+}
+
+func TestIsClaudeDesktopProcess(t *testing.T) {
+	tests := []struct {
+		goos, exe string
+		want      bool
+	}{
+		{"darwin", "/Applications/Claude.app/Contents/MacOS/Claude", true},
+		{"darwin", "/Users/me/Applications/Claude.app/Contents/MacOS/Claude", true},
+		{"darwin", "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper", false},
+		{"darwin", "/usr/local/bin/claude", false},
+		{"linux", "/usr/lib/claude-desktop/node_modules/electron/dist/electron", true},
+		{"linux", "/usr/bin/claude-desktop", true},
+		{"linux", "/usr/bin/vim", false},
+		{"linux", "/home/me/notes/claude-desktop.md", false},
+		{"windows", `C:\Program Files\Claude\Claude.exe`, false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, isClaudeDesktopProcess(tt.goos, tt.exe), tt.goos+" "+tt.exe)
+	}
 }
 
 func TestLinuxPaths(t *testing.T) {
@@ -453,6 +531,31 @@ func TestLegacyMigration(t *testing.T) {
 	require.NoError(t, err)
 	s = newTestService(t, home, testOpts{})
 	assert.Len(t, s.LegacyWarnings(), 2, "the check runs once; its findings persist")
+}
+
+// The legacy findings print once across CLI runs (one per target under mcp-local), but stay
+// available to verify and the dashboard until dismissed.
+func TestLegacyWarningsShownOnceUntilDismissed(t *testing.T) {
+	home := newTestHome(t)
+	_, err := db.DB.Exec("INSERT INTO agent_configs (agent_type, install_path, is_global, instructions_hash) VALUES ('cursor', '~/.cursor/mcp.json', 1, 'h')")
+	require.NoError(t, err)
+	s := newTestService(t, home, testOpts{})
+	require.Len(t, s.ClaimLegacyWarnings(), 1, "the first display shows them")
+	for range allTargets {
+		s = newTestService(t, home, testOpts{})
+		assert.Empty(t, s.ClaimLegacyWarnings(), "later runs stay quiet")
+		assert.Len(t, s.LegacyWarnings(), 1, "verify and the dashboard still see them")
+	}
+	require.NoError(t, s.DismissLegacyWarnings())
+	assert.Empty(t, s.LegacyWarnings())
+	assert.Empty(t, newTestService(t, home, testOpts{}).LegacyWarnings(), "dismissal persists")
+}
+
+func TestNoLegacyWarningsClaimsNothing(t *testing.T) {
+	home := newTestHome(t)
+	s := newTestService(t, home, testOpts{})
+	assert.Empty(t, s.ClaimLegacyWarnings())
+	assert.Empty(t, db.GetSetting(legacyShownSetting, ""), "nothing shown, nothing recorded")
 }
 
 func TestPlanValidation(t *testing.T) {

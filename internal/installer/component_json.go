@@ -13,8 +13,26 @@ type jsonEntryUnit struct {
 	entry jsonObj
 	// manual is appended to a parse error: the steps to register the server by hand.
 	manual string
-	// warnings are shown whenever the plan writes this file.
+	// warnings are shown whenever the plan installs this entry.
 	warnings []string
+	// live is set when the host rewrites this file from memory while it runs.
+	live *liveHost
+}
+
+// liveHost is a host app that keeps its config in memory and writes it back while it runs,
+// undoing changes made to the file underneath it.
+type liveHost struct {
+	name    string
+	file    string
+	running func() bool
+}
+
+// warning tells the user to quit the host before applying, explicitly when it is running now.
+func (h *liveHost) warning() string {
+	if h.running() {
+		return h.name + " is running and rewrites " + h.file + " from memory, which would undo this change: quit " + h.name + ", then apply"
+	}
+	return h.name + " rewrites " + h.file + " from memory while it runs, undoing changes made underneath it; apply with " + h.name + " quit"
 }
 
 func (u jsonEntryUnit) path() string {
@@ -36,7 +54,11 @@ func (u jsonEntryUnit) status(e *env) ComponentStatus {
 	}
 	cur, ok, err := doc.standard(u.block, serverName)
 	if err != nil || !ok {
-		return e.cs(absentStatus(row), u.file, "")
+		st, reason := absentStatus(row), ""
+		if st == StatusMissing && u.live != nil {
+			reason = "the entry is gone; " + u.live.name + " drops entries added to " + u.live.file + " while it runs, so quit " + u.live.name + ", then install again"
+		}
+		return e.cs(st, u.file, reason)
 	}
 	desired, err := canonicalJSON(u.entry)
 	if err != nil {
@@ -97,7 +119,11 @@ func (u jsonEntryUnit) planInstall(e *env, data []byte, doc *jsonDoc) ([]FileCha
 	}
 	c := e.change(u.file, kind, data, doc.bytes())
 	c.upserts = []stateRow{e.stateRow(u.file, dh, created)}
+	c.live = u.live
 	warnings := append([]string(nil), u.warnings...)
+	if u.live != nil {
+		warnings = append(warnings, u.live.warning())
+	}
 	if present && entryStatus(hashEntry(cur), dh, row) == StatusModifiedByUser {
 		warnings = append(warnings, "Replaces an ast-context-cache entry edited outside the installer in "+e.s.displayPath(u.file)+" (a backup is taken first)")
 	}
@@ -123,6 +149,10 @@ func (u jsonEntryUnit) planUninstall(e *env, data []byte, doc *jsonDoc) ([]FileC
 		c.Kind, c.After = KindDelete, nil
 	}
 	c.deletes = []stateKey{e.stateKey(u.file)}
+	c.live = u.live
+	if u.live != nil {
+		return []FileChange{c}, []string{u.live.warning()}, nil
+	}
 	return []FileChange{c}, nil, nil
 }
 

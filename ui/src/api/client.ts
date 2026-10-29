@@ -264,6 +264,7 @@ export const api = {
   installerBackups: () => get<InstallerBackupsResponse>('/api/dashboard/installer/backups'),
   installerRestore: (backup_id: string) =>
     post<{ status: string; backup_id: string }>('/api/dashboard/installer/restore', { backup_id }),
+  installerDismissLegacy: () => post<{ status: string }>('/api/dashboard/installer/legacy/dismiss', {}),
   embedderTest: () => post<{ status?: string; error?: string }>('/api/embedder/test', {}),
   embedderRetry: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string; skipped?: boolean }>('/api/embedder/retry'),

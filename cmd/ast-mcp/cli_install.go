@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
@@ -29,9 +30,16 @@ type installerOpts struct {
 	yes             bool
 	jsonOut         bool
 	replaceExternal bool
+	recheck         time.Duration
 	skipONNXRuntime bool
 	args            []string
 }
+
+// Test seams: claudeDesktopRunning (nil checks real processes) and the wait before a recheck.
+var (
+	claudeDesktopRunning func() bool
+	recheckSleep         = time.Sleep
+)
 
 // listFlag accepts repeated flags and comma-separated lists.
 type listFlag []string
@@ -89,7 +97,7 @@ func runInstaller(cmd string, args []string, stdout, stderr io.Writer) int {
 	}
 	defer db.Close()
 	flags.Reload()
-	svc, err := installer.New(installer.Config{MCPURL: opts.resolveURL()})
+	svc, err := installer.New(installer.Config{MCPURL: opts.resolveURL(), ClaudeDesktopRunning: claudeDesktopRunning})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -124,6 +132,7 @@ func parseInstallerFlags(cmd string, args []string, stderr io.Writer) (*installe
 		fs.BoolVar(&opts.dryRun, "dry-run", false, "print the diff and statuses without writing")
 		fs.BoolVar(&opts.replaceExternal, "replace-external", false, "replace externally managed skill or rule paths (backed up first)")
 		fs.BoolVar(&opts.yes, "yes", false, "apply the changes")
+		fs.DurationVar(&opts.recheck, "recheck", installer.RecheckDelay, "after applying while Claude Desktop runs, wait this long and verify it kept the change (0 skips)")
 		if cmd == "install" {
 			fs.BoolVar(&opts.skipONNXRuntime, "skip-onnxruntime", false, "don't install ONNX Runtime "+ortinstall.Version+" for the local (aux) embedder")
 		}
@@ -196,10 +205,13 @@ func runPlanCommand(svc installer.Service, action installer.Action, opts *instal
 		return exitError
 	}
 	warnings := append(planErrorWarnings(plan), plan.Warnings...)
-	warnings = append(warnings, svc.LegacyWarnings()...)
+	// One-time migration notice: printed on its first display only, so a run per target (as
+	// mcp-local does) doesn't repeat it. verify and the dashboard keep it until dismissed.
+	warnings = append(warnings, svc.ClaimLegacyWarnings()...)
 	unsupported := explicit && unsupportedTarget(plan, targets)
 	pending := pendingWrites(plan)
 	status := plan.Status
+	undone := false
 	withORT := action == installer.ActionInstall && !opts.skipONNXRuntime
 	ortNote := ""
 	if opts.yes {
@@ -212,6 +224,15 @@ func runPlanCommand(svc installer.Service, action installer.Action, opts *instal
 			return exitError
 		}
 		status = res.Status
+		if len(res.Recheck) > 0 && opts.recheck > 0 {
+			fresh, w, err := recheckApply(svc, res.Recheck, opts, stderr)
+			if err != nil {
+				w = append(w, "error: recheck failed: "+err.Error())
+			}
+			status = mergeStatus(status, fresh)
+			warnings = append(warnings, w...)
+			undone = len(w) > 0
+		}
 		if withORT {
 			progress := stderr
 			if opts.jsonOut {
@@ -231,7 +252,7 @@ func runPlanCommand(svc installer.Service, action installer.Action, opts *instal
 		fmt.Fprintln(stdout, "\n"+ortNote)
 	}
 	switch {
-	case plan.HasErrors():
+	case plan.HasErrors(), undone:
 		return exitConflict
 	case unsupported:
 		return exitUnsupported
@@ -256,6 +277,10 @@ func runVerify(svc installer.Service, opts *installerOpts, stdout, stderr io.Wri
 		return exitError
 	}
 	warnings := svc.LegacyWarnings()
+	if len(warnings) > 0 {
+		svc.ClaimLegacyWarnings()
+		warnings = append(warnings, "Dismiss the pre-4.0 install warnings in the dashboard (Settings → Agent integration) once handled.")
+	}
 	ort := ortStatus()
 	if opts.jsonOut && !ort.Available {
 		warnings = append(warnings, "aux embedder unavailable: "+ort.Reason)
@@ -265,6 +290,29 @@ func runVerify(svc installer.Service, opts *installerOpts, stdout, stderr io.Wri
 		fmt.Fprintln(stdout, "\n"+ortStatusLine(ort))
 	}
 	return exitOK
+}
+
+// recheckApply waits, then re-verifies components written while their host was running, which
+// can rewrite the file from memory and undo the change.
+func recheckApply(svc installer.Service, applied []installer.ComponentStatus, opts *installerOpts, stderr io.Writer) ([]installer.ComponentStatus, []string, error) {
+	if !opts.jsonOut {
+		fmt.Fprintf(stderr, "A host app is running and may undo this change; re-checking in %s…\n", opts.recheck)
+	}
+	recheckSleep(opts.recheck)
+	return svc.Recheck(applied)
+}
+
+// mergeStatus replaces rows of status with the fresher rows for the same target and component.
+func mergeStatus(status, fresh []installer.ComponentStatus) []installer.ComponentStatus {
+	out := append([]installer.ComponentStatus(nil), status...)
+	for _, f := range fresh {
+		for i := range out {
+			if out[i].Target == f.Target && out[i].Component == f.Component {
+				out[i] = f
+			}
+		}
+	}
+	return out
 }
 
 func runBackups(svc installer.Service, opts *installerOpts, stdout, stderr io.Writer) int {

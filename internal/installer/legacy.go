@@ -13,9 +13,15 @@ import (
 // Pre-4.0 installs were recorded in agent_configs. The v3 installer overwrote whole files (even
 // ~/.claude.json, with markdown), so the first 4.0 run re-checks each record on disk and keeps
 // the findings as warnings (IN-13). The table itself is kept for one release.
+//
+// The findings are a one-time migration notice: install and uninstall print them only on the
+// first display (CLI or dashboard), while verify and the dashboard keep showing them until the
+// user dismisses them in the dashboard.
 const (
-	legacyMigratedSetting = "installer_legacy_migrated"
-	legacyWarningsSetting = "installer_legacy_warnings"
+	legacyMigratedSetting  = "installer_legacy_migrated"
+	legacyWarningsSetting  = "installer_legacy_warnings"
+	legacyShownSetting     = "installer_legacy_shown"
+	legacyDismissedSetting = "installer_legacy_dismissed"
 
 	selectLegacyAgentConfigsQuery = "SELECT agent_type, install_path, is_global, COALESCE(installed_at, '') FROM agent_configs ORDER BY agent_type, install_path"
 )
@@ -27,13 +33,44 @@ type legacyRecord struct {
 	installedAt string
 }
 
-// LegacyWarnings returns the stored findings of the legacy record check.
+// LegacyWarnings returns the stored findings of the legacy record check until they are dismissed.
 func (s *realService) LegacyWarnings() []string {
+	if db.GetSetting(legacyDismissedSetting, "") == "1" {
+		return []string{}
+	}
 	var out []string
 	if err := json.Unmarshal([]byte(db.GetSetting(legacyWarningsSetting, "[]")), &out); err != nil || out == nil {
 		return []string{}
 	}
 	return out
+}
+
+// ClaimLegacyWarnings returns the findings on their first display and records it, so later calls
+// (including concurrent CLI runs, one per target) return none.
+func (s *realService) ClaimLegacyWarnings() []string {
+	w := s.LegacyWarnings()
+	if len(w) == 0 || db.GetSetting(legacyShownSetting, "") == "1" {
+		return []string{}
+	}
+	claimed, err := db.ClaimSetting(legacyShownSetting, "1")
+	if err != nil {
+		// Showing them again next time beats never showing them.
+		logger.Warn("Failed to record legacy install warnings as shown", "error", err)
+		return w
+	}
+	if !claimed {
+		return []string{}
+	}
+	return w
+}
+
+// DismissLegacyWarnings hides the findings everywhere.
+func (s *realService) DismissLegacyWarnings() error {
+	if err := db.SetSetting(legacyDismissedSetting, "1"); err != nil {
+		return errs.WrapMessage("failed to dismiss legacy install warnings", err)
+	}
+	logger.Info("Legacy install warnings dismissed")
+	return nil
 }
 
 // migrateLegacy runs the legacy check once per data directory. A failure is retried on the next start.
