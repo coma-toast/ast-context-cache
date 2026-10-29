@@ -116,6 +116,7 @@ func applyLiveHealthSignals(h components.IndexHealth) components.IndexHealth {
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
 	h.LastAutoRecoverUnix = eq.LastAutoRecoverUnix
+	applyHostDisks(&h)
 	return h
 }
 
@@ -171,6 +172,7 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	h.SSDSparePct = ssd.SparePct
 	h.SSDDataWrittenTB = ssd.DataWrittenTB
 	h.SSDTemperatureC = ssd.TemperatureC
+	applyHostDisks(&h)
 
 	diskBytes := db.TotalDBBytes()
 	if diskBytes > 0 {

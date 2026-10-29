@@ -337,7 +337,14 @@ export interface IndexHealth {
   DriveDisconnected?: boolean
   DriveDisconnectedPath?: string
   Disks?: DiskInfo[]
-  ProxmoxSettings?: ProxmoxSettings
+  /** host_disk_health_url is set. */
+  HostDiskURLSet?: boolean
+  /** Why the latest host disk poll failed; Disks then hold the last good sample. */
+  HostDiskError?: string
+  /** Unix seconds of the last good host disk sample, or 0. */
+  HostDiskSampledUnix?: number
+  /** This instance runs in a container or VM and cannot read SMART itself. */
+  HostDiskGuest?: boolean
   /** Unix seconds of last stuck-worker auto-recover, or 0. */
   LastAutoRecoverUnix?: number
   Watchers: WatcherInfo[]
@@ -408,6 +415,8 @@ export interface ONNXRuntimeInstallResult {
 
 export interface SettingsData {
   IdleUnloadMinutes: number
+  /** host_disk_health_url: the hypervisor host's smartctl_exporter /metrics URL, or empty. */
+  HostDiskHealthURL?: string
   EmbedWorkerMax?: number
   EmbedAuxWorkerMax?: number
   EmbedAuxWorkers?: number
@@ -477,7 +486,6 @@ export interface SettingsData {
   InstanceNameSource?: string
   /** True when the -name flag or AST_INSTANCE_NAME sets the name and the override is off. */
   InstanceNameLocked?: boolean
-  ProxmoxSettings?: ProxmoxSettings
   /** instance_name_override: the dashboard name wins over the flag and env var. */
   InstanceNameOverride?: boolean
   /** The -name flag or AST_INSTANCE_NAME value, if any. */
@@ -635,6 +643,8 @@ export interface UpdateStatus {
 
 export interface DiskInfo {
   Device?: string
+  /** A disk of the host this instance runs on as a guest, read from its smartctl_exporter. */
+  Host?: boolean
   Model?: string
   Serial?: string
   Protocol?: string
@@ -669,17 +679,6 @@ export interface DiskInfo {
   ZFSHealth?: string
   ZFSCapacityPct?: number
   ZFSFragPct?: number
-  ProxmoxNode?: string
-}
-
-export interface ProxmoxSettings {
-  URL?: string
-  Node?: string
-  TokenID?: string
-  /** Whether a token secret is stored; the API never returns the secret itself. */
-  SecretSet?: boolean
-  Insecure?: boolean
-  Timeout?: number
 }
 
 export interface PruneStatus {

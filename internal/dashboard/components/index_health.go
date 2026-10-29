@@ -1,6 +1,10 @@
 package components
 
-import "time"
+import (
+	"time"
+
+	"github.com/coma-toast/ast-context-cache/internal/sys"
+)
 
 type EmbedActivityItem struct {
 	File        string
@@ -101,6 +105,15 @@ type IndexHealth struct {
 	DriveDisconnected        bool
 	DriveDisconnectedPath    string
 	LastAutoRecoverUnix      int64
+	// Disks are the disk card's per-disk rows; today only host disks from smartctl_exporter.
+	Disks []sys.DiskInfo
+	// HostDiskURLSet: host_disk_health_url is set. HostDiskError is why the latest poll failed
+	// (Disks then hold the last good sample, taken at HostDiskSampledUnix).
+	HostDiskURLSet      bool
+	HostDiskError       string
+	HostDiskSampledUnix int64
+	// HostDiskGuest: this instance runs in a container or VM, so it cannot read SMART itself.
+	HostDiskGuest bool
 }
 
 type WatcherInfo struct {

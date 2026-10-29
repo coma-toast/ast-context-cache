@@ -10,6 +10,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
+	"github.com/coma-toast/ast-context-cache/internal/hostdisk"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
 	"github.com/coma-toast/ast-context-cache/internal/transcripts"
@@ -71,6 +72,7 @@ func buildSettingsData(opts settingsBuildOpts) components.SettingsData {
 	projects, projectsLoading := loadProjectsForPage()
 	data := components.SettingsData{
 		IdleUnloadMinutes:        idleMinutes,
+		HostDiskHealthURL:        settings[hostdisk.SettingKey],
 		WatcherIgnoreGlobs:       watcherIgn,
 		ProjectExcludePaths:      projectExclude,
 		ProjectIndexExcludes:     db.GetProjectIndexExcludes(),

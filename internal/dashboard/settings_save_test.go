@@ -13,6 +13,7 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/hostdisk"
 	"github.com/coma-toast/ast-context-cache/internal/instance"
 )
 
@@ -120,6 +121,27 @@ func TestSettingsBatch(t *testing.T) {
 			wantValues:  map[string]string{instance.SettingKey: "dash", instance.OverrideKey: "true"},
 			wantStored:  map[string]string{instance.SettingKey: "dash", instance.OverrideKey: "true"},
 		},
+		{
+			name:       "host disk health URL is trimmed and stored",
+			body:       `{"settings":{"host_disk_health_url":" http://192.168.1.10:9633/metrics "}}`,
+			wantCode:   http.StatusOK,
+			wantValues: map[string]string{hostdisk.SettingKey: "http://192.168.1.10:9633/metrics"},
+			wantStored: map[string]string{hostdisk.SettingKey: "http://192.168.1.10:9633/metrics"},
+		},
+		{
+			name:       "host disk health URL with credentials is refused",
+			body:       `{"settings":{"host_disk_health_url":"http://root:hunter2@pve:9633/metrics"}}`,
+			wantCode:   http.StatusBadRequest,
+			wantErrors: []string{hostdisk.SettingKey},
+			wantStored: map[string]string{hostdisk.SettingKey: ""},
+		},
+		{
+			name:       "host disk health URL must be http or https",
+			body:       `{"settings":{"host_disk_health_url":"pve:9633/metrics"}}`,
+			wantCode:   http.StatusBadRequest,
+			wantErrors: []string{hostdisk.SettingKey},
+			wantStored: map[string]string{hostdisk.SettingKey: ""},
+		},
 		{name: "empty batch", body: `{"settings":{}}`, wantCode: http.StatusBadRequest},
 		{name: "bad JSON", body: `{"settings":`, wantCode: http.StatusBadRequest},
 		{name: "GET not allowed", method: http.MethodGet, wantCode: http.StatusMethodNotAllowed},
@@ -169,6 +191,8 @@ func TestSettingsSingleKeyRejectsWith4xx(t *testing.T) {
 		{name: "missing key", key: "", value: "x", wantCode: http.StatusBadRequest, wantErr: "key required"},
 		{name: "worker max out of range", key: "embed_worker_max", value: "0", wantCode: http.StatusBadRequest, wantErr: "embed_worker_max must be 1–"},
 		{name: "probe interval out of range", key: embedder.ProbeIntervalSettingKey, value: "1", wantCode: http.StatusBadRequest, wantErr: "must be 5–600"},
+		{name: "host disk URL without scheme", key: hostdisk.SettingKey, value: "pve:9633", wantCode: http.StatusBadRequest, wantErr: "http:// or https://"},
+		{name: "host disk URL clears", key: hostdisk.SettingKey, value: "", wantCode: http.StatusOK},
 		{name: "valid key saves", key: "query_retention_max_age_days", value: "30", wantCode: http.StatusOK},
 	}
 	for _, tt := range tests {

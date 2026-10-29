@@ -8,6 +8,7 @@ import (
 
 type SettingsData struct {
 	IdleUnloadMinutes        int
+	HostDiskHealthURL        string
 	WatcherIgnoreGlobs       string
 	ProjectExcludePaths      string
 	ProjectIndexExcludes     map[string][]string // project path → gitignore-syntax excludes

@@ -90,7 +90,7 @@ export function ssdSmartTone(status: string): 'success' | 'warning' | 'error' | 
 export function diskTone(status?: string): 'success' | 'warning' | 'error' | 'default' {
   if (!status) return 'default'
   const s = status.toLowerCase()
-  if (s.includes('verified') || s.includes('ok') || s.includes('normal')) return 'success'
+  if (s.includes('verified') || s.includes('ok') || s.includes('normal') || s.includes('pass')) return 'success'
   if (s.includes('fail') || s.includes('error') || s.includes('critical')) return 'error'
   if (s.includes('warn') || s.includes('degraded')) return 'warning'
   return 'default'
@@ -161,4 +161,14 @@ export function ssdWearColor(pct: number) {
   if (pct >= 80) return '#f85149'
   if (pct >= 50) return '#d29922'
   return '#3fb950'
+}
+
+/** When the host disk sample was taken, for the stale-sample warning ("5 min ago"). */
+export function sampleAge(unixSec?: number, nowMs: number = Date.now()): string {
+  if (!unixSec) return ''
+  const sec = Math.max(0, Math.round(nowMs / 1000 - unixSec))
+  if (sec < 90) return `${sec}s ago`
+  if (sec < 90 * 60) return `${Math.round(sec / 60)} min ago`
+  if (sec < 36 * 3600) return `${Math.round(sec / 3600)} h ago`
+  return `${Math.round(sec / 86400)} d ago`
 }

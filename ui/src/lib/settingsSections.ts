@@ -80,16 +80,28 @@ export const storageSaved = (data: SettingsData): Record<string, string> => ({
   transcript_usage_ingest: String(!!data.TranscriptUsageIngest),
 })
 
-/** The Proxmox API token secret is write-only, like the embedding secrets. */
-export const PROXMOX_SECRET_KEYS = ['proxmox_secret']
+/** Settings key for the host's smartctl_exporter /metrics URL. */
+export const HOST_DISK_KEY = 'host_disk_health_url'
 
-export const PROXMOX_TIMEOUTS = ['5', '10', '15', '30', '60']
+/** The full setup guide, linked from the Host disks card. */
+export const HOST_DISK_DOC_URL = 'https://github.com/coma-toast/ast-context-cache/blob/main/docs/host-disk-health.md'
 
-export const proxmoxSaved = (data: SettingsData): Record<string, string> => ({
-  proxmox_url: data.ProxmoxSettings?.URL ?? '',
-  proxmox_node: data.ProxmoxSettings?.Node ?? '',
-  proxmox_token_id: data.ProxmoxSettings?.TokenID ?? '',
-  proxmox_secret: data.ProxmoxSettings?.SecretSet ? SECRET_SET : '',
-  proxmox_timeout: String(data.ProxmoxSettings?.Timeout ?? 10),
-  proxmox_insecure: String(!!data.ProxmoxSettings?.Insecure),
+export const hostDiskSaved = (data: SettingsData): Record<string, string> => ({
+  [HOST_DISK_KEY]: data.HostDiskHealthURL ?? '',
 })
+
+/** The server's URL check, run before Save: empty, or http(s) with a host and no user:password. */
+export const hostDiskURLError = (value: string): string | undefined => {
+  const v = value.trim()
+  if (v === '') return undefined
+  if (!/^https?:\/\//i.test(v)) return 'Must start with http:// or https://'
+  let u: URL
+  try {
+    u = new URL(v)
+  } catch {
+    return 'Not a valid URL'
+  }
+  if (!u.hostname) return 'Needs a host, e.g. http://192.168.1.10:9633/metrics'
+  if (u.username || u.password) return 'Must not contain a user name or password'
+  return undefined
+}

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { SettingsData } from '../api/types'
 import { buttonByText, clickAndSettle, mountHarness, type Harness, typeInto } from '../test/settingsHarness'
-import { EmbeddingSection, PerformanceSection, ProxmoxSection, WatcherSection } from './SettingsFormSections'
+import { EmbeddingSection, HostDiskSection, PerformanceSection, WatcherSection } from './SettingsFormSections'
 
 let h: Harness
 
@@ -75,21 +75,39 @@ describe('PerformanceSection', () => {
   })
 })
 
-describe('ProxmoxSection', () => {
-  const proxmoxData = (extra: Partial<SettingsData['ProxmoxSettings']> = {}) =>
-    ({ ProxmoxSettings: { URL: 'https://pve:8006/api2/json', Node: 'pve', TokenID: 'audit@pve!dash', SecretSet: true, Timeout: 10, ...extra } }) as SettingsData
-
-  it('saves its fields together and keeps the stored secret when left blank', async () => {
-    h.render(<ProxmoxSection data={proxmoxData()} />)
-    expect(field('Token secret').value).toBe('')
-    typeInto(field('Node'), 'proxmox2')
-    expect(buttonByText(h.container, 'Test connection').disabled).toBe(true)
+describe('HostDiskSection', () => {
+  it('saves the URL as one key', async () => {
+    h.render(<HostDiskSection data={{} as SettingsData} />)
+    expect(buttonByText(h.container, 'Save').disabled).toBe(true)
+    typeInto(field('Host disk health URL'), 'http://192.168.1.10:9633/metrics')
     await clickAndSettle(buttonByText(h.container, 'Save'))
-    expect(h.saveBatch).toHaveBeenCalledWith({ proxmox_node: 'proxmox2' })
+    expect(h.saveBatch).toHaveBeenCalledWith({ host_disk_health_url: 'http://192.168.1.10:9633/metrics' })
   })
 
-  it('disables Test connection until URL, token ID and secret are saved', () => {
-    h.render(<ProxmoxSection data={proxmoxData({ SecretSet: false })} />)
-    expect(buttonByText(h.container, 'Test connection').disabled).toBe(true)
+  it.each([
+    ['192.168.1.10:9633/metrics', 'Must start with http:// or https://'],
+    ['http://root:pw@pve:9633/metrics', 'Must not contain a user name or password'],
+  ])('blocks %s before sending it', async (value, msg) => {
+    h.render(<HostDiskSection data={{} as SettingsData} />)
+    typeInto(field('Host disk health URL'), value)
+    await clickAndSettle(buttonByText(h.container, 'Save'))
+    expect(h.saveBatch).not.toHaveBeenCalled()
+    expect(h.container.textContent).toContain(msg)
+  })
+
+  it('clears a saved URL with an empty value', async () => {
+    h.render(<HostDiskSection data={{ HostDiskHealthURL: 'http://pve:9633/metrics' } as SettingsData} />)
+    expect(field('Host disk health URL').value).toBe('http://pve:9633/metrics')
+    typeInto(field('Host disk health URL'), '')
+    await clickAndSettle(buttonByText(h.container, 'Save'))
+    expect(h.saveBatch).toHaveBeenCalledWith({ host_disk_health_url: '' })
+  })
+
+  it('keeps the setup steps and the guide link next to the field', () => {
+    h.render(<HostDiskSection data={{} as SettingsData} />)
+    expect(h.container.textContent).toContain('How to set this up')
+    expect(h.container.textContent).toContain('grep smartctl_device')
+    const link = [...h.container.querySelectorAll('a')].find((a) => a.href.endsWith('docs/host-disk-health.md'))
+    expect(link).toBeDefined()
   })
 })
