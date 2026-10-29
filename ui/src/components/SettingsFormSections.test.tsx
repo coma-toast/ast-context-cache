@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { SettingsData } from '../api/types'
 import { buttonByText, clickAndSettle, mountHarness, type Harness, typeInto } from '../test/settingsHarness'
-import { EmbeddingSection, PerformanceSection, WatcherSection } from './SettingsFormSections'
+import { EmbeddingSection, PerformanceSection, ProxmoxSection, WatcherSection } from './SettingsFormSections'
 
 let h: Harness
 
@@ -72,5 +72,24 @@ describe('PerformanceSection', () => {
     expect(auxLabels()).toHaveLength(3)
     h.render(<PerformanceSection data={{ EmbedWorkerMax: 15 } as SettingsData} />)
     expect(auxLabels()).toHaveLength(3)
+  })
+})
+
+describe('ProxmoxSection', () => {
+  const proxmoxData = (extra: Partial<SettingsData['ProxmoxSettings']> = {}) =>
+    ({ ProxmoxSettings: { URL: 'https://pve:8006/api2/json', Node: 'pve', TokenID: 'audit@pve!dash', SecretSet: true, Timeout: 10, ...extra } }) as SettingsData
+
+  it('saves its fields together and keeps the stored secret when left blank', async () => {
+    h.render(<ProxmoxSection data={proxmoxData()} />)
+    expect(field('Token secret').value).toBe('')
+    typeInto(field('Node'), 'proxmox2')
+    expect(buttonByText(h.container, 'Test connection').disabled).toBe(true)
+    await clickAndSettle(buttonByText(h.container, 'Save'))
+    expect(h.saveBatch).toHaveBeenCalledWith({ proxmox_node: 'proxmox2' })
+  })
+
+  it('disables Test connection until URL, token ID and secret are saved', () => {
+    h.render(<ProxmoxSection data={proxmoxData({ SecretSet: false })} />)
+    expect(buttonByText(h.container, 'Test connection').disabled).toBe(true)
   })
 })

@@ -87,6 +87,76 @@ export function ssdSmartTone(status: string): 'success' | 'warning' | 'error' | 
   return 'default'
 }
 
+export function diskTone(status?: string): 'success' | 'warning' | 'error' | 'default' {
+  if (!status) return 'default'
+  const s = status.toLowerCase()
+  if (s.includes('verified') || s.includes('ok') || s.includes('normal')) return 'success'
+  if (s.includes('fail') || s.includes('error') || s.includes('critical')) return 'error'
+  if (s.includes('warn') || s.includes('degraded')) return 'warning'
+  return 'default'
+}
+
+export function diskHealthLevel(data: DiskInfo): 'ok' | 'warn' | 'critical' {
+  if (data.WearUsedPct != null) {
+    if (data.WearUsedPct >= 80) return 'critical'
+    if (data.WearUsedPct >= 50) return 'warn'
+  }
+  if (data.TemperatureC != null) {
+    if (data.TemperatureC >= 65) return 'critical'
+    if (data.TemperatureC >= 55) return 'warn'
+  }
+  if (data.WarningLevel === 'critical' || data.WarningMsg?.includes('critical')) return 'critical'
+  if (data.WarningLevel === 'warning' || data.WarningMsg?.includes('warning')) return 'warn'
+  return 'ok'
+}
+
+export function diskLabel(data: DiskInfo): string {
+  const parts = []
+  if (data.Device) parts.push(data.Device)
+  if (data.Model) parts.push(data.Model)
+  return parts.join(' · ') || '-'
+}
+
+export function diskSubtitle(data: DiskInfo): string {
+  const parts = []
+  if (data.Protocol) parts.push(data.Protocol)
+  if (data.Capacity) parts.push(data.Capacity)
+  if (data.FreeSpace && data.FreeSpace !== data.Capacity) parts.push(`Free ${data.FreeSpace}`)
+  return parts.join(' · ') || '-'
+}
+
+export function diskTempColor(tempC?: number): string {
+  if (tempC == null) return '#3fb950'
+  if (tempC >= 65) return '#f85149'
+  if (tempC >= 55) return '#d29922'
+  return '#3fb950'
+}
+
+export function diskTempLabel(tempC?: number): string {
+  if (tempC == null) return 'N/A'
+  return `${tempC}°C`
+}
+
+export function formatPowerOnHours(hh?: number): string {
+  if (hh == null) return '-'
+  const days = Math.floor(hh / 24)
+  if (days > 365) return `${Math.floor(days / 365)} yr`
+  if (days > 30) return `${Math.floor(days / 30)} mo`
+  return `${days} days`
+}
+
+export function diskHasWarning(data: DiskInfo): boolean {
+  if (data.TemperatureC != null && (data.TemperatureC >= 65 || data.TemperatureC >= 55)) return true
+  if (data.WearUsedPct != null && (data.WearUsedPct >= 80 || data.WearUsedPct >= 50)) return true
+  if (data.WarningLevel || data.WarningMsg) return true
+  return false
+}
+
+export function diskWarningMessage(data: DiskInfo): string {
+  if (!data.WarningMsg) return ''
+  return data.WarningMsg
+}
+
 export function ssdWearColor(pct: number) {
   if (pct >= 80) return '#f85149'
   if (pct >= 50) return '#d29922'

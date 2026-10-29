@@ -30,7 +30,7 @@ import { api } from '../api/client'
 import { useToast } from '../context/ToastContext'
 import { formatBytes, formatNum } from '../api/client'
 import { RecoveryBanner } from '../components/RecoveryBanner'
-import { DraftSwitch, EmbeddingSection, PerformanceSection, RetentionSection, VirtualContextSection, WatcherSection } from '../components/SettingsFormSections'
+import { DraftSwitch, EmbeddingSection, PerformanceSection, ProxmoxSection, RetentionSection, VirtualContextSection, WatcherSection } from '../components/SettingsFormSections'
 import { SettingsSaveBar } from '../components/SettingsSaveBar'
 import { SettingsSaveContext, useSettingsDraft, type SettingsSaveApi } from '../hooks/useSettingsDraft'
 import { settingsCardSx, storageSaved } from '../lib/settingsSections'
@@ -51,6 +51,7 @@ const SECTIONS = [
   { id: 'general', label: 'General' },
   { id: 'updates', label: 'Updates' },
   { id: 'storage', label: 'Storage' },
+  { id: 'proxmox', label: 'Proxmox' },
   { id: 'features', label: 'Features' },
   { id: 'performance', label: 'Performance' },
   { id: 'embed-queue', label: 'Embed queue' },
@@ -206,6 +207,8 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
       <InstanceSettingsSection data={data} />
 
       <StorageSection data={data} />
+
+      <ProxmoxSection data={data} />
 
       <RecoveryBanner />
 
