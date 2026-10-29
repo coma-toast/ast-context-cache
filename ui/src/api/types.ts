@@ -881,6 +881,8 @@ export interface InstallerApplyResult {
   backups: InstallerBackup[]
   status: InstallerComponentStatus[]
   warnings: string[]
+  /** Components written while their host app was running; it may rewrite the file and undo them. */
+  recheck?: InstallerComponentStatus[]
 }
 
 export interface InstallerBackupsResponse {

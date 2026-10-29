@@ -167,6 +167,7 @@ ast-mcp version
 | `--yes` | install, uninstall, restore | Apply. Without `--yes` or `--dry-run`, install/uninstall print the preview and exit 2. |
 | `--mcp-url` | install, uninstall, verify | Register this URL verbatim. |
 | `--mcp-port` | install, uninstall, verify | Register `http://127.0.0.1:<port>/mcp`. Default `$AST_MCP_PORT`, then 7821. Use it when the server runs with a non-default `--mcp-port`. |
+| `--recheck` | install, uninstall | After applying while Claude Desktop is running, wait this long (default `10s`) and verify it did not undo the change; `0` skips. |
 | `--replace-external` | install, uninstall | Replace externally managed skill or rule paths (for example a symlinked `~/.claude/skills/ast-context-cache`); a backup is taken first. |
 | `--json` | all | Machine-readable output: `{"changes": [...], "status": [...], "warnings": [...]}` (`backups` prints the backup list). |
 
@@ -175,7 +176,7 @@ ast-mcp version
 | 0 | OK (applied, previewed with `--dry-run`, or nothing to do) |
 | 1 | Error (bad flags, unknown target, database unavailable) |
 | 2 | Confirmation required: changes are pending; re-run with `--yes` |
-| 3 | Conflict: a file changed since the preview, or a config file could not be parsed (nothing was written) |
+| 3 | Conflict: a file changed since the preview, or a config file could not be parsed (nothing was written), or a running Claude Desktop undid the change during `--recheck` |
 | 4 | Unsupported: every requested component is unsupported for a named target |
 
 `ast-mcp hook <event>` is the command the installed Claude Code and Cursor hooks run; you don't call it yourself except to debug ([handoff.md](handoff.md#claude-code-hooks), [search-first nudge](host-integration.md#search-first-nudge)). To turn the nudge off without uninstalling, switch off `feature_search_nudge` in the dashboard (Settings → Features) or set `AST_FEATURE_SEARCH_NUDGE=false`.
@@ -184,7 +185,7 @@ ast-mcp version
 
 **Status values** reported by `verify` and the dashboard: `installed`, `outdated`, `modified_by_user`, `missing`, `not_installed`, `externally_managed`, `covered`, `unsupported`. See [host-integration.md](host-integration.md#status-values).
 
-**Upgrading from 3.x.** Re-run the installer to repair pre-4.0 installs. The first 4.0 start re-checks the old install records and prints warnings (also in `verify`); in particular, the old Claude Code target could overwrite `~/.claude.json`, which Claude Code backs up in `~/.claude/backups/`. Close Claude Code before applying a change to `~/.claude.json`, because it rewrites that file while running.
+**Upgrading from 3.x.** Re-run the installer to repair pre-4.0 installs. The first 4.0 start re-checks the old install records; the first install (or the dashboard) prints the warnings once, and `verify` and the dashboard keep them until you dismiss them in the dashboard. In particular, the old Claude Code target could overwrite `~/.claude.json`, which Claude Code backs up in `~/.claude/backups/`. Close Claude Code before applying a change to `~/.claude.json`, and quit Claude Desktop before changing `claude_desktop_config.json`: both apps rewrite their file while running, and Claude Desktop drops the entry.
 
 ### Manual registration
 

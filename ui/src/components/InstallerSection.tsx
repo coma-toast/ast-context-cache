@@ -41,6 +41,7 @@ import { useToast } from '../context/ToastContext'
 
 import { api, formatBytes } from '../api/client'
 import {
+  applyToast,
   changeKindLabel,
   componentLabel,
   defaultSelection,
@@ -152,8 +153,8 @@ export const InstallerSection = ({ refreshKey }: InstallerSectionProps) => {
     try {
       const res = await api.installerApply(preview.plan.plan_id)
       setPreview(null)
-      const n = res.written.length
-      showToast(`${preview.request.action === 'install' ? 'Installed' : 'Uninstalled'}: ${n} file${n === 1 ? '' : 's'} written`, 'success')
+      const toast = applyToast(preview.request.action, res, preview.targetName)
+      showToast(toast.message, toast.severity)
       setBackupsKey((k) => k + 1)
       void load()
     } catch (e) {
@@ -164,6 +165,15 @@ export const InstallerSection = ({ refreshKey }: InstallerSectionProps) => {
       await repreview(preview)
     } finally {
       setApplying(false)
+    }
+  }
+
+  const dismissLegacy = async () => {
+    try {
+      await api.installerDismissLegacy()
+      void load()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error')
     }
   }
 
@@ -197,7 +207,7 @@ export const InstallerSection = ({ refreshKey }: InstallerSectionProps) => {
         {!overview && !loadError && <Typography color="text.secondary">Loading agent hosts…</Typography>}
         {overview && (
           <>
-            <LegacyWarnings warnings={overview.legacy_warnings} />
+            <LegacyWarnings warnings={overview.legacy_warnings} onDismiss={() => void dismissLegacy()} />
             <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
               {overview.targets.map((t) => (
                 <TargetCard
@@ -231,10 +241,20 @@ export const InstallerSection = ({ refreshKey }: InstallerSectionProps) => {
   )
 }
 
-const LegacyWarnings = ({ warnings }: { warnings: string[] }) => {
+/** One-time pre-4.0 migration notice (IN-13): shown here until dismissed, then hidden everywhere. */
+const LegacyWarnings = ({ warnings, onDismiss }: { warnings: string[]; onDismiss: () => void }) => {
   if (!warnings?.length) return null
   return (
-    <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="installer-legacy-warnings">
+    <Alert
+      severity="warning"
+      sx={{ mb: 1.5 }}
+      data-testid="installer-legacy-warnings"
+      action={
+        <Button color="inherit" size="small" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      }
+    >
       <AlertTitle>Pre-4.0 install records</AlertTitle>
       <Box component="ul" sx={{ m: 0, pl: 2 }}>
         {warnings.map((w) => (

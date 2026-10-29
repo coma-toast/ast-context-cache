@@ -37,6 +37,7 @@ The skills are the four canonical skills from [`skills/`](../skills/README.md) (
 - **Backups:** before any write each modified file is copied to `~/.astcache/backups/<YYYYMMDD-HHMMSS>/<path with / replaced by %>`. The newest 5 per file are kept (setting `installer_backup_keep`). List with `ast-mcp backups`; restore with `ast-mcp restore --yes <id>` (the current file is backed up first).
 - **Preview first:** a plan is held for 10 minutes. Apply re-hashes every file and fails with a conflict, writing nothing, if any changed since the preview.
 - **`~/.claude.json`:** Claude Code rewrites this file while it runs, so the preview warns to apply with Claude Code closed.
+- **`claude_desktop_config.json`:** Claude Desktop holds this file in memory and writes it back while it runs, dropping an entry added underneath it (observed 30 seconds after an install on 2026-10-05). Every install or uninstall preview warns to apply with Claude Desktop quit; when its process is running (macOS: `…/Claude.app/Contents/MacOS/Claude`; Linux: a `claude-desktop` executable path) the warning says so and asks you to quit it first. An apply made while it runs is re-verified: the CLI waits `--recheck` (default 10s) and exits 3 if the change was undone, and the dashboard re-checks at 10, 30, and 60 seconds and refreshes the card. A dropped entry shows as `missing` with the reason.
 
 ### Status values
 
@@ -75,7 +76,7 @@ Codex, Claude Desktop, VS Code and JetBrains have no nudge.
 
 ### Legacy (pre-4.0) installs
 
-The first 4.0 start re-checks every install record the old dashboard installer left (IN-13) and shows warnings in `ast-mcp verify`, `ast-mcp install`, and the dashboard. The old Claude Code global target wrote markdown over `~/.claude.json`; if Claude Code lost its settings, restore `~/.claude.json` from Claude Code's own backups in `~/.claude/backups/`, then run `ast-mcp install --target claude_code`. Old project-scope records are listed so you can remove those files by hand.
+The first 4.0 start re-checks every install record the old dashboard installer left (IN-13). The findings are a one-time notice: `ast-mcp install`/`uninstall` print them only on their first display (CLI or dashboard), so a run per target does not repeat them. `ast-mcp verify` and Settings → Agent integration keep showing them until you click **Dismiss** in the dashboard. The old Claude Code global target wrote markdown over `~/.claude.json`; if Claude Code lost its settings, restore `~/.claude.json` from Claude Code's own backups in `~/.claude/backups/`, then run `ast-mcp install --target claude_code`. Old project-scope records are listed so you can remove those files by hand.
 
 ---
 

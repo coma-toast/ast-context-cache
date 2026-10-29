@@ -2,7 +2,8 @@ package installer
 
 // claudeDesktopSpec: Claude Desktop only launches stdio servers, so the entry runs a bridge to
 // the HTTP endpoint: mcp-local when it is on PATH, otherwise npx mcp-remote. Skills, rules, and
-// hooks have no documented local location.
+// hooks have no documented local location. A running Claude Desktop rewrites its config from
+// memory and drops our entry, so the plan warns and Apply asks for a recheck.
 func (s *realService) claudeDesktopSpec() targetSpec {
 	file := s.homePath(".config", "Claude", "claude_desktop_config.json")
 	if s.cfg.GOOS == "darwin" {
@@ -10,8 +11,9 @@ func (s *realService) claudeDesktopSpec() targetSpec {
 	}
 	entry, warnings := s.desktopBridge()
 	const none = "Claude Desktop has no documented local location for this component"
+	live := &liveHost{name: "Claude Desktop", file: "claude_desktop_config.json", running: s.cfg.ClaudeDesktopRunning}
 	return targetSpec{id: TargetClaudeDesktop, name: "Claude Desktop", units: map[Component]unit{
-		ComponentMCP:    jsonEntryUnit{file: file, block: "mcpServers", entry: entry, warnings: warnings},
+		ComponentMCP:    jsonEntryUnit{file: file, block: "mcpServers", entry: entry, warnings: warnings, live: live},
 		ComponentSkills: unsupportedUnit{reason: none},
 		ComponentRules:  unsupportedUnit{reason: none},
 		ComponentHooks:  unsupportedUnit{reason: "handoff hooks are Claude Code only"},
