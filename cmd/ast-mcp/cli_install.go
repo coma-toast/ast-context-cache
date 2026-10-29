@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,6 +17,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/installer"
+	"github.com/coma-toast/ast-context-cache/internal/ortinstall"
 )
 
 // installerOpts are the parsed flags shared by the installer subcommands.
@@ -29,6 +31,7 @@ type installerOpts struct {
 	jsonOut         bool
 	replaceExternal bool
 	recheck         time.Duration
+	skipONNXRuntime bool
 	args            []string
 }
 
@@ -130,6 +133,9 @@ func parseInstallerFlags(cmd string, args []string, stderr io.Writer) (*installe
 		fs.BoolVar(&opts.replaceExternal, "replace-external", false, "replace externally managed skill or rule paths (backed up first)")
 		fs.BoolVar(&opts.yes, "yes", false, "apply the changes")
 		fs.DurationVar(&opts.recheck, "recheck", installer.RecheckDelay, "after applying while Claude Desktop runs, wait this long and verify it kept the change (0 skips)")
+		if cmd == "install" {
+			fs.BoolVar(&opts.skipONNXRuntime, "skip-onnxruntime", false, "don't install ONNX Runtime "+ortinstall.Version+" for the local (aux) embedder")
+		}
 	case "restore":
 		fs.BoolVar(&opts.yes, "yes", false, "restore the backup")
 	}
@@ -206,6 +212,8 @@ func runPlanCommand(svc installer.Service, action installer.Action, opts *instal
 	pending := pendingWrites(plan)
 	status := plan.Status
 	undone := false
+	withORT := action == installer.ActionInstall && !opts.skipONNXRuntime
+	ortNote := ""
 	if opts.yes {
 		res, err := svc.Apply(plan.ID)
 		if err != nil {
@@ -225,8 +233,24 @@ func runPlanCommand(svc installer.Service, action installer.Action, opts *instal
 			warnings = append(warnings, w...)
 			undone = len(w) > 0
 		}
+		if withORT {
+			progress := stderr
+			if opts.jsonOut {
+				progress = io.Discard
+			}
+			var ortWarnings []string
+			ortNote, ortWarnings = installONNXRuntime(context.Background(), db.GetDataDir(), progress)
+			warnings = append(warnings, ortWarnings...)
+		}
+	} else if withORT && !opts.jsonOut {
+		if _, ok := ortinstall.Installed(db.GetDataDir()); !ok {
+			fmt.Fprintln(stderr, "With --yes, ONNX Runtime "+ortinstall.Version+" is also installed for the local (aux) embedder (skip with --skip-onnxruntime).")
+		}
 	}
 	writeResult(stdout, opts.jsonOut, plan.Changes, status, warnings)
+	if ortNote != "" && !opts.jsonOut {
+		fmt.Fprintln(stdout, "\n"+ortNote)
+	}
 	switch {
 	case plan.HasErrors(), undone:
 		return exitConflict
@@ -257,7 +281,14 @@ func runVerify(svc installer.Service, opts *installerOpts, stdout, stderr io.Wri
 		svc.ClaimLegacyWarnings()
 		warnings = append(warnings, "Dismiss the pre-4.0 install warnings in the dashboard (Settings → Agent integration) once handled.")
 	}
+	ort := ortStatus()
+	if opts.jsonOut && !ort.Available {
+		warnings = append(warnings, "aux embedder unavailable: "+ort.Reason)
+	}
 	writeResult(stdout, opts.jsonOut, nil, status, warnings)
+	if !opts.jsonOut {
+		fmt.Fprintln(stdout, "\n"+ortStatusLine(ort))
+	}
 	return exitOK
 }
 

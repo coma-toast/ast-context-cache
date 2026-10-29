@@ -19,7 +19,7 @@ For MCP search workflows, point agents to [usage/SKILL.md](../ast-usage/SKILL.md
 
 Vectors must stay **768-dimensional** L2-normalized to match the index. Changing model or dimension requires re-index or clearing vectors.
 
-- `onnx` (default) — local; `make setup` downloads model + tokenizer (`MODEL_DIR`)
+- `onnx` (default) — local; `make setup` downloads model + tokenizer (`MODEL_DIR`). Needs ONNX Runtime 1.25+: `ast-mcp install --yes` installs 1.31.0 under `~/.astcache/lib/`, or Settings → Embedding → **Install ONNX Runtime** (then **Restart now**). When it can't load, `/health` has `aux_available: false` with `aux_unavailable_reason`, and the aux controls are hidden
 - `ollama` — Ollama with 768-d model, e.g. `nomic-embed-text` (`OLLAMA_HOST`, `OLLAMA_EMBED_MODEL`)
 - `http` — custom `POST` JSON embed service (`EMBED_HTTP_URL`, `EMBED_HTTP_BEARER`)
 - `openai` / `litellm` — OpenAI-compatible `POST /v1/embeddings` (`EMBED_OPENAI_BASE_URL`, `EMBED_OPENAI_MODEL`, `EMBED_OPENAI_API_KEY`, `EMBED_OPENAI_DIMENSIONS`)

@@ -36,11 +36,12 @@ Use the installer instead of hand-editing config. It previews a per-file diff, b
 ast-mcp install --target cursor --dry-run        # preview only
 ast-mcp install --target cursor --yes            # apply
 ast-mcp install --target all --yes               # every host; unsupported parts are skipped
-ast-mcp verify                                   # installed / outdated / modified_by_user / …
+ast-mcp verify                                   # installed / outdated / modified_by_user / …, plus the ONNX Runtime state
 ast-mcp uninstall --target cursor --yes          # remove only what was added
 ast-mcp backups && ast-mcp restore --yes <id>    # undo a change
 ```
 
+- `install --yes` also installs ONNX Runtime 1.31.0 (sha256-verified) under `~/.astcache/lib/` for the local `onnx` embedder; a failure is only a warning (`aux embedder unavailable: …`). `--skip-onnxruntime` opts out. See [docs/INSTALL.md](../../../docs/INSTALL.md#onnx-runtime).
 - Targets: `claude_code`, `cursor`, `opencode`, `codex`, `claude_desktop`, `vscode`, `jetbrains`. Components: `mcp`, `skills`, `rules`, `hooks` (Claude Code subagent-handoff hooks: available, opt-in; turn on the `feature_handoff_hooks` flag first, then `--target claude_code --component hooks`, and restart Claude Code. See [docs/handoff.md](../../../docs/handoff.md#claude-code-hooks)).
 - `--mcp-port` / `--mcp-url` when the server is not on 7821 (default `$AST_MCP_PORT`, then 7821). `--json` for scripts.
 - Exit codes: 0 ok, 1 error, 2 needs `--yes`, 3 conflict or unparseable config (nothing written), 4 unsupported.

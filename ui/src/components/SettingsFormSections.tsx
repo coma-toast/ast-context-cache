@@ -18,6 +18,8 @@ import {
 } from '@mui/material'
 
 import { api } from '../api/client'
+import { auxUnavailable } from '../lib/auxEmbedder'
+import { OnnxRuntimeSection } from './OnnxRuntimeSection'
 import type { SettingsData } from '../api/types'
 import { useToast } from '../context/ToastContext'
 import { useSettingsDraft, type SettingsDraft } from '../hooks/useSettingsDraft'
@@ -115,33 +117,37 @@ export const PerformanceSection = ({ data }: { data: SettingsData }) => {
           slotProps={{ htmlInput: { min: 1, max: 64 } }}
           {...draftField(draft, 'embed_worker_max', 'Primary pool +/− cap')}
         />
-        <TextField
-          label="Max aux embed workers"
-          type="number"
-          size="small"
-          slotProps={{ htmlInput: { min: 1, max: 32 } }}
-          {...draftField(draft, 'embed_aux_worker_max', 'Aux catch-up pool cap')}
-        />
-        <TextField
-          label="Aux embed workers"
-          type="number"
-          size="small"
-          slotProps={{ htmlInput: { min: 0, max: Number(draft.value('embed_aux_worker_max')) || 10 } }}
-          {...draftField(draft, 'EMBED_AUX_WORKERS', 'Also adjustable on Overview')}
-        />
-        <DraftSelect
-          draft={draft}
-          k="EMBED_AUX_BACKEND"
-          label="Aux embed backend"
-          minWidth={180}
-          options={[
-            ['onnx', 'onnx (local)'],
-            ['http', 'http'],
-            ['ollama', 'ollama'],
-            ['openai', 'openai / litellm'],
-            ['docker', 'docker (DMR)'],
-          ]}
-        />
+        {!auxUnavailable(data) && (
+          <>
+            <TextField
+              label="Max aux embed workers"
+              type="number"
+              size="small"
+              slotProps={{ htmlInput: { min: 1, max: 32 } }}
+              {...draftField(draft, 'embed_aux_worker_max', 'Aux catch-up pool cap')}
+            />
+            <TextField
+              label="Aux embed workers"
+              type="number"
+              size="small"
+              slotProps={{ htmlInput: { min: 0, max: Number(draft.value('embed_aux_worker_max')) || 10 } }}
+              {...draftField(draft, 'EMBED_AUX_WORKERS', 'Also adjustable on Overview')}
+            />
+            <DraftSelect
+              draft={draft}
+              k="EMBED_AUX_BACKEND"
+              label="Aux embed backend"
+              minWidth={180}
+              options={[
+                ['onnx', 'onnx (local)'],
+                ['http', 'http'],
+                ['ollama', 'ollama'],
+                ['openai', 'openai / litellm'],
+                ['docker', 'docker (DMR)'],
+              ]}
+            />
+          </>
+        )}
         {data.EmbedProbeIntervalSec != null && (
           <TextField
             label="Probe interval (sec)"
@@ -200,13 +206,14 @@ export const VirtualContextSection = ({ data }: { data: SettingsData }) => {
  * Embedding backend: the backend and its URL / credentials save together, so the embedder
  * reloads once with a complete configuration instead of after each field.
  */
-export const EmbeddingSection = ({ data }: { data: SettingsData }) => {
+export const EmbeddingSection = ({ data, onRefresh }: { data: SettingsData; onRefresh?: () => void }) => {
   const { showToast } = useToast()
   const saved = embeddingSaved(data)
   const draft = useSettingsDraft('embedding', 'Embedding backend', saved, { secrets: EMBED_SECRET_KEYS })
   return (
     <DraftCard id="embedding" title="Embedding backend" draft={draft}>
       <Chip label={`Active: ${data.EmbedActiveBackend} / ${data.EmbedActiveModel}`} size="small" sx={{ mb: 2 }} />
+      <OnnxRuntimeSection data={data} onRefresh={onRefresh ?? (() => {})} />
       <Stack spacing={2}>
         <DraftSelect draft={draft} k="EMBED_BACKEND" label="Backend" options={EMBED_BACKENDS.map((b) => [b, b])} />
         <TextField label="HTTP URL" size="small" fullWidth {...draftField(draft, 'EMBED_HTTP_URL')} />

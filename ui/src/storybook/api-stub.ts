@@ -115,4 +115,5 @@ export const api = {
   startUpdate: noop,
   updateStatus: async () => fixtureUpdateStatus,
   restartNow: noop,
+  installONNXRuntime: noop,
 }

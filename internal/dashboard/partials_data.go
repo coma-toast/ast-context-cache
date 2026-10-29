@@ -240,7 +240,8 @@ func buildIndexHealthFresh(projectID string) components.IndexHealth {
 	if h.EmbedAuxBackend == "" {
 		h.EmbedAuxBackend = embedder.AuxBackend()
 	}
-	h.EmbedAuxEnabled = h.EmbedAuxBackend != "" && !embedder.AuxSharesPrimary()
+	auxOK, _ := embedder.AuxAvailable()
+	h.EmbedAuxEnabled = h.EmbedAuxBackend != "" && !embedder.AuxSharesPrimary() && auxOK
 	h.EmbedComplete = eq.Completed
 	h.EmbedThroughput = eq.Throughput
 	h.LastAutoRecoverUnix = eq.LastAutoRecoverUnix

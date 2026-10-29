@@ -219,7 +219,7 @@ const [renaming, setRenaming] = useState<Record<string, string>>({})
 
       <HandoffSettingsSection data={data} />
 
-      <EmbeddingSection data={data} />
+      <EmbeddingSection data={data} onRefresh={onRefresh} />
 
       <WatcherSection data={data} />
 

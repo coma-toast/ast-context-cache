@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { SettingsData } from '../api/types'
 import { buttonByText, clickAndSettle, mountHarness, type Harness, typeInto } from '../test/settingsHarness'
-import { EmbeddingSection, WatcherSection } from './SettingsFormSections'
+import { EmbeddingSection, PerformanceSection, WatcherSection } from './SettingsFormSections'
 
 let h: Harness
 
@@ -56,5 +56,21 @@ describe('WatcherSection', () => {
     expect(h.saveBatch).not.toHaveBeenCalled()
     await clickAndSettle(buttonByText(h.container, 'Save'))
     expect(h.saveBatch).toHaveBeenCalledWith({ index_log_files: 'true' })
+  })
+})
+
+describe('PerformanceSection', () => {
+  const auxLabels = () => ['Max aux embed workers', 'Aux embed workers', 'Aux embed backend'].filter((l) => h.container.textContent?.includes(l))
+
+  it('hides the aux controls when the aux embedder is unavailable', () => {
+    h.render(<PerformanceSection data={{ EmbedWorkerMax: 15, AuxAvailable: false } as SettingsData} />)
+    expect(auxLabels()).toHaveLength(0)
+  })
+
+  it('shows them when available, and for servers that do not report availability', () => {
+    h.render(<PerformanceSection data={{ EmbedWorkerMax: 15, AuxAvailable: true } as SettingsData} />)
+    expect(auxLabels()).toHaveLength(3)
+    h.render(<PerformanceSection data={{ EmbedWorkerMax: 15 } as SettingsData} />)
+    expect(auxLabels()).toHaveLength(3)
   })
 })
