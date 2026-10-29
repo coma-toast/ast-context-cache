@@ -30,6 +30,8 @@ const (
 	maxFinishedIndexJobs = 20
 	// maxStatusIndexJobs caps how many jobs index_status lists per project.
 	maxStatusIndexJobs = 5
+	// noCodeFilesWarning is a completed job's warning when its walk indexed nothing.
+	noCodeFilesWarning = "no code files found under path; check that it is the intended directory and not excluded"
 )
 
 var (
@@ -60,6 +62,7 @@ type indexJob struct {
 	state       string
 	finishedAt  time.Time
 	err         string
+	warning     string
 }
 
 func (j *indexJob) setState(state, errMsg string) {
@@ -81,7 +84,7 @@ func (j *indexJob) active() bool {
 // snapshot is the JSON shape reported by index_files and index_status.
 func (j *indexJob) snapshot() map[string]interface{} {
 	j.mu.Lock()
-	state, errMsg, finished := j.state, j.err, j.finishedAt
+	state, errMsg, warning, finished := j.state, j.err, j.warning, j.finishedAt
 	j.mu.Unlock()
 	end := time.Now()
 	if !finished.IsZero() {
@@ -102,6 +105,9 @@ func (j *indexJob) snapshot() map[string]interface{} {
 	}
 	if errMsg != "" {
 		out["error"] = errMsg
+	}
+	if warning != "" {
+		out["warning"] = warning
 	}
 	return out
 }
@@ -170,6 +176,14 @@ func runIndexJob(job *indexJob, lock *sync.Mutex) {
 		return
 	}
 	afterIndexDirectory(job.ProjectPath)
+	if job.filesDone.Load() == 0 {
+		// Nothing to index is not a failure (an empty or all-excluded tree), but a
+		// silent "completed" hid a walk that never entered the directory.
+		job.mu.Lock()
+		job.warning = noCodeFilesWarning
+		job.mu.Unlock()
+		logger.Warn("Index job found no code files", "job_id", job.ID, "path", job.Path, "project", job.ProjectPath)
+	}
 	job.setState(indexJobCompleted, "")
 	logger.Info("Index job completed", "job_id", job.ID, "path", job.Path, "files", job.filesDone.Load(), "symbols", n, "duration", time.Since(job.StartedAt).Round(time.Millisecond))
 }

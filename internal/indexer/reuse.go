@@ -63,7 +63,7 @@ type reuseVector struct {
 // repository to copy from. It returns nil when projectPath already has an index
 // of its own (incremental re-index handles that) or when no sibling is indexed.
 func FindReuseSource(projectPath string) *ReuseSource {
-	projectPath = projectlinks.NormalizePath(projectPath)
+	projectPath = projectlinks.CanonicalProject(projectPath)
 	if projectPath == "" {
 		return nil
 	}

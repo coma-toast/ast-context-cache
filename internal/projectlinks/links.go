@@ -50,6 +50,87 @@ func NormalizePath(p string) string {
 	return filepath.Clean(p)
 }
 
+// CanonicalProject is NormalizePath plus ResolveRootLink: the one spelling a
+// project's rows, watcher and jobs are keyed under.
+func CanonicalProject(p string) string {
+	return ResolveRootLink(NormalizePath(p))
+}
+
+// maxLinkHops bounds ResolveRootLink's walk down a chain of links (Linux's own
+// limit is 40).
+const maxLinkHops = 40
+
+// ResolveRootLink returns p's target when p itself (its last element) is a
+// symlink to a directory, and p unchanged otherwise. A project opened through a
+// link (/home/u/configSync -> /syncthing/configSync) is keyed under its target, so
+// the link and real spellings share one index. Only the link chain at the leaf is
+// followed, so the target keeps the spelling the link gives it and a path whose
+// only symlinks are ancestors (macOS /tmp -> /private/tmp) keeps its spelling and
+// its existing index rows.
+func ResolveRootLink(p string) string {
+	if p == "" {
+		return p
+	}
+	target := p
+	for i := 0; i < maxLinkHops; i++ {
+		fi, err := os.Lstat(target)
+		if err != nil {
+			return p
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			break
+		}
+		dest, err := os.Readlink(target)
+		if err != nil {
+			return p
+		}
+		if !filepath.IsAbs(dest) {
+			dest = filepath.Join(filepath.Dir(target), dest)
+		}
+		target = filepath.Clean(dest)
+	}
+	if target == p {
+		return p
+	}
+	want, err := os.Stat(p)
+	if err != nil || !want.IsDir() {
+		return p
+	}
+	// A relative target joined lexically under a symlinked parent can name the
+	// wrong place ("../x" from inside a linked dir); the kernel's answer wins.
+	if got, err := os.Stat(target); err != nil || !os.SameFile(want, got) {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			return real
+		}
+		return p
+	}
+	return target
+}
+
+// RebaseIntoProject respells path under project when it reaches a location inside
+// project only through symlinks (a path given via the link spelling of a project
+// keyed under its target, or the reverse). Paths already under project, outside
+// it, or unresolvable come back absolute and cleaned but otherwise unchanged.
+func RebaseIntoProject(path, project string) string {
+	path, project = NormalizePath(path), NormalizePath(project)
+	if path == "" || project == "" || IsUnderPath(path, project) {
+		return path
+	}
+	realPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	realProject, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		return path
+	}
+	rel, err := filepath.Rel(realProject, realPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return filepath.Join(project, rel)
+}
+
 // IsStrictSubpath reports whether child is a strict subdirectory of parent.
 func IsStrictSubpath(child, parent string) bool {
 	child = NormalizePath(child)
