@@ -1,42 +1,29 @@
 import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SettingsData } from '../api/types'
 import { checkFaviconFile, FAVICON_KEYS, FAVICON_MAX_BYTES } from '../lib/favicon'
-import { InstanceFaviconPicker } from './InstanceFaviconPicker'
+import { buttonByText, clickAndSettle, mountHarness, typeInto, type Harness } from '../test/settingsHarness'
+import { InstanceSettingsSection } from './InstanceSettingsSection'
 
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-
-let container: HTMLDivElement
-let root: Root
+let h: Harness
 
 beforeEach(() => {
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  root = createRoot(container)
+  h = mountHarness()
 })
 
-afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
-})
+afterEach(() => h.unmount())
 
-const render = (data: Partial<SettingsData>, save: (key: string, value: string) => Promise<void>) =>
-  act(() => root.render(<InstanceFaviconPicker data={data as SettingsData} save={save} />))
+// The picker lives in the General card and shares its draft.
+const render = (data: Partial<SettingsData>) => h.render(<InstanceSettingsSection data={data as SettingsData} />)
 
-const radio = (value: string) => container.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)!
-const badgeInput = () => container.querySelector<HTMLInputElement>('input[aria-label="Favicon badge"]')
-const colorInput = () => container.querySelector<HTMLInputElement>('input[type="color"]')
-const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === label)
-const checkbox = () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')
-const fileInput = () => container.querySelector<HTMLInputElement>('[data-testid="favicon-file"]')!
-
-const setValue = (input: HTMLInputElement, value: string) =>
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-  })
+const picker = () => h.container.querySelector<HTMLElement>('[data-testid="favicon-picker"]')!
+const radio = (value: string) => h.container.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)!
+const badgeInput = () => h.container.querySelector<HTMLInputElement>('input[aria-label="Favicon badge"]')
+const colorInput = () => h.container.querySelector<HTMLInputElement>('input[type="color"]')
+const checkbox = () => picker().querySelector<HTMLInputElement>('input[type="checkbox"]')
+const fileInput = () => h.container.querySelector<HTMLInputElement>('[data-testid="favicon-file"]')!
+const save = () => buttonByText(h.container, 'Save')
 
 const chooseFile = (file: File) =>
   act(async () => {
@@ -47,74 +34,71 @@ const chooseFile = (file: File) =>
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 describe('InstanceFaviconPicker', () => {
-  it('shows the current favicon and switches modes', () => {
-    const save = vi.fn(async () => {})
-    render({ InstanceFaviconMode: '', InstanceFaviconURL: '/dashboard/favicon?v=abc' }, save)
-    expect(container.querySelector('img')!.getAttribute('src')).toBe('/dashboard/favicon?v=abc')
+  it('shows the current favicon and switches modes on Save', async () => {
+    render({ InstanceFaviconMode: '', InstanceFaviconURL: '/dashboard/favicon?v=abc' })
+    expect(picker().querySelector('img')!.getAttribute('src')).toBe('/dashboard/favicon?v=abc')
     expect(radio('default').checked).toBe(true)
     expect(colorInput()).toBeNull()
     expect(checkbox()).toBeNull()
     act(() => radio('color').click())
-    expect(save).toHaveBeenLastCalledWith(FAVICON_KEYS.mode, 'color')
+    expect(h.saveBatch).not.toHaveBeenCalled()
+    await clickAndSettle(save())
+    expect(h.saveBatch).toHaveBeenLastCalledWith({ [FAVICON_KEYS.mode]: 'color', [FAVICON_KEYS.color]: '#863bff' })
   })
 
-  it('applies a color and a badge in color mode', async () => {
-    const save = vi.fn(async () => {})
-    render({ InstanceFaviconMode: 'color', InstanceFaviconColor: '#863bff', InstanceFaviconBadge: '' }, save)
-    expect(button('Apply')!.disabled).toBe(true)
-    setValue(colorInput()!, '#00aa00')
-    setValue(badgeInput()!, 'M')
-    await act(async () => button('Apply')!.click())
-    expect(save).toHaveBeenCalledWith(FAVICON_KEYS.color, '#00aa00')
-    expect(save).toHaveBeenCalledWith(FAVICON_KEYS.badge, 'M')
+  it('saves a color and a badge together in color mode', async () => {
+    render({ InstanceFaviconMode: 'color', InstanceFaviconColor: '#863bff', InstanceFaviconBadge: '' })
+    expect(save().disabled).toBe(true)
+    typeInto(colorInput()!, '#00aa00')
+    typeInto(badgeInput()!, 'M')
+    await clickAndSettle(save())
+    expect(h.saveBatch).toHaveBeenCalledTimes(1)
+    expect(h.saveBatch).toHaveBeenCalledWith({ [FAVICON_KEYS.color]: '#00aa00', [FAVICON_KEYS.badge]: 'M' })
   })
 
-  it('uploads a small PNG and rejects big or wrong-type files without saving', async () => {
-    const save = vi.fn(async () => {})
-    render({ InstanceFaviconMode: 'default' }, save)
+  it('uploads a small PNG right away and rejects big or wrong-type files without saving', async () => {
+    render({ InstanceFaviconMode: 'default' })
     await chooseFile(new File([new Uint8Array(FAVICON_MAX_BYTES + 1)], 'big.png', { type: 'image/png' }))
-    expect(container.textContent).toContain('big.png is 65 KB; the limit is 64 KB')
+    expect(h.container.textContent).toContain('big.png is 65 KB; the limit is 64 KB')
     await chooseFile(new File(['x'], 'photo.jpg', { type: 'image/jpeg' }))
-    expect(container.textContent).toContain('photo.jpg is not a PNG, SVG or ICO file')
-    expect(save).not.toHaveBeenCalled()
+    expect(h.container.textContent).toContain('photo.jpg is not a PNG, SVG or ICO file')
+    expect(h.saveBatch).not.toHaveBeenCalled()
 
     await chooseFile(new File([PNG], 'icon.png', { type: 'image/png' }))
-    await vi.waitFor(() => expect(save).toHaveBeenCalled())
-    const [key, value] = save.mock.calls[0] as unknown as [string, string]
-    expect(key).toBe(FAVICON_KEYS.upload)
-    expect(value.startsWith('data:image/png;base64,')).toBe(true)
-    expect(container.querySelector('[role="alert"]')).toBeNull()
+    await vi.waitFor(() => expect(h.saveBatch).toHaveBeenCalled())
+    const [changes] = h.saveBatch.mock.calls[0]
+    expect(Object.keys(changes)).toEqual([FAVICON_KEYS.upload])
+    expect(changes[FAVICON_KEYS.upload].startsWith('data:image/png;base64,')).toBe(true)
+    await vi.waitFor(() => expect(h.refresh).toHaveBeenCalled())
+    expect(h.container.querySelector('[role="alert"]')).toBeNull()
   })
 
-  it('picks the stored upload without asking for a file again', () => {
-    const save = vi.fn(async () => {})
-    render({ InstanceFaviconMode: 'default', InstanceFaviconUploadType: 'image/png', InstanceFaviconUploadBytes: 2048 }, save)
-    expect(container.textContent).toContain('Upload (image/png, 2 KB)')
+  it('picks the stored upload without asking for a file again', async () => {
+    render({ InstanceFaviconMode: 'default', InstanceFaviconUploadType: 'image/png', InstanceFaviconUploadBytes: 2048 })
+    expect(h.container.textContent).toContain('Upload (image/png, 2 KB)')
     act(() => radio('upload').click())
-    expect(save).toHaveBeenLastCalledWith(FAVICON_KEYS.mode, 'upload')
+    await clickAndSettle(save())
+    expect(h.saveBatch).toHaveBeenLastCalledWith({ [FAVICON_KEYS.mode]: 'upload' })
   })
 
-  it('locks to the env color until the override box is checked', () => {
-    const save = vi.fn(async () => {})
+  it('locks to the env color until the override box is checked', async () => {
     const env: Partial<SettingsData> = { InstanceFaviconExternalColor: '#ff0000', InstanceFaviconLocked: true, InstanceFaviconMode: 'upload', InstanceFaviconBadge: 'D' }
-    render(env, save)
+    render(env)
     expect(radio('color').checked).toBe(true)
     expect(radio('default').disabled).toBe(true)
     expect(colorInput()!.value).toBe('#ff0000')
     expect(colorInput()!.disabled).toBe(true)
     expect(badgeInput()!.value).toBe('')
-    expect(container.textContent).toContain('Set by AST_INSTANCE_FAVICON_COLOR')
+    expect(h.container.textContent).toContain('Set by AST_INSTANCE_FAVICON_COLOR')
     expect(checkbox()!.checked).toBe(false)
-    act(() => checkbox()!.click())
-    expect(save).toHaveBeenLastCalledWith(FAVICON_KEYS.override, 'true')
 
-    // Override on: the stored settings come back and are editable.
-    render({ ...env, InstanceFaviconLocked: false, InstanceFaviconOverride: true }, save)
+    // Checking the box unlocks the stored settings in the draft.
+    act(() => checkbox()!.click())
     expect(radio('upload').checked).toBe(true)
     expect(radio('default').disabled).toBe(false)
-    expect(container.textContent).toContain('Overrides AST_INSTANCE_FAVICON_COLOR')
-    act(() => checkbox()!.click())
-    expect(save).toHaveBeenLastCalledWith(FAVICON_KEYS.override, 'false')
+    expect(h.container.textContent).toContain('Overrides AST_INSTANCE_FAVICON_COLOR')
+    await clickAndSettle(save())
+    expect(h.saveBatch).toHaveBeenLastCalledWith({ [FAVICON_KEYS.override]: 'true' })
   })
 })
 

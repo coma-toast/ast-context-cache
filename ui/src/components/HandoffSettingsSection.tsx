@@ -1,6 +1,9 @@
 import { Card, CardContent, Stack, TextField, Typography } from '@mui/material'
 
 import type { HandoffLimits, SettingsData } from '../api/types'
+import { useSettingsDraft } from '../hooks/useSettingsDraft'
+import { settingsCardSx } from '../lib/settingsSections'
+import { SettingsSaveBar } from './SettingsSaveBar'
 
 /** One handoff limit: its settings key, the HandoffLimits field it resolves to, and its label. */
 interface HandoffKnob {
@@ -25,21 +28,17 @@ const ENV_PREFIX = 'AST_'
 
 interface HandoffSettingsSectionProps {
   data: SettingsData
-  /** SettingsTab's save: posts the setting, toasts, and reloads settings. */
-  save: (key: string, value: string) => Promise<void>
 }
 
 /** Settings card for the handoff retention windows and caps. Each must be a positive integer. */
-export const HandoffSettingsSection = ({ data, save }: HandoffSettingsSectionProps) => {
+export const HandoffSettingsSection = ({ data }: HandoffSettingsSectionProps) => {
   const limits = data.HandoffLimits
   const locked = new Set(data.HandoffEnvLocked ?? [])
-  const commit = (knob: HandoffKnob, raw: string) => {
-    const value = raw.trim()
-    if (!limits || value === String(limits[knob.field])) return
-    void save(knob.key, value)
-  }
+  const saved: Record<string, string> = {}
+  for (const knob of HANDOFF_KNOBS) if (limits && !locked.has(knob.key)) saved[knob.key] = String(limits[knob.field])
+  const draft = useSettingsDraft('handoff', 'Handoff', saved)
   return (
-    <Card variant="outlined" id="settings-handoff" sx={{ mb: 2, scrollMarginTop: { xs: 120, md: 120 } }}>
+    <Card variant="outlined" id="settings-handoff" sx={settingsCardSx(draft.dirty)}>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Handoff
@@ -51,25 +50,29 @@ export const HandoffSettingsSection = ({ data, save }: HandoffSettingsSectionPro
         {!limits ? (
           <Typography color="text.secondary">Handoff limits unavailable.</Typography>
         ) : (
-          <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }} useFlexGap>
-            {HANDOFF_KNOBS.map((knob) => {
-              const envLocked = locked.has(knob.key)
-              return (
-                <TextField
-                  key={knob.key}
-                  label={knob.label}
-                  type="number"
-                  size="small"
-                  disabled={envLocked}
-                  defaultValue={limits[knob.field]}
-                  slotProps={{ htmlInput: { min: 1, 'aria-label': knob.key } }}
-                  helperText={envLocked ? `Set by ${ENV_PREFIX}${knob.key.toUpperCase()}` : knob.helper}
-                  onBlur={(e) => commit(knob, e.target.value)}
-                  sx={{ width: 200 }}
-                />
-              )
-            })}
-          </Stack>
+          <>
+            <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }} useFlexGap>
+              {HANDOFF_KNOBS.map((knob) => {
+                const envLocked = locked.has(knob.key)
+                return (
+                  <TextField
+                    key={knob.key}
+                    label={knob.label}
+                    type="number"
+                    size="small"
+                    disabled={envLocked}
+                    value={envLocked ? limits[knob.field] : draft.value(knob.key)}
+                    onChange={(e) => draft.set(knob.key, e.target.value)}
+                    error={!!draft.errors[knob.key]}
+                    slotProps={{ htmlInput: { min: 1, 'aria-label': knob.key } }}
+                    helperText={draft.errors[knob.key] ?? (envLocked ? `Set by ${ENV_PREFIX}${knob.key.toUpperCase()}` : knob.helper)}
+                    sx={{ width: 200 }}
+                  />
+                )
+              })}
+            </Stack>
+            <SettingsSaveBar draft={draft} label="Handoff" />
+          </>
         )}
       </CardContent>
     </Card>

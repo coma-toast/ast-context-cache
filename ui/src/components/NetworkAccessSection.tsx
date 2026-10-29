@@ -5,6 +5,7 @@ import { Alert, Box, Button, Card, CardContent, Chip, Stack, TextField, Tooltip,
 import type { NetworkKey, NetworkState, NetworkUpdate } from '../api/types'
 
 import { useToast } from '../context/ToastContext'
+import { useReportDirty } from '../hooks/useSettingsDraft'
 
 import { api } from '../api/client'
 import {
@@ -92,6 +93,8 @@ export const NetworkAccessSection = ({ refreshKey }: NetworkAccessSectionProps) 
 
   const saved = (key: ListKey) => (net?.[key] ?? []).join('\n')
   const draft = (key: ListKey) => drafts[key] ?? saved(key)
+  const dirty = (Object.keys(drafts) as ListKey[]).some((k) => draft(k) !== saved(k)) || (enteringToken && tokenInput.trim() !== '')
+  useReportDirty('network', dirty)
 
   const saveList = async (key: ListKey, validate: (l: string[]) => string) => {
     const list = parseList(draft(key))
