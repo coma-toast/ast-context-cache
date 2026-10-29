@@ -104,11 +104,17 @@ func runIndexWriter(ch chan *indexWriteJob, stop chan struct{}) {
 	}
 }
 
+// indexWriteTx runs fn in an IMMEDIATE transaction on indexWriteDB, so the write
+// lock is taken up front and waits out another writer (Init's FTS rebuild, a
+// WAL checkpoint) under busy_timeout. A DEFERRED one could fail at once with
+// "database is locked": preparing a symbols write fires the FTS triggers, FTS5
+// reads its config to connect those tables, and that read lock is one SQLite
+// won't wait to upgrade while another connection holds the write lock.
 func indexWriteTx(fn func(*sql.Tx) error) error {
-	if IndexDB == nil {
+	if indexWriteDB == nil {
 		return errIndexUnavailable
 	}
-	tx, err := IndexDB.Begin()
+	tx, err := indexWriteDB.Begin()
 	if err != nil {
 		return err
 	}

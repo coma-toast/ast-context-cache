@@ -179,3 +179,65 @@ func TestStartIndexWriterSkippedWhileQuiesced(t *testing.T) {
 		t.Fatalf("IndexWrite after restore: %v", err)
 	}
 }
+
+// An index write must wait out another connection's write lock (Init's FTS
+// rebuild, say) rather than fail at once with "database is locked". Preparing a
+// symbols write fires the FTS triggers, and FTS5 connects its virtual tables by
+// reading their config inside the transaction; under a DEFERRED BEGIN that left
+// a read lock the write then had to upgrade, which SQLite refuses without
+// calling the busy handler.
+func TestIndexWriteWaitsForAnotherWriter(t *testing.T) {
+	initIndexWriterTest(t)
+	waitFTSRebuild()
+	if err := IndexWrite(func(tx *sql.Tx) error {
+		_, err := tx.Exec(`INSERT INTO symbols (name, kind, file, start_line, end_line, project_path, code) VALUES ('X', 'function', '/p/x.go', 1, 1, '/p', 'func X() {}')`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Fresh connections, so the write below connects the FTS tables again.
+	if err := quiesceIndexPool(); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreIndexPool(); err != nil {
+		t.Fatal(err)
+	}
+	locker, err := sql.Open("sqlite3", indexDBPath()+"?_busy_timeout=15000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locker.Close()
+	lockConn, err := locker.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockConn.Close()
+	if _, err := lockConn.ExecContext(t.Context(), `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		errc <- IndexWrite(func(tx *sql.Tx) error {
+			_, err := tx.Exec(`DELETE FROM symbols WHERE file = ? AND project_path = ?`, "/p/x.go", "/p")
+			return err
+		})
+	}()
+	select {
+	case err := <-errc:
+		t.Fatalf("IndexWrite returned (err=%v) while another connection held the write lock", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if _, err := lockConn.ExecContext(t.Context(), `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitIndexWrite(t, errc, "IndexWrite"); err != nil {
+		t.Fatalf("IndexWrite after the lock was released: %v", err)
+	}
+	var n int
+	if err := IndexDB.QueryRow(`SELECT COUNT(*) FROM symbols WHERE file = '/p/x.go'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("%d symbols left after the delete", n)
+	}
+}
