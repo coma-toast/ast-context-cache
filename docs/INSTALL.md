@@ -26,7 +26,7 @@ tar -xzf ast-context-cache_<version>_darwin_arm64.tar.gz
 ./ast-mcp --version
 ```
 
-The binary needs no build tools. The local ONNX embedding backend also needs the onnxruntime library (`brew install onnxruntime`, or set `ONNXRUNTIME_LIB`) and the model files (`make download-model` in a clone, or point `MODEL_DIR` at them). A remote embedder (Ollama, or an OpenAI-compatible endpoint) needs neither; pick it in the dashboard's Embedding settings. Other platforms build from source below.
+The binary needs no build tools. The local ONNX embedding backend also needs the ONNX Runtime library, 1.25 or newer: `ast-mcp install --target <host> --yes` installs ONNX Runtime 1.31.0 for you (see [ONNX Runtime](#onnx-runtime)), or use `brew install onnxruntime` or set `ONNXRUNTIME_LIB`. It also needs the model files (`make download-model` in a clone, or point `MODEL_DIR` at them). A remote embedder (Ollama, or an OpenAI-compatible endpoint) needs neither; pick it in the dashboard's Embedding settings. Other platforms build from source below.
 
 ### Updating
 
@@ -167,6 +167,7 @@ ast-mcp version
 | `--yes` | install, uninstall, restore | Apply. Without `--yes` or `--dry-run`, install/uninstall print the preview and exit 2. |
 | `--mcp-url` | install, uninstall, verify | Register this URL verbatim. |
 | `--mcp-port` | install, uninstall, verify | Register `http://127.0.0.1:<port>/mcp`. Default `$AST_MCP_PORT`, then 7821. Use it when the server runs with a non-default `--mcp-port`. |
+| `--skip-onnxruntime` | install | Don't install ONNX Runtime with `--yes` (see [ONNX Runtime](#onnx-runtime)). |
 | `--replace-external` | install, uninstall | Replace externally managed skill or rule paths (for example a symlinked `~/.claude/skills/ast-context-cache`); a backup is taken first. |
 | `--json` | all | Machine-readable output: `{"changes": [...], "status": [...], "warnings": [...]}` (`backups` prints the backup list). |
 
@@ -179,6 +180,19 @@ ast-mcp version
 | 4 | Unsupported: every requested component is unsupported for a named target |
 
 `ast-mcp hook <event>` is the command the installed Claude Code and Cursor hooks run; you don't call it yourself except to debug ([handoff.md](handoff.md#claude-code-hooks), [search-first nudge](host-integration.md#search-first-nudge)). To turn the nudge off without uninstalling, switch off `feature_search_nudge` in the dashboard (Settings → Features) or set `AST_FEATURE_SEARCH_NUDGE=false`.
+
+### ONNX Runtime
+
+The local `onnx` embedder (the default primary backend and the default aux catch-up backend) loads ONNX Runtime 1.25 or newer at run time. `ast-mcp install ... --yes` installs ONNX Runtime **1.31.0** into `<data dir>/lib/onnxruntime-1.31.0/` (`~/.astcache/lib/` by default) unless it is already there:
+
+- It downloads the official `onnxruntime-<platform>-1.31.0.tgz` from the [microsoft/onnxruntime GitHub release](https://github.com/microsoft/onnxruntime/releases/tag/v1.31.0) for linux-x64, linux-aarch64 or osx-arm64, and refuses it unless its sha256 matches the digest pinned in `internal/ortinstall`.
+- It extracts only the `libonnxruntime*` files into a temp directory and renames it into place. An older managed version stays on disk until the new one has loaded, and is removed then.
+- A failed download or checksum is a warning, not an error: the editor install still completes and the output says `aux embedder unavailable: <reason>`. Pass `--skip-onnxruntime` to leave ONNX Runtime alone.
+- Restart ast-mcp to load a newly installed runtime.
+
+The server looks for the library in this order: `ONNXRUNTIME_LIB`, the `ast-mcp.ortlib` file `make build` writes next to the binary, the managed install, then `/usr/lib/libonnxruntime.so` (Linux) or `/opt/homebrew/lib/libonnxruntime.dylib` (macOS). `ast-mcp verify` prints which one it found, with its version and path, or why it is missing.
+
+`/health` reports `aux_available`, `aux_unavailable_reason`, `onnxruntime_version`, `onnxruntime_path` and `onnxruntime_source`. In the dashboard, **Settings → Embedding** shows the runtime's state; when it is missing the aux worker controls are hidden and an **Install ONNX Runtime** button runs the same verified install (`POST /api/onnxruntime/install`, local clients or the access token, like other changes). An **Update** button appears when the managed install is older than the pinned version. Then use **Restart now**.
 
 **Backups** live in `~/.astcache/backups/<YYYYMMDD-HHMMSS>/`, one file per modified path with `/` replaced by `%`. The newest 5 per file are kept (setting `installer_backup_keep`). `restore` backs up the current file before writing the old one back.
 
@@ -220,6 +234,10 @@ Usually a missing or **wrong-architecture** `libtokenizers.a` (e.g. arm64 lib on
 make clean-tokenizer-lib download-tokenizer-lib
 make build
 ```
+
+### "aux embedder unavailable" or "Error loading ONNX shared library"
+
+ast-mcp could not load ONNX Runtime, so the local `onnx` embedder (and the aux catch-up pool, which defaults to it) is off. Run `ast-mcp verify` to see which library path it tried. Install the managed runtime with `ast-mcp install --target <host> --yes` or **Settings → Embedding → Install ONNX Runtime**, then **Restart now**. A host without network access can point `ONNXRUNTIME_LIB` at an ONNX Runtime 1.25+ library instead. Remove a stale `ONNXRUNTIME_LIB` (for example in a systemd override), because it wins over the managed install.
 
 ### Model files missing
 

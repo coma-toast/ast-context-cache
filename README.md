@@ -90,7 +90,7 @@ tar -xzf ast-context-cache_<version>_darwin_arm64.tar.gz
 ./ast-mcp --version
 ```
 
-The local ONNX embedder also needs onnxruntime (`brew install onnxruntime`) and the model files; [`docs/INSTALL.md`](docs/INSTALL.md#install-from-a-release) has the details. Later releases install from the dashboard: Settings → **Updates** downloads the release, checks it against `checksums.txt`, and swaps it in.
+The local ONNX embedder also needs ONNX Runtime (`ast-mcp install --target <host> --yes` installs a checksum-verified 1.31.0 under `~/.astcache/lib/`; [details](docs/INSTALL.md#onnx-runtime)) and the model files; [`docs/INSTALL.md`](docs/INSTALL.md#install-from-a-release) has the details. Later releases install from the dashboard: Settings → **Updates** downloads the release, checks it against `checksums.txt`, and swaps it in.
 
 ### From source
 
@@ -232,7 +232,7 @@ Settings → **Updates** installs the latest release in place and keeps the prev
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ONNXRUNTIME_LIB` | ONNX Runtime library path | Auto-detected |
+| `ONNXRUNTIME_LIB` | ONNX Runtime library path (1.25+) | Build sidecar, then the managed install from `ast-mcp install`, then the system path ([order](docs/INSTALL.md#onnx-runtime)) |
 | `MODEL_DIR` | Model files | `./model` |
 | `DB_PATH` | Base path for DBs | `~/.astcache/usage.db` |
 | `EMBED_AUX_BACKEND` / `EMBED_AUX_WORKERS` | Aux catch-up pool | `onnx` / `0` |
@@ -259,7 +259,7 @@ Embedding backend variables: [`docs/embedding-backends.md`](docs/embedding-backe
 
 ### Linux
 
-Install ONNX Runtime (`libonnxruntime-dev` or [releases](https://github.com/microsoft/onnxruntime/releases)), then `make setup`.
+Install ONNX Runtime 1.25+ (`libonnxruntime-dev` or [releases](https://github.com/microsoft/onnxruntime/releases)), then `make setup`. The build needs its headers; at run time `ast-mcp install --target <host> --yes` can install the library for you ([ONNX Runtime](docs/INSTALL.md#onnx-runtime)).
 
 ### Cross-platform build
 
