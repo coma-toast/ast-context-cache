@@ -135,6 +135,7 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/update/start", handleStartUpdate)
 	mux.HandleFunc("/api/update/status", handleUpdateStatus)
 	mux.HandleFunc("/api/restart-now", handleRestartNow)
+	mux.HandleFunc("/api/onnxruntime/install", handleONNXRuntimeInstall)
 	mux.HandleFunc("/api/prune", handlePrune)
 	mux.HandleFunc("/api/prune/status", handlePruneStatus)
 	mux.HandleFunc("/api/browse-dir", handleBrowseDir)
@@ -1014,6 +1015,7 @@ func settingsWithDefaults() map[string]string {
 	redactNetworkSettings(settings)
 	applyInstanceSettings(settings)
 	applyFaviconSettings(settings)
+	applyORTSettings(settings)
 	return settings
 }
 

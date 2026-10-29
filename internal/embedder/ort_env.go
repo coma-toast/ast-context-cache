@@ -9,7 +9,17 @@ import (
 
 	ort "github.com/yalue/onnxruntime_go"
 
+	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
+	"github.com/coma-toast/ast-context-cache/internal/ortinstall"
+)
+
+// Where the ONNX Runtime library path came from (ResolveORTLib).
+const (
+	ORTSourceEnv     = "env"
+	ORTSourceSidecar = "sidecar"
+	ORTSourceManaged = "managed"
+	ORTSourceDefault = "default"
 )
 
 var (
@@ -23,16 +33,31 @@ var (
 )
 
 func resolveORTLibPath() string {
+	p, _ := ResolveORTLib()
+	return p
+}
+
+// ResolveORTLib returns the onnxruntime library path the server loads and its source:
+// ONNXRUNTIME_LIB, then the `make build` sidecar, then the managed install under the data
+// directory (ast-mcp install), then the platform default.
+func ResolveORTLib() (path, source string) {
+	return resolveORTLib(db.GetDataDir(), runtime.GOOS, ortLibFromSidecar)
+}
+
+func resolveORTLib(dataDir, goos string, sidecar func() string) (string, string) {
 	if p := os.Getenv("ONNXRUNTIME_LIB"); p != "" {
-		return p
+		return p, ORTSourceEnv
 	}
-	if p := ortLibFromSidecar(); p != "" {
-		return p
+	if p := sidecar(); p != "" {
+		return p, ORTSourceSidecar
 	}
-	if runtime.GOOS == "linux" {
-		return "/usr/lib/libonnxruntime.so"
+	if inst, ok := ortinstall.Installed(dataDir); ok {
+		return inst.Lib, ORTSourceManaged
 	}
-	return "/opt/homebrew/lib/libonnxruntime.dylib"
+	if goos == "linux" {
+		return "/usr/lib/libonnxruntime.so", ORTSourceDefault
+	}
+	return "/opt/homebrew/lib/libonnxruntime.dylib", ORTSourceDefault
 }
 
 // ortLibFromSidecar reads the "<binary>.ortlib" file `make build` writes next to the
@@ -67,8 +92,23 @@ func sidecarLibPath(sidecar string) string {
 
 func ensureONNXRuntime() error {
 	ortInitOnce.Do(func() {
-		ort.SetSharedLibraryPath(resolveORTLibPath())
+		lib, source := ResolveORTLib()
+		ort.SetSharedLibraryPath(lib)
 		ortInitErr = ort.InitializeEnvironment()
+		res := &ortLoadResult{path: lib, source: source, err: ortInitErr}
+		if ortInitErr != nil {
+			ortLoaded.Store(res)
+			logger.Warn("Failed to load ONNX Runtime", "path", lib, "source", source, "error", ortInitErr)
+			return
+		}
+		res.version = ort.GetVersion()
+		ortLoaded.Store(res)
+		logger.Info("Loaded ONNX Runtime", "path", lib, "source", source, "version", res.version)
+		if source == ORTSourceManaged {
+			// The managed version loaded, so older managed installs are no longer needed as a fallback.
+			dataDir := db.GetDataDir()
+			go ortinstall.Prune(dataDir, ortinstall.VersionFromLibPath(dataDir, lib))
+		}
 	})
 	if ortShutDown.Load() {
 		return errONNXRuntimeShutDown

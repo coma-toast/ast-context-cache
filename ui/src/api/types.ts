@@ -374,12 +374,46 @@ export interface QueueCapState {
   env_locked: boolean
 }
 
+/** ONNX Runtime load state and the managed install (embedder.ORTStatus). */
+export interface ONNXRuntimeStatus {
+  /** True when the runtime loaded, or (before first load) its library exists. */
+  available: boolean
+  reason?: string
+  loaded: boolean
+  version?: string
+  path: string
+  /** env | sidecar | managed | default */
+  source: string
+  managed: boolean
+  /** Newest managed install on disk. */
+  installed?: string
+  /** Version `ast-mcp install` and the Install button put in place. */
+  pinned: string
+  update_available: boolean
+  /** A managed install on disk is not the library this process loaded. */
+  restart_required: boolean
+  install_supported: boolean
+}
+
+export interface ONNXRuntimeInstallResult {
+  status?: string
+  version?: string
+  path?: string
+  restart_required?: boolean
+  onnxruntime?: ONNXRuntimeStatus
+  error?: string
+}
+
 export interface SettingsData {
   IdleUnloadMinutes: number
   EmbedWorkerMax?: number
   EmbedAuxWorkerMax?: number
   EmbedAuxWorkers?: number
   EmbedAuxBackend?: string
+  /** False when the aux backend is onnx and ONNX Runtime can't load: aux controls are hidden. */
+  AuxAvailable?: boolean
+  AuxUnavailableReason?: string
+  ONNXRuntime?: ONNXRuntimeStatus
   EmbedProbeIntervalSec?: number
   DataDir?: string
   DataDirSize?: string
