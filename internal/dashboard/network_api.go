@@ -60,20 +60,6 @@ func handleDashboardNetworkJSON(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// saveNetworkSetting is the generic settings POST's path for a network key, so both
-// endpoints validate, honor env locks and apply live the same way.
-func saveNetworkSetting(w http.ResponseWriter, key, value string) {
-	if err := netlisten.Save(map[string]string{key: value}); err != nil {
-		writeFlagsError(w, networkErrorStatus(err), err.Error())
-		return
-	}
-	shown, _ := netlisten.Normalize(key, value)
-	if key == netlisten.KeyAccessToken {
-		shown = ""
-	}
-	writeSettingsOK(w, map[string]string{"key": key, "value": shown}, false, realtime.SettingsChanged)
-}
-
 // redactNetworkSettings swaps the stored access token for a set/unset marker.
 func redactNetworkSettings(settings map[string]string) {
 	tokenSet := netlisten.Load().Token != ""
