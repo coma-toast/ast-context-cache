@@ -21,6 +21,7 @@ func (c *cancelingEmbedder) CancelInFlight() {
 
 func TestPrepareForEmbedderSwap_pausesWorkers(t *testing.T) {
 	Start(stubEmbedder{})
+	t.Cleanup(func() { stopWorkersForTest(t) })
 	if _, err := SetWorkerCount(1); err != nil {
 		t.Fatal(err)
 	}
@@ -32,11 +33,11 @@ func TestPrepareForEmbedderSwap_pausesWorkers(t *testing.T) {
 	if WorkerCount() != 1 {
 		t.Fatalf("WorkerCount() = %d, want 1 after restore", WorkerCount())
 	}
-	SetWorkerCount(0)
 }
 
 func TestPrepareForEmbedderSwap_nestedPause(t *testing.T) {
 	Start(stubEmbedder{})
+	t.Cleanup(func() { stopWorkersForTest(t) })
 	if _, err := SetWorkerCount(3); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,6 @@ func TestPrepareForEmbedderSwap_nestedPause(t *testing.T) {
 	if WorkerCount() != 3 {
 		t.Fatalf("WorkerCount() = %d, want 3 after full restore", WorkerCount())
 	}
-	SetWorkerCount(0)
 }
 
 // Uses its own full channel: pendingCh is shared with the workers earlier
@@ -95,6 +95,7 @@ func TestEnqueuePendingRetry_nonBlocking(t *testing.T) {
 
 func TestPrepareForEmbedderSwap_cancelsInFlightRemoteRequests(t *testing.T) {
 	Start(stubEmbedder{})
+	t.Cleanup(func() { stopWorkersForTest(t) })
 	c := &cancelingEmbedder{}
 	SetEmbedder(c)
 	if _, err := SetWorkerCount(0); err != nil {

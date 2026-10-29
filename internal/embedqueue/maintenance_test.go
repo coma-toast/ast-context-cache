@@ -6,7 +6,7 @@ import (
 )
 
 func TestQueueIdleForWALIncludesPending(t *testing.T) {
-	pendingCh = make(chan job, 4)
+	resetLanesForTest(t, 4)
 	pendingMu.Lock()
 	pending = map[string]job{"a\x00/p": {file: "a", projectPath: "/p"}}
 	pendingMu.Unlock()
@@ -23,7 +23,7 @@ func TestQueueIdleForWALIncludesPending(t *testing.T) {
 }
 
 func TestFlushPendingBlockedDuringMaintenance(t *testing.T) {
-	pendingCh = make(chan job, 4)
+	l := resetLanesForTest(t, 4)
 	pendingMu.Lock()
 	pending = map[string]job{"f\x00/p": {file: "f", projectPath: "/p"}}
 	pendingMu.Unlock()
@@ -39,8 +39,8 @@ func TestFlushPendingBlockedDuringMaintenance(t *testing.T) {
 		pendingMu.Unlock()
 	}()
 	flushPendingIfReady()
-	if len(pendingCh) != 0 {
-		t.Fatalf("expected no re-queue during maintenance, pendingCh=%d", len(pendingCh))
+	if len(l.pending) != 0 {
+		t.Fatalf("expected no re-queue during maintenance, pending queue=%d", len(l.pending))
 	}
 }
 

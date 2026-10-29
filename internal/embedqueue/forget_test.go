@@ -29,10 +29,7 @@ func (c *countingEmbedder) EmbedSingle(string) ([]float32, error) {
 
 func setupDeletedFileJob(t *testing.T) (job, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	if err := db.Init(); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(clearPendingForTest)
 	prev := indexer.OnFilePurged
 	indexer.OnFilePurged = ForgetFile
 	t.Cleanup(func() { indexer.OnFilePurged = prev })
@@ -46,11 +43,6 @@ func setupDeletedFileJob(t *testing.T) (job, string) {
 		t.Fatal(err)
 	}
 	j := job{file: file, projectPath: proj}
-	t.Cleanup(func() {
-		pendingMu.Lock()
-		delete(pending, jobKey(j))
-		pendingMu.Unlock()
-	})
 	if !markPendingIfNew(j, pendingReasonFailed) {
 		t.Fatal("expected job to become pending")
 	}
@@ -96,9 +88,11 @@ func TestRunDropsPendingJobForDeletedFile(t *testing.T) {
 	if syms != 0 {
 		t.Fatalf("symbols=%d want 0 after purge", syms)
 	}
-	// Recovery must not resurrect it from the DB either.
-	if n := syncPendingFromDBLocked(); n != 0 || isPending(j) {
-		t.Fatalf("recovery re-queued %d files (deleted file pending=%v)", n, isPending(j))
+	// Recovery must not resurrect it from the DB either. The DB is shared with the
+	// package's other tests, so only this file's state is checked.
+	syncPendingFromDBLocked()
+	if isPending(j) {
+		t.Fatal("recovery re-queued the deleted file")
 	}
 }
 

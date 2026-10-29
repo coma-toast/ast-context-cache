@@ -35,9 +35,7 @@ type ActivityEntry struct {
 var (
 	emb             embedder.Interface
 	embMu           sync.RWMutex
-	pendingCh       chan job
-	highCh          chan job
-	lowCh           chan job
+	lanes           atomic.Pointer[laneSet]
 	started         sync.Once
 	inFlight        int64
 	inFlightPrimary int64
@@ -66,9 +64,30 @@ var (
 	pendingPeak     atomic.Int64
 )
 
+// laneSet holds the job channels. Start publishes them once, but the WAL checkpoint
+// loop, dashboard and MCP handlers are already running by then and read them, so they
+// sit behind an atomic pointer instead of plain package vars.
+type laneSet struct{ pending, high, low chan job }
+
+func setLanes(pending, high, low chan job) {
+	lanes.Store(&laneSet{pending: pending, high: high, low: low})
+}
+
+// queueLanes returns the job channels; all nil before Start.
+func queueLanes() laneSet {
+	if l := lanes.Load(); l != nil {
+		return *l
+	}
+	return laneSet{}
+}
+
+func pendingCh() chan job { return queueLanes().pending }
+func highCh() chan job    { return queueLanes().high }
+func lowCh() chan job     { return queueLanes().low }
+
 // Ready reports whether the embed queue workers are running.
 func Ready() bool {
-	return highCh != nil
+	return highCh() != nil
 }
 
 // SetEmbedder swaps the embedder used by queue workers (hot reload).
@@ -89,9 +108,7 @@ func Start(e embedder.Interface) {
 	started.Do(func() {
 		SetEmbedder(e)
 		LoadQueueCaps()
-		pendingCh = make(chan job, PendingCapHardMax)
-		highCh = make(chan job, HighCapHardMax)
-		lowCh = make(chan job, LowCapHardMax)
+		setLanes(make(chan job, PendingCapHardMax), make(chan job, HighCapHardMax), make(chan job, LowCapHardMax))
 		workerStop = make(chan struct{}, AbsoluteMaxWorkers)
 		beginProcessingWindow()
 		workerMu.Lock()
@@ -100,7 +117,7 @@ func Start(e embedder.Interface) {
 		n := workerCount
 		workerMu.Unlock()
 		for i := 0; i < n; i++ {
-			go worker()
+			startWorker()
 		}
 		startedAt = time.Now()
 		embedder.SetProbeDeferCheck(func() bool {
@@ -117,8 +134,14 @@ func Start(e embedder.Interface) {
 	})
 }
 
-func worker() {
+// startWorker counts the worker live before launching it, so WorkerLive never
+// reads 0 while a just-started worker has yet to run.
+func startWorker() {
 	workerLive.Add(1)
+	go worker()
+}
+
+func worker() {
 	defer func() {
 		workerLive.Add(-1)
 		notifyWorkerPoolLiveChange()
@@ -139,20 +162,21 @@ func worker() {
 				continue
 			}
 		}
+		l := queueLanes()
 		select {
 		case <-workerStop:
 			return
-		case j := <-pendingCh:
+		case j := <-l.pending:
 			run(j)
 		default:
 			select {
 			case <-workerStop:
 				return
-			case j := <-pendingCh:
+			case j := <-l.pending:
 				run(j)
-			case j := <-highCh:
+			case j := <-l.high:
 				run(j)
-			case j := <-lowCh:
+			case j := <-l.low:
 				run(j)
 			}
 		}
@@ -237,7 +261,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 		}
 		return
 	}
-	if highCh == nil {
+	if highCh() == nil {
 		e := queueEmbedder()
 		if e != nil {
 			go func() {
@@ -268,7 +292,7 @@ func SubmitPriority(file, projectPath string, high bool) {
 	if high {
 		pushHigh(j)
 	} else {
-		sendWait(j, lane{lowCh, lowGate})
+		sendWait(j, lane{lowCh(), lowGate})
 	}
 	realtime.Notify(realtime.EmbedFinished)
 }
@@ -359,12 +383,13 @@ func Snapshot() QueueSnapshot {
 	s.PendingPeak = PendingPeak()
 	s.Throughput = ThroughputLast5s()
 	s.LastAutoRecoverUnix = lastAutoRecoverAt.Load()
-	if highCh == nil {
+	l := queueLanes()
+	if l.high == nil {
 		return s
 	}
-	s.HighUsed = len(highCh)
-	s.LowUsed = len(lowCh)
-	s.PendingQueueUsed = len(pendingCh)
+	s.HighUsed = len(l.high)
+	s.LowUsed = len(l.low)
+	s.PendingQueueUsed = len(l.pending)
 	s.Queued = s.HighUsed + s.LowUsed
 	return s
 }
@@ -434,7 +459,7 @@ func enqueuePendingRetry(j job) bool {
 	if MaintenancePaused() {
 		return false
 	}
-	return enqueuePendingRetryOn(pendingCh, j)
+	return enqueuePendingRetryOn(pendingCh(), j)
 }
 
 // enqueuePendingRetryOn is enqueuePendingRetry past its maintenance check, on
@@ -498,9 +523,10 @@ func drainCh(ch chan job, reason string, clearPendingQueued bool) int {
 func DrainQueueToPending() int {
 	drainMu.Lock()
 	defer drainMu.Unlock()
-	n := drainCh(pendingCh, pendingReasonDrained, true)
-	n += drainCh(highCh, pendingReasonDrained, false)
-	n += drainCh(lowCh, pendingReasonDrained, false)
+	l := queueLanes()
+	n := drainCh(l.pending, pendingReasonDrained, true)
+	n += drainCh(l.high, pendingReasonDrained, false)
+	n += drainCh(l.low, pendingReasonDrained, false)
 	return n
 }
 

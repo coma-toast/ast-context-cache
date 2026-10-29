@@ -22,11 +22,7 @@ func TestApplyPrimaryCeilingRespectsRecentManualOverride(t *testing.T) {
 	if _, err := SetWorkerCount(5); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		resetPauseStateForTest()
-		_, _ = SetWorkerCount(0)
-		waitLiveZero(t, &workerLive)
-	})
+	t.Cleanup(func() { stopWorkersForTest(t) })
 
 	workerMu.Lock()
 	manualOverrideAt = time.Now() // simulates the operator just calling SetWorkerCount

@@ -61,7 +61,7 @@ func boostOneProject(projectPath string) {
 }
 
 func promoteProjectToHigh(projectPath string) int {
-	n := promoteChannelToHigh(lowCh, projectPath)
+	n := promoteChannelToHigh(lowCh(), projectPath)
 	n += promotePendingToHigh(projectPath)
 	return n
 }
@@ -105,14 +105,14 @@ func promotePendingToHigh(projectPath string) int {
 // pushHigh queues j on the priority channel, overflowing to background when priority is at
 // its soft limit, and blocks while both are full.
 func pushHigh(j job) {
-	if highCh == nil {
+	if highCh() == nil {
 		return
 	}
-	sendWait(j, lane{highCh, highGate}, lane{lowCh, lowGate})
+	sendWait(j, lane{highCh(), highGate}, lane{lowCh(), lowGate})
 }
 
 func stealProjectJob(projectPath string) (job, bool) {
-	for _, ch := range []chan job{highCh, lowCh, pendingCh} {
+	for _, ch := range []chan job{highCh(), lowCh(), pendingCh()} {
 		if ch == nil {
 			continue
 		}
@@ -156,7 +156,7 @@ func drainChannel(ch chan job) []job {
 }
 
 func channelsContainProject(projectPath string) bool {
-	for _, ch := range []chan job{highCh, lowCh, pendingCh} {
+	for _, ch := range []chan job{highCh(), lowCh(), pendingCh()} {
 		if ch == nil {
 			continue
 		}

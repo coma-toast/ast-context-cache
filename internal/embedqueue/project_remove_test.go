@@ -4,9 +4,7 @@ import "testing"
 
 func TestRemoveProject_clearsQueuedAndPending(t *testing.T) {
 	resetCancelledProjectsForTest()
-	highCh = make(chan job, 8)
-	lowCh = make(chan job, 8)
-	pendingCh = make(chan job, 8)
+	l := resetLanesForTest(t, 8)
 	pendingMu.Lock()
 	pending = map[string]job{
 		jobKey(job{file: "/tmp/p.go", projectPath: "/proj/del"}):     {file: "/tmp/p.go", projectPath: "/proj/del"},
@@ -18,10 +16,10 @@ func TestRemoveProject_clearsQueuedAndPending(t *testing.T) {
 	pendingMu.Unlock()
 	proj := "/proj/del"
 	other := "/proj/keep"
-	lowCh <- job{file: "/tmp/a.go", projectPath: proj}
-	lowCh <- job{file: "/tmp/b.go", projectPath: other}
-	highCh <- job{file: "/tmp/c.go", projectPath: proj}
-	pendingCh <- job{file: "/tmp/d.go", projectPath: proj}
+	l.low <- job{file: "/tmp/a.go", projectPath: proj}
+	l.low <- job{file: "/tmp/b.go", projectPath: other}
+	l.high <- job{file: "/tmp/c.go", projectPath: proj}
+	l.pending <- job{file: "/tmp/d.go", projectPath: proj}
 	q, p := RemoveProject(proj)
 	if q != 3 {
 		t.Fatalf("queued removed=%d want 3", q)
@@ -29,8 +27,8 @@ func TestRemoveProject_clearsQueuedAndPending(t *testing.T) {
 	if p != 1 {
 		t.Fatalf("pending removed=%d want 1", p)
 	}
-	if len(lowCh) != 1 {
-		t.Fatalf("lowCh used=%d want 1", len(lowCh))
+	if len(l.low) != 1 {
+		t.Fatalf("low used=%d want 1", len(l.low))
 	}
 	if PendingCount() != 1 {
 		t.Fatalf("pending left=%d want 1", PendingCount())
@@ -42,7 +40,7 @@ func TestRemoveProject_clearsQueuedAndPending(t *testing.T) {
 		t.Fatal("cancelled project should not accept new pending")
 	}
 	SubmitPriority("/tmp/x.go", proj, false)
-	if len(lowCh) != 1 {
+	if len(l.low) != 1 {
 		t.Fatal("cancelled project should not enqueue")
 	}
 }
