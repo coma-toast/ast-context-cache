@@ -439,11 +439,15 @@ export interface SettingsData {
   EmbedBackend: string
   EmbedModelDir: string
   EmbedHTTPURL: string
+  /** Always empty from the dashboard API; see EmbedHTTPBearerSet. */
   EmbedHTTPBearer: string
+  EmbedHTTPBearerSet?: boolean
   EmbedOllamaHost: string
   EmbedOllamaModel: string
   EmbedOpenAIBaseURL: string
+  /** Always empty from the dashboard API; see EmbedOpenAIAPIKeySet. */
   EmbedOpenAIAPIKey: string
+  EmbedOpenAIAPIKeySet?: boolean
   EmbedOpenAIModel: string
   EmbedOpenAIDimensions: string
   EmbedDockerURL: string
@@ -925,4 +929,16 @@ export interface InstallerBackupsResponse {
 export interface ApiError extends Error {
   code: string
   repreview: boolean
+  /** Settings saves: the message for each rejected key. */
+  fields: Record<string, string>
+}
+
+/** POST /api/settings/batch success: the stored values (secrets blank) and the embedder reload result. */
+export interface SettingsBatchResult {
+  status: string
+  values: Record<string, string>
+  reloaded?: boolean
+  reload_error?: string
+  embed_backend?: string
+  embed_model?: string
 }

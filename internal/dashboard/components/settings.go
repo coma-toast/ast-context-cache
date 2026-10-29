@@ -25,10 +25,12 @@ type SettingsData struct {
 	EmbedModelDir            string
 	EmbedHTTPURL             string
 	EmbedHTTPBearer          string
+	EmbedHTTPBearerSet       bool
 	EmbedOllamaHost          string
 	EmbedOllamaModel         string
 	EmbedOpenAIBaseURL       string
 	EmbedOpenAIAPIKey        string
+	EmbedOpenAIAPIKeySet     bool
 	EmbedOpenAIModel         string
 	EmbedOpenAIDimensions    string
 	EmbedDockerURL           string

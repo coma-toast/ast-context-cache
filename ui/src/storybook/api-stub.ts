@@ -75,7 +75,7 @@ export const api = {
   handoffTrees: async () => fixtureHandoffTrees,
   flushHandoffTree: noop,
   saveSetting: noop,
-  saveEmbedSettings: noop,
+  saveSettings: noop,
   pinProject: noop,
   resetProject: noop,
   deleteWatcher: noop,

@@ -149,7 +149,16 @@ func handleDashboardSettingsJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildSettingsData(settingsBuildOpts{loadEmbedModels: true}))
+	data := buildSettingsData(settingsBuildOpts{loadEmbedModels: true})
+	redactEmbedSecrets(&data)
+	json.NewEncoder(w).Encode(data)
+}
+
+// redactEmbedSecrets swaps the embed bearer and API key for set markers: the browser never
+// receives them, and the Settings form leaves a blank secret unchanged.
+func redactEmbedSecrets(data *components.SettingsData) {
+	data.EmbedHTTPBearerSet, data.EmbedOpenAIAPIKeySet = data.EmbedHTTPBearer != "", data.EmbedOpenAIAPIKey != ""
+	data.EmbedHTTPBearer, data.EmbedOpenAIAPIKey = "", ""
 }
 
 func handleDashboardRecentSplitJSON(w http.ResponseWriter, r *http.Request) {

@@ -24,6 +24,7 @@ import type {
   PruneStatus,
   ReconcileSpacesResult,
   SetFlagResponse,
+  SettingsBatchResult,
   SettingsData,
   StartWatcherSpaceResult,
   Stats,
@@ -140,11 +141,18 @@ interface ErrorBody {
   error?: string
   code?: string
   repreview?: boolean
+  /** Settings saves: the message for each rejected key. */
+  errors?: Record<string, string>
+  field?: string
 }
 
-/** Carries the server's error code and repreview hint (installer apply, IN-5) on the thrown Error. */
+/**
+ * Carries the server's error code, repreview hint (installer apply, IN-5) and per-key settings
+ * errors on the thrown Error.
+ */
 function apiError(message: string, body: ErrorBody): ApiError {
-  return Object.assign(new Error(message), { code: body.code ?? '', repreview: body.repreview === true })
+  const fields = body.errors ?? (body.field ? { [body.field]: message } : {})
+  return Object.assign(new Error(message), { code: body.code ?? '', repreview: body.repreview === true, fields })
 }
 
 /** POST that returns JSON even when the server signals failure via ok:false / HTTP 4xx/5xx. */
@@ -207,8 +215,8 @@ export const api = {
   flushHandoffTree: (treeId: string) =>
     post<FlushHandoffTreeResponse>('/api/dashboard/handoff-trees/flush', { tree_id: treeId }),
   saveSetting: (key: string, value: string) => post<{ status?: string; error?: string }>('/api/settings', { key, value }),
-  saveEmbedSettings: (settings: Record<string, string>) =>
-    post<{ status?: string; error?: string }>('/api/settings/embed', { settings }),
+  /** Validates every key, then saves them together; rejects with ApiError.fields on a 4xx. */
+  saveSettings: (settings: Record<string, string>) => post<SettingsBatchResult>('/api/settings/batch', { settings }),
   pinProject: (project_path: string, pinned: boolean) => post('/api/pin-project', { project_path, pinned }),
   getPinnedNote: (project: string) => get<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>(`/api/pinned-note?project=${encodeURIComponent(project)}`),
   savePinnedNote: (project_path: string, content: string, origin?: string) => put<{ ref: string; project_path: string; content: string; token_est: number; created_at: string } | { error: string }>('/api/pinned-note', { project_path, content, origin }),

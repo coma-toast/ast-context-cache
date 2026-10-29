@@ -9,7 +9,7 @@ import (
 )
 
 func appendReloadFields(out map[string]interface{}) {
-	if err := embedder.Reload(); err != nil {
+	if err := reloadEmbedder(); err != nil {
 		logger.Warn("Failed to reload embedder", "error", err)
 		out["reload_error"] = err.Error()
 		return

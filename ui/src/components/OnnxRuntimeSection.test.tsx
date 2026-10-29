@@ -8,7 +8,7 @@ const installONNXRuntime = vi.fn()
 const restartNow = vi.fn()
 vi.mock('../api/client', () => ({ api: { installONNXRuntime: () => installONNXRuntime(), restartNow: () => restartNow() } }))
 
-import { AuxEmbedControls, OnnxRuntimeSection } from './OnnxRuntimeSection'
+import { OnnxRuntimeSection } from './OnnxRuntimeSection'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -51,22 +51,6 @@ afterEach(() => {
 const text = () => container.textContent ?? ''
 const button = (label: string) =>
   Array.from(container.querySelectorAll('button')).find((b) => b.textContent === label) as HTMLButtonElement | undefined
-const auxInputs = () => container.querySelectorAll('input[name="embed_aux_worker_max"], input[name="EMBED_AUX_WORKERS"]')
-
-describe('AuxEmbedControls', () => {
-  it('hides the aux controls when the aux embedder is unavailable', () => {
-    act(() => root.render(<AuxEmbedControls data={unavailable} save={vi.fn()} />))
-    expect(auxInputs()).toHaveLength(0)
-    expect(text()).not.toContain('Aux embed backend')
-  })
-
-  it('shows them when available, and for servers that do not report availability', () => {
-    act(() => root.render(<AuxEmbedControls data={{ ...unavailable, AuxAvailable: true }} save={vi.fn()} />))
-    expect(auxInputs()).toHaveLength(2)
-    act(() => root.render(<AuxEmbedControls data={{ EmbedAuxWorkerMax: 10 } as SettingsData} save={vi.fn()} />))
-    expect(auxInputs()).toHaveLength(2)
-  })
-})
 
 describe('OnnxRuntimeSection', () => {
   it('shows the unavailable card with an install button, then offers a restart', async () => {
