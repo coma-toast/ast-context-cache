@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { Box, Card, CardContent, Chip, Grid, Stack, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Card, CardContent, Chip, Grid, Stack, Tooltip, Typography } from '@mui/material'
 import { Gauge, gaugeClasses } from '@mui/x-charts/Gauge'
 import type { IndexHealth, DiskInfo } from '../api/types'
 import { chartColors } from '../lib/chartColors'
@@ -21,6 +21,7 @@ import {
   loadAvgBarWidth,
   loadAvgLabel,
   memoryPct,
+  sampleAge,
   ssdSmartTone,
   ssdWearColor,
 } from '../lib/resourceGauges'
@@ -159,6 +160,11 @@ function DiskHealthSection({ disks }: { disks: DiskInfo[] }) {
                 {label$}
               </Typography>
               <DiskChip label={disk.SmartStatus || 'Unknown'} tone={tone} />
+              {disk.Host && (
+                <Tooltip title={`Host disk, read from the host's ${disk.SmartSource || 'smartctl_exporter'}`}>
+                  <Chip size="small" label="Host" color="info" variant="outlined" />
+                </Tooltip>
+              )}
               {disk.DataDirDisk && <Chip size="small" label={disk.DataDirDisk} variant="outlined" />}
               {disk.ZFSPool && <Chip size="small" label={disk.ZFSPool} color="secondary" variant="outlined" />}
             </Stack>
@@ -262,6 +268,32 @@ function DiskHealthSection({ disks }: { disks: DiskInfo[] }) {
   )
 }
 
+/**
+ * Host disk state the rows can't show: the latest poll failed (rows are the last good sample),
+ * or this guest has no host disk URL set and so shows no SMART data at all.
+ */
+export function HostDiskNotice({ data }: { data: IndexHealth }) {
+  const hostRows = (data.Disks ?? []).filter((d) => d.Host).length
+  if (data.HostDiskError) {
+    const age = sampleAge(data.HostDiskSampledUnix)
+    return (
+      <Alert severity="warning" variant="outlined" sx={{ mt: 2, py: 0 }}>
+        Can't read host disks: {data.HostDiskError}
+        {hostRows > 0 && age ? `. Showing the last good sample from ${age}.` : ''}
+      </Alert>
+    )
+  }
+  if (data.HostDiskGuest && !data.HostDiskURLSet && hostRows === 0) {
+    return (
+      <Alert severity="info" variant="outlined" sx={{ mt: 2, py: 0 }}>
+        Disks belong to the host; SMART isn't visible from here. Set Host disk health URL in Settings → Host disks to
+        show them.
+      </Alert>
+    )
+  }
+  return null
+}
+
 function DiskItem({ label, value }: { label: string; value: string }) {
   return (
     <Box sx={{ minWidth: 0 }}>
@@ -322,9 +354,9 @@ export function ResourceUtilCard({ data }: { data: IndexHealth }) {
           ))}
         </Box>
 
-        {data.Disks && data.Disks.length > 0 ? (
-          <DiskHealthSection disks={data.Disks} />
-        ) : data.SSDAvailable ? (
+        {data.Disks && data.Disks.length > 0 && <DiskHealthSection disks={data.Disks} />}
+        <HostDiskNotice data={data} />
+        {!(data.Disks ?? []).some((d) => !d.Host) && data.SSDAvailable ? (
           <Box sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

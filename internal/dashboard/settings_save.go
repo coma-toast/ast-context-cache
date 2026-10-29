@@ -16,6 +16,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedqueue"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/handoff"
+	"github.com/coma-toast/ast-context-cache/internal/hostdisk"
 	"github.com/coma-toast/ast-context-cache/internal/httpguard"
 	"github.com/coma-toast/ast-context-cache/internal/ignorepatterns"
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
@@ -183,6 +184,8 @@ func validateSetting(key, value string, view settingsView) (string, error) {
 		return parseIntSetting(value, embedqueue.MinWorkers, max, fmt.Sprintf("EMBED_AUX_WORKERS must be %d–%d", embedqueue.MinWorkers, max))
 	case key == embedder.ProbeIntervalSettingKey:
 		return parseIntSetting(value, 5, 600, key+" must be 5–600")
+	case key == hostdisk.SettingKey:
+		return hostdisk.ValidateSetting(value)
 	case key == "EMBED_BACKEND" || key == "EMBED_AUX_BACKEND":
 		v := normalizeEmbedBackendValue(value)
 		if v != "" && !slices.Contains(embedBackends, components.EmbedBackendUI(v)) {
@@ -340,6 +343,8 @@ func applySettingSideEffects(key, value string) error {
 		embedqueue.SetAuxEmbedder(embedder.RawAux())
 	case embedder.ProbeIntervalSettingKey:
 		embedder.RestartConnectivityProbe()
+	case hostdisk.SettingKey:
+		hostDisks.Refresh()
 	}
 	return nil
 }
@@ -350,7 +355,7 @@ func settingNotifyMask(key string) realtime.Reason {
 	case embedder.IsSettingKey(key), key == "idle_unload_minutes", key == "embed_worker_max", key == "embed_aux_worker_max",
 		key == "EMBED_AUX_WORKERS", key == "EMBED_AUX_BACKEND", key == embedder.ProbeIntervalSettingKey:
 		return realtime.IndexHealth | realtime.HealthBar
-	case key == "project_exclude_paths":
+	case key == "project_exclude_paths", key == hostdisk.SettingKey:
 		return realtime.IndexHealth
 	case handoff.IsLimitSetting(key):
 		return realtime.Handoffs

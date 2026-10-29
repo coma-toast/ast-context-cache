@@ -79,3 +79,29 @@ export const retentionSaved = (data: SettingsData): Record<string, string> => ({
 export const storageSaved = (data: SettingsData): Record<string, string> => ({
   transcript_usage_ingest: String(!!data.TranscriptUsageIngest),
 })
+
+/** Settings key for the host's smartctl_exporter /metrics URL. */
+export const HOST_DISK_KEY = 'host_disk_health_url'
+
+/** The full setup guide, linked from the Host disks card. */
+export const HOST_DISK_DOC_URL = 'https://github.com/coma-toast/ast-context-cache/blob/main/docs/host-disk-health.md'
+
+export const hostDiskSaved = (data: SettingsData): Record<string, string> => ({
+  [HOST_DISK_KEY]: data.HostDiskHealthURL ?? '',
+})
+
+/** The server's URL check, run before Save: empty, or http(s) with a host and no user:password. */
+export const hostDiskURLError = (value: string): string | undefined => {
+  const v = value.trim()
+  if (v === '') return undefined
+  if (!/^https?:\/\//i.test(v)) return 'Must start with http:// or https://'
+  let u: URL
+  try {
+    u = new URL(v)
+  } catch {
+    return 'Not a valid URL'
+  }
+  if (!u.hostname) return 'Needs a host, e.g. http://192.168.1.10:9633/metrics'
+  if (u.username || u.password) return 'Must not contain a user name or password'
+  return undefined
+}

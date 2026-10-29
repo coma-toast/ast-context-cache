@@ -1,0 +1,517 @@
+# Derived from prometheus-community/smartctl_exporter EXAMPLE.md (output of a run with
+# --smartctl.fake-data), updated to the current label format: no /dev/ prefix on the device
+# label (0.9.0), no smartctl_device_status (removed in 0.10.0), HELP/TYPE text from metrics.go.
+# HELP smartctl_device Device info
+# TYPE smartctl_device gauge
+smartctl_device{ata_additional_product_id="unknown",ata_version="",device="nvme0",firmware_version="1.03",form_factor="",interface="nvme",model_family="",model_name="PLEXTOR PX-256M9PY +",protocol="NVMe",sata_version="",serial_number="P02050305257"} 1
+smartctl_device{ata_additional_product_id="unknown",ata_version="ACS-2, ACS-3 T13/2161-D revision 3b",device="sdd",firmware_version="1.14",form_factor="",interface="sat",model_family="",model_name="ADATA SP920SS",protocol="ATA",sata_version="SATA 3.0",serial_number="8H0920011311"} 1
+smartctl_device{ata_additional_product_id="unknown",ata_version="ACS-3 T13/2161-D revision 5",device="sda",firmware_version="0103",form_factor="3.5 inches",interface="sat",model_family="Toshiba MG07ACA... Enterprise Capacity HDD",model_name="TOSHIBA MG07ACA12TE",protocol="ATA",sata_version="SATA 3.3",serial_number="X010A0GTF96G"} 1
+smartctl_device{ata_additional_product_id="unknown",ata_version="ACS-3 T13/2161-D revision 5",device="sdb",firmware_version="0103",form_factor="3.5 inches",interface="sat",model_family="Toshiba MG07ACA... Enterprise Capacity HDD",model_name="TOSHIBA MG07ACA12TE",protocol="ATA",sata_version="SATA 3.3",serial_number="X010A069F96G"} 1
+smartctl_device{ata_additional_product_id="unknown",ata_version="ACS-3 T13/2161-D revision 5",device="sdc",firmware_version="0103",form_factor="3.5 inches",interface="sat",model_family="Toshiba MG07ACA... Enterprise Capacity HDD",model_name="TOSHIBA MG07ACA12TE",protocol="ATA",sata_version="SATA 3.3",serial_number="X010A0QRF96G"} 1
+# HELP smartctl_device_attribute Device attributes
+# TYPE smartctl_device_attribute gauge
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="177",attribute_name="Wear_Leveling_Count",attribute_value_type="raw",device="sdd"} 8
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="177",attribute_name="Wear_Leveling_Count",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="177",attribute_name="Wear_Leveling_Count",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="177",attribute_name="Wear_Leveling_Count",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="233",attribute_name="Media_Wearout_Indicator",attribute_value_type="raw",device="sdd"} 1.3907933e+07
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="233",attribute_name="Media_Wearout_Indicator",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="233",attribute_name="Media_Wearout_Indicator",attribute_value_type="value",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="",attribute_flags_short="------",attribute_id="233",attribute_name="Media_Wearout_Indicator",attribute_value_type="worst",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="174",attribute_name="Unknown_Attribute",attribute_value_type="raw",device="sdd"} 29
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="174",attribute_name="Unknown_Attribute",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="174",attribute_name="Unknown_Attribute",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="174",attribute_name="Unknown_Attribute",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="event_count,auto_keep",attribute_flags_short="----CK",attribute_id="198",attribute_name="Offline_Uncorrectable",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="performance,error_rate,event_count",attribute_flags_short="--SRC-",attribute_id="195",attribute_name="Hardware_ECC_Recovered",attribute_value_type="raw",device="sdd"} 12817
+smartctl_device_attribute{attribute_flags_long="performance,error_rate,event_count",attribute_flags_short="--SRC-",attribute_id="195",attribute_name="Hardware_ECC_Recovered",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="performance,error_rate,event_count",attribute_flags_short="--SRC-",attribute_id="195",attribute_name="Hardware_ECC_Recovered",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="performance,error_rate,event_count",attribute_flags_short="--SRC-",attribute_id="195",attribute_name="Hardware_ECC_Recovered",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="thresh",device="sda"} 1
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="thresh",device="sdb"} 1
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="thresh",device="sdc"} 1
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure",attribute_flags_short="P-----",attribute_id="240",attribute_name="Head_Flying_Hours",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="thresh",device="sda"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="thresh",device="sdb"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="thresh",device="sdc"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="2",attribute_name="Throughput_Performance",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="thresh",device="sda"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="thresh",device="sdb"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="thresh",device="sdc"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,performance",attribute_flags_short="P-S---",attribute_id="8",attribute_name="Seek_Time_Performance",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="thresh",device="sda"} 75
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="thresh",device="sdb"} 75
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="thresh",device="sdc"} 75
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="23",attribute_name="Helium_Condition_Lower",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="thresh",device="sda"} 75
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="thresh",device="sdb"} 75
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="thresh",device="sdc"} 75
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,auto_keep",attribute_flags_short="PO---K",attribute_id="24",attribute_name="Helium_Condition_Upper",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="thresh",device="sda"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="thresh",device="sdb"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="thresh",device="sdc"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="thresh",device="sda"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="thresh",device="sdb"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="thresh",device="sdc"} 50
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,error_rate",attribute_flags_short="PO-R--",attribute_id="7",attribute_name="Seek_Error_Rate",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count",attribute_flags_short="PO--C-",attribute_id="231",attribute_name="Unknown_SSD_Attribute",attribute_value_type="raw",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count",attribute_flags_short="PO--C-",attribute_id="231",attribute_name="Unknown_SSD_Attribute",attribute_value_type="thresh",device="sdd"} 10
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count",attribute_flags_short="PO--C-",attribute_id="231",attribute_name="Unknown_SSD_Attribute",attribute_value_type="value",device="sdd"} 97
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count",attribute_flags_short="PO--C-",attribute_id="231",attribute_name="Unknown_SSD_Attribute",attribute_value_type="worst",device="sdd"} 97
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="thresh",device="sda"} 30
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="thresh",device="sdb"} 30
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="thresh",device="sdc"} 30
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="10",attribute_name="Spin_Retry_Count",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="raw",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="thresh",device="sda"} 10
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="thresh",device="sdb"} 10
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="thresh",device="sdc"} 10
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="thresh",device="sdd"} 3
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,event_count,auto_keep",attribute_flags_short="PO--CK",attribute_id="5",attribute_name="Reallocated_Sector_Ct",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="raw",device="sda"} 3977
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="raw",device="sdb"} 4001
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="raw",device="sdc"} 4040
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="thresh",device="sda"} 1
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="thresh",device="sdb"} 1
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="thresh",device="sdc"} 1
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,auto_keep",attribute_flags_short="POS--K",attribute_id="3",attribute_name="Spin_Up_Time",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,error_rate",attribute_flags_short="POSR--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="raw",device="sdd"} 1352
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,error_rate",attribute_flags_short="POSR--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,error_rate",attribute_flags_short="POSR--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="prefailure,updated_online,performance,error_rate",attribute_flags_short="POSR--",attribute_id="1",attribute_name="Raw_Read_Error_Rate",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="raw",device="sda"} 1.835008e+06
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="raw",device="sdb"} 1.31072e+06
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="raw",device="sdc"} 262145
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online",attribute_flags_short="-O----",attribute_id="220",attribute_name="Disk_Shift",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="raw",device="sda"} 1.8468503556e+11
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="raw",device="sdb"} 1.8468503556e+11
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="raw",device="sdc"} 1.84684773415e+11
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="raw",device="sdd"} 3.342375e+06
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="value",device="sdd"} 39
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="194",attribute_name="Temperature_Celsius",attribute_value_type="worst",device="sdd"} 51
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,auto_keep",attribute_flags_short="-O---K",attribute_id="224",attribute_name="Load_Friction",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="raw",device="sda"} 11
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="raw",device="sdb"} 11
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="raw",device="sdc"} 11
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="raw",device="sdd"} 44
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="12",attribute_name="Power_Cycle_Count",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="187",attribute_name="Reported_Uncorrect",attribute_value_type="raw",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="187",attribute_name="Reported_Uncorrect",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="187",attribute_name="Reported_Uncorrect",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="187",attribute_name="Reported_Uncorrect",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="raw",device="sdb"} 1
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="raw",device="sdc"} 1
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="191",attribute_name="G-Sense_Error_Rate",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="raw",device="sda"} 6
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="raw",device="sdb"} 6
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="raw",device="sdc"} 6
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="192",attribute_name="Power-Off_Retract_Count",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="raw",device="sda"} 125
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="raw",device="sdb"} 151
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="raw",device="sdc"} 158
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="193",attribute_name="Load_Cycle_Count",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="196",attribute_name="Reallocated_Event_Count",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="197",attribute_name="Current_Pending_Sector",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="value",device="sda"} 200
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="value",device="sdb"} 200
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="value",device="sdc"} 200
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="worst",device="sda"} 200
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="worst",device="sdb"} 200
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="199",attribute_name="UDMA_CRC_Error_Count",attribute_value_type="worst",device="sdc"} 200
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="raw",device="sda"} 13299
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="raw",device="sdb"} 13348
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="raw",device="sdc"} 13356
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="value",device="sda"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="value",device="sdb"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="value",device="sdc"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="worst",device="sda"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="worst",device="sdb"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="222",attribute_name="Loaded_Hours",attribute_value_type="worst",device="sdc"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="raw",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="raw",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="raw",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="223",attribute_name="Load_Retry_Count",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="234",attribute_name="Unknown_Attribute",attribute_value_type="raw",device="sdd"} 3.034552e+06
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="234",attribute_name="Unknown_Attribute",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="234",attribute_name="Unknown_Attribute",attribute_value_type="value",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="234",attribute_name="Unknown_Attribute",attribute_value_type="worst",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="241",attribute_name="Total_LBAs_Written",attribute_value_type="raw",device="sdd"} 5.101427e+06
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="241",attribute_name="Total_LBAs_Written",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="241",attribute_name="Total_LBAs_Written",attribute_value_type="value",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="241",attribute_name="Total_LBAs_Written",attribute_value_type="worst",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="242",attribute_name="Total_LBAs_Read",attribute_value_type="raw",device="sdd"} 4.84436e+06
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="242",attribute_name="Total_LBAs_Read",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="242",attribute_name="Total_LBAs_Read",attribute_value_type="value",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="242",attribute_name="Total_LBAs_Read",attribute_value_type="worst",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="raw",device="sda"} 11
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="raw",device="sdb"} 11
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="raw",device="sdc"} 11
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="4",attribute_name="Start_Stop_Count",attribute_value_type="worst",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="raw",device="sda"} 13359
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="raw",device="sdb"} 13407
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="raw",device="sdc"} 13432
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="raw",device="sdd"} 37412
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="thresh",device="sdd"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="value",device="sda"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="value",device="sdb"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="value",device="sdc"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="value",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="worst",device="sda"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="worst",device="sdb"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="worst",device="sdc"} 67
+smartctl_device_attribute{attribute_flags_long="updated_online,event_count,auto_keep",attribute_flags_short="-O--CK",attribute_id="9",attribute_name="Power_On_Hours",attribute_value_type="worst",device="sdd"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="raw",device="sda"} 536
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="raw",device="sdb"} 532
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="raw",device="sdc"} 533
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="thresh",device="sda"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="thresh",device="sdb"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="thresh",device="sdc"} 0
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="value",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="value",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="value",device="sdc"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="worst",device="sda"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="worst",device="sdb"} 100
+smartctl_device_attribute{attribute_flags_long="updated_online,performance,auto_keep",attribute_flags_short="-OS--K",attribute_id="226",attribute_name="Load-in_Time",attribute_value_type="worst",device="sdc"} 100
+# HELP smartctl_device_available_spare Normalized percentage (0 to 100%) of the remaining spare capacity available
+# TYPE smartctl_device_available_spare gauge
+smartctl_device_available_spare{device="nvme0"} 100
+smartctl_device_available_spare{device="sda"} 0
+smartctl_device_available_spare{device="sdb"} 0
+smartctl_device_available_spare{device="sdc"} 0
+smartctl_device_available_spare{device="sdd"} 0
+# HELP smartctl_device_available_spare_threshold When the Available Spare falls below the threshold indicated in this field, an asynchronous event completion may occur. The value is indicated as a normalized percentage (0 to 100%)
+# TYPE smartctl_device_available_spare_threshold gauge
+smartctl_device_available_spare_threshold{device="nvme0"} 0
+smartctl_device_available_spare_threshold{device="sda"} 0
+smartctl_device_available_spare_threshold{device="sdb"} 0
+smartctl_device_available_spare_threshold{device="sdc"} 0
+smartctl_device_available_spare_threshold{device="sdd"} 0
+# HELP smartctl_device_block_size Device block size
+# TYPE smartctl_device_block_size gauge
+smartctl_device_block_size{blocks_type="logical",device="nvme0"} 512
+smartctl_device_block_size{blocks_type="logical",device="sda"} 512
+smartctl_device_block_size{blocks_type="logical",device="sdb"} 512
+smartctl_device_block_size{blocks_type="logical",device="sdc"} 512
+smartctl_device_block_size{blocks_type="logical",device="sdd"} 512
+smartctl_device_block_size{blocks_type="physical",device="nvme0"} 0
+smartctl_device_block_size{blocks_type="physical",device="sda"} 4096
+smartctl_device_block_size{blocks_type="physical",device="sdb"} 4096
+smartctl_device_block_size{blocks_type="physical",device="sdc"} 4096
+smartctl_device_block_size{blocks_type="physical",device="sdd"} 512
+# HELP smartctl_device_bytes_read 
+# TYPE smartctl_device_bytes_read gauge
+smartctl_device_bytes_read{device="nvme0"} 5.1499918426112e+13
+smartctl_device_bytes_read{device="sda"} 0
+smartctl_device_bytes_read{device="sdb"} 0
+smartctl_device_bytes_read{device="sdc"} 0
+smartctl_device_bytes_read{device="sdd"} 0
+# HELP smartctl_device_bytes_written 
+# TYPE smartctl_device_bytes_written gauge
+smartctl_device_bytes_written{device="nvme0"} 1.9632806690816e+13
+smartctl_device_bytes_written{device="sda"} 0
+smartctl_device_bytes_written{device="sdb"} 0
+smartctl_device_bytes_written{device="sdc"} 0
+smartctl_device_bytes_written{device="sdd"} 0
+# HELP smartctl_device_capacity_blocks Device capacity in blocks
+# TYPE smartctl_device_capacity_blocks gauge
+smartctl_device_capacity_blocks{device="nvme0"} 5.00118192e+08
+smartctl_device_capacity_blocks{device="sda"} 2.3437770752e+10
+smartctl_device_capacity_blocks{device="sdb"} 2.3437770752e+10
+smartctl_device_capacity_blocks{device="sdc"} 2.3437770752e+10
+smartctl_device_capacity_blocks{device="sdd"} 2.50069679e+08
+# HELP smartctl_device_capacity_bytes Device capacity in bytes
+# TYPE smartctl_device_capacity_bytes gauge
+smartctl_device_capacity_bytes{device="nvme0"} 2.56060514304e+11
+smartctl_device_capacity_bytes{device="sda"} 1.2000138625024e+13
+smartctl_device_capacity_bytes{device="sdb"} 1.2000138625024e+13
+smartctl_device_capacity_bytes{device="sdc"} 1.2000138625024e+13
+smartctl_device_capacity_bytes{device="sdd"} 1.28035675648e+11
+# HELP smartctl_device_critical_warning This field indicates critical warnings for the state of the controller
+# TYPE smartctl_device_critical_warning gauge
+smartctl_device_critical_warning{device="nvme0"} 4
+smartctl_device_critical_warning{device="sda"} 0
+smartctl_device_critical_warning{device="sdb"} 0
+smartctl_device_critical_warning{device="sdc"} 0
+smartctl_device_critical_warning{device="sdd"} 0
+# HELP smartctl_device_interface_speed Device interface speed, bits per second
+# TYPE smartctl_device_interface_speed gauge
+smartctl_device_interface_speed{device="nvme0",speed_type="current"} 0
+smartctl_device_interface_speed{device="nvme0",speed_type="max"} 0
+smartctl_device_interface_speed{device="sda",speed_type="current"} 6e+09
+smartctl_device_interface_speed{device="sda",speed_type="max"} 6e+09
+smartctl_device_interface_speed{device="sdb",speed_type="current"} 6e+09
+smartctl_device_interface_speed{device="sdb",speed_type="max"} 6e+09
+smartctl_device_interface_speed{device="sdc",speed_type="current"} 3e+09
+smartctl_device_interface_speed{device="sdc",speed_type="max"} 6e+09
+smartctl_device_interface_speed{device="sdd",speed_type="current"} 3e+09
+smartctl_device_interface_speed{device="sdd",speed_type="max"} 6e+09
+# HELP smartctl_device_media_errors Contains the number of occurrences where the controller detected an unrecovered data integrity error. Errors such as uncorrectable ECC, CRC checksum failure, or LBA tag mismatch are included in this field
+# TYPE smartctl_device_media_errors gauge
+smartctl_device_media_errors{device="nvme0"} 0
+smartctl_device_media_errors{device="sda"} 0
+smartctl_device_media_errors{device="sdb"} 0
+smartctl_device_media_errors{device="sdc"} 0
+smartctl_device_media_errors{device="sdd"} 0
+# HELP smartctl_device_num_err_log_entries Contains the number of Error Information log entries over the life of the controller
+# TYPE smartctl_device_num_err_log_entries gauge
+smartctl_device_num_err_log_entries{device="nvme0"} 0
+smartctl_device_num_err_log_entries{device="sda"} 0
+smartctl_device_num_err_log_entries{device="sdb"} 0
+smartctl_device_num_err_log_entries{device="sdc"} 0
+smartctl_device_num_err_log_entries{device="sdd"} 0
+# HELP smartctl_device_percentage_used Device write percentage used
+# TYPE smartctl_device_percentage_used gauge
+smartctl_device_percentage_used{device="nvme0"} 161
+smartctl_device_percentage_used{device="sda"} 0
+smartctl_device_percentage_used{device="sdb"} 0
+smartctl_device_percentage_used{device="sdc"} 0
+smartctl_device_percentage_used{device="sdd"} 0
+# HELP smartctl_device_power_cycle_count Device power cycle count
+# TYPE smartctl_device_power_cycle_count gauge
+smartctl_device_power_cycle_count{device="nvme0"} 11
+smartctl_device_power_cycle_count{device="sda"} 11
+smartctl_device_power_cycle_count{device="sdb"} 11
+smartctl_device_power_cycle_count{device="sdc"} 11
+smartctl_device_power_cycle_count{device="sdd"} 44
+# HELP smartctl_device_power_on_seconds Device power on seconds
+# TYPE smartctl_device_power_on_seconds gauge
+smartctl_device_power_on_seconds{device="nvme0"} 5.13324e+07
+smartctl_device_power_on_seconds{device="sda"} 4.80924e+07
+smartctl_device_power_on_seconds{device="sdb"} 4.82652e+07
+smartctl_device_power_on_seconds{device="sdc"} 4.83552e+07
+smartctl_device_power_on_seconds{device="sdd"} 1.346832e+08
+# HELP smartctl_device_rotation_rate Device rotation rate
+# TYPE smartctl_device_rotation_rate gauge
+smartctl_device_rotation_rate{device="sda"} 7200
+smartctl_device_rotation_rate{device="sdb"} 7200
+smartctl_device_rotation_rate{device="sdc"} 7200
+# HELP smartctl_device_smart_status General smart status
+# TYPE smartctl_device_smart_status gauge
+smartctl_device_smart_status{device="nvme0"} 0
+smartctl_device_smart_status{device="sda"} 1
+smartctl_device_smart_status{device="sdb"} 1
+smartctl_device_smart_status{device="sdc"} 1
+smartctl_device_smart_status{device="sdd"} 1
+# HELP smartctl_device_smartctl_exit_status Exit status of smartctl on device
+# TYPE smartctl_device_smartctl_exit_status gauge
+smartctl_device_smartctl_exit_status{device="nvme0"} 8
+smartctl_device_smartctl_exit_status{device="sda"} 0
+smartctl_device_smartctl_exit_status{device="sdb"} 0
+smartctl_device_smartctl_exit_status{device="sdc"} 0
+smartctl_device_smartctl_exit_status{device="sdd"} 0
+# HELP smartctl_device_temperature Device temperature celsius
+# TYPE smartctl_device_temperature gauge
+smartctl_device_temperature{device="nvme0",temperature_type="current"} 37
+smartctl_device_temperature{device="sda",temperature_type="current"} 40
+smartctl_device_temperature{device="sdb",temperature_type="current"} 40
+smartctl_device_temperature{device="sdc",temperature_type="current"} 39
+smartctl_device_temperature{device="sdd",temperature_type="current"} 39
+# HELP smartctl_version smartctl version
+# TYPE smartctl_version gauge
+smartctl_version{build_info="(local build)",json_format_version="1.0",smartctl_version="7.3",svn_revision="5338"} 1

@@ -216,6 +216,7 @@ func main() {
 			watcher.EnsureDefaultIgnoreGlobs()
 			go db.StartWALCheckpoint()
 			go db.StartDriveMonitor()
+			go dashboard.StartHostDiskSampler(ctx)
 		}
 
 		// Set up MCP listener and RestartProcess in ALL cases (degraded or not).

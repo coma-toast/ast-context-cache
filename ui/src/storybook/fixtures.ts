@@ -367,7 +367,29 @@ export const fixtureIndexHealth: IndexHealth = {
       ZFSCapacityPct: 67,
       ZFSFragPct: 14,
     },
+    {
+      Device: 'nvme0',
+      Host: true,
+      Model: 'Samsung SSD 990 PRO 2TB',
+      Serial: 'S7KHNJ0W654321',
+      Protocol: 'NVMe',
+      SmartType: 'nvme',
+      SmartStatus: 'PASSED',
+      SmartSource: 'smartctl_exporter',
+      Capacity: '2.0 TB',
+      SolidState: true,
+      WearUsedPct: 2,
+      SparePct: 100,
+      DataWrittenTB: 31.4,
+      TemperatureC: 44,
+      PowerOnHours: 9120,
+      PowerCycles: 37,
+      MediaErrors: 0,
+      CriticalWarning: 0,
+    },
   ],
+  HostDiskURLSet: true,
+  HostDiskSampledUnix: 1793300000,
 }
 
 export const fixtureIndexHealthDegraded: IndexHealth = {
@@ -468,6 +490,7 @@ export const fixtureSettings: SettingsData = {
   EmbedInSync: true,
   EmbedderState: 'healthy',
   EmbedderError: '',
+  HostDiskHealthURL: 'http://192.168.1.10:9633/metrics',
   Projects: [
     {
       Path: '/Users/demo/project',

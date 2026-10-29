@@ -1,5 +1,9 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Box,
   Button,
   Card,
@@ -9,6 +13,7 @@ import {
   FormControlLabel,
   FormHelperText,
   InputLabel,
+  Link,
   MenuItem,
   Select,
   Stack,
@@ -28,6 +33,10 @@ import {
   draftField,
   EMBED_SECRET_KEYS,
   embeddingSaved,
+  HOST_DISK_DOC_URL,
+  HOST_DISK_KEY,
+  hostDiskSaved,
+  hostDiskURLError,
   performanceSaved,
   retentionSaved,
   settingsCardSx,
@@ -265,6 +274,81 @@ export const RetentionSection = ({ data }: { data: SettingsData }) => {
   return (
     <DraftCard id="retention" title="Retention" draft={draft}>
       <TextField label="Query retention max age (days)" type="number" size="small" {...draftField(draft, 'query_retention_max_age_days')} />
+    </DraftCard>
+  )
+}
+
+/** A command to copy from the setup steps. */
+const Cmd = ({ children }: { children: ReactNode }) => (
+  <Box component="code" sx={{ display: 'block', my: 0.5, px: 1, py: 0.5, fontSize: 12, bgcolor: 'action.hover', borderRadius: 0.5, overflowWrap: 'anywhere' }}>
+    {children}
+  </Box>
+)
+
+/**
+ * Host disks: the hypervisor host's smartctl_exporter URL, for instances in an LXC container or
+ * VM that cannot read SMART themselves. The setup steps sit next to the field.
+ */
+export const HostDiskSection = ({ data }: { data: SettingsData }) => {
+  const [open, setOpen] = useState(false)
+  const draft = useSettingsDraft('host-disks', 'Host disks', hostDiskSaved(data), {
+    validate: (changes) => {
+      const err = HOST_DISK_KEY in changes ? hostDiskURLError(changes[HOST_DISK_KEY]) : undefined
+      return err ? { [HOST_DISK_KEY]: err } : {}
+    },
+  })
+  return (
+    <DraftCard id="host-disks" title="Host disks" draft={draft}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        In an LXC container or VM the disks belong to the host, so SMART health isn't visible from here. Point this at{' '}
+        <Link href="https://github.com/prometheus-community/smartctl_exporter" target="_blank" rel="noreferrer">
+          smartctl_exporter
+        </Link>{' '}
+        on the host and the disk card shows the host's disks.
+      </Typography>
+      <TextField
+        label="Host disk health URL"
+        size="small"
+        fullWidth
+        placeholder="http://192.168.1.10:9633/metrics"
+        {...draftField(draft, HOST_DISK_KEY, "The host's smartctl_exporter /metrics URL, polled every 60 s. Leave empty to turn off. No user:password.")}
+      />
+      <Accordion
+        disableGutters
+        variant="outlined"
+        expanded={open}
+        onChange={(_e, v) => setOpen(v)}
+        sx={{ mt: 1.5, '&::before': { display: 'none' } }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            How to set this up
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 1 } }}>
+            <Typography component="li" variant="body2">
+              On the host (Proxmox, KVM, Unraid, TrueNAS…), install smartmontools 7.0 or newer and smartctl_exporter, an
+              existing prometheus-community project: the release binary with a systemd unit, the Docker image (privileged), or
+              Debian's prometheus-smartctl-exporter package.
+            </Typography>
+            <Typography component="li" variant="body2">
+              Run it as root, which SMART reads need, listening on an address this instance can reach:
+              <Cmd>smartctl_exporter --web.listen-address=192.168.1.10:9633</Cmd>
+            </Typography>
+            <Typography component="li" variant="body2">
+              It has no login by default: bind it to the LAN, bridge or tailnet address and keep port 9633 closed to the internet.
+            </Typography>
+            <Typography component="li" variant="body2">
+              Check from this machine, then paste the URL above and Save:
+              <Cmd>curl http://192.168.1.10:9633/metrics | grep smartctl_device</Cmd>
+            </Typography>
+          </Box>
+          <Link href={HOST_DISK_DOC_URL} target="_blank" rel="noreferrer" variant="body2">
+            Full guide: install options, permissions and network exposure
+          </Link>
+        </AccordionDetails>
+      </Accordion>
     </DraftCard>
   )
 }
