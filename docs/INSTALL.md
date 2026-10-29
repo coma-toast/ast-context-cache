@@ -225,6 +225,10 @@ For agent instructions, paste the usage protocol [`rules/protocol.md`](../rules/
 
 Visit `http://127.0.0.1:7830` for query statistics and token savings, index health, embeddings, memory and virtual context, handoff trees, settings (feature flags, agent integration), and Prometheus metrics at `/metrics`.
 
+### Running in a container or VM
+
+Inside an LXC container or a VM the dashboard can't read SMART data, because the disks belong to the hypervisor host. To see them on the disk card, run [smartctl_exporter](https://github.com/prometheus-community/smartctl_exporter) on the host and paste its `/metrics` URL into **Settings → Host disks**. [host-disk-health.md](host-disk-health.md) covers installing it (release binary, Docker, or Debian package), the root permission it needs, and keeping it off the internet.
+
 ## Troubleshooting
 
 ### "library 'tokenizers' not found" or `Undefined symbols ... tokenizers_version`

@@ -154,6 +154,7 @@ Don't add an `env` block to a URL entry; it has no effect. Set `AST_MCP_TIER` an
 | **Pinning and queue** | Bounded embed queue; pinned projects get priority |
 | **Analysis** | Dead code, complexity |
 | **Instance name and favicon** | Settings → General names the instance (tab title, cookie scope) and picks its favicon: the default icon, the icon in a color with an optional 1–2 character badge, or an uploaded PNG, SVG or ICO up to 64 KB (stored in the settings; SVG with scripts, event handlers or external references is rejected). Open tabs switch icons live; the icon is served at `/dashboard/favicon?v=<hash>` |
+| **Host disk health** | In an LXC container or VM, Settings → Host disks takes the hypervisor host's [smartctl_exporter](https://github.com/prometheus-community/smartctl_exporter) URL and the disk card shows the host's disks with SMART status, wear and temperature ([docs](docs/host-disk-health.md)) |
 | **Remote access** | Extra listen addresses, trusted hosts, and an optional access token, applied live ([docs](docs/INSTALL.md#remote-access-tailscale)) |
 | **Supervise / Docker** | `ast-mcp supervise` or [`docker/ast-mcp`](docker/ast-mcp/README.md) |
 | **Metrics** | Prometheus at `http://127.0.0.1:7830/metrics` (`astcache_` prefix) |
