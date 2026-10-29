@@ -8,8 +8,8 @@ import (
 
 	"github.com/coma-toast/ast-context-cache/internal/dashboard/components"
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/instance"
-	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 // FaviconPath serves the instance favicon; FaviconURL adds the ?v= cache buster.
@@ -18,7 +18,7 @@ const FaviconPath = "/dashboard/favicon"
 // settingsMaxBodyBytes caps a settings POST: a 64 KB favicon upload is ~88 KB as a data URL.
 const settingsMaxBodyBytes = 1 << 20
 
-// isFaviconSettingKey reports whether the settings POST for key goes to saveFaviconSetting.
+// isFaviconSettingKey reports whether key is one of the favicon settings.
 func isFaviconSettingKey(key string) bool {
 	switch key {
 	case instance.FaviconModeKey, instance.FaviconColorKey, instance.FaviconBadgeKey, instance.FaviconUploadKey, instance.FaviconOverrideKey:
@@ -63,65 +63,61 @@ func faviconWriteLocked() bool {
 	return instance.FaviconLocked() && db.GetSetting(instance.FaviconOverrideKey, "") != "true"
 }
 
-// saveFaviconSetting handles the generic settings POST for the favicon keys:
-// validation (400), the env lock (409 unless the override is on) and storage.
-// An upload is stored as a normalized data URL and switches the mode to upload;
-// clearing it while in upload mode goes back to the default icon. Open tabs pick
-// up the new favicon URL via SettingsChanged.
-func saveFaviconSetting(w http.ResponseWriter, key, value string) {
+// validateFaviconSetting checks a favicon key against the batch view: format (400), and the
+// env lock (409 unless the override is on in the stored settings or the same batch). An upload
+// comes back as a normalized data URL.
+func validateFaviconSetting(key, value string, view settingsView) (string, error) {
 	value = strings.TrimSpace(value)
-	extra := map[string]string{}
+	locked := instance.FaviconLocked() && view.get(instance.FaviconOverrideKey, "") != "true"
 	var err error
 	switch {
 	case key == instance.FaviconOverrideKey:
 		if !validBoolSetting(value) {
-			writeFlagsError(w, http.StatusBadRequest, key+" must be true or false")
-			return
+			return "", errs.NewCode(errs.CodeInvalidInput, key+" must be true or false")
 		}
-	case faviconWriteLocked():
-		writeFlagsError(w, http.StatusConflict, key+" is set by "+instance.FaviconColorEnv+" or "+instance.FaviconBadgeEnv+"; turn on "+instance.FaviconOverrideKey+" or clear them first")
-		return
+	case locked:
+		return "", errs.NewCode(errs.CodeConflict, key+" is set by "+instance.FaviconColorEnv+" or "+instance.FaviconBadgeEnv+"; turn on "+instance.FaviconOverrideKey+" or clear them first")
 	case key == instance.FaviconModeKey:
 		err = instance.ValidateFaviconMode(value)
-		if err == nil && value == instance.FaviconUpload && db.GetSetting(instance.FaviconUploadKey, "") == "" {
-			writeFlagsError(w, http.StatusBadRequest, "upload a favicon before choosing upload mode")
-			return
+		if err == nil && value == instance.FaviconUpload && view.get(instance.FaviconUploadKey, "") == "" {
+			return "", errs.NewCode(errs.CodeInvalidInput, "upload a favicon before choosing upload mode")
 		}
 	case key == instance.FaviconColorKey:
 		value, err = instance.NormalizeFaviconColor(value)
 	case key == instance.FaviconBadgeKey:
 		value, err = instance.NormalizeFaviconBadge(value)
 	case key == instance.FaviconUploadKey && value != "":
-		var ct string
-		var body []byte
-		if value, ct, body, err = instance.ParseFaviconUpload(value); err == nil {
-			extra[instance.FaviconModeKey], extra["upload_type"], extra["upload_bytes"] = instance.FaviconUpload, ct, strconv.Itoa(len(body))
-		}
-	case key == instance.FaviconUploadKey && db.GetSetting(instance.FaviconModeKey, "") == instance.FaviconUpload:
-		extra[instance.FaviconModeKey] = instance.FaviconDefault
+		value, _, _, err = instance.ParseFaviconUpload(value)
 	}
 	if err != nil {
-		writeFlagsError(w, http.StatusBadRequest, err.Error())
-		return
+		return "", errs.WrapCode(errs.CodeInvalidInput, err)
+	}
+	return value, nil
+}
+
+// applyFaviconSetting stores a validated favicon key. An upload switches the mode to upload;
+// clearing it while in upload mode goes back to the default icon. Open tabs pick up the new
+// favicon URL via SettingsChanged.
+func applyFaviconSetting(key, value string, extra map[string]string) error {
+	mode := ""
+	switch {
+	case key == instance.FaviconUploadKey && value != "":
+		_, ct, body, err := instance.ParseFaviconUpload(value)
+		if err != nil {
+			return err
+		}
+		mode, extra["upload_type"], extra["upload_bytes"] = instance.FaviconUpload, ct, strconv.Itoa(len(body))
+	case key == instance.FaviconUploadKey && db.GetSetting(instance.FaviconModeKey, "") == instance.FaviconUpload:
+		mode = instance.FaviconDefault
 	}
 	if err := db.SetSetting(key, value); err != nil {
-		writeFlagsError(w, http.StatusInternalServerError, err.Error())
-		return
+		return err
 	}
-	if mode, ok := extra[instance.FaviconModeKey]; ok {
-		if err := db.SetSetting(instance.FaviconModeKey, mode); err != nil {
-			writeFlagsError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
+	if mode == "" {
+		return nil
 	}
-	f := currentFavicon()
-	logger.Info("Saved favicon setting", "key", key, "mode", f.Mode, "source", f.Source, "version", f.Version())
-	if key == instance.FaviconUploadKey {
-		value = ""
-	}
-	extra["key"], extra["value"] = key, value
-	extra["favicon_mode"], extra["favicon_source"], extra["favicon_url"] = f.Mode, f.Source, faviconURL(f)
-	writeSettingsOK(w, extra, false, realtime.SettingsChanged)
+	extra[instance.FaviconModeKey] = mode
+	return db.SetSetting(instance.FaviconModeKey, mode)
 }
 
 // handleFavicon serves the favicon in effect. A matching ?v= is cached for a year

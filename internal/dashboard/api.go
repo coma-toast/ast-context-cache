@@ -104,6 +104,7 @@ func NewHandler(listen string) http.Handler {
 	mux.HandleFunc("/api/watcher-status", handleWatcherStatus)
 	mux.HandleFunc("/api/vector-stats", handleVectorStats)
 	mux.HandleFunc("/api/settings", handleSettings)
+	mux.HandleFunc("/api/settings/batch", handleSettingsBatch)
 	mux.HandleFunc("/api/settings/embed", handleEmbedSettings)
 	mux.HandleFunc("/api/embedder/test", handleEmbedderTest)
 	mux.HandleFunc("/api/embedder/retry", handleEmbedderRetry)
@@ -927,15 +928,18 @@ func handleEmbedAuxWorkers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+// handleSettings returns every setting with its default (GET), or saves one key (POST, JSON
+// {"key","value"} or a form). A save validates first, answers 400/409 with {"error","errors"}
+// when the value is refused, and runs the key's side effects; see handleSettingsBatch.
 func handleSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if r.Method == "POST" {
-		ct := r.Header.Get("Content-Type")
+	if r.Method == http.MethodPost {
 		var key, value string
 		r.Body = http.MaxBytesReader(w, r.Body, settingsMaxBodyBytes)
-		if strings.Contains(ct, "application/json") {
+		if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
 			var req map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				logger.Warn("Rejected settings save", "reason", "invalid request body", "error", err)
 				writeFlagsError(w, http.StatusBadRequest, "invalid settings request: "+err.Error())
 				return
 			}
@@ -944,147 +948,15 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			r.ParseForm()
 			key, value = r.FormValue("key"), r.FormValue("value")
 		}
-		if key == "" {
-			json.NewEncoder(w).Encode(map[string]string{"error": "key required"})
-			return
-		}
-		if isFlagKey(key) {
-			writeFlagsError(w, http.StatusBadRequest, flagSettingKeyMsg)
-			return
-		}
-		if netlisten.IsKey(key) {
-			saveNetworkSetting(w, key, value)
-			return
-		}
-		if embedqueue.IsQueueCapSetting(key) {
-			saveQueueCapSetting(w, key, value)
-			return
-		}
-		if handoff.IsLimitSetting(key) {
-			n, err := strconv.Atoi(strings.TrimSpace(value))
-			if err != nil || n < 1 {
-				writeFlagsError(w, http.StatusBadRequest, key+" must be a positive integer")
-				return
-			}
-			value = strconv.Itoa(n)
-		}
-		if key == transcripts.SettingKey && !validBoolSetting(value) {
-			writeFlagsError(w, http.StatusBadRequest, key+" must be true or false")
-			return
-		}
-		if key == "embed_worker_max" {
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 1 || n > embedqueue.AbsoluteMaxWorkers {
-				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("embed_worker_max must be 1–%d", embedqueue.AbsoluteMaxWorkers)})
-				return
-			}
-		}
-		if key == "embed_aux_worker_max" {
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 1 || n > 32 {
-				json.NewEncoder(w).Encode(map[string]string{"error": "embed_aux_worker_max must be 1–32"})
-				return
-			}
-		}
-		if key == "EMBED_AUX_WORKERS" {
-			max := embedqueue.AuxMaxWorkers()
-			n, err := strconv.Atoi(value)
-			if err != nil || n < embedqueue.MinWorkers || n > max {
-				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("EMBED_AUX_WORKERS must be %d–%d", embedqueue.MinWorkers, max)})
-				return
-			}
-		}
-		if key == "EMBED_AUX_BACKEND" {
-			value = normalizeEmbedBackendValue(value)
-		}
-		if isInstanceSettingKey(key) {
-			saveInstanceSetting(w, r, key, value)
-			return
-		}
-		if isFaviconSettingKey(key) {
-			saveFaviconSetting(w, key, value)
-			return
-		}
-		if key == embedder.ProbeIntervalSettingKey {
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 5 || n > 600 {
-				json.NewEncoder(w).Encode(map[string]string{"error": "embed_probe_interval_seconds must be 5–600"})
-				return
-			}
-		}
-		if key == "EMBED_BACKEND" {
-			value = normalizeEmbedBackendValue(value)
-			oldBackend := components.EmbedBackendUI(db.GetSetting("EMBED_BACKEND", ""))
-			newBackend := components.EmbedBackendUI(value)
-			if err := switchEmbedBackend(oldBackend, newBackend, value); err != nil {
-				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-				return
-			}
-			writeSettingsOK(w, map[string]string{"key": key, "value": value}, true, realtime.SettingsChanged)
-			return
-		}
-		if err := db.SetSetting(key, value); err != nil {
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		if key == "watcher_ignore_globs" {
-			ignorepatterns.InvalidateCache()
-			indexer.InvalidateAllPathFilters()
-		}
-		if key == "project_exclude_paths" {
-			projectmeta.InvalidateExcludeCache()
-		}
-		if key == "embed_worker_max" {
-			if err := embedqueue.ClampWorkersToMax(); err != nil {
-				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-				return
-			}
-		}
-		if key == "embed_aux_worker_max" {
-			if err := embedqueue.ClampAuxWorkersToMax(); err != nil {
-				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-				return
-			}
-		}
-		if key == "EMBED_AUX_WORKERS" {
-			n, _ := strconv.Atoi(value)
-			if _, err := embedqueue.SetAuxWorkerCount(n); err != nil {
-				logger.Warn("Failed to set aux embed workers", "workers", n, "error", err)
-			}
-		}
-		if key == "EMBED_AUX_BACKEND" {
-			if embedder.AuxRuntimeReady() {
-				if err := embedder.ReloadAuxRuntime(); err != nil {
-					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-					return
-				}
-				embedqueue.SetAuxEmbedder(embedder.RawAux())
-			}
-		}
-		if key == embedder.ProbeIntervalSettingKey {
-			embedder.RestartConnectivityProbe()
-		}
-		onEmbedSettingChanged(key)
-		mask := realtime.SettingsChanged
-		reloadEmbed := embedder.IsSettingKey(key)
-		if reloadEmbed {
-			mask = realtime.IndexHealth | realtime.HealthBar
-		} else if key == "idle_unload_minutes" {
-			mask |= realtime.IndexHealth | realtime.HealthBar
-		} else if key == "project_exclude_paths" {
-			mask |= realtime.IndexHealth
-		} else if key == "embed_worker_max" {
-			mask |= realtime.IndexHealth | realtime.HealthBar
-		} else if key == "embed_aux_worker_max" || key == "EMBED_AUX_WORKERS" || key == "EMBED_AUX_BACKEND" {
-			mask |= realtime.IndexHealth | realtime.HealthBar
-		} else if key == embedder.ProbeIntervalSettingKey {
-			mask |= realtime.IndexHealth | realtime.HealthBar
-		} else if handoff.IsLimitSetting(key) {
-			mask |= realtime.Handoffs
-		}
-		writeSettingsOK(w, map[string]string{"key": key, "value": value}, reloadEmbed, mask)
+		saveSettings(w, r, map[string]string{key: value}, true)
 		return
 	}
+	json.NewEncoder(w).Encode(settingsWithDefaults())
+}
+
+// settingsWithDefaults is every stored setting plus the default of each unset known key, with
+// the access token swapped for a set marker and the instance and favicon fields resolved.
+func settingsWithDefaults() map[string]string {
 	defaults := map[string]string{
 		"idle_unload_minutes":            "1",
 		"watcher_ignore_globs":           ignorepatterns.JSON(ignorepatterns.DefaultGlobs),
@@ -1142,7 +1014,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	redactNetworkSettings(settings)
 	applyInstanceSettings(settings)
 	applyFaviconSettings(settings)
-	json.NewEncoder(w).Encode(settings)
+	return settings
 }
 
 func handleResetProject(w http.ResponseWriter, r *http.Request) {
