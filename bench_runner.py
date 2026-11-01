@@ -593,8 +593,9 @@ def generate_report(results: list[dict], output_dir: Path) -> Path:
         "## Per-Task Metrics",
         "",
         "| instance_id | condition | tokens_total | tokens_in | tokens_out | "
-        "wall_time_sec | tool_calls | ast_mcp_calls | patch_applies | success_proxy |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "wall_time_sec | tool_calls | ast_mcp_calls | patch_applies | timed_out | "
+        "success_proxy |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
     for record in results:
@@ -608,6 +609,7 @@ def generate_report(results: list[dict], output_dir: Path) -> Path:
             f"{metrics.get('tool_calls_total', 0)} | "
             f"{metrics.get('ast_mcp_calls', 0)} | "
             f"{metrics.get('patch_applies')} | "
+            f"{metrics.get('timed_out')} | "
             f"{record['success_proxy']} |"
         )
 
@@ -644,17 +646,23 @@ def generate_report(results: list[dict], output_dir: Path) -> Path:
             for verdict in ("confirmed", "proxy_pass", "proxy_fail", "unverified")
         }
         rate = _success_rate(records)
+        timed_out = sum(1 for r in records
+                        if (r.get("metrics") or {}).get("timed_out"))
         lines.append(
             f"- **{condition}**: {rate:.0%} pass proxy "
             f"({counts['confirmed']} confirmed, {counts['proxy_pass']} proxy_pass, "
             f"{counts['proxy_fail']} proxy_fail, {counts['unverified']} unverified) "
-            f"of {len(records)}"
+            f"of {len(records)}; {timed_out} hit the per-run timeout"
         )
 
     lines += [
         "",
         "## Notes",
         "",
+        "- `tokens_total` = input + output + reasoning + cache reads, matching opencode's "
+        "per-step accounting; `tokens_input` excludes cached reads.",
+        "- A timeout still records the events seen so far and any patch the agent "
+        "had already written, so partial runs are not silently dropped.",
         "- `confirmed` = patch applies cleanly and touches a file the gold patch touches.",
         "- `proxy_pass` = patch applies cleanly but touches no gold-patch file.",
         "- `proxy_fail` = no patch, or the patch does not apply to the base commit.",

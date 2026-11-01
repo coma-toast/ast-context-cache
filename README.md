@@ -287,7 +287,11 @@ conditions and a per-condition success rate. Raw metrics are written to
 `config_snapshot.json`.
 
 Tokens are summed across `step_finish` events, which is what the provider bills
-per step (each step re-sends the full context).
+per step (each step re-sends the full context). `tokens_total` is
+`input + output + reasoning + cache reads`; `tokens_input` excludes cache reads,
+so a long run with a warm prompt cache shows a much larger total than input.
+A timed-out run still records the events seen so far and any patch already on
+disk.
 
 ### Success-rate proxy
 
