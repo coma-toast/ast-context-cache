@@ -27,10 +27,12 @@ type SSDHealth struct {
 	TemperatureC  float64 // Celsius; -1 if unknown
 }
 
-// DiskInfo is one disk on the dashboard's disk health card; the dashboard's DiskInfo type reads
-// the same field names. Pointer fields are omitted when the source does not report them, so
-// the card shows nothing rather than a zero. Host marks a disk of the machine this instance runs
-// on as a guest (an LXC container or VM), read from that host's smartctl_exporter.
+// DiskInfo describes a single physical disk and its SMART health data, as
+// reported by the platform source (diskutil, smartctl, or the Proxmox API).
+// Pointer fields are omitted in JSON when the source does not report them.
+// The Dashboard's disk card reads the same field names. Host marks a disk of
+// the machine this instance runs on as a guest (an LXC container or VM),
+// read from that host's smartctl_exporter.
 type DiskInfo struct {
 	Device               string   `json:"Device"`
 	Model                string   `json:"Model,omitempty"`
@@ -40,8 +42,12 @@ type DiskInfo struct {
 	SmartStatus          string   `json:"SmartStatus,omitempty"`
 	SmartSource          string   `json:"SmartSource,omitempty"`
 	Capacity             string   `json:"Capacity,omitempty"`
+	FreeSpace            string   `json:"FreeSpace,omitempty"`
+	IsExternal           bool     `json:"IsExternal,omitempty"`
 	SolidState           *bool    `json:"SolidState,omitempty"`
+	TrimSupport          bool     `json:"TrimSupport,omitempty"`
 	Host                 bool     `json:"Host,omitempty"`
+	DataDirDisk          bool     `json:"DataDirDisk,omitempty"`
 	WarningLevel         string   `json:"WarningLevel,omitempty"`
 	WarningMsg           string   `json:"WarningMsg,omitempty"`
 	WearUsedPct          *int     `json:"WearUsedPct,omitempty"`
@@ -50,11 +56,20 @@ type DiskInfo struct {
 	TemperatureC         *float64 `json:"TemperatureC,omitempty"`
 	PowerOnHours         *int     `json:"PowerOnHours,omitempty"`
 	PowerCycles          *int     `json:"PowerCycles,omitempty"`
+	UnsafeShutdowns      *int     `json:"UnsafeShutdowns,omitempty"`
 	MediaErrors          *int     `json:"MediaErrors,omitempty"`
 	CriticalWarning      *int     `json:"CriticalWarning,omitempty"`
 	ReallocatedSectors   *int     `json:"ReallocatedSectors,omitempty"`
 	PendingSectors       *int     `json:"PendingSectors,omitempty"`
 	OfflineUncorrectable *int     `json:"OfflineUncorrectable,omitempty"`
 	UDMACRCErrors        *int     `json:"UDMACRCErrors,omitempty"`
+	SSDLifeLeft          *int     `json:"SSDLifeLeft,omitempty"`
 	SASGrownDefects      *int     `json:"SASGrownDefects,omitempty"`
+	SASUncorrectedErrors *int     `json:"SASUncorrectedErrors,omitempty"`
+	// Proxmox-specific (filled by the Proxmox source, empty elsewhere)
+	ZFSPool        string `json:"ZFSPool,omitempty"`
+	ZFSHealth      string `json:"ZFSHealth,omitempty"`
+	ZFSCapacityPct int    `json:"ZFSCapacityPct,omitempty"`
+	ZFSFragPct     int    `json:"ZFSFragPct,omitempty"`
+	ProxmoxNode    string `json:"ProxmoxNode,omitempty"`
 }
