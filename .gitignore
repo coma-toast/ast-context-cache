@@ -39,3 +39,9 @@ cpu.prof
 mem.prof
 # GoReleaser output
 /dist/
+
+# Benchmark runner: dataset and run output
+benchmarks/data/
+benchmarks/runs/
+__pycache__/
+*.pyc

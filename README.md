@@ -211,6 +211,111 @@ The handoff tools are core even though they write, so delegation works at every 
 
 Settings → **Updates** installs the latest release in place and keeps the previous binary as `ast-mcp.prev`; **Restart now** quiesces ast-mcp and switches over (on macOS by starting a new process and exiting once it is healthy; set `AST_RESTART_STRATEGY` to `exec`, `spawn` or `exit` to choose: [`docs/INSTALL.md`](docs/INSTALL.md#restarting)). From a source checkout, `git pull && make build`, then restart. Breaking changes and what to do about them, including the 3.0, 4.0 and 5.0 upgrades: [`docs/MIGRATING.md`](docs/MIGRATING.md).
 
+## Benchmarking against SWE-bench Lite
+
+`bench_runner.py` measures the difference ast-context-cache makes for an agent
+doing real bug-fix work. It runs the same SWE-bench Lite task twice — once with
+the ast-context-cache MCP server plus the ast-context-cache `AGENTS.md` block
+(`treatment`), once with neither (`control`) — and reports tokens, wall time,
+tool calls and a success-rate proxy for each.
+
+### Prerequisites
+
+- `opencode` on `PATH` (developed against 1.18.34)
+- a running ast-mcp server on `http://127.0.0.1:7821` (`curl localhost:7821/health` → `200`)
+- Python 3.11+ with `pyarrow` (`python3 -m pip install pyarrow`) for dataset conversion
+- a LiteLLM model with a working API key in `LITELLM_API_KEY`
+
+### Setup
+
+```bash
+python3 bench_runner.py --fetch-dataset
+```
+
+That downloads the SWE-bench Lite dev split (23 instances) from Hugging Face and
+writes `benchmarks/data/swe_bench_lite_dev.jsonl`. The dataset and run output are
+gitignored; `.opencode` is not involved.
+
+### Run
+
+```bash
+# 5 tasks, both conditions, ~1-2h depending on host load
+python3 bench_runner.py --task-count 5 --model litellm/free --output-dir benchmarks/runs/pilot
+
+# specific instances (comma-separated, run in the order given)
+python3 bench_runner.py --tasks sqlfluff__sqlfluff-1625,pvlib__pvlib-python-1707 \
+  --model litellm/free --output-dir benchmarks/runs/smoke
+
+# set up clones and configs without calling opencode
+python3 bench_runner.py --tasks sqlfluff__sqlfluff-1625 --dry-run
+```
+
+Useful flags: `--timeout SECONDS` (per opencode run, default 900), `--dataset
+PATH`, `--context-limit TOKENS`.
+
+### Condition isolation
+
+Each condition gets its own `XDG_CONFIG_HOME` under
+`<output>/tasks/<instance>/<condition>/.config/`, containing an
+`opencode/opencode.json` and an `opencode/AGENTS.md`. The generated config
+declares only one MCP server, `ast-context-cache`, enabled in `treatment` and
+disabled in `control`.
+
+This matters: a host agent's global opencode config normally enables
+ast-context-cache, loads an ast-context-cache `AGENTS.md`, and installs the
+ast-context-cache search-nudge plugin. Without isolation both conditions would
+be contaminated. The runner also strips `OPENCODE_DISABLE_PROJECT_CONFIG`,
+`OPENCODE` and `OPENCODE_PID` from the subprocess environment, since the host
+session sets them and they suppress project-level config.
+
+No API key is written to disk: the generated config uses
+`"apiKey": "{env:LITELLM_API_KEY}"`.
+
+### Metrics and output
+
+Per task × condition (`benchmark_results.jsonl`, one line each):
+
+`tokens_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`,
+`tokens_cache_read`, `tokens_cache_write`, `wall_time_sec`, `event_span_sec`,
+`tool_calls_total`, `ast_mcp_calls`, `tool_calls_by_name`, `session_id`,
+`output_patch`, `patch_applies`, `patch_files`, `errors`, `returncode`,
+`timed_out`.
+
+`benchmark_report.md` adds per-task tables plus mean/median deltas between
+conditions and a per-condition success rate. Raw metrics are written to
+`raw_sessions/`, and the exact generated config for each condition to
+`config_snapshot.json`.
+
+Tokens are summed across `step_finish` events, which is what the provider bills
+per step (each step re-sends the full context).
+
+### Success-rate proxy
+
+Docker is not used, so success is a proxy, not a test verdict:
+
+- `confirmed` — the agent's patch applies cleanly to the base commit and touches
+  at least one file the gold patch touches
+- `proxy_pass` — the patch applies cleanly but touches no gold-patch file
+- `proxy_fail` — no patch, or the patch does not apply
+- `unverified` — the run produced no usable metrics
+
+`patch_applies` comes from `git apply --check --reverse` on the worktree, which
+is base + patch. Files the runner injects (`AGENTS.md`, `.opencode/`) are
+excluded from the captured diff. Test-verified success rates need the official
+SWE-bench harness (infra follow-up).
+
+### Known constraints
+
+- `litellm/omo-atlas`, the model named in the original design, currently returns
+  `400 Invalid model name` from the LiteLLM endpoint; `litellm/free` works and is
+  the default here. Pass `--model` to compare another model.
+- Wall time depends on host load. Results are only comparable between conditions
+  run in the same invocation.
+- The runner executes with `--auto` (no permission prompts) because the agent is
+  non-interactive.
+
+Unit tests: `python3 -m unittest bench_runner_test -v`.
+
 ## Architecture
 
 ```
