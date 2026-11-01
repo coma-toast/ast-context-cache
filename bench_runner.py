@@ -27,6 +27,7 @@ import argparse
 import datetime
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -320,33 +321,52 @@ def run_opencode(repo_dir: Path, config_home: Path, instance: dict,
     print(f"  Running opencode (timeout {timeout}s) in {repo_dir}")
 
     start = time.time()
+    # start_new_session puts opencode and everything it spawns (provider npm
+    # helpers, subagent tasks) in its own process group, so a timeout can kill
+    # the whole tree instead of leaving orphans to burn host CPU.
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=str(repo_dir),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
             stdin=subprocess.DEVNULL,
             env=_clean_env(config_home),
+            start_new_session=True,
         )
-    except subprocess.TimeoutExpired as exc:
-        print(f"  TIMEOUT after {timeout}s for {instance['instance_id']}")
-        partial = exc.stdout or ""
-        if isinstance(partial, bytes):
-            partial = partial.decode("utf-8", "replace")
-        return _extract_metrics(_parse_events(partial), time.time() - start,
-                                returncode=None, timed_out=True)
     except Exception as exc:  # pragma: no cover - subprocess guard
         print(f"  ERROR: {exc}")
         return None
 
-    wall_time = time.time() - start
-    events = _parse_events(proc.stdout)
-    if proc.returncode != 0 and not events:
-        print(f"  opencode exited {proc.returncode}: {proc.stderr[:500]}")
+    timed_out = False
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        returncode = proc.returncode
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        print(f"  TIMEOUT after {timeout}s for {instance['instance_id']}")
+        _kill_process_group(proc)
+        stdout, stderr = proc.communicate()
+        returncode = None
 
-    return _extract_metrics(events, wall_time, proc.returncode)
+    wall_time = time.time() - start
+    events = _parse_events(stdout)
+    if not timed_out and returncode not in (0, None) and not events:
+        print(f"  opencode exited {returncode}: {stderr[:500]}")
+
+    return _extract_metrics(events, wall_time, returncode, timed_out=timed_out)
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    """Kill the whole process group started for one opencode run."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
 
 
 def _parse_events(stdout: str) -> list[dict]:

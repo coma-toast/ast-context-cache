@@ -93,6 +93,17 @@ class TestMetricsExtraction(unittest.TestCase):
         self.assertIn("Invalid model name", metrics["errors"][0])
 
 
+class TestProcessControl(unittest.TestCase):
+    def test_kill_process_group_reaps_the_tree(self):
+        import subprocess
+        proc = subprocess.Popen(
+            ["sleep", "60"], start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        br._kill_process_group(proc)
+        self.assertIsNotNone(proc.wait(timeout=10))
+
+
 class TestDataset(unittest.TestCase):
     def test_load_and_select(self):
         with tempfile.TemporaryDirectory() as tmp:
