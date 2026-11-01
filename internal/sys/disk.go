@@ -136,8 +136,10 @@ func parseDiskutilKV(text string) map[string]string {
 	return out
 }
 
-var reWholeDisk = regexp.MustCompile(`^disk\d+$`)
-var reDiskHeader = regexp.MustCompile(`(?m)^\s*Disk:\s+(disk\d+)`)
+var (
+	reWholeDisk  = regexp.MustCompile(`^disk\d+$`)
+	reDiskHeader = regexp.MustCompile(`(?m)^\s*Disk:\s+(disk\d+)`)
+)
 
 // parseDiskutilList extracts whole-disk identifiers (disk0, disk1, …) from `diskutil list`
 // plain-text output. Handles both APFS container headers ("Disk:  disk0 (APFS)") and
@@ -219,7 +221,7 @@ type smartctlResult struct {
 	PowerOnTime *struct {
 		Hours int `json:"hours"`
 	} `json:"power_on_time"`
-	PowerCycleCount int `json:"power_cycle_count"`
+	PowerCycleCount               int `json:"power_cycle_count"`
 	NVMeSmartHealthInformationLog *struct {
 		PercentageUsed   int    `json:"percentage_used"`
 		AvailableSpare   int    `json:"available_spare"`
