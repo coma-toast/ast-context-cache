@@ -28,6 +28,7 @@ const (
 
 type Embedder struct {
 	mu        sync.Mutex
+	provider  string
 	tokenizer *tokenizers.Tokenizer
 	session   *ort.AdvancedSession
 	inputIDs  *ort.Tensor[int64]
@@ -64,6 +65,11 @@ func New(modelDir string) (*Embedder, error) {
 	}
 
 	modelPath := filepath.Join(modelDir, "model.onnx")
+	if fixed, err := ensureFixedShapeModel(modelDir); err != nil {
+		logger.Warn("Using the dynamic-shape ONNX model", "error", err)
+	} else {
+		modelPath = fixed
+	}
 
 	inputIDs, err := ort.NewEmptyTensor[int64](ort.NewShape(1, maxSeqLen))
 	if err != nil {
@@ -81,13 +87,15 @@ func New(modelDir string) (*Embedder, error) {
 		return nil, errs.WrapMessage("failed to create output tensor", err)
 	}
 
-	session, err := ort.NewAdvancedSession(modelPath,
-		[]string{"input_ids", "attention_mask"},
-		[]string{"sentence_embedding"},
-		[]ort.ArbitraryTensor{inputIDs, attnMask},
-		[]ort.ArbitraryTensor{output},
-		nil,
-	)
+	provider := ONNXProvider()
+	inputs := []ort.ArbitraryTensor{inputIDs, attnMask}
+	outputs := []ort.ArbitraryTensor{output}
+	session, err := newONNXSession(modelPath, provider, inputs, outputs)
+	if err != nil && provider != onnxProviderCPU {
+		logger.Warn("ONNX execution provider unavailable; using the CPU", "provider", provider, "error", err)
+		provider = onnxProviderCPU
+		session, err = newONNXSession(modelPath, provider, inputs, outputs)
+	}
 	if err != nil {
 		inputIDs.Destroy()
 		attnMask.Destroy()
@@ -95,7 +103,9 @@ func New(modelDir string) (*Embedder, error) {
 		return nil, errs.WrapMessage("failed to create ONNX session", err, "path", modelPath)
 	}
 
+	logger.Info("ONNX embedder ready", "provider", provider, "model", ModelName)
 	return &Embedder{
+		provider:  provider,
 		tokenizer: tk,
 		session:   session,
 		inputIDs:  inputIDs,
