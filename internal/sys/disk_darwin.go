@@ -121,8 +121,8 @@ func probeAllDisks(path string) []DiskInfo {
 	prof := nvmeProfile()
 
 	var disks []DiskInfo
-	for i, id := range ids {
-		d := probeOneDisk(id, prof, i == 0)
+	for _, id := range ids {
+		d := probeOneDisk(id, prof)
 		if id == dataDirDisk {
 			d.DataDirDisk = true
 		}
@@ -140,7 +140,7 @@ func probeAllDisks(path string) []DiskInfo {
 	return disks
 }
 
-func probeOneDisk(id string, prof map[string]string, firstInternal bool) DiskInfo {
+func probeOneDisk(id string, prof map[string]string) DiskInfo {
 	d := DiskInfo{Device: id}
 	out, err := exec.Command("diskutil", "info", id).Output()
 	if err != nil {
@@ -181,10 +181,8 @@ func probeOneDisk(id string, prof map[string]string, firstInternal bool) DiskInf
 			if strings.EqualFold(prof["trim"], "yes") {
 				d.TrimSupport = true
 			}
-			if firstInternal {
-				applySmartWear(&d, smartKeysForDisk(id))
-			}
 		}
+		applySmartWear(&d, smartKeysForDisk(id))
 	}
 
 	if applySmartctl(&d, id) {
@@ -197,21 +195,21 @@ func probeOneDisk(id string, prof map[string]string, firstInternal bool) DiskInf
 }
 
 // dataDirWholeDisk resolves an arbitrary file/directory path to the whole-disk
-// identifier (e.g. "disk0") of the volume containing it.
+// identifier (e.g. "disk0") of the physical disk holding it.
 func dataDirWholeDisk(path string) string {
 	device := deviceForPath(path)
 	if device == "" {
 		return ""
 	}
-	out, err := exec.Command("diskutil", "info", device).Output()
+	return physicalWholeDisk(device, diskutilInfo)
+}
+
+func diskutilInfo(id string) map[string]string {
+	out, err := exec.Command("diskutil", "info", id).Output()
 	if err != nil {
-		return ""
+		return nil
 	}
-	kv := parseDiskutilKV(string(out))
-	if w := kv["part of whole"]; w != "" {
-		return w
-	}
-	return kv["device identifier"]
+	return parseDiskutilKV(string(out))
 }
 
 // deviceForPath resolves an arbitrary file/directory path to the device identifier
