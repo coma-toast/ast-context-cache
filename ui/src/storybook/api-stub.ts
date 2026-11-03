@@ -103,6 +103,7 @@ export const api = {
   installerRestore: noop,
   installerDismissLegacy: noop,
   embedderTest: noop,
+  hostDiskTest: async () => ({ ok: true, disks: 13, devices: ['sda', 'sdb'], latency_ms: 42 }),
   embedderRetry: noop,
   embedderDismissAlert: noop,
   retryPendingEmbeds: noop,

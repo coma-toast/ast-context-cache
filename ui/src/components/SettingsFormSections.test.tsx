@@ -1,6 +1,7 @@
 import { act } from 'react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { api } from '../api/client'
 import type { SettingsData } from '../api/types'
 import { buttonByText, clickAndSettle, mountHarness, type Harness, typeInto } from '../test/settingsHarness'
 import { EmbeddingSection, HostDiskSection, PerformanceSection, WatcherSection } from './SettingsFormSections'
@@ -76,6 +77,33 @@ describe('PerformanceSection', () => {
 })
 
 describe('HostDiskSection', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('tests the typed URL without saving it and lists the disks', async () => {
+    const spy = vi.spyOn(api, 'hostDiskTest').mockResolvedValue({ ok: true, disks: 2, devices: ['sda', 'sdb'], latency_ms: 12 })
+    h.render(<HostDiskSection data={{} as SettingsData} />)
+    expect(buttonByText(h.container, 'Test').disabled).toBe(true)
+    typeInto(field('Host disk health URL'), ' http://pve:9633/metrics ')
+    await clickAndSettle(buttonByText(h.container, 'Test'))
+    expect(spy).toHaveBeenCalledWith('http://pve:9633/metrics')
+    expect(h.saveBatch).not.toHaveBeenCalled()
+    expect(h.container.textContent).toContain('Reached the exporter in 12 ms: 2 disks (sda, sdb).')
+  })
+
+  it('shows the error and the fix-it hint when the test fails', async () => {
+    vi.spyOn(api, 'hostDiskTest').mockResolvedValue({
+      ok: false,
+      disks: 0,
+      latency_ms: 3,
+      error: 'fetch host disk health: connection refused',
+      hint: 'Nothing is listening on that port.',
+    })
+    h.render(<HostDiskSection data={{ HostDiskHealthURL: 'http://pve:9633/metrics' } as SettingsData} />)
+    await clickAndSettle(buttonByText(h.container, 'Test'))
+    expect(h.container.textContent).toContain('connection refused')
+    expect(h.container.textContent).toContain('Nothing is listening on that port.')
+  })
+
   it('saves the URL as one key', async () => {
     h.render(<HostDiskSection data={{} as SettingsData} />)
     expect(buttonByText(h.container, 'Save').disabled).toBe(true)

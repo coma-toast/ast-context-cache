@@ -8,6 +8,7 @@ import type {
   FlushHandoffTreeResponse,
   HandoffTreesResponse,
   Health,
+  HostDiskTestResult,
   HostUsageResponse,
   IndexHealth,
   InstallerApplyResult,
@@ -266,6 +267,7 @@ export const api = {
     post<{ status: string; backup_id: string }>('/api/dashboard/installer/restore', { backup_id }),
   installerDismissLegacy: () => post<{ status: string }>('/api/dashboard/installer/legacy/dismiss', {}),
   embedderTest: () => post<{ status?: string; error?: string }>('/api/embedder/test', {}),
+  hostDiskTest: (url: string) => post<HostDiskTestResult>('/api/host-disk/test', { url }),
   embedderRetry: () =>
     postEmbedderAction<{ ok?: boolean; state?: string; error?: string; skipped?: boolean }>('/api/embedder/retry'),
   retryPendingEmbeds: () => post<{ status?: string; queued: number }>('/api/embed-pending/retry', {}),

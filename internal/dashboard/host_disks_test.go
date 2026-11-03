@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -95,4 +96,39 @@ func TestHostDisksOnDiskCard(t *testing.T) {
 	assert.Empty(t, cleared.Disks)
 	assert.False(t, cleared.HostDiskURLSet)
 	assert.Empty(t, cleared.HostDiskError)
+}
+
+func TestHostDiskTestEndpoint(t *testing.T) {
+	fixture, err := os.ReadFile("../hostdisk/testdata/smartctl_exporter.prom")
+	require.NoError(t, err)
+	exporter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(fixture) }))
+	t.Cleanup(exporter.Close)
+	h, _ := setupSettingsBatch(t, "")
+	before := db.GetSetting(hostdisk.SettingKey, "")
+
+	post := func(body string) (int, hostdisk.TestResult) {
+		req := httptest.NewRequest(http.MethodPost, "/api/host-disk/test", strings.NewReader(body))
+		req.Host = "127.0.0.1:7830"
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		var res hostdisk.TestResult
+		if rr.Code == http.StatusOK {
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &res), rr.Body.String())
+		}
+		return rr.Code, res
+	}
+
+	code, res := post(`{"url":"` + exporter.URL + `/metrics"}`)
+	require.Equal(t, http.StatusOK, code)
+	assert.True(t, res.OK, res.Error)
+	assert.Equal(t, 5, res.Disks)
+	assert.Equal(t, before, db.GetSetting(hostdisk.SettingKey, ""), "a test never saves the URL")
+
+	code, res = post(`{"url":"` + strings.Replace(exporter.URL, "http://", "https://", 1) + `/metrics"}`)
+	require.Equal(t, http.StatusOK, code)
+	assert.False(t, res.OK)
+	assert.Contains(t, res.Hint, "https:// to http://")
+
+	code, _ = post(`not json`)
+	assert.Equal(t, http.StatusBadRequest, code)
 }
