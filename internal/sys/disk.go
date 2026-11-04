@@ -125,6 +125,25 @@ var reKV = regexp.MustCompile(`(?m)^\s+([^:]+):\s+(.*)$`)
 const nvmeDataUnitBytes = 512_000 // NVMe SMART log data unit size
 
 // parseDiskutilKV parses `diskutil info` key: value output into a lowercase-keyed map.
+// physicalWholeDisk maps a diskutil identifier to the whole physical disk behind it.
+// An APFS volume or container (disk3s5, disk3) is synthesized: SMART data lives on its
+// physical store's whole disk (disk0s2 -> disk0). info returns `diskutil info` key/values.
+func physicalWholeDisk(device string, info func(string) map[string]string) string {
+	kv := info(device)
+	if kv == nil {
+		return ""
+	}
+	if store := kv["apfs physical store"]; store != "" {
+		if w := info(store)["part of whole"]; w != "" {
+			return w
+		}
+	}
+	if w := kv["part of whole"]; w != "" {
+		return w
+	}
+	return kv["device identifier"]
+}
+
 func parseDiskutilKV(text string) map[string]string {
 	out := map[string]string{}
 	for _, m := range reKV.FindAllStringSubmatch(text, -1) {

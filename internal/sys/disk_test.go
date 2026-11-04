@@ -341,3 +341,30 @@ func TestApplyDiskWarnings(t *testing.T) {
 func intPtr(v int) *int { return &v }
 
 func float64Ptr(v float64) *float64 { return &v }
+
+func TestPhysicalWholeDisk(t *testing.T) {
+	disks := map[string]map[string]string{
+		"disk3s5": {"device identifier": "disk3s5", "part of whole": "disk3", "apfs container": "disk3", "apfs physical store": "disk0s2"},
+		"disk3":   {"device identifier": "disk3", "part of whole": "disk3", "apfs physical store": "disk0s2"},
+		"disk0s2": {"device identifier": "disk0s2", "part of whole": "disk0", "apfs container": "disk3"},
+		"disk0":   {"device identifier": "disk0", "part of whole": "disk0"},
+		"disk5s1": {"device identifier": "disk5s1", "part of whole": "disk5"},
+		"disk9":   {"device identifier": "disk9"},
+		"disk7s1": {"device identifier": "disk7s1", "part of whole": "disk7", "apfs physical store": "disk8s2"},
+	}
+	info := func(id string) map[string]string { return disks[id] }
+	for in, want := range map[string]string{
+		"disk3s5": "disk0", // APFS volume -> container -> physical store -> whole disk
+		"disk3":   "disk0",
+		"disk0s2": "disk0",
+		"disk0":   "disk0",
+		"disk5s1": "disk5", // non-APFS partition
+		"disk9":   "disk9",
+		"disk7s1": "disk7", // store unknown to diskutil: fall back to the container
+		"nope":    "",
+	} {
+		if got := physicalWholeDisk(in, info); got != want {
+			t.Errorf("physicalWholeDisk(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
