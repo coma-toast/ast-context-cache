@@ -118,7 +118,7 @@ curl -s http://192.168.1.10:9633/metrics | grep smartctl_device
 
 You should see one `smartctl_device{...}` line per disk, followed by series such as `smartctl_device_smart_status`, `smartctl_device_temperature` and `smartctl_device_power_on_seconds`. If `curl` hangs or is refused, fix the bind address or firewall first. If it answers but prints nothing, the exporter found no disks it could read: check that it runs as root, and look at its log on the host (`journalctl -u smartctl_exporter`, or `docker logs`).
 
-Then open the dashboard, go to **Settings → Host disks**, paste `http://192.168.1.10:9633/metrics` into **Host disk health URL**, and click **Save**. The server polls the URL right away and then every 60 seconds; the host's disks appear on the Overview disk card with a **Host** chip. Clear the field and save to turn it off.
+Then open the dashboard, go to **Settings → Host disks**, paste `http://192.168.1.10:9633/metrics` into **Host disk health URL**, and click **Test**. It fetches the URL from the server once, without saving it, and shows how many disks the exporter reported, or the error with a hint for common mistakes (https on a plain-HTTP exporter, a missing `/metrics` path, nothing listening on the port). When it passes, click **Save**. The server polls the URL right away and then every 60 seconds; the host's disks appear on the Overview disk card with a **Host** chip. Clear the field and save to turn it off.
 
 ## What the disk card shows
 
