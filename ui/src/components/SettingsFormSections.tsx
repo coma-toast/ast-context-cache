@@ -25,7 +25,7 @@ import {
 import { api } from '../api/client'
 import { auxUnavailable } from '../lib/auxEmbedder'
 import { OnnxRuntimeSection } from './OnnxRuntimeSection'
-import type { SettingsData } from '../api/types'
+import type { HostDiskTestResult, SettingsData } from '../api/types'
 import { useToast } from '../context/ToastContext'
 import { useSettingsDraft, type SettingsDraft } from '../hooks/useSettingsDraft'
 import { SECRET_SET } from '../lib/settingsDraft'
@@ -289,6 +289,32 @@ const Cmd = ({ children }: { children: ReactNode }) => (
  * Host disks: the hypervisor host's smartctl_exporter URL, for instances in an LXC container or
  * VM that cannot read SMART themselves. The setup steps sit next to the field.
  */
+/** One line under the URL field with the result of the last Test, plus a fix-it hint on failure. */
+const HostDiskTestLine = ({ result }: { result: HostDiskTestResult }) => {
+  if (result.ok) {
+    const devices = result.devices ?? []
+    const list = devices.slice(0, 6).join(', ') + (devices.length > 6 ? ', …' : '')
+    return (
+      <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+        Reached the exporter in {result.latency_ms} ms: {result.disks} {result.disks === 1 ? 'disk' : 'disks'}
+        {list ? ` (${list})` : ''}.
+      </Typography>
+    )
+  }
+  return (
+    <Box sx={{ mt: 1 }}>
+      <Typography variant="body2" color="error">
+        {result.error}
+      </Typography>
+      {result.hint && (
+        <Typography variant="body2" color="text.secondary">
+          {result.hint}
+        </Typography>
+      )}
+    </Box>
+  )
+}
+
 export const HostDiskSection = ({ data }: { data: SettingsData }) => {
   const [open, setOpen] = useState(false)
   const draft = useSettingsDraft('host-disks', 'Host disks', hostDiskSaved(data), {
@@ -297,6 +323,9 @@ export const HostDiskSection = ({ data }: { data: SettingsData }) => {
       return err ? { [HOST_DISK_KEY]: err } : {}
     },
   })
+  const url = draft.value(HOST_DISK_KEY)
+  const [test, setTest] = useState<HostDiskTestResult>()
+  const [testing, setTesting] = useState(false)
   return (
     <DraftCard id="host-disks" title="Host disks" draft={draft}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
@@ -306,13 +335,34 @@ export const HostDiskSection = ({ data }: { data: SettingsData }) => {
         </Link>{' '}
         on the host and the disk card shows the host's disks.
       </Typography>
-      <TextField
-        label="Host disk health URL"
-        size="small"
-        fullWidth
-        placeholder="http://192.168.1.10:9633/metrics"
-        {...draftField(draft, HOST_DISK_KEY, "The host's smartctl_exporter /metrics URL, polled every 60 s. Leave empty to turn off. No user:password.")}
-      />
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+        <TextField
+          label="Host disk health URL"
+          size="small"
+          fullWidth
+          placeholder="http://192.168.1.10:9633/metrics"
+          {...draftField(draft, HOST_DISK_KEY, "The host's smartctl_exporter /metrics URL, polled every 60 s. Leave empty to turn off. No user:password.")}
+        />
+        <Button
+          variant="outlined"
+          size="small"
+          sx={{ mt: 0.5, flexShrink: 0 }}
+          disabled={!url.trim() || testing}
+          onClick={async () => {
+            setTesting(true)
+            try {
+              setTest(await api.hostDiskTest(url.trim()))
+            } catch (e) {
+              setTest({ ok: false, disks: 0, latency_ms: 0, error: String(e) })
+            } finally {
+              setTesting(false)
+            }
+          }}
+        >
+          {testing ? 'Testing…' : 'Test'}
+        </Button>
+      </Stack>
+      {test && <HostDiskTestLine result={test} />}
       <Accordion
         disableGutters
         variant="outlined"

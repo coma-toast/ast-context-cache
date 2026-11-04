@@ -174,8 +174,14 @@ func TestApplySmartctlFullSATA(t *testing.T) {
 	if !applySmartctlFull(&di2, []byte(out)) {
 		t.Fatal("6.x table: applySmartctlFull returned false")
 	}
-	udma := 0; if di2.UDMACRCErrors != nil { udma = *di2.UDMACRCErrors }
-	ssd := 0; if di2.SSDLifeLeft != nil { ssd = *di2.SSDLifeLeft }
+	udma := 0
+	if di2.UDMACRCErrors != nil {
+		udma = *di2.UDMACRCErrors
+	}
+	ssd := 0
+	if di2.SSDLifeLeft != nil {
+		ssd = *di2.SSDLifeLeft
+	}
 	if udma != 3 || ssd != 98 {
 		t.Errorf("6.x table: UDMA/SSDLife = %d/%d, want 3/98", udma, ssd)
 	}
@@ -204,19 +210,32 @@ func TestApplySmartctlFullUSBSAT(t *testing.T) {
 		t.Errorf("TemperatureC = %v, want 36", *di.TemperatureC)
 	}
 	poh, poc := 0, 0
-	if di.PowerOnHours != nil { poh = *di.PowerOnHours }
-	if di.PowerCycles != nil { poc = *di.PowerCycles }
+	if di.PowerOnHours != nil {
+		poh = *di.PowerOnHours
+	}
+	if di.PowerCycles != nil {
+		poc = *di.PowerCycles
+	}
 	if poh != 321 || poc != 14 {
 		t.Errorf("PowerOnHours/PowerCycles = %d/%d, want 321/14", poh, poc)
 	}
 	// ATA attributes are still readable through the USB-SAT bridge.
-	realloc := 0; if di.ReallocatedSectors != nil { realloc = *di.ReallocatedSectors }
+	realloc := 0
+	if di.ReallocatedSectors != nil {
+		realloc = *di.ReallocatedSectors
+	}
 	if realloc != 0 {
 		t.Errorf("ReallocatedSectors = %d, want 0", realloc)
 	}
 	// SCSI counters: zero errors in the fixture.
-	sasGrown := 0; if di.SASGrownDefects != nil { sasGrown = *di.SASGrownDefects }
-	sasUncorr := 0; if di.SASUncorrectedErrors != nil { sasUncorr = *di.SASUncorrectedErrors }
+	sasGrown := 0
+	if di.SASGrownDefects != nil {
+		sasGrown = *di.SASGrownDefects
+	}
+	sasUncorr := 0
+	if di.SASUncorrectedErrors != nil {
+		sasUncorr = *di.SASUncorrectedErrors
+	}
 	if sasGrown != 0 || sasUncorr != 0 {
 		t.Errorf("SAS counters = %d/%d, want 0/0", sasGrown, sasUncorr)
 	}

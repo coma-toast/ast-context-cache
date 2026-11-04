@@ -995,3 +995,13 @@ export interface SettingsBatchResult {
   embed_backend?: string
   embed_model?: string
 }
+
+/** POST /api/host-disk/test: a one-off check of a host disk health URL. */
+export interface HostDiskTestResult {
+  ok: boolean
+  disks: number
+  devices?: string[]
+  latency_ms: number
+  error?: string
+  hint?: string
+}

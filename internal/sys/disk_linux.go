@@ -25,19 +25,45 @@ const (
 	smartctlMaxParallel = 4
 )
 
-func intPtr(v int) *int     { return &v }
-func float64Ptr(v float64) *float64 { return &v }
-func boolPtr(v bool) *bool { return &v }
+var (
+	diskHealthMu   sync.Mutex
+	diskHealths    []DiskInfo
+	diskHealthNote string
+	diskHealthFor  string
+	diskHealthAt   time.Time
+	diskHealthTTL  = 5 * time.Minute
+)
 
-// nvmeDataUnitBytes is the NVMe SMART log data unit size (512 KiB).
-const nvmeDataUnitBytes = 512_000
+// DiskHealthInfo returns cached SMART health for every locally accessible disk,
+// with the disk holding path (typically the data dir) first.
+func DiskHealthInfo(path string) []DiskInfo {
+	disks, _ := cachedDiskHealth(path)
+	return disks
+}
 
-// DiskHealthInfo returns SMART health for every locally accessible disk,
-// with the disk holding path (typically the data dir) first. The second
-// return value is an environment-level note when SMART data is unavailable
-// (smartctl missing, no permission, no local disks); it is empty when the
-// returned list is trustworthy.
-func DiskHealthInfo(path string) ([]DiskInfo, string) {
+// DiskHealthNote explains, for the same probe as DiskHealthInfo, why SMART data is
+// missing or partial (smartctl missing, no permission, no local disks). It is empty
+// when the list is trustworthy.
+func DiskHealthNote(path string) string {
+	_, note := cachedDiskHealth(path)
+	return note
+}
+
+func cachedDiskHealth(path string) ([]DiskInfo, string) {
+	diskHealthMu.Lock()
+	defer diskHealthMu.Unlock()
+	if diskHealthFor == path && !diskHealthAt.IsZero() && time.Since(diskHealthAt) < diskHealthTTL {
+		return diskHealths, diskHealthNote
+	}
+	diskHealths, diskHealthNote = probeAllDisks(path)
+	diskHealthFor = path
+	diskHealthAt = time.Now()
+	return diskHealths, diskHealthNote
+}
+
+// probeAllDisks runs smartctl against every local disk. The second return value
+// is an environment-level note when SMART data is unavailable or partial.
+func probeAllDisks(path string) ([]DiskInfo, string) {
 	smartctlPath, err := exec.LookPath("smartctl")
 	if err != nil {
 		return nil, "smartctl not found — install smartmontools (e.g. apt install smartmontools)"
@@ -127,10 +153,10 @@ func parseSmartctlScan(out []byte) []smartctlScannedDev {
 // all numeric pointers are nil until a smartctl query fills them.
 func newDiskInfo(device, smartType, protocol string) DiskInfo {
 	return DiskInfo{
-		Device:       device,
-		SmartType:    smartType,
-		Protocol:     protocol,
-		SmartStatus:  "Unknown",
+		Device:      device,
+		SmartType:   smartType,
+		Protocol:    protocol,
+		SmartStatus: "Unknown",
 	}
 }
 
