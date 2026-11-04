@@ -97,6 +97,10 @@ func SSDHealthFromDisk(d DiskInfo) SSDHealth {
 	}
 }
 
+func intPtr(v int) *int             { return &v }
+func float64Ptr(v float64) *float64 { return &v }
+func boolPtr(v bool) *bool          { return &v }
+
 func derefBool(p *bool) bool {
 	if p == nil {
 		return false
@@ -124,7 +128,6 @@ var reKV = regexp.MustCompile(`(?m)^\s+([^:]+):\s+(.*)$`)
 
 const nvmeDataUnitBytes = 512_000 // NVMe SMART log data unit size
 
-// parseDiskutilKV parses `diskutil info` key: value output into a lowercase-keyed map.
 // physicalWholeDisk maps a diskutil identifier to the whole physical disk behind it.
 // An APFS volume or container (disk3s5, disk3) is synthesized: SMART data lives on its
 // physical store's whole disk (disk0s2 -> disk0). info returns `diskutil info` key/values.
@@ -144,6 +147,7 @@ func physicalWholeDisk(device string, info func(string) map[string]string) strin
 	return kv["device identifier"]
 }
 
+// parseDiskutilKV parses `diskutil info` key: value output into a lowercase-keyed map.
 func parseDiskutilKV(text string) map[string]string {
 	out := map[string]string{}
 	for _, m := range reKV.FindAllStringSubmatch(text, -1) {

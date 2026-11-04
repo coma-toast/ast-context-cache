@@ -1,0 +1,93 @@
+{
+    "json_format_version": [1, 0],
+    "smartctl": {
+        "version": [7, 4],
+        "svn_revision_str": "smartmontools-7.4",
+        "argv": [ "smartctl", "-a", "-j", "-d", "usbsunplus", "/dev/sdb" ],
+        "exit_status": 0
+    },
+    "local_time": {
+        "time_t": 1761560002,
+        "asctime": "Mon Oct 27 12:53:22 2026"
+    },
+    "device": {
+        "name": "/dev/sdb",
+        "info_name": "/dev/sdb",
+        "type": "usbsunplus",
+        "protocol": "SCSI"
+    },
+    "smart_status": {
+        "passed": true,
+        "scsi": { "asc": 0, "ascq": 0, "ie_string": "OK" }
+    },
+    "scsi_vendor": "Sunplus",
+    "scsi_product": "5.00",
+    "scsi_model_name": "Crucial P3 2TB",
+    "scsi_revision": "1.00",
+    "user_capacity": {
+        "blocks": 3907029168,
+        "bytes": 2000398934016
+    },
+    "logical_block_size": 512,
+    "rotation_rate": 0,
+    "scsi_grown_defect_list": 0,
+    "scsi_error_counter_log": {
+        "read": {
+            "errors_corrected_by_eccfast": 0,
+            "errors_corrected_by_eccslow": 0,
+            "errors_corrected_by_other": 0,
+            "total_errors_corrected": 0,
+            "total_uncorrected_errors": 0
+        },
+        "write": {
+            "errors_corrected_by_eccfast": 0,
+            "errors_corrected_by_eccslow": 0,
+            "errors_corrected_by_other": 0,
+            "total_errors_corrected": 0,
+            "total_uncorrected_errors": 0
+        }
+    },
+    "temperature": {
+        "current": 36,
+        "drive_trip": 0
+    },
+    "power_on_time": {
+        "hours": 321
+    },
+    "power_cycle_count": 14,
+    "ata_smart_attributes": {
+        "revision": 1,
+        "table": [
+            {
+                "id": 5,
+                "flags": { "value": 51, "prefailure": true, "updated_online": true, "performance": false, "error_rate": false, "event_count": true, "auto_keep": false },
+                "name": "Reallocated_Sector_Ct",
+                "value": 100,
+                "worst": 100,
+                "thresh": 10,
+                "when_failed": "",
+                "raw": { "value": 0, "string": "0" }
+            },
+            {
+                "id": 9,
+                "flags": { "value": 50, "prefailure": false, "updated_online": true, "performance": true, "error_rate": false, "event_count": false, "auto_keep": false },
+                "name": "Power_On_Hours",
+                "value": 100,
+                "worst": 100,
+                "thresh": 0,
+                "when_failed": "",
+                "raw": { "value": 321, "string": "321" }
+            },
+            {
+                "id": 177,
+                "flags": { "value": 50, "prefailure": false, "updated_online": true, "performance": true, "error_rate": false, "event_count": false, "auto_keep": false },
+                "name": "Wear_Range_Delta",
+                "value": 97,
+                "worst": 97,
+                "thresh": 10,
+                "when_failed": "",
+                "raw": { "value": 3, "string": "3" }
+            }
+        ]
+    }
+}

@@ -338,10 +338,6 @@ func TestApplyDiskWarnings(t *testing.T) {
 	}
 }
 
-func intPtr(v int) *int { return &v }
-
-func float64Ptr(v float64) *float64 { return &v }
-
 func TestPhysicalWholeDisk(t *testing.T) {
 	disks := map[string]map[string]string{
 		"disk3s5": {"device identifier": "disk3s5", "part of whole": "disk3", "apfs container": "disk3", "apfs physical store": "disk0s2"},

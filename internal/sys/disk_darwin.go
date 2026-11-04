@@ -92,6 +92,11 @@ func DiskHealthInfo(path string) []DiskInfo {
 	return diskHealths
 }
 
+// DiskHealthNote is always empty on macOS: diskutil needs no extra setup.
+func DiskHealthNote(path string) string {
+	return ""
+}
+
 // SSDHealthInfo returns cached health for the disk holding path — a backwards-compatible
 // projection of DiskHealthInfo. The data-dir disk (or first disk) is projected into SSDHealth.
 func SSDHealthInfo(path string) SSDHealth {
