@@ -737,8 +737,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Path to the SWE-bench Lite JSONL dataset")
     parser.add_argument("--fetch-dataset", action="store_true",
                         help="Download the dataset to the default path and exit")
-    parser.add_argument("--timeout", type=int, default=900,
-                        help="Per-run opencode timeout in seconds (default: 900)")
+    parser.add_argument("--timeout", type=int, default=1800,
+                        help="Per-run opencode timeout in seconds (default: 1800)")
     parser.add_argument("--context-limit", type=int, default=131072,
                         help="Context window advertised to opencode (default: 131072)")
     parser.add_argument("--dry-run", action="store_true",
