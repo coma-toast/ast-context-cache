@@ -226,6 +226,35 @@ class TestReport(unittest.TestCase):
         self.assertIn("**treatment**: 100% pass proxy", text)
         self.assertIn("proxy_pass", text)
 
+    def test_aggregates_exclude_timed_out_runs(self):
+        results = [
+            {"instance_id": "repo__a-1", "condition": "control",
+             "metrics": {"tokens_total": 100, "timed_out": False},
+             "success_proxy": "proxy_fail"},
+            {"instance_id": "repo__a-2", "condition": "control",
+             "metrics": {"tokens_total": 99999, "timed_out": True},
+             "success_proxy": "proxy_fail"},
+            {"instance_id": "repo__a-1", "condition": "treatment",
+             "metrics": {"tokens_total": 60, "timed_out": False},
+             "success_proxy": "confirmed"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            text = br.generate_report(results, Path(tmp)).read_text(encoding="utf-8")
+        self.assertIn("## Completion Rate", text)
+        self.assertIn("**control**: 1/2 completed (50%)", text)
+        self.assertIn("| tokens_total | 100.0 | 60.0 | -40.0 |", text)
+
+
+class TestPersistence(unittest.TestCase):
+    def test_append_jsonl_flushes_each_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "results.jsonl"
+            br._append_jsonl(path, {"instance_id": "a", "condition": "control"})
+            br._append_jsonl(path, {"instance_id": "a", "condition": "treatment"})
+            lines = path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(json.loads(lines[1])["condition"], "treatment")
+
 
 class TestMedian(unittest.TestCase):
     def test_median(self):

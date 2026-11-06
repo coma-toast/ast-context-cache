@@ -618,6 +618,10 @@ def generate_report(results: list[dict], output_dir: Path) -> Path:
         return [r["metrics"] for r in by_condition.get(condition, [])
                 if r.get("metrics")]
 
+    def completed_metrics_of(condition: str) -> list[dict]:
+        return [r["metrics"] for r in by_condition.get(condition, [])
+                if r.get("metrics") and not r["metrics"].get("timed_out")]
+
     lines = [
         "# Benchmark Report: ast-context-cache vs Control",
         "",
@@ -648,23 +652,36 @@ def generate_report(results: list[dict], output_dir: Path) -> Path:
             f"{record['success_proxy']} |"
         )
 
-    lines += ["", "## Aggregate Summary (Mean)", "",
+    lines += ["", "## Completion Rate", ""]
+    for condition in CONDITIONS:
+        records = by_condition.get(condition, [])
+        if not records:
+            lines.append(f"- **{condition}**: no results")
+            continue
+        completed = len(completed_metrics_of(condition))
+        lines.append(
+            f"- **{condition}**: {completed}/{len(records)} completed "
+            f"({completed / len(records):.0%}); "
+            f"{len(records) - completed} timed out or unverified"
+        )
+
+    lines += ["", "## Aggregate Summary (Mean, completed runs only)", "",
               "| metric | control_mean | treatment_mean | delta |",
               "|---|---|---|---|"]
     for metric in REPORT_METRICS:
-        control_vals = [m.get(metric, 0) for m in metrics_of("control")]
-        treatment_vals = [m.get(metric, 0) for m in metrics_of("treatment")]
+        control_vals = [m.get(metric, 0) for m in completed_metrics_of("control")]
+        treatment_vals = [m.get(metric, 0) for m in completed_metrics_of("treatment")]
         c_mean = _mean(control_vals)
         t_mean = _mean(treatment_vals)
         lines.append(f"| {metric} | {c_mean:.1f} | {t_mean:.1f} | "
                      f"{t_mean - c_mean:+.1f} |")
 
-    lines += ["", "## Aggregate Summary (Median)", "",
+    lines += ["", "## Aggregate Summary (Median, completed runs only)", "",
               "| metric | control_median | treatment_median | delta |",
               "|---|---|---|---|"]
     for metric in REPORT_METRICS:
-        control_vals = [m.get(metric, 0) for m in metrics_of("control")]
-        treatment_vals = [m.get(metric, 0) for m in metrics_of("treatment")]
+        control_vals = [m.get(metric, 0) for m in completed_metrics_of("control")]
+        treatment_vals = [m.get(metric, 0) for m in completed_metrics_of("treatment")]
         c_med = median(control_vals)
         t_med = median(treatment_vals)
         lines.append(f"| {metric} | {c_med:.1f} | {t_med:.1f} | "
@@ -723,6 +740,14 @@ def check_ast_mcp_health() -> bool:
         return False
 
 
+def _append_jsonl(path: Path, record: dict) -> None:
+    """Append one result and force it to disk so a crash cannot lose it."""
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="SWE-bench Lite benchmark runner")
     parser.add_argument("--tasks", default=None,
@@ -744,6 +769,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="Set up condition directories and print the configs, "
                              "without invoking opencode")
+    parser.add_argument("--resume", action="store_true",
+                        help="Append to an existing output dir, skipping conditions "
+                             "already recorded in benchmark_results.jsonl")
     args = parser.parse_args(argv)
 
     if args.fetch_dataset:
@@ -781,8 +809,25 @@ def main(argv: list[str] | None = None) -> int:
               "condition will have no ast-context-cache tools.")
 
     results: list[dict] = []
+    done: set[tuple[str, str]] = set()
     raw_sessions_dir = output_dir / "raw_sessions"
     raw_sessions_dir.mkdir(exist_ok=True)
+    jsonl_path = output_dir / "benchmark_results.jsonl"
+
+    if args.resume and jsonl_path.exists():
+        for line in jsonl_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            results.append(record)
+            done.add((record["instance_id"], record["condition"]))
+        print(f"Resuming: {len(results)} result(s) already recorded")
+    else:
+        jsonl_path.write_text("", encoding="utf-8")
 
     for index, instance in enumerate(tasks, 1):
         iid = instance["instance_id"]
@@ -791,6 +836,9 @@ def main(argv: list[str] | None = None) -> int:
         task_base.mkdir(parents=True, exist_ok=True)
 
         for condition in CONDITIONS:
+            if (iid, condition) in done:
+                print(f"\n  [{condition}] already recorded — skipping")
+                continue
             print(f"\n  [{condition}] setting up ...")
             setup = setup_condition(task_base, instance, condition,
                                     args.model, args.context_limit)
@@ -800,12 +848,15 @@ def main(argv: list[str] | None = None) -> int:
 
             if args.dry_run:
                 print(json.dumps(setup["config"]["mcp"], indent=2))
-                results.append({
+                record = {
                     "instance_id": iid,
                     "condition": condition,
                     "metrics": None,
                     "success_proxy": "unverified",
-                })
+                }
+                results.append(record)
+                _append_jsonl(jsonl_path, record)
+                done.add((iid, condition))
                 continue
 
             print(f"  [{condition}] running with model {args.model} ...")
@@ -833,12 +884,17 @@ def main(argv: list[str] | None = None) -> int:
                     f"success={success_proxy}"
                 )
 
-            results.append({
+            record = {
                 "instance_id": iid,
                 "condition": condition,
                 "metrics": metrics,
                 "success_proxy": success_proxy,
-            })
+            }
+            results.append(record)
+            # Persist immediately so a killed heartbeat loses at most the
+            # condition that was in flight, and a rerun can --resume.
+            _append_jsonl(jsonl_path, record)
+            done.add((iid, condition))
 
             if metrics:
                 raw_path = raw_sessions_dir / f"raw_{iid}_{condition}.json"
@@ -854,10 +910,6 @@ def main(argv: list[str] | None = None) -> int:
                     }, f, indent=2)
 
     print(f"\n{'=' * 70}\nGenerating outputs ...")
-    jsonl_path = output_dir / "benchmark_results.jsonl"
-    with open(jsonl_path, "w", encoding="utf-8") as f:
-        for record in results:
-            f.write(json.dumps(record) + "\n")
     print(f"JSONL results: {jsonl_path}")
 
     report = generate_report(results, output_dir)
