@@ -1,6 +1,10 @@
 package db
 
 import (
+	"fmt"
+	"os"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -143,5 +147,121 @@ func TestShouldAttemptWALOnEmbedderError(t *testing.T) {
 	}
 	if !shouldAttemptWALOnEmbedderError(now, walTruncateBytes, false, now.Add(-quietWALCooldown-time.Second)) {
 		t.Fatal("should attempt after cooldown expires")
+	}
+}
+
+func TestSIGBUSRepro_StressGetSettingDuringWALMaintenance(t *testing.T) {
+	dir := t.TempDir()
+	prev := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", prev)
+
+	if err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer Close()
+
+	// Seed some settings to read
+	if _, err := DB.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, "test.setting", "test-value"); err != nil {
+		t.Fatal(err)
+	}
+
+	const numGoroutines = 20
+	const iterations = 1000
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, numGoroutines)
+
+	// Hot loop of GetSetting on many goroutines
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				val := GetSetting("test.setting", "default")
+				if val != "test-value" {
+					errCh <- fmt.Errorf("unexpected value: %s", val)
+					return
+				}
+				// Small yield to increase interleaving chance
+				runtime.Gosched()
+			}
+		}()
+	}
+
+	// Force multiple WAL maintenance cycles during the reads
+	for cycle := 0; cycle < 10; cycle++ {
+		busy, frames, ckpt, err := ForceCheckpointWAL()
+		if err != nil {
+			errCh <- fmt.Errorf("ForceCheckpointWAL error: %v", err)
+			break
+		}
+		t.Logf("cycle %d: busy=%d frames=%d checkpointed=%d", cycle, busy, frames, ckpt)
+		// Small delay between cycles
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatal(err)
+	}
+}
+
+func TestSIGBUSRepro_StressGetSettingDuringQuietPeriod(t *testing.T) {
+	dir := t.TempDir()
+	prev := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", prev)
+
+	if err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer Close()
+
+	// Seed some settings to read
+	if _, err := DB.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, "test.setting", "test-value"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Make embed queue appear idle so TryQuietWALTruncate proceeds
+	EmbedQueueIdleHook = func() bool { return true }
+	defer func() { EmbedQueueIdleHook = nil }()
+
+	const numGoroutines = 20
+	const iterations = 1000
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, numGoroutines)
+
+	// Hot loop of GetSetting on many goroutines
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				val := GetSetting("test.setting", "default")
+				if val != "test-value" {
+					errCh <- fmt.Errorf("unexpected value: %s", val)
+					return
+				}
+				runtime.Gosched()
+			}
+		}()
+	}
+
+	// Force multiple quiet WAL TRUNCATE cycles during the reads
+	for cycle := 0; cycle < 10; cycle++ {
+		TryQuietWALTruncate("test")
+		// Give the async goroutine time to run
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatal(err)
 	}
 }
