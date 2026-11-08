@@ -69,6 +69,7 @@ func Init() error {
 	// Not ready while the pools are reassigned; re-checked on every return below,
 	// including the errors, which leave some of them open.
 	poolsOpen.Store(false)
+	ResetDriveMonitorForTest()
 	defer syncPoolsOpen()
 	// A previous Init's batchers read DB; stop them before it's reassigned.
 	stopWriteBatchers()
@@ -111,7 +112,7 @@ func Init() error {
 }
 
 func GetSetting(key, defaultValue string) string {
-	if DB == nil {
+	if DB == nil || !drivePathOK(usageDBPath()) {
 		return defaultValue
 	}
 	var val string
@@ -143,7 +144,7 @@ func ClaimSetting(key, value string) (bool, error) {
 
 func GetAllSettings() map[string]string {
 	result := map[string]string{}
-	if DB == nil {
+	if DB == nil || !drivePathOK(usageDBPath()) {
 		return result
 	}
 	rows, err := DB.Query(selectAllSettingsQuery)

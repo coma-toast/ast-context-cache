@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,12 +28,37 @@ type DriveDisconnectedSnapshot struct {
 }
 
 var (
-	driveMonitorMu  sync.RWMutex
-	driveMonitor    DriveDisconnectedSnapshot
-	driveMonitorDev uint64
-	driveMonitorSet bool
-	driveMisses     int
+	driveMonitorMu    sync.RWMutex
+	driveMonitor      DriveDisconnectedSnapshot
+	driveMonitorDev   uint64
+	driveMonitorSet   bool
+	driveMisses       int
+	driveDisconnected atomic.Bool
+	expectedPoolDev   atomic.Uint64
 )
+
+// DriveDisconnected reports whether the drive monitor has declared the data directory disconnected.
+func DriveDisconnected() bool {
+	return driveDisconnected.Load()
+}
+
+// drivePathOK reports whether path is reachable on the same filesystem device that
+// the database pools were opened on. When an external USB volume unmounts (or unmounts
+// and remounts with a new st_dev while the pools still hold stale mmap'd -shm handles),
+// checking this before entering SQLite C code prevents dereferencing a dead -shm mapping.
+func drivePathOK(path string) bool {
+	if driveDisconnected.Load() {
+		return false
+	}
+	dev, ok := statDev(path)
+	if !ok {
+		return false
+	}
+	if want := expectedPoolDev.Load(); want != 0 && dev != want {
+		return false
+	}
+	return true
+}
 
 // GetDriveDisconnectedSnapshot returns the current drive-monitor state for the dashboard.
 func GetDriveDisconnectedSnapshot() DriveDisconnectedSnapshot {
@@ -43,6 +69,9 @@ func GetDriveDisconnectedSnapshot() DriveDisconnectedSnapshot {
 
 // ResetDriveMonitorForTest clears all debounce/baseline state (tests only).
 func ResetDriveMonitorForTest() {
+	driveDisconnected.Store(false)
+	expectedPoolDev.Store(0)
+	checkpointAbort.Store(false)
 	driveMonitorMu.Lock()
 	driveMonitor = DriveDisconnectedSnapshot{}
 	driveMonitorDev = 0
@@ -119,6 +148,9 @@ func statDev(path string) (uint64, bool) {
 func declareDriveDisconnected() {
 	path := GetDataDir()
 	logger.Error("Data directory is no longer reachable, the drive may have been disconnected; pausing embed workers, restart required to recover", "path", path)
+	driveDisconnected.Store(true)
+	indexReadGate.Store(true)
+	poolsOpen.Store(false)
 	checkpointAbort.Store(true)
 	if BeforeForceCheckpoint != nil {
 		BeforeForceCheckpoint()

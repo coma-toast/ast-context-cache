@@ -76,7 +76,7 @@ func Usage() *sql.DB { return DB }
 var poolsOpen atomic.Bool
 
 func syncPoolsOpen() {
-	poolsOpen.Store(IndexDB != nil && ContextDB != nil && DB != nil)
+	poolsOpen.Store(IndexDB != nil && ContextDB != nil && DB != nil && !driveDisconnected.Load())
 }
 
 // PoolsReady reports whether all database pools are open.
@@ -119,12 +119,19 @@ func openPoolWith(driver, path, params string, conns int) (*sql.DB, error) {
 		conn.Close()
 		return nil, err
 	}
+	if dev, ok := statDev(path); ok {
+		expectedPoolDev.Store(dev)
+	}
 	return conn, nil
 }
 
 // Close closes all database pools (tests and shutdown).
 func Close() {
 	poolsOpen.Store(false)
+	driveDisconnected.Store(false)
+	indexReadGate.Store(false)
+	expectedPoolDev.Store(0)
+	checkpointAbort.Store(false)
 	stopWriteBatchers()
 	stopIndexWriter()
 	cancelFTSRebuild()

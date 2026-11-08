@@ -33,7 +33,7 @@ func IndexReader() (*sql.DB, error) {
 	if IndexReadQuiesced() {
 		return nil, errIndexQuiesced
 	}
-	if IndexDB == nil {
+	if IndexDB == nil || !drivePathOK(indexDBPath()) {
 		return nil, errIndexUnavailable
 	}
 	return IndexDB, nil
