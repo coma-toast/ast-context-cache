@@ -41,3 +41,17 @@ func TestApplySmartctlNoDiskReturnsFalse(t *testing.T) {
 		t.Fatal("empty wholeDisk should never call out to smartctl")
 	}
 }
+
+func TestLiveProbeDiskHealth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live hardware probe in short mode")
+	}
+	disks := probeAllDisks("/")
+	for _, d := range disks {
+		if !d.IsExternal && d.SmartStatus != "" && !strings.EqualFold(d.SmartStatus, "not supported") {
+			if d.SmartSource == "" {
+				t.Fatalf("expected smart source to be set when smart status is %q", d.SmartStatus)
+			}
+		}
+	}
+}
