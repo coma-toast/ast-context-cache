@@ -168,7 +168,7 @@ func probeOneDisk(id string, prof map[string]string) DiskInfo {
 	if d.Serial == "" {
 		d.Serial = kv["serial number"]
 	}
-	if d.SmartStatus != "" {
+	if d.SmartStatus != "" && !strings.EqualFold(d.SmartStatus, "not supported") {
 		d.SmartSource = "diskutil"
 	}
 
@@ -177,11 +177,12 @@ func probeOneDisk(id string, prof map[string]string) DiskInfo {
 			if d.Model == "" {
 				d.Model = prof["model"]
 			}
-			if d.SmartStatus == "" {
+			if (d.SmartStatus == "" || strings.EqualFold(d.SmartStatus, "not supported")) && prof["smart"] != "" {
 				d.SmartStatus = prof["smart"]
+				d.SmartSource = "system_profiler"
 			}
 			if d.Capacity == "" {
-				d.Capacity = prof["capacity"]
+				d.Capacity = humanBeforeParen(prof["capacity"])
 			}
 			if strings.EqualFold(prof["trim"], "yes") {
 				d.TrimSupport = true
