@@ -35,7 +35,7 @@ For example, `internal/selfupdate/selfupdate.go` in this repo costs 1,293 tokens
 
 The four code tools (`get_context_capsule`, `search_semantic`, `get_file_context`, `retrieve`) take `output=text|json|locations`:
 
-```
+````text
 get_context_capsule(query="load_model", project_path="/repo")
 → get_context_capsule "load_model" · 2 results · 75 tok
   ### clients.py:2-3 method LlamaCppClient.load_model (full)
@@ -49,7 +49,7 @@ get_context_capsule(query="load_model", project_path="/repo", output="locations"
 → get_context_capsule "load_model" · 2 results · 38 tok
   clients.py:2-3 method LlamaCppClient.load_model 0.0328
   clients.py:7-8 method OMLXClient.load_model 0.0323
-```
+````
 
 Responses are byte-stable: timings, pipeline counts and cache hits go in the result's `_meta["ast-context-cache/stats"]` (`debug=true` keeps them in the body), so identical calls return identical text. Stub formats are in [docs/stubs.md](docs/stubs.md).
 
