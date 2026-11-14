@@ -1,0 +1,31 @@
+[
+  {
+    "id": "indexer_pipeline_workflow",
+    "name": "Custom Workflow: Indexer Pipeline Exploration",
+    "steps": [
+      {
+        "name": "Check Indexer Symbols",
+        "action": "exists",
+        "symbol": "NewIndexer"
+      },
+      {
+        "name": "Search Parse & Index Logic",
+        "action": "capsule",
+        "query": "NewIndexer file parsing and symbol extract",
+        "mode": "auto",
+        "budget": 2500
+      },
+      {
+        "name": "Inspect Indexer Types Skeleton",
+        "action": "file_context",
+        "file": "internal/indexer/indexer.go",
+        "mode": "skeleton"
+      },
+      {
+        "name": "Check Impact of Indexer Changes",
+        "action": "impact",
+        "symbol": "NewIndexer"
+      }
+    ]
+  }
+]

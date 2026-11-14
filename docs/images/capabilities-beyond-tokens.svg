@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 620" width="100%" height="100%">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap');
+      text { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .bg { fill: #121214; }
+      .card { fill: #1c1c1f; stroke: #2c2c31; stroke-width: 1.2px; }
+      .card-sub { fill: #26262b; stroke: #38383e; stroke-width: 1px; }
+      .title { fill: #ececef; font-weight: 800; font-size: 21px; }
+      .sub { fill: #9a9aa2; font-size: 13px; font-weight: 400; }
+      .pillar-title { font-weight: 700; font-size: 16px; }
+      .pill { rx: 6px; }
+      .code-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; }
+      .badge-bg { fill: rgba(168, 85, 247, 0.15); stroke: rgba(168, 85, 247, 0.35); stroke-width: 1px; }
+      .badge-txt { fill: #c084fc; font-size: 11px; font-weight: 700; }
+      .feature-text { fill: #ececef; font-size: 12px; font-weight: 500; }
+      .feature-sub { fill: #9a9aa2; font-size: 11px; }
+      .icon-circle { stroke-width: 1.5px; }
+    </style>
+    <linearGradient id="purpleGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a855f7" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.03"/>
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.03"/>
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4ade80" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#4ade80" stop-opacity="0.03"/>
+    </linearGradient>
+    <linearGradient id="amberGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fb923c" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#fb923c" stop-opacity="0.03"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="920" height="620" rx="16" class="bg"/>
+  <rect x="1" y="1" width="918" height="618" rx="15" fill="none" stroke="#2c2c31" stroke-width="1.5"/>
+
+  <!-- Header -->
+  <g transform="translate(32, 40)">
+    <circle cx="8" cy="8" r="6" fill="#a855f7"/>
+    <text x="24" y="14" class="title">Capabilities Beyond Token Savings</text>
+    <rect x="424" y="-4" width="136" height="24" rx="12" class="badge-bg"/>
+    <text x="492" y="12" text-anchor="middle" class="badge-txt">AGENT PLATFORM</text>
+    <text x="0" y="38" class="sub">Autonomous delegation, refactoring blast radius checks, safe multi-editor installs, and cross-worktree persistent memory.</text>
+  </g>
+
+  <!-- 4 Pillars Grid -->
+
+  <!-- ================= PILLAR 1: SUBAGENT HANDOFF & SWARM (Top-Left) ================= -->
+  <g transform="translate(32, 94)">
+    <rect width="418" height="236" rx="14" class="card"/>
+    <rect width="418" height="236" rx="14" fill="url(#purpleGrad)"/>
+
+    <!-- Pillar Header -->
+    <g transform="translate(18, 20)">
+      <circle cx="16" cy="16" r="16" fill="rgba(168, 85, 247, 0.2)" stroke="#a855f7" class="icon-circle"/>
+      <!-- Icon: Fork / Hierarchy -->
+      <path d="M12 10 L12 16 L20 16 M20 12 L20 22 M12 22 L12 20" stroke="#c084fc" stroke-width="2" stroke-linecap="round" fill="none"/>
+      <circle cx="12" cy="10" r="2.5" fill="#c084fc"/>
+      <circle cx="20" cy="12" r="2.5" fill="#c084fc"/>
+      <circle cx="20" cy="22" r="2.5" fill="#c084fc"/>
+      <text x="42" y="16" class="pillar-title" fill="#c084fc">Subagent Delegation &amp; Swarm</text>
+      <text x="42" y="30" class="feature-sub">Snapshot handoffs, scratchpad sync, and advisory file locks</text>
+    </g>
+
+    <!-- Sub-Cards / Features -->
+    <g transform="translate(18, 70)">
+      <!-- Item 1 -->
+      <rect width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="20" class="feature-text">Zero-Redundancy Handoff Stubs</text>
+      <text x="12" y="34" class="feature-sub">Passes <tspan fill="#c084fc">[handoff hof_…]</tspan> ref &bull; child inherits explored symbols</text>
+      <rect x="296" y="11" width="76" height="20" rx="5" fill="rgba(168, 85, 247, 0.15)"/>
+      <text x="334" y="25" text-anchor="middle" class="code-tag" fill="#c084fc">handoff</text>
+
+      <!-- Item 2 -->
+      <rect y="50" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="70" class="feature-text">Shared Scratchpad &amp; Advisory Claims</text>
+      <text x="12" y="84" class="feature-sub">Parallel subagents claim files before edits &bull; share findings/dead ends</text>
+      <rect x="286" y="61" width="86" height="20" rx="5" fill="rgba(168, 85, 247, 0.15)"/>
+      <text x="329" y="75" text-anchor="middle" class="code-tag" fill="#c084fc">scratchpad</text>
+
+      <!-- Item 3 -->
+      <rect y="100" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="120" class="feature-text">Live Trail Matching &amp; Tree Visuals</text>
+      <text x="12" y="134" class="feature-sub">Detects duplicate sibling searches &bull; live delegation tree on dashboard</text>
+      <rect x="278" y="111" width="94" height="20" rx="5" fill="rgba(168, 85, 247, 0.15)"/>
+      <text x="325" y="125" text-anchor="middle" class="code-tag" fill="#c084fc">open_handoff</text>
+    </g>
+  </g>
+
+  <!-- ================= PILLAR 2: REFACTOR SAFETY & BLAST RADIUS (Top-Right) ================= -->
+  <g transform="translate(470, 94)">
+    <rect width="418" height="236" rx="14" class="card"/>
+    <rect width="418" height="236" rx="14" fill="url(#blueGrad)"/>
+
+    <!-- Pillar Header -->
+    <g transform="translate(18, 20)">
+      <circle cx="16" cy="16" r="16" fill="rgba(56, 189, 248, 0.2)" stroke="#38bdf8" class="icon-circle"/>
+      <!-- Icon: Shield / Dependency Graph -->
+      <path d="M16 8 L24 11 L24 18 C24 23 16 26 16 26 C16 26 8 23 8 18 L8 11 Z" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linejoin="round"/>
+      <text x="42" y="16" class="pillar-title" fill="#38bdf8">AST Refactor &amp; Safety Shield</text>
+      <text x="42" y="30" class="feature-sub">Symbol blast radius, PR diff impact, and caller safety analysis</text>
+    </g>
+
+    <!-- Sub-Cards / Features -->
+    <g transform="translate(18, 70)">
+      <!-- Item 1 -->
+      <rect width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="20" class="feature-text">Symbol Impact Graph</text>
+      <text x="12" y="34" class="feature-sub">Inspect full caller and importer tree before altering exported APIs</text>
+      <rect x="264" y="11" width="108" height="20" rx="5" fill="rgba(56, 189, 248, 0.15)"/>
+      <text x="318" y="25" text-anchor="middle" class="code-tag" fill="#38bdf8">get_impact_graph</text>
+
+      <!-- Item 2 -->
+      <rect y="50" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="70" class="feature-text">Zero-Checkout PR Diff Impact</text>
+      <text x="12" y="84" class="feature-sub">Check downstream blast radius of a GitHub PR or branch diff</text>
+      <rect x="286" y="61" width="86" height="20" rx="5" fill="rgba(56, 189, 248, 0.15)"/>
+      <text x="329" y="75" text-anchor="middle" class="code-tag" fill="#38bdf8">diff_impact</text>
+
+      <!-- Item 3 -->
+      <rect y="100" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="120" class="feature-text">Pre-Deletion Caller Safety Audit</text>
+      <text x="12" y="134" class="feature-sub">Splits deletions into safe (0 callers) vs unsafe (active callers)</text>
+      <rect x="242" y="111" width="130" height="20" rx="5" fill="rgba(56, 189, 248, 0.15)"/>
+      <text x="307" y="125" text-anchor="middle" class="code-tag" fill="#38bdf8">check_deletion_safety</text>
+    </g>
+  </g>
+
+  <!-- ================= PILLAR 3: SAFE MULTI-HOST INSTALLER (Bottom-Left) ================= -->
+  <g transform="translate(32, 348)">
+    <rect width="418" height="236" rx="14" class="card"/>
+    <rect width="418" height="236" rx="14" fill="url(#emeraldGrad)"/>
+
+    <!-- Pillar Header -->
+    <g transform="translate(18, 20)">
+      <circle cx="16" cy="16" r="16" fill="rgba(74, 222, 128, 0.2)" stroke="#4ade80" class="icon-circle"/>
+      <!-- Icon: Terminal / Checkmark Shield -->
+      <rect x="9" y="9" width="14" height="14" rx="3" stroke="#4ade80" stroke-width="2" fill="none"/>
+      <path d="M12 16 L15 19 L20 13" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <text x="42" y="16" class="pillar-title" fill="#4ade80">Safe Multi-Host Agent Installer</text>
+      <text x="42" y="30" class="feature-sub">7 editor targets, non-destructive merging, and auto-backups</text>
+    </g>
+
+    <!-- Sub-Cards / Features -->
+    <g transform="translate(18, 70)">
+      <!-- Item 1 -->
+      <rect width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="20" class="feature-text">Merge-Only Edits with Diff Previews</text>
+      <text x="12" y="34" class="feature-sub">Never clobbers other servers or comments &bull; <tspan fill="#4ade80">--dry-run</tspan> before applying</text>
+      <rect x="274" y="11" width="98" height="20" rx="5" fill="rgba(74, 222, 128, 0.15)"/>
+      <text x="323" y="25" text-anchor="middle" class="code-tag" fill="#4ade80">ast-mcp install</text>
+
+      <!-- Item 2 -->
+      <rect y="50" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="70" class="feature-text">Automatic Timestamped Backups</text>
+      <text x="12" y="84" class="feature-sub">Instant rollback with <tspan fill="#4ade80">ast-mcp restore</tspan> &bull; integrity check via verify</text>
+      <rect x="276" y="61" width="96" height="20" rx="5" fill="rgba(74, 222, 128, 0.15)"/>
+      <text x="324" y="75" text-anchor="middle" class="code-tag" fill="#4ade80">ast-mcp verify</text>
+
+      <!-- Item 3 -->
+      <rect y="100" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="120" class="feature-text">Automated Claude Code Hooks</text>
+      <text x="12" y="134" class="feature-sub">Opt-in SessionStart, SubagentStart, PreToolUse handoff triggers</text>
+      <rect x="256" y="111" width="116" height="20" rx="5" fill="rgba(74, 222, 128, 0.15)"/>
+      <text x="314" y="125" text-anchor="middle" class="code-tag" fill="#4ade80">--component hooks</text>
+    </g>
+  </g>
+
+  <!-- ================= PILLAR 4: PERSISTENT MEMORY & DOCS HUB (Bottom-Right) ================= -->
+  <g transform="translate(470, 348)">
+    <rect width="418" height="236" rx="14" class="card"/>
+    <rect width="418" height="236" rx="14" fill="url(#amberGrad)"/>
+
+    <!-- Pillar Header -->
+    <g transform="translate(18, 20)">
+      <circle cx="16" cy="16" r="16" fill="rgba(251, 146, 60, 0.2)" stroke="#fb923c" class="icon-circle"/>
+      <!-- Icon: Book / Storage / Brain -->
+      <path d="M10 10 L16 12 L22 10 L22 22 L16 24 L10 22 Z M16 12 L16 24" stroke="#fb923c" stroke-width="2" stroke-linejoin="round" fill="none"/>
+      <text x="42" y="16" class="pillar-title" fill="#fb923c">Structured Memory &amp; Docs Hub</text>
+      <text x="42" y="30" class="feature-sub">Temporal facts, cross-worktree rules, and offline docs scraper</text>
+    </g>
+
+    <!-- Sub-Cards / Features -->
+    <g transform="translate(18, 70)">
+      <!-- Item 1 -->
+      <rect width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="20" class="feature-text">Cross-Worktree Project Memory</text>
+      <text x="12" y="34" class="feature-sub">Keyed by repo &bull; WTG git worktrees inherit project quirks automatically</text>
+      <rect x="264" y="11" width="108" height="20" rx="5" fill="rgba(251, 146, 60, 0.15)"/>
+      <text x="318" y="25" text-anchor="middle" class="code-tag" fill="#fb923c">store_memory</text>
+
+      <!-- Item 2 -->
+      <rect y="50" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="70" class="feature-text">Auto-Superseding Facts &amp; Rules</text>
+      <text x="12" y="84" class="feature-sub">Updating (subject, predicate) automatically invalidates prior claims</text>
+      <rect x="260" y="61" width="112" height="20" rx="5" fill="rgba(251, 146, 60, 0.15)"/>
+      <text x="316" y="75" text-anchor="middle" class="code-tag" fill="#fb923c">recall_memory</text>
+
+      <!-- Item 3 -->
+      <rect y="100" width="382" height="42" rx="8" class="card-sub"/>
+      <text x="12" y="120" class="feature-text">Context7-Style Offline Docs Scraper</text>
+      <text x="12" y="134" class="feature-sub">Headless Playwright rendering &bull; auto background weekly refreshes</text>
+      <rect x="272" y="111" width="100" height="20" rx="5" fill="rgba(251, 146, 60, 0.15)"/>
+      <text x="322" y="125" text-anchor="middle" class="code-tag" fill="#fb923c">search_docs</text>
+    </g>
+  </g>
+
+</svg>

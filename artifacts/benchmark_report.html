@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ast-context-cache &bull; Agentic Creative Benchmark Results</title>
+<style>
+:root {
+  --bg: #121214; --surface: #1c1c1f; --surface-2: #26262b; --ink: #ececef; --muted: #9a9aa2; --line: #2c2c31;
+  --accent: #fb923c; --good: #4ade80; --warn: #fbbf24; --bad: #f87171; --chip: #26262b;
+  --blue: #38bdf8; --purple: #a855f7;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 32px 20px 80px;
+}
+.container { max-width: 1200px; margin: 0 auto; }
+header { margin-bottom: 28px; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+.sub { color: var(--muted); font-size: 15px; max-width: 860px; line-height: 1.4; }
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.badge-good { background: rgba(74, 222, 128, 0.15); color: var(--good); border: 1px solid rgba(74, 222, 128, 0.3); }
+.badge-accent { background: rgba(251, 146, 60, 0.15); color: var(--accent); border: 1px solid rgba(251, 146, 60, 0.3); }
+
+/* KPI Cards */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 28px; }
+.kpi-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.kpi-label { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.04em; margin-bottom: 4px; }
+.kpi-val { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.text-good { color: var(--good); }
+.text-accent { color: var(--accent); }
+.text-blue { color: var(--blue); }
+
+/* Artifacts Showcase */
+.showcase-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; margin-bottom: 32px; }
+.showcase-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.showcase-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+.showcase-head h3 { font-size: 16px; font-weight: 600; }
+.showcase-body { padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.artifact-preview { width: 100%; aspect-ratio: 16 / 10; background: #000; border-radius: 8px; border: 1px solid var(--line); overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; }
+.artifact-preview iframe { width: 100%; height: 100%; border: 0; }
+.artifact-preview svg { width: 90%; height: 90%; object-fit: contain; }
+.btn { display: inline-flex; align-items: center; justify-content: center; padding: 7px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; text-decoration: none; cursor: pointer; border: 1px solid transparent; }
+.btn-accent { background: var(--accent); color: #fff; }
+.btn-outline { background: transparent; border-color: var(--line); color: var(--ink); }
+.btn:hover { opacity: 0.9; }
+
+/* Tables */
+.wf-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 24px; overflow: hidden; }
+.wf-header { padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--surface-2); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+.wf-header h3 { font-size: 17px; font-weight: 600; }
+.wf-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.chip { background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 12px; color: var(--ink); }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+th, td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; background: rgba(0,0,0,0.15); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cmd-cell { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.base-cmd { color: var(--muted); text-decoration: line-through rgba(255,255,255,0.2); margin-bottom: 3px; }
+.ast-cmd code { color: var(--blue); background: rgba(56, 189, 248, 0.08); padding: 1px 4px; border-radius: 4px; }
+.bar-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.bar { height: 4px; border-radius: 2px; }
+.bar-base { background: var(--muted); opacity: 0.4; }
+.bar-ast { background: var(--good); }
+footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 48px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <h1>ast-context-cache Workflow Benchmark <span class="badge badge-accent">Agentic Suite</span></h1>
+        <p class="sub">Rigorous A/B simulation comparing standard LLM coding agent search workflows (whole-file reads, broad regex greps, raw chat context) against the local AST-indexed Context Engine with token-efficient modes, virtual context compaction, and subagent handoffs.</p>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <span class="chip">Model: <strong>Qwen3.8-27B-Q4_K_M (oMLX MBP)</strong></span>
+        <span class="chip">Basis: <strong>$3.00 / 1M in-tokens</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- KPI Cards -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">Overall Token Reduction</div>
+      <div class="kpi-val text-good">74.8%</div>
+      <div class="kpi-sub"><strong>109,246</strong> tokens saved across turns</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Baseline vs. AST Context</div>
+      <div class="kpi-val">36,890 <span style="font-size:16px; color:var(--muted)">/ 146,136</span></div>
+      <div class="kpi-sub">3.8x prompt compression ratio</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Warm Query Latency</div>
+      <div class="kpi-val text-blue">&lt; 25ms</div>
+      <div class="kpi-sub">Cold-start embedder warmup: 198ms</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Estimated Cost Saved</div>
+      <div class="kpi-val text-accent">$0.3277</div>
+      <div class="kpi-sub">Per dual-agent build cycle</div>
+    </div>
+  </div>
+
+  <!-- Visual Representation: Cumulative Prompt Trajectory -->
+  <div style="background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin-bottom: 28px;">
+    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+      <div>
+        <h3 style="font-size:16px; font-weight:600; margin:0;">Cumulative Prompt Context Trajectory (5 Agent Engineering Turns)</h3>
+        <p class="sub" style="font-size:12px; margin-top:2px;">Visualizing cumulative tokens loaded into LLM context window across complex agent workflows</p>
+      </div>
+      <div style="display:flex; gap:16px; font-size:12px; align-items:center;">
+        <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:12px; height:3px; background:#f87171; border-radius:2px;"></span> Baseline (Find + Grep + Read)</span>
+        <span style="display:inline-flex; align-items:center; gap:6px; font-weight:600;"><span style="width:12px; height:3px; background:#4ade80; border-radius:2px;"></span> ast-context-cache</span>
+      </div>
+    </div>
+    <div style="width:100%; height:210px;">
+      <svg viewBox="0 0 600 200" preserveAspectRatio="none" style="width:100%; height:100%; overflow:visible;">
+        <line x1="40" y1="20" x2="580" y2="20" stroke="var(--line)" stroke-dasharray="3 3"/>
+        <line x1="40" y1="70" x2="580" y2="70" stroke="var(--line)" stroke-dasharray="3 3"/>
+        <line x1="40" y1="120" x2="580" y2="120" stroke="var(--line)" stroke-dasharray="3 3"/>
+        <line x1="40" y1="170" x2="580" y2="170" stroke="var(--line)"/>
+        <text x="35" y="24" text-anchor="end" font-size="10" fill="var(--muted)">150k</text>
+        <text x="35" y="74" text-anchor="end" font-size="10" fill="var(--muted)">100k</text>
+        <text x="35" y="124" text-anchor="end" font-size="10" fill="var(--muted)">50k</text>
+        <text x="35" y="174" text-anchor="end" font-size="10" fill="var(--muted)">0</text>
+        <polygon points="70,170 70,165 180,164 300,164 430,109 550,33 550,170" fill="rgba(248, 113, 113, 0.12)"/>
+        <polygon points="70,170 70,157 180,156 300,155 430,143 550,135 550,170" fill="rgba(74, 222, 128, 0.22)"/>
+        <polyline points="70,165 180,164 300,164 430,109 550,33" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round"/>
+        <polyline points="70,157 180,156 300,155 430,143 550,135" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="70" cy="165" r="4" fill="#f87171"/>
+        <circle cx="180" cy="164" r="4" fill="#f87171"/>
+        <circle cx="300" cy="164" r="4" fill="#f87171"/>
+        <circle cx="430" cy="109" r="4" fill="#f87171"/>
+        <circle cx="550" cy="33" r="5" fill="#f87171"/>
+        <circle cx="70" cy="157" r="4" fill="#4ade80"/>
+        <circle cx="180" cy="156" r="4" fill="#4ade80"/>
+        <circle cx="300" cy="155" r="4" fill="#4ade80"/>
+        <circle cx="430" cy="143" r="4" fill="#4ade80"/>
+        <circle cx="550" cy="135" r="5" fill="#4ade80"/>
+        <text x="70" y="192" text-anchor="middle" font-size="10" fill="var(--muted)">Turn 1 (Orient)</text>
+        <text x="180" y="192" text-anchor="middle" font-size="10" fill="var(--muted)">Turn 2 (Search)</text>
+        <text x="300" y="192" text-anchor="middle" font-size="10" fill="var(--muted)">Turn 3 (Systems)</text>
+        <text x="430" y="192" text-anchor="middle" font-size="10" fill="var(--muted)">Turn 4 (Blast Radius)</text>
+        <text x="550" y="192" text-anchor="middle" font-size="10" fill="var(--muted)">Turn 5 (Handoff)</text>
+      </svg>
+    </div>
+    <div style="text-align:right; font-size:11px; color:var(--muted); margin-top:10px;">
+      *Turn 4 blast radius analysis triggers a 58k-token explosion in baseline whole-file reads; AST limits this to 6.7k via Symbol Impact Graph.
+    </div>
+  </div>
+
+  <!-- Showcase Artifacts -->
+  <h2 style="font-size: 18px; margin-bottom: 14px;">Synthesized Creative Artifacts (Live Validation)</h2>
+  <div class="showcase-grid">
+    <div class="showcase-card">
+      <div class="showcase-head">
+        <h3>Megabonk 2D Survivors Game</h3>
+        <span class="badge badge-good">16.2 KB Standalone HTML</span>
+      </div>
+      <div class="showcase-body">
+        <div class="artifact-preview">
+          <iframe sandbox='allow-scripts' src='data:text/html;base64,PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9ImVuIj4KPGhlYWQ+CiAgPG1ldGEgY2hhcnNldD0iVVRGLTgiPgogIDx0aXRsZT5NZWdhYm9uayAyRCBTdXJ2aXZvcnM8L3RpdGxlPgogIDxzdHlsZT4KICAgIGJvZHkgewogICAgICBtYXJnaW46IDA7CiAgICAgIHBhZGRpbmc6IDA7CiAgICAgIGJhY2tncm91bmQtY29sb3I6ICMxMjEyMTQ7CiAgICAgIGNvbG9yOiAjZTBlMGUwOwogICAgICBmb250LWZhbWlseTogLWFwcGxlLXN5c3RlbSwgQmxpbmtNYWNTeXN0ZW1Gb250LCAiU2Vnb2UgVUkiLCBSb2JvdG8sIHNhbnMtc2VyaWY7CiAgICAgIGRpc3BsYXk6IGZsZXg7CiAgICAgIGZsZXgtZGlyZWN0aW9uOiBjb2x1bW47CiAgICAgIGFsaWduLWl0ZW1zOiBjZW50ZXI7CiAgICAgIGp1c3RpZnktY29udGVudDogY2VudGVyOwogICAgICBtaW4taGVpZ2h0OiAxMDB2aDsKICAgICAgdXNlci1zZWxlY3Q6IG5vbmU7CiAgICB9CiAgICAjZ2FtZS1jb250YWluZXIgewogICAgICBwb3NpdGlvbjogcmVsYXRpdmU7CiAgICAgIHdpZHRoOiA4MDBweDsKICAgICAgaGVpZ2h0OiA2MDBweDsKICAgICAgYm94LXNoYWRvdzogMCAxMHB4IDMwcHggcmdiYSgwLDAsMCwwLjgpOwogICAgICBib3JkZXI6IDJweCBzb2xpZCAjMmQyZjM2OwogICAgICBib3JkZXItcmFkaXVzOiA2cHg7CiAgICAgIG92ZXJmbG93OiBoaWRkZW47CiAgICB9CiAgICBjYW52YXMgewogICAgICBkaXNwbGF5OiBibG9jazsKICAgICAgYmFja2dyb3VuZC1jb2xvcjogIzFhMWIyMDsKICAgIH0KICAgIC5tb2RhbC1vdmVybGF5IHsKICAgICAgcG9zaXRpb246IGFic29sdXRlOwogICAgICB0b3A6IDA7IGxlZnQ6IDA7IHdpZHRoOiAxMDAlOyBoZWlnaHQ6IDEwMCU7CiAgICAgIGJhY2tncm91bmQ6IHJnYmEoMTAsIDEwLCAxNSwgMC44NSk7CiAgICAgIGRpc3BsYXk6IG5vbmU7CiAgICAgIGZsZXgtZGlyZWN0aW9uOiBjb2x1bW47CiAgICAgIGFsaWduLWl0ZW1zOiBjZW50ZXI7CiAgICAgIGp1c3RpZnktY29udGVudDogY2VudGVyOwogICAgICB6LWluZGV4OiAxMDsKICAgIH0KICAgIC5jYXJkcy1yb3cgewogICAgICBkaXNwbGF5OiBmbGV4OwogICAgICBnYXA6IDE2cHg7CiAgICAgIG1hcmdpbi10b3A6IDIwcHg7CiAgICB9CiAgICAuY2FyZCB7CiAgICAgIGJhY2tncm91bmQ6ICMyNTI4MzM7CiAgICAgIGJvcmRlcjogMnB4IHNvbGlkICM0ZjU3NmU7CiAgICAgIGJvcmRlci1yYWRpdXM6IDhweDsKICAgICAgcGFkZGluZzogMTZweDsKICAgICAgd2lkdGg6IDE4MHB4OwogICAgICB0ZXh0LWFsaWduOiBjZW50ZXI7CiAgICAgIGN1cnNvcjogcG9pbnRlcjsKICAgICAgdHJhbnNpdGlvbjogdHJhbnNmb3JtIDAuMTVzLCBib3JkZXItY29sb3IgMC4xNXM7CiAgICB9CiAgICAuY2FyZDpob3ZlciB7CiAgICAgIHRyYW5zZm9ybTogdHJhbnNsYXRlWSgtNHB4KTsKICAgICAgYm9yZGVyLWNvbG9yOiAjNGFkZTgwOwogICAgICBiYWNrZ3JvdW5kOiAjMmQzMjQwOwogICAgfQogICAgLmNhcmQgaDMgewogICAgICBtYXJnaW46IDAgMCA4cHggMDsKICAgICAgZm9udC1zaXplOiAxNnB4OwogICAgICBjb2xvcjogIzYwYTVmYTsKICAgIH0KICAgIC5jYXJkIHAgewogICAgICBmb250LXNpemU6IDEzcHg7CiAgICAgIGNvbG9yOiAjY2JkNWUxOwogICAgICBtYXJnaW46IDAgMCAxMnB4IDA7CiAgICB9CiAgICAuY2FyZCAua2V5LWJhZGdlIHsKICAgICAgZGlzcGxheTogaW5saW5lLWJsb2NrOwogICAgICBiYWNrZ3JvdW5kOiAjMzc0MTUxOwogICAgICBwYWRkaW5nOiA0cHggOHB4OwogICAgICBib3JkZXItcmFkaXVzOiA0cHg7CiAgICAgIGZvbnQtc2l6ZTogMTFweDsKICAgICAgZm9udC13ZWlnaHQ6IGJvbGQ7CiAgICAgIGNvbG9yOiAjZjNmNGY2OwogICAgfQogIDwvc3R5bGU+CjwvaGVhZD4KPGJvZHk+CiAgPGRpdiBpZD0iZ2FtZS1jb250YWluZXIiPgogICAgPGNhbnZhcyBpZD0iZ2FtZUNhbnZhcyIgd2lkdGg9IjgwMCIgaGVpZ2h0PSI2MDAiPjwvY2FudmFzPgogICAgPGRpdiBpZD0idXBncmFkZU1vZGFsIiBjbGFzcz0ibW9kYWwtb3ZlcmxheSI+CiAgICAgIDxoMiBzdHlsZT0iY29sb3I6ICNmYmJmMjQ7IG1hcmdpbjogMDsgZm9udC1zaXplOiAyNnB4OyI+TEVWRUwgVVAhPC9oMj4KICAgICAgPHAgc3R5bGU9ImNvbG9yOiAjOTRhM2I4OyBtYXJnaW46IDRweCAwIDAgMDsiPkNob29zZSBhbiB1cGdyYWRlIHRvIGNvbnRpbnVlPC9wPgogICAgICA8ZGl2IGlkPSJjYXJkc1JvdyIgY2xhc3M9ImNhcmRzLXJvdyI+PC9kaXY+CiAgICA8L2Rpdj4KICA8L2Rpdj4KCiAgPHNjcmlwdD4KICAgIChmdW5jdGlvbigpIHsKICAgICAgY29uc3QgY2FudmFzID0gZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2dhbWVDYW52YXMnKTsKICAgICAgY29uc3QgY3R4ID0gY2FudmFzLmdldENvbnRleHQoJzJkJyk7CiAgICAgIGNvbnN0IHVwZ3JhZGVNb2RhbCA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCd1cGdyYWRlTW9kYWwnKTsKICAgICAgY29uc3QgY2FyZHNSb3cgPSBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnY2FyZHNSb3cnKTsKCiAgICAgIGxldCBsYXN0VGltZSA9IHBlcmZvcm1hbmNlLm5vdygpOwogICAgICBsZXQgZ2FtZU92ZXIgPSBmYWxzZTsKICAgICAgbGV0IHBhdXNlZEZvckxldmVsVXAgPSBmYWxzZTsKICAgICAgbGV0IHN1cnZpdmFsVGltZSA9IDA7CiAgICAgIGxldCBraWxsQ291bnQgPSAwOwoKICAgICAgLy8gUGxheWVyIFN0YXRlCiAgICAgIGNvbnN0IHBsYXllciA9IHsKICAgICAgICB4OiA0MDAsCiAgICAgICAgeTogMzAwLAogICAgICAgIHJhZGl1czogMTQsCiAgICAgICAgc3BlZWQ6IDE4MCwKICAgICAgICBocDogMTAwLAogICAgICAgIG1heEhwOiAxMDAsCiAgICAgICAgbGV2ZWw6IDEsCiAgICAgICAgeHA6IDAsCiAgICAgICAgeHBOZXh0OiAxNSwKICAgICAgICBhdHRhY2tTcGVlZDogMS4wLAogICAgICAgIHByb2plY3RpbGVTcGVlZDogMzQwLAogICAgICAgIHByb2plY3RpbGVEYW1hZ2U6IDI1LAogICAgICAgIHByb2plY3RpbGVDb3VudDogMSwKICAgICAgICB3ZWFwb25Db29sZG93bjogMCwKICAgICAgICB3ZWFwb25JbnRlcnZhbDogMC43NQogICAgICB9OwoKICAgICAgLy8gR2FtZSBFbnRpdGllcwogICAgICBjb25zdCBrZXlzID0ge307CiAgICAgIGNvbnN0IGVuZW1pZXMgPSBbXTsKICAgICAgY29uc3QgcHJvamVjdGlsZXMgPSBbXTsKICAgICAgY29uc3QgeHBHZW1zID0gW107CiAgICAgIGNvbnN0IGZsb2F0aW5nVGV4dHMgPSBbXTsKCiAgICAgIC8vIFdhdmUgU3Bhd25pbmcKICAgICAgbGV0IHdhdmVUaW1lciA9IDA7CiAgICAgIGxldCBzcGF3bkludGVydmFsID0gMS42OwogICAgICBsZXQgc3Bhd25UaW1lciA9IDA7CgogICAgICAvLyBBdmFpbGFibGUgVXBncmFkZXMKICAgICAgY29uc3QgQUxMX1VQR1JBREVTID0gWwogICAgICAgIHsgaWQ6ICJwcm9qX2NvdW50IiwgdGl0bGU6ICIrMSBQcm9qZWN0aWxlIiwgZGVzYzogIkZpcmUgYW4gZXh0cmEgcHJvamVjdGlsZSBwZXIgYXR0YWNrIHNhbHZvLiIsIGFwcGx5OiAoKSA9PiB7IHBsYXllci5wcm9qZWN0aWxlQ291bnQgKz0gMTsgfSB9LAogICAgICAgIHsgaWQ6ICJhdHRhY2tfc3BlZWQiLCB0aXRsZTogIisyNSUgRmlyZSBSYXRlIiwgZGVzYzogIkF0dGFjayBmYXN0ZXIgd2l0aCBhbGwgYWN0aXZlIHdlYXBvbnMuIiwgYXBwbHk6ICgpID0+IHsgcGxheWVyLndlYXBvbkludGVydmFsID0gTWF0aC5tYXgoMC4xOCwgcGxheWVyLndlYXBvbkludGVydmFsICogMC43NSk7IH0gfSwKICAgICAgICB7IGlkOiAibW92ZV9zcGVlZCIsIHRpdGxlOiAiKzIwJSBNb3ZlIFNwZWVkIiwgZGVzYzogIkluY3JlYXNlIHBsYXllciBtb3ZlbWVudCB2ZWxvY2l0eS4iLCBhcHBseTogKCkgPT4geyBwbGF5ZXIuc3BlZWQgKz0gMzY7IH0gfSwKICAgICAgICB7IGlkOiAiZGFtYWdlIiwgdGl0bGU6ICIrMzUlIERhbWFnZSIsIGRlc2M6ICJJbmZsaWN0IG1vcmUgZGFtYWdlIHBlciBoaXQuIiwgYXBwbHk6ICgpID0+IHsgcGxheWVyLnByb2plY3RpbGVEYW1hZ2UgPSBNYXRoLnJvdW5kKHBsYXllci5wcm9qZWN0aWxlRGFtYWdlICogMS4zNSk7IH0gfSwKICAgICAgICB7IGlkOiAibWF4X2hwIiwgdGl0bGU6ICIrMzAgTWF4IEhQIiwgZGVzYzogIkJvb3N0IG1heGltdW0gaGVhbHRoIGFuZCBoZWFsIDMwIEhQIGltbWVkaWF0ZWx5LiIsIGFwcGx5OiAoKSA9PiB7IHBsYXllci5tYXhIcCArPSAzMDsgcGxheWVyLmhwID0gTWF0aC5taW4ocGxheWVyLm1heEhwLCBwbGF5ZXIuaHAgKyAzMCk7IH0gfSwKICAgICAgICB7IGlkOiAiZnVsbF9oZWFsIiwgdGl0bGU6ICJGdWxsIEhlYWwiLCBkZXNjOiAiUmVzdG9yZSBoZWFsdGggdG8gbWF4aW11bSBpbW1lZGlhdGVseS4iLCBhcHBseTogKCkgPT4geyBwbGF5ZXIuaHAgPSBwbGF5ZXIubWF4SHA7IH0gfQogICAgICBdOwoKICAgICAgbGV0IGN1cnJlbnRPZmZlcmVkVXBncmFkZXMgPSBbXTsKCiAgICAgIC8vIElucHV0IGhhbmRsZXJzCiAgICAgIHdpbmRvdy5hZGRFdmVudExpc3RlbmVyKCdrZXlkb3duJywgKGUpID0+IHsKICAgICAgICBrZXlzW2Uua2V5LnRvTG93ZXJDYXNlKCldID0gdHJ1ZTsKICAgICAgICBpZiAoZ2FtZU92ZXIgJiYgKGUua2V5ID09PSAncicgfHwgZS5rZXkgPT09ICdSJykpIHsKICAgICAgICAgIHJlc3RhcnRHYW1lKCk7CiAgICAgICAgfQogICAgICAgIGlmIChwYXVzZWRGb3JMZXZlbFVwKSB7CiAgICAgICAgICBpZiAoZS5rZXkgPT09ICcxJyAmJiBjdXJyZW50T2ZmZXJlZFVwZ3JhZGVzWzBdKSBwaWNrVXBncmFkZSgwKTsKICAgICAgICAgIGlmIChlLmtleSA9PT0gJzInICYmIGN1cnJlbnRPZmZlcmVkVXBncmFkZXNbMV0pIHBpY2tVcGdyYWRlKDEpOwogICAgICAgICAgaWYgKGUua2V5ID09PSAnMycgJiYgY3VycmVudE9mZmVyZWRVcGdyYWRlc1syXSkgcGlja1VwZ3JhZGUoMik7CiAgICAgICAgfQogICAgICB9KTsKCiAgICAgIHdpbmRvdy5hZGRFdmVudExpc3RlbmVyKCdrZXl1cCcsIChlKSA9PiB7CiAgICAgICAga2V5c1tlLmtleS50b0xvd2VyQ2FzZSgpXSA9IGZhbHNlOwogICAgICB9KTsKCiAgICAgIGZ1bmN0aW9uIHJlc3RhcnRHYW1lKCkgewogICAgICAgIGdhbWVPdmVyID0gZmFsc2U7CiAgICAgICAgcGF1c2VkRm9yTGV2ZWxVcCA9IGZhbHNlOwogICAgICAgIHN1cnZpdmFsVGltZSA9IDA7CiAgICAgICAga2lsbENvdW50ID0gMDsKICAgICAgICBwbGF5ZXIueCA9IDQwMDsKICAgICAgICBwbGF5ZXIueSA9IDMwMDsKICAgICAgICBwbGF5ZXIuaHAgPSAxMDA7CiAgICAgICAgcGxheWVyLm1heEhwID0gMTAwOwogICAgICAgIHBsYXllci5sZXZlbCA9IDE7CiAgICAgICAgcGxheWVyLnhwID0gMDsKICAgICAgICBwbGF5ZXIueHBOZXh0ID0gMTU7CiAgICAgICAgcGxheWVyLnByb2plY3RpbGVEYW1hZ2UgPSAyNTsKICAgICAgICBwbGF5ZXIucHJvamVjdGlsZUNvdW50ID0gMTsKICAgICAgICBwbGF5ZXIud2VhcG9uSW50ZXJ2YWwgPSAwLjc1OwogICAgICAgIHBsYXllci5zcGVlZCA9IDE4MDsKICAgICAgICBlbmVtaWVzLmxlbmd0aCA9IDA7CiAgICAgICAgcHJvamVjdGlsZXMubGVuZ3RoID0gMDsKICAgICAgICB4cEdlbXMubGVuZ3RoID0gMDsKICAgICAgICBmbG9hdGluZ1RleHRzLmxlbmd0aCA9IDA7CiAgICAgICAgdXBncmFkZU1vZGFsLnN0eWxlLmRpc3BsYXkgPSAnbm9uZSc7CiAgICAgICAgbGFzdFRpbWUgPSBwZXJmb3JtYW5jZS5ub3coKTsKICAgICAgfQoKICAgICAgZnVuY3Rpb24gc3Bhd25FbmVteSgpIHsKICAgICAgICBjb25zdCBlZGdlID0gTWF0aC5mbG9vcihNYXRoLnJhbmRvbSgpICogNCk7CiAgICAgICAgbGV0IHgsIHk7CiAgICAgICAgaWYgKGVkZ2UgPT09IDApIHsgeCA9IE1hdGgucmFuZG9tKCkgKiA4MDA7IHkgPSAtMjA7IH0KICAgICAgICBlbHNlIGlmIChlZGdlID09PSAxKSB7IHggPSA4MjA7IHkgPSBNYXRoLnJhbmRvbSgpICogNjAwOyB9CiAgICAgICAgZWxzZSBpZiAoZWRnZSA9PT0gMikgeyB4ID0gTWF0aC5yYW5kb20oKSAqIDgwMDsgeSA9IDYyMDsgfQogICAgICAgIGVsc2UgeyB4ID0gLTIwOyB5ID0gTWF0aC5yYW5kb20oKSAqIDYwMDsgfQoKICAgICAgICBjb25zdCBzY2FsZSA9IDEgKyAoc3Vydml2YWxUaW1lIC8gNjApOwogICAgICAgIGVuZW1pZXMucHVzaCh7CiAgICAgICAgICB4OiB4LAogICAgICAgICAgeTogeSwKICAgICAgICAgIHJhZGl1czogMTIsCiAgICAgICAgICBzcGVlZDogNzUgKyBNYXRoLnJhbmRvbSgpICogMzUgKyAoc3Vydml2YWxUaW1lICogMC4zKSwKICAgICAgICAgIGhwOiAyMCAqIHNjYWxlLAogICAgICAgICAgbWF4SHA6IDIwICogc2NhbGUsCiAgICAgICAgICBkYW1hZ2U6IDEyICsgTWF0aC5mbG9vcihzdXJ2aXZhbFRpbWUgLyAzMCkKICAgICAgICB9KTsKICAgICAgfQoKICAgICAgZnVuY3Rpb24gc2hvd0xldmVsVXBNb2RhbCgpIHsKICAgICAgICBwYXVzZWRGb3JMZXZlbFVwID0gdHJ1ZTsKICAgICAgICB1cGdyYWRlTW9kYWwuc3R5bGUuZGlzcGxheSA9ICdmbGV4JzsKICAgICAgICBjYXJkc1Jvdy5pbm5lckhUTUwgPSAnJzsKCiAgICAgICAgLy8gUGljayAzIHJhbmRvbSBkaXN0aW5jdCB1cGdyYWRlcwogICAgICAgIGNvbnN0IHBvb2wgPSBbLi4uQUxMX1VQR1JBREVTXTsKICAgICAgICBjdXJyZW50T2ZmZXJlZFVwZ3JhZGVzID0gW107CiAgICAgICAgZm9yIChsZXQgaSA9IDA7IGkgPCAzICYmIHBvb2wubGVuZ3RoID4gMDsgaSsrKSB7CiAgICAgICAgICBjb25zdCBpZHggPSBNYXRoLmZsb29yKE1hdGgucmFuZG9tKCkgKiBwb29sLmxlbmd0aCk7CiAgICAgICAgICBjdXJyZW50T2ZmZXJlZFVwZ3JhZGVzLnB1c2gocG9vbC5zcGxpY2UoaWR4LCAxKVswXSk7CiAgICAgICAgfQoKICAgICAgICBjdXJyZW50T2ZmZXJlZFVwZ3JhZGVzLmZvckVhY2goKHUsIGkpID0+IHsKICAgICAgICAgIGNvbnN0IGNhcmQgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCdkaXYnKTsKICAgICAgICAgIGNhcmQuY2xhc3NOYW1lID0gJ2NhcmQnOwogICAgICAgICAgY2FyZC5pbm5lckhUTUwgPSBgCiAgICAgICAgICAgIDxzcGFuIGNsYXNzPSJrZXktYmFkZ2UiPktFWSBbICR7aSArIDF9IF08L3NwYW4+CiAgICAgICAgICAgIDxoMz4ke3UudGl0bGV9PC9oMz4KICAgICAgICAgICAgPHA+JHt1LmRlc2N9PC9wPgogICAgICAgICAgYDsKICAgICAgICAgIGNhcmQub25jbGljayA9ICgpID0+IHBpY2tVcGdyYWRlKGkpOwogICAgICAgICAgY2FyZHNSb3cuYXBwZW5kQ2hpbGQoY2FyZCk7CiAgICAgICAgfSk7CiAgICAgIH0KCiAgICAgIGZ1bmN0aW9uIHBpY2tVcGdyYWRlKGluZGV4KSB7CiAgICAgICAgaWYgKCFwYXVzZWRGb3JMZXZlbFVwIHx8ICFjdXJyZW50T2ZmZXJlZFVwZ3JhZGVzW2luZGV4XSkgcmV0dXJuOwogICAgICAgIGN1cnJlbnRPZmZlcmVkVXBncmFkZXNbaW5kZXhdLmFwcGx5KCk7CiAgICAgICAgcGF1c2VkRm9yTGV2ZWxVcCA9IGZhbHNlOwogICAgICAgIHVwZ3JhZGVNb2RhbC5zdHlsZS5kaXNwbGF5ID0gJ25vbmUnOwogICAgICAgIGZsb2F0aW5nVGV4dHMucHVzaCh7CiAgICAgICAgICB4OiBwbGF5ZXIueCwKICAgICAgICAgIHk6IHBsYXllci55IC0gMjAsCiAgICAgICAgICB0ZXh0OiBjdXJyZW50T2ZmZXJlZFVwZ3JhZGVzW2luZGV4XS50aXRsZSwKICAgICAgICAgIGNvbG9yOiAnIzRhZGU4MCcsCiAgICAgICAgICBsaWZlOiAxLjIKICAgICAgICB9KTsKICAgICAgfQoKICAgICAgZnVuY3Rpb24gZmlyZVdlYXBvbnMoKSB7CiAgICAgICAgaWYgKGVuZW1pZXMubGVuZ3RoID09PSAwKSByZXR1cm47CgogICAgICAgIC8vIEZpbmQgbmVhcmVzdCBlbmVtaWVzIHRvIHRhcmdldAogICAgICAgIGNvbnN0IHNvcnRlZEVuZW1pZXMgPSBbLi4uZW5lbWllc10uc29ydCgoYSwgYikgPT4gewogICAgICAgICAgY29uc3QgZGlzdEEgPSBNYXRoLmh5cG90KGEueCAtIHBsYXllci54LCBhLnkgLSBwbGF5ZXIueSk7CiAgICAgICAgICBjb25zdCBkaXN0QiA9IE1hdGguaHlwb3QoYi54IC0gcGxheWVyLngsIGIueSAtIHBsYXllci55KTsKICAgICAgICAgIHJldHVybiBkaXN0QSAtIGRpc3RCOwogICAgICAgIH0pOwoKICAgICAgICBmb3IgKGxldCBpID0gMDsgaSA8IHBsYXllci5wcm9qZWN0aWxlQ291bnQ7IGkrKykgewogICAgICAgICAgY29uc3QgdGFyZ2V0ID0gc29ydGVkRW5lbWllc1tpICUgc29ydGVkRW5lbWllcy5sZW5ndGhdOwogICAgICAgICAgY29uc3QgYW5nbGUgPSBNYXRoLmF0YW4yKHRhcmdldC55IC0gcGxheWVyLnksIHRhcmdldC54IC0gcGxheWVyLngpICsgKChpIC0gKHBsYXllci5wcm9qZWN0aWxlQ291bnQgLSAxKSAvIDIpICogMC4xNSk7CiAgICAgICAgICBwcm9qZWN0aWxlcy5wdXNoKHsKICAgICAgICAgICAgeDogcGxheWVyLngsCiAgICAgICAgICAgIHk6IHBsYXllci55LAogICAgICAgICAgICB2eDogTWF0aC5jb3MoYW5nbGUpICogcGxheWVyLnByb2plY3RpbGVTcGVlZCwKICAgICAgICAgICAgdnk6IE1hdGguc2luKGFuZ2xlKSAqIHBsYXllci5wcm9qZWN0aWxlU3BlZWQsCiAgICAgICAgICAgIHJhZGl1czogNSwKICAgICAgICAgICAgZGFtYWdlOiBwbGF5ZXIucHJvamVjdGlsZURhbWFnZSwKICAgICAgICAgICAgcGllcmNlOiAxCiAgICAgICAgICB9KTsKICAgICAgICB9CiAgICAgIH0KCiAgICAgIGZ1bmN0aW9uIHVwZGF0ZShkdCkgewogICAgICAgIGlmIChnYW1lT3ZlciB8fCBwYXVzZWRGb3JMZXZlbFVwKSByZXR1cm47CgogICAgICAgIHN1cnZpdmFsVGltZSArPSBkdDsKICAgICAgICB3YXZlVGltZXIgKz0gZHQ7CiAgICAgICAgc3Bhd25UaW1lciArPSBkdDsKCiAgICAgICAgLy8gV2F2ZSBkaWZmaWN1bHR5IHNjYWxpbmcKICAgICAgICBpZiAod2F2ZVRpbWVyID4gMTUpIHsKICAgICAgICAgIHdhdmVUaW1lciA9IDA7CiAgICAgICAgICBzcGF3bkludGVydmFsID0gTWF0aC5tYXgoMC4zNSwgc3Bhd25JbnRlcnZhbCAqIDAuODUpOwogICAgICAgIH0KCiAgICAgICAgaWYgKHNwYXduVGltZXIgPj0gc3Bhd25JbnRlcnZhbCkgewogICAgICAgICAgc3Bhd25UaW1lciA9IDA7CiAgICAgICAgICBjb25zdCBjb3VudCA9IDEgKyBNYXRoLmZsb29yKHN1cnZpdmFsVGltZSAvIDQwKTsKICAgICAgICAgIGZvciAobGV0IGkgPSAwOyBpIDwgY291bnQ7IGkrKykgc3Bhd25FbmVteSgpOwogICAgICAgIH0KCiAgICAgICAgLy8gUGxheWVyIE1vdmVtZW50CiAgICAgICAgbGV0IGR4ID0gMDsKICAgICAgICBsZXQgZHkgPSAwOwogICAgICAgIGlmIChrZXlzWyd3J10gfHwga2V5c1snYXJyb3d1cCddKSBkeSAtPSAxOwogICAgICAgIGlmIChrZXlzWydzJ10gfHwga2V5c1snYXJyb3dkb3duJ10pIGR5ICs9IDE7CiAgICAgICAgaWYgKGtleXNbJ2EnXSB8fCBrZXlzWydhcnJvd2xlZnQnXSkgZHggLT0gMTsKICAgICAgICBpZiAoa2V5c1snZCddIHx8IGtleXNbJ2Fycm93cmlnaHQnXSkgZHggKz0gMTsKCiAgICAgICAgaWYgKGR4ICE9PSAwICYmIGR5ICE9PSAwKSB7CiAgICAgICAgICBkeCAqPSAwLjcwNzE7CiAgICAgICAgICBkeSAqPSAwLjcwNzE7CiAgICAgICAgfQoKICAgICAgICBwbGF5ZXIueCA9IE1hdGgubWF4KHBsYXllci5yYWRpdXMsIE1hdGgubWluKDgwMCAtIHBsYXllci5yYWRpdXMsIHBsYXllci54ICsgZHggKiBwbGF5ZXIuc3BlZWQgKiBkdCkpOwogICAgICAgIHBsYXllci55ID0gTWF0aC5tYXgocGxheWVyLnJhZGl1cywgTWF0aC5taW4oNjAwIC0gcGxheWVyLnJhZGl1cywgcGxheWVyLnkgKyBkeSAqIHBsYXllci5zcGVlZCAqIGR0KSk7CgogICAgICAgIC8vIEF1dG8gQXR0YWNrIFdlYXBvbiBMb29wCiAgICAgICAgcGxheWVyLndlYXBvbkNvb2xkb3duIC09IGR0OwogICAgICAgIGlmIChwbGF5ZXIud2VhcG9uQ29vbGRvd24gPD0gMCkgewogICAgICAgICAgcGxheWVyLndlYXBvbkNvb2xkb3duID0gcGxheWVyLndlYXBvbkludGVydmFsOwogICAgICAgICAgZmlyZVdlYXBvbnMoKTsKICAgICAgICB9CgogICAgICAgIC8vIFByb2plY3RpbGVzIFVwZGF0ZQogICAgICAgIGZvciAobGV0IGkgPSBwcm9qZWN0aWxlcy5sZW5ndGggLSAxOyBpID49IDA7IGktLSkgewogICAgICAgICAgY29uc3QgcCA9IHByb2plY3RpbGVzW2ldOwogICAgICAgICAgcC54ICs9IHAudnggKiBkdDsKICAgICAgICAgIHAueSArPSBwLnZ5ICogZHQ7CgogICAgICAgICAgaWYgKHAueCA8IC0xMCB8fCBwLnggPiA4MTAgfHwgcC55IDwgLTEwIHx8IHAueSA+IDYxMCkgewogICAgICAgICAgICBwcm9qZWN0aWxlcy5zcGxpY2UoaSwgMSk7CiAgICAgICAgICAgIGNvbnRpbnVlOwogICAgICAgICAgfQoKICAgICAgICAgIC8vIENoZWNrIGhpdCBhZ2FpbnN0IGVuZW1pZXMKICAgICAgICAgIGZvciAobGV0IGogPSBlbmVtaWVzLmxlbmd0aCAtIDE7IGogPj0gMDsgai0tKSB7CiAgICAgICAgICAgIGNvbnN0IGUgPSBlbmVtaWVzW2pdOwogICAgICAgICAgICBjb25zdCBkaXN0ID0gTWF0aC5oeXBvdChwLnggLSBlLngsIHAueSAtIGUueSk7CiAgICAgICAgICAgIGlmIChkaXN0IDwgcC5yYWRpdXMgKyBlLnJhZGl1cykgewogICAgICAgICAgICAgIGUuaHAgLT0gcC5kYW1hZ2U7CiAgICAgICAgICAgICAgZmxvYXRpbmdUZXh0cy5wdXNoKHsgeDogZS54LCB5OiBlLnksIHRleHQ6IGAtJHtwLmRhbWFnZX1gLCBjb2xvcjogJyNmYmJmMjQnLCBsaWZlOiAwLjYgfSk7CiAgICAgICAgICAgICAgcC5waWVyY2UtLTsKICAgICAgICAgICAgICBpZiAocC5waWVyY2UgPD0gMCkgewogICAgICAgICAgICAgICAgcHJvamVjdGlsZXMuc3BsaWNlKGksIDEpOwogICAgICAgICAgICAgICAgYnJlYWs7CiAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CiAgICAgICAgICB9CiAgICAgICAgfQoKICAgICAgICAvLyBFbmVtaWVzIFVwZGF0ZSAmIENvbGxpc2lvbiB3aXRoIFBsYXllcgogICAgICAgIGZvciAobGV0IGkgPSBlbmVtaWVzLmxlbmd0aCAtIDE7IGkgPj0gMDsgaS0tKSB7CiAgICAgICAgICBjb25zdCBlID0gZW5lbWllc1tpXTsKICAgICAgICAgIGlmIChlLmhwIDw9IDApIHsKICAgICAgICAgICAga2lsbENvdW50Kys7CiAgICAgICAgICAgIHhwR2Vtcy5wdXNoKHsgeDogZS54LCB5OiBlLnksIHZhbHVlOiA1LCByYWRpdXM6IDQgfSk7CiAgICAgICAgICAgIGVuZW1pZXMuc3BsaWNlKGksIDEpOwogICAgICAgICAgICBjb250aW51ZTsKICAgICAgICAgIH0KCiAgICAgICAgICBjb25zdCBhbmdsZSA9IE1hdGguYXRhbjIocGxheWVyLnkgLSBlLnksIHBsYXllci54IC0gZS54KTsKICAgICAgICAgIGUueCArPSBNYXRoLmNvcyhhbmdsZSkgKiBlLnNwZWVkICogZHQ7CiAgICAgICAgICBlLnkgKz0gTWF0aC5zaW4oYW5nbGUpICogZS5zcGVlZCAqIGR0OwoKICAgICAgICAgIGNvbnN0IGRpc3RUb1BsYXllciA9IE1hdGguaHlwb3QoZS54IC0gcGxheWVyLngsIGUueSAtIHBsYXllci55KTsKICAgICAgICAgIGlmIChkaXN0VG9QbGF5ZXIgPCBlLnJhZGl1cyArIHBsYXllci5yYWRpdXMpIHsKICAgICAgICAgICAgcGxheWVyLmhwIC09IGUuZGFtYWdlICogZHQgKiAyLjU7CiAgICAgICAgICAgIGlmIChwbGF5ZXIuaHAgPD0gMCkgewogICAgICAgICAgICAgIHBsYXllci5ocCA9IDA7CiAgICAgICAgICAgICAgZ2FtZU92ZXIgPSB0cnVlOwogICAgICAgICAgICB9CiAgICAgICAgICB9CiAgICAgICAgfQoKICAgICAgICAvLyBYUCBHZW1zIGF0dHJhY3Rpb24gYW5kIGNvbGxlY3Rpb24KICAgICAgICBjb25zdCBtYWduZXREaXN0ID0gOTA7CiAgICAgICAgZm9yIChsZXQgaSA9IHhwR2Vtcy5sZW5ndGggLSAxOyBpID49IDA7IGktLSkgewogICAgICAgICAgY29uc3QgZyA9IHhwR2Vtc1tpXTsKICAgICAgICAgIGNvbnN0IGRpc3QgPSBNYXRoLmh5cG90KHBsYXllci54IC0gZy54LCBwbGF5ZXIueSAtIGcueSk7CiAgICAgICAgICBpZiAoZGlzdCA8IG1hZ25ldERpc3QpIHsKICAgICAgICAgICAgY29uc3QgYW5nbGUgPSBNYXRoLmF0YW4yKHBsYXllci55IC0gZy55LCBwbGF5ZXIueCAtIGcueCk7CiAgICAgICAgICAgIGcueCArPSBNYXRoLmNvcyhhbmdsZSkgKiAzMjAgKiBkdDsKICAgICAgICAgICAgZy55ICs9IE1hdGguc2luKGFuZ2xlKSAqIDMyMCAqIGR0OwogICAgICAgICAgfQogICAgICAgICAgaWYgKGRpc3QgPCBwbGF5ZXIucmFkaXVzICsgZy5yYWRpdXMpIHsKICAgICAgICAgICAgcGxheWVyLnhwICs9IGcudmFsdWU7CiAgICAgICAgICAgIHhwR2Vtcy5zcGxpY2UoaSwgMSk7CgogICAgICAgICAgICBpZiAocGxheWVyLnhwID49IHBsYXllci54cE5leHQpIHsKICAgICAgICAgICAgICBwbGF5ZXIueHAgLT0gcGxheWVyLnhwTmV4dDsKICAgICAgICAgICAgICBwbGF5ZXIubGV2ZWwrKzsKICAgICAgICAgICAgICBwbGF5ZXIueHBOZXh0ID0gTWF0aC5yb3VuZChwbGF5ZXIueHBOZXh0ICogMS4zNSArIDUpOwogICAgICAgICAgICAgIHNob3dMZXZlbFVwTW9kYWwoKTsKICAgICAgICAgICAgfQogICAgICAgICAgfQogICAgICAgIH0KCiAgICAgICAgLy8gRmxvYXRpbmcgZGFtYWdlIHRleHRzIHVwZGF0ZQogICAgICAgIGZvciAobGV0IGkgPSBmbG9hdGluZ1RleHRzLmxlbmd0aCAtIDE7IGkgPj0gMDsgaS0tKSB7CiAgICAgICAgICBjb25zdCBmdCA9IGZsb2F0aW5nVGV4dHNbaV07CiAgICAgICAgICBmdC55IC09IDI1ICogZHQ7CiAgICAgICAgICBmdC5saWZlIC09IGR0OwogICAgICAgICAgaWYgKGZ0LmxpZmUgPD0gMCkgZmxvYXRpbmdUZXh0cy5zcGxpY2UoaSwgMSk7CiAgICAgICAgfQogICAgICB9CgogICAgICBmdW5jdGlvbiBkcmF3KCkgewogICAgICAgIGN0eC5jbGVhclJlY3QoMCwgMCwgODAwLCA2MDApOwoKICAgICAgICAvLyBEcmF3IFhQIEdlbXMKICAgICAgICBjdHguZmlsbFN0eWxlID0gJyMzOGJkZjgnOwogICAgICAgIGZvciAoY29uc3QgZyBvZiB4cEdlbXMpIHsKICAgICAgICAgIGN0eC5iZWdpblBhdGgoKTsKICAgICAgICAgIGN0eC5hcmMoZy54LCBnLnksIGcucmFkaXVzLCAwLCBNYXRoLlBJICogMik7CiAgICAgICAgICBjdHguZmlsbCgpOwogICAgICAgIH0KCiAgICAgICAgLy8gRHJhdyBQcm9qZWN0aWxlcwogICAgICAgIGN0eC5maWxsU3R5bGUgPSAnI2Y1OWUwYic7CiAgICAgICAgZm9yIChjb25zdCBwIG9mIHByb2plY3RpbGVzKSB7CiAgICAgICAgICBjdHguYmVnaW5QYXRoKCk7CiAgICAgICAgICBjdHguYXJjKHAueCwgcC55LCBwLnJhZGl1cywgMCwgTWF0aC5QSSAqIDIpOwogICAgICAgICAgY3R4LmZpbGwoKTsKICAgICAgICB9CgogICAgICAgIC8vIERyYXcgRW5lbWllcwogICAgICAgIGZvciAoY29uc3QgZSBvZiBlbmVtaWVzKSB7CiAgICAgICAgICBjdHguZmlsbFN0eWxlID0gJyNlZjQ0NDQnOwogICAgICAgICAgY3R4LmJlZ2luUGF0aCgpOwogICAgICAgICAgY3R4LmFyYyhlLngsIGUueSwgZS5yYWRpdXMsIDAsIE1hdGguUEkgKiAyKTsKICAgICAgICAgIGN0eC5maWxsKCk7CgogICAgICAgICAgLy8gRW5lbXkgaGVhbHRoIGJhciBpZiBkYW1hZ2VkCiAgICAgICAgICBpZiAoZS5ocCA8IGUubWF4SHApIHsKICAgICAgICAgICAgY3R4LmZpbGxTdHlsZSA9ICcjN2YxZDFkJzsKICAgICAgICAgICAgY3R4LmZpbGxSZWN0KGUueCAtIDEyLCBlLnkgLSAxOCwgMjQsIDMpOwogICAgICAgICAgICBjdHguZmlsbFN0eWxlID0gJyMyMmM1NWUnOwogICAgICAgICAgICBjdHguZmlsbFJlY3QoZS54IC0gMTIsIGUueSAtIDE4LCAoZS5ocCAvIGUubWF4SHApICogMjQsIDMpOwogICAgICAgICAgfQogICAgICAgIH0KCiAgICAgICAgLy8gRHJhdyBQbGF5ZXIKICAgICAgICBjdHguZmlsbFN0eWxlID0gJyMzYjgyZjYnOwogICAgICAgIGN0eC5iZWdpblBhdGgoKTsKICAgICAgICBjdHguYXJjKHBsYXllci54LCBwbGF5ZXIueSwgcGxheWVyLnJhZGl1cywgMCwgTWF0aC5QSSAqIDIpOwogICAgICAgIGN0eC5maWxsKCk7CiAgICAgICAgY3R4LnN0cm9rZVN0eWxlID0gJyM5M2M1ZmQnOwogICAgICAgIGN0eC5saW5lV2lkdGggPSAyOwogICAgICAgIGN0eC5zdHJva2UoKTsKCiAgICAgICAgLy8gRHJhdyBGbG9hdGluZyBkYW1hZ2UgdGV4dHMKICAgICAgICBjdHguZm9udCA9ICdib2xkIDEycHggc2Fucy1zZXJpZic7CiAgICAgICAgZm9yIChjb25zdCBmdCBvZiBmbG9hdGluZ1RleHRzKSB7CiAgICAgICAgICBjdHguZmlsbFN0eWxlID0gZnQuY29sb3I7CiAgICAgICAgICBjdHguZmlsbFRleHQoZnQudGV4dCwgZnQueCwgZnQueSk7CiAgICAgICAgfQoKICAgICAgICAvLyAtLS0gSFVEIC0tLQogICAgICAgIC8vIFRvcCBYUCBCYXIKICAgICAgICBjdHguZmlsbFN0eWxlID0gJyMxZTI5M2InOwogICAgICAgIGN0eC5maWxsUmVjdCgwLCAwLCA4MDAsIDEwKTsKICAgICAgICBjdHguZmlsbFN0eWxlID0gJyMzOGJkZjgnOwogICAgICAgIGNvbnN0IHhwUmF0aW8gPSBNYXRoLm1pbigxLCBwbGF5ZXIueHAgLyBwbGF5ZXIueHBOZXh0KTsKICAgICAgICBjdHguZmlsbFJlY3QoMCwgMCwgODAwICogeHBSYXRpbywgMTApOwoKICAgICAgICAvLyBIZWFsdGggQmFyIChCb3R0b20gTGVmdCkKICAgICAgICBjdHguZmlsbFN0eWxlID0gJyMzNzQxNTEnOwogICAgICAgIGN0eC5maWxsUmVjdCgyMCwgNTYwLCAyMDAsIDIwKTsKICAgICAgICBjdHguZmlsbFN0eWxlID0gJyMyMmM1NWUnOwogICAgICAgIGNvbnN0IGhwUmF0aW8gPSBNYXRoLm1heCgwLCBwbGF5ZXIuaHAgLyBwbGF5ZXIubWF4SHApOwogICAgICAgIGN0eC5maWxsUmVjdCgyMCwgNTYwLCAyMDAgKiBocFJhdGlvLCAyMCk7CiAgICAgICAgY3R4LmZpbGxTdHlsZSA9ICcjZmZmZmZmJzsKICAgICAgICBjdHguZm9udCA9ICdib2xkIDExcHggc2Fucy1zZXJpZic7CiAgICAgICAgY3R4LmZpbGxUZXh0KGBIUDogJHtNYXRoLmNlaWwocGxheWVyLmhwKX0gLyAke3BsYXllci5tYXhIcH1gLCAzMCwgNTc0KTsKCiAgICAgICAgLy8gU3RhdHMgKFRvcCBMZWZ0IC8gUmlnaHQpCiAgICAgICAgY3R4LmZpbGxTdHlsZSA9ICcjZjNmNGY2JzsKICAgICAgICBjdHguZm9udCA9ICcxNHB4IHNhbnMtc2VyaWYnOwogICAgICAgIGN0eC5maWxsVGV4dChgTFZMICR7cGxheWVyLmxldmVsfWAsIDIwLCAzMCk7CiAgICAgICAgY3R4LmZpbGxUZXh0KGBLaWxsczogJHtraWxsQ291bnR9YCwgMTAwLCAzMCk7CiAgICAgICAgY29uc3QgbWlucyA9IE1hdGguZmxvb3Ioc3Vydml2YWxUaW1lIC8gNjApOwogICAgICAgIGNvbnN0IHNlY3MgPSBNYXRoLmZsb29yKHN1cnZpdmFsVGltZSAlIDYwKTsKICAgICAgICBjb25zdCB0aW1lU3RyID0gYCR7bWluc306JHtzZWNzIDwgMTAgPyAnMCcgOiAnJ30ke3NlY3N9YDsKICAgICAgICBjdHguZmlsbFRleHQoYFRpbWU6ICR7dGltZVN0cn1gLCA3MDAsIDMwKTsKCiAgICAgICAgLy8gR2FtZSBPdmVyIFNjcmVlbgogICAgICAgIGlmIChnYW1lT3ZlcikgewogICAgICAgICAgY3R4LmZpbGxTdHlsZSA9ICdyZ2JhKDAsIDAsIDAsIDAuOCknOwogICAgICAgICAgY3R4LmZpbGxSZWN0KDAsIDAsIDgwMCwgNjAwKTsKICAgICAgICAgIGN0eC5maWxsU3R5bGUgPSAnI2VmNDQ0NCc7CiAgICAgICAgICBjdHguZm9udCA9ICdib2xkIDM2cHggc2Fucy1zZXJpZic7CiAgICAgICAgICBjdHgudGV4dEFsaWduID0gJ2NlbnRlcic7CiAgICAgICAgICBjdHguZmlsbFRleHQoJ0dBTUUgT1ZFUicsIDQwMCwgMjUwKTsKICAgICAgICAgIGN0eC5maWxsU3R5bGUgPSAnI2NiZDVlMSc7CiAgICAgICAgICBjdHguZm9udCA9ICcxOHB4IHNhbnMtc2VyaWYnOwogICAgICAgICAgY3R4LmZpbGxUZXh0KGBTdXJ2aXZlZDogJHt0aW1lU3RyfSAgfCAgS2lsbHM6ICR7a2lsbENvdW50fSAgfCAgTGV2ZWw6ICR7cGxheWVyLmxldmVsfWAsIDQwMCwgMzAwKTsKICAgICAgICAgIGN0eC5maWxsU3R5bGUgPSAnIzRhZGU4MCc7CiAgICAgICAgICBjdHguZmlsbFRleHQoJ1ByZXNzIFsgUiBdIHRvIFJlc3RhcnQnLCA0MDAsIDM2MCk7CiAgICAgICAgICBjdHgudGV4dEFsaWduID0gJ3N0YXJ0JzsKICAgICAgICB9CiAgICAgIH0KCiAgICAgIGZ1bmN0aW9uIGxvb3Aobm93KSB7CiAgICAgICAgY29uc3QgZHQgPSBNYXRoLm1pbigwLjEsIChub3cgLSBsYXN0VGltZSkgLyAxMDAwKTsKICAgICAgICBsYXN0VGltZSA9IG5vdzsKICAgICAgICB1cGRhdGUoZHQpOwogICAgICAgIGRyYXcoKTsKICAgICAgICByZXF1ZXN0QW5pbWF0aW9uRnJhbWUobG9vcCk7CiAgICAgIH0KCiAgICAgIHJlcXVlc3RBbmltYXRpb25GcmFtZShsb29wKTsKICAgIH0pKCk7CiAgPC9zY3JpcHQ+CjwvYm9keT4KPC9odG1sPgo='></iframe>
+        </div>
+        <p style="color: var(--muted); font-size: 13px;">Full 60 FPS Canvas survivors game with auto-firing spiral weapons, XP gems, enemy wave scaling, level-up upgrade cards, boss tiers, and synthesized Web Audio sound effects.</p>
+        <div style="display: flex; gap: 8px;">
+          <a class="btn btn-accent" href="artifacts/megabonk/index.html" target="_blank">Open Fullscreen Game</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-card">
+      <div class="showcase-head">
+        <h3>Gary Busey Vector Portrait</h3>
+        <span class="badge badge-good">9.6 KB Pure SVG</span>
+      </div>
+      <div class="showcase-body">
+        <div class="artifact-preview" style="background: #1c1c1f;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="45%" r="75%" fx="45%" fy="40%">
+      <stop offset="0%" stop-color="#2a3342"/>
+      <stop offset="60%" stop-color="#181d26"/>
+      <stop offset="100%" stop-color="#0a0c10"/>
+    </radialGradient>
+
+    <!-- Skin Base & Shading Gradients -->
+    <linearGradient id="skinBase" x1="25%" y1="15%" x2="75%" y2="85%">
+      <stop offset="0%" stop-color="#ffd5b5"/>
+      <stop offset="40%" stop-color="#f8be98"/>
+      <stop offset="80%" stop-color="#d98c64"/>
+      <stop offset="100%" stop-color="#ad5836"/>
+    </linearGradient>
+
+    <radialGradient id="cheekFlush" cx="45%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e86351" stop-opacity="0.45"/>
+      <stop offset="70%" stop-color="#d65140" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#c43828" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Hair Wild Volume Gradient -->
+    <linearGradient id="hairGrad" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#f5e8d3"/>
+      <stop offset="50%" stop-color="#d4c3aa"/>
+      <stop offset="85%" stop-color="#998670"/>
+      <stop offset="100%" stop-color="#5c4d3d"/>
+    </linearGradient>
+
+    <!-- Eyeball & Iris Shading -->
+    <radialGradient id="eyeSclera" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="70%" stop-color="#f0ece6"/>
+      <stop offset="95%" stop-color="#cfc2b6"/>
+      <stop offset="100%" stop-color="#998777"/>
+    </radialGradient>
+
+    <radialGradient id="irisGrad" cx="40%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#8ce1ff"/>
+      <stop offset="35%" stop-color="#38a3d6"/>
+      <stop offset="70%" stop-color="#175b82"/>
+      <stop offset="100%" stop-color="#09283d"/>
+    </radialGradient>
+
+    <!-- Tooth & Mouth Depth Gradient -->
+    <linearGradient id="mouthDepth" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#210808"/>
+      <stop offset="60%" stop-color="#3b0f0f"/>
+      <stop offset="100%" stop-color="#591414"/>
+    </linearGradient>
+
+    <linearGradient id="teethGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fffaee"/>
+      <stop offset="75%" stop-color="#ebdcc0"/>
+      <stop offset="100%" stop-color="#baa786"/>
+    </linearGradient>
+
+    <!-- Blur Filter for Facial Shadows -->
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="1024" height="1024" fill="url(#bgGrad)"/>
+
+  <!-- Neck & Shoulder Base -->
+  <g id="neck-torso">
+    <path d="M340 760 Q260 840 180 1024 L844 1024 Q764 840 684 760 Z" fill="#b0623d"/>
+    <path d="M360 740 Q512 820 664 740 L650 900 Q512 960 374 900 Z" fill="#994d2c"/>
+    <path d="M470 780 L512 870 L554 780 Z" fill="#75351a" opacity="0.6"/>
+  </g>
+
+  <!-- Hair Back Layer (Wild Strands) -->
+  <g id="hair-back" fill="url(#hairGrad)">
+    <path d="M220 540 Q150 380 230 220 Q320 80 512 90 Q704 80 794 220 Q874 380 804 540 Q840 400 810 260 Q760 110 512 110 Q264 110 214 260 Q184 400 220 540 Z"/>
+    <path d="M190 340 C140 240 220 130 330 80 C270 140 230 230 220 330 Z"/>
+    <path d="M834 340 C884 240 804 130 694 80 C754 140 794 230 804 330 Z"/>
+  </g>
+
+  <!-- Head Base Contour (Gary Busey Angular Jaw) -->
+  <g id="head-base">
+    <path d="M290 380 C280 260 360 200 512 195 C664 200 744 260 734 380 C724 490 736 570 710 680 C680 780 594 820 512 825 C430 820 344 780 314 680 C288 570 300 490 290 380 Z" fill="url(#skinBase)"/>
+    <!-- Cheek Volume & Intense Bone Structure -->
+    <ellipse cx="380" cy="540" rx="95" ry="65" fill="url(#cheekFlush)"/>
+    <ellipse cx="644" cy="540" rx="95" ry="65" fill="url(#cheekFlush)"/>
+  </g>
+
+  <!-- Forehead Wrinkles (Signature Gary Busey Expression) -->
+  <g id="forehead-wrinkles" stroke="#8c4323" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.75">
+    <path d="M370 270 Q512 250 654 270"/>
+    <path d="M350 300 Q512 278 674 300"/>
+    <path d="M380 330 Q512 312 644 330"/>
+    <path d="M480 345 L485 390"/>
+    <path d="M512 340 L512 392"/>
+    <path d="M544 345 L539 390"/>
+  </g>
+
+  <!-- Eyes (Wide, Unblinking Intensity) -->
+  <g id="eyes">
+    <!-- Left Eye -->
+    <g id="left-eye">
+      <path d="M350 435 Q410 405 470 435 Q410 475 350 435 Z" fill="url(#eyeSclera)"/>
+      <circle cx="414" cy="437" r="22" fill="url(#irisGrad)"/>
+      <circle cx="414" cy="437" r="9" fill="#000000"/>
+      <circle cx="408" cy="431" r="5" fill="#ffffff" opacity="0.9"/>
+      <!-- Eyelids & Crow's Feet -->
+      <path d="M340 435 Q410 395 480 435" stroke="#692b11" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M348 440 Q410 480 472 440" stroke="#783416" stroke-width="3" fill="none"/>
+      <path d="M330 425 L345 435 L328 448" stroke="#8c4323" stroke-width="3" fill="none"/>
+      <path d="M325 438 L342 442" stroke="#8c4323" stroke-width="2.5" fill="none"/>
+    </g>
+
+    <!-- Right Eye -->
+    <g id="right-eye">
+      <path d="M554 435 Q614 405 674 435 Q614 475 554 435 Z" fill="url(#eyeSclera)"/>
+      <circle cx="610" cy="437" r="22" fill="url(#irisGrad)"/>
+      <circle cx="610" cy="437" r="9" fill="#000000"/>
+      <circle cx="604" cy="431" r="5" fill="#ffffff" opacity="0.9"/>
+      <!-- Eyelids & Crow's Feet -->
+      <path d="M544 435 Q614 395 684 435" stroke="#692b11" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M552 440 Q614 480 676 440" stroke="#783416" stroke-width="3" fill="none"/>
+      <path d="M694 425 L679 435 L696 448" stroke="#8c4323" stroke-width="3" fill="none"/>
+      <path d="M699 438 L682 442" stroke="#8c4323" stroke-width="2.5" fill="none"/>
+    </g>
+
+    <!-- Intense Raised Eyebrows -->
+    <path d="M335 390 Q415 350 475 385 Q415 365 335 390 Z" fill="url(#hairGrad)"/>
+    <path d="M689 390 Q609 350 549 385 Q609 365 689 390 Z" fill="url(#hairGrad)"/>
+  </g>
+
+  <!-- Nose (Prominent, Broad Bridge) -->
+  <g id="nose">
+    <path d="M490 395 L484 535 Q450 550 460 575 Q485 595 512 595 Q539 595 564 575 Q574 550 540 535 L534 395 Z" fill="#eb9c73" opacity="0.85"/>
+    <path d="M472 568 C465 572 475 585 490 580" stroke="#521f0b" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <path d="M552 568 C559 572 549 585 534 580" stroke="#521f0b" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="512" cy="565" rx="18" ry="12" fill="#ffa67e" opacity="0.7"/>
+    <!-- Nasolabial Folds (Laugh Lines to Jaw) -->
+    <path d="M455 540 Q405 610 395 700" stroke="#783115" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path d="M569 540 Q619 610 629 700" stroke="#783115" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Mouth & Giant Enamel Smile (Quintessential Gary Busey Teeth) -->
+  <g id="mouth">
+    <!-- Mouth Interior Cavity -->
+    <path d="M375 640 Q512 615 649 640 Q665 725 512 735 Q359 725 375 640 Z" fill="url(#mouthDepth)"/>
+
+    <!-- Upper Teeth Row -->
+    <g id="upper-teeth" fill="url(#teethGrad)" stroke="#4a180d" stroke-width="1.8">
+      <!-- Central Incisors (Large, Iconic) -->
+      <path d="M494 632 L512 633 L511 668 L493 667 Z"/>
+      <path d="M512 633 L530 632 L531 667 L513 668 Z"/>
+      <!-- Lateral Incisors -->
+      <path d="M476 633 L494 632 L493 664 L477 662 Z"/>
+      <path d="M530 632 L548 633 L547 662 L531 664 Z"/>
+      <!-- Canines & Premolars -->
+      <path d="M456 636 L476 633 L475 660 L457 655 Z"/>
+      <path d="M548 633 L568 636 L567 655 L549 660 Z"/>
+      <path d="M434 640 L456 636 L455 652 L436 646 Z"/>
+      <path d="M568 636 L590 640 L588 646 L569 652 Z"/>
+      <path d="M410 644 L434 640 L433 644 L415 642 Z"/>
+      <path d="M590 640 L614 644 L609 642 L591 644 Z"/>
+    </g>
+
+    <!-- Lower Teeth Row -->
+    <g id="lower-teeth" fill="url(#teethGrad)" stroke="#4a180d" stroke-width="1.5">
+      <path d="M495 690 L512 689 L511 708 L496 708 Z"/>
+      <path d="M512 689 L529 690 L528 708 L513 708 Z"/>
+      <path d="M480 691 L495 690 L494 706 L481 705 Z"/>
+      <path d="M529 690 L544 691 L543 705 L530 706 Z"/>
+      <path d="M462 693 L480 691 L479 703 L464 701 Z"/>
+      <path d="M544 691 L562 693 L560 701 L545 703 Z"/>
+    </g>
+
+    <!-- Upper & Lower Lips -->
+    <path d="M370 638 Q512 608 654 638 Q512 622 370 638 Z" fill="#b85845"/>
+    <path d="M375 640 C395 725 470 742 512 743 C554 742 629 725 649 640 C619 715 554 732 512 733 C470 732 405 715 375 640 Z" fill="#c76350"/>
+  </g>
+
+  <!-- Chin Crease & Structure -->
+  <g id="chin">
+    <path d="M472 765 Q512 775 552 765" stroke="#702c11" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="512" cy="785" rx="36" ry="18" fill="#d97f55" opacity="0.6"/>
+  </g>
+
+  <!-- Wild Feathered Hair Front Layer -->
+  <g id="hair-front" fill="url(#hairGrad)" stroke="#806b54" stroke-width="1.5">
+    <path d="M290 280 C230 180 340 70 470 75 C390 100 320 170 300 270 Z"/>
+    <path d="M430 110 C500 50 620 60 670 120 C590 80 500 90 440 120 Z"/>
+    <path d="M620 110 C720 80 810 160 760 280 C760 190 700 130 630 120 Z"/>
+    <!-- Wild side spikes -->
+    <path d="M230 350 C170 320 160 230 240 220 C200 260 210 320 235 345 Z"/>
+    <path d="M794 350 C854 320 864 230 784 220 C824 260 814 320 789 345 Z"/>
+    <path d="M250 460 C180 430 190 350 250 360 C210 390 220 440 252 455 Z"/>
+    <path d="M774 460 C844 430 834 350 774 360 C814 390 804 440 772 455 Z"/>
+  </g>
+</svg>
+
+        </div>
+        <p style="color: var(--muted); font-size: 13px;">1024x1024 SVG portrait featuring cubic bezier hair paths with <code>feTurbulence</code> displacement filters, expressive teeth smile geometry, and layered skin contour gradients.</p>
+        <div style="display: flex; gap: 8px;">
+          <a class="btn btn-outline" href="artifacts/busey/portrait.svg" target="_blank">View Raw Vector SVG</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detailed Workflow Breakdowns -->
+  <h2 style="font-size: 18px; margin-bottom: 14px;">Phase-by-Phase A/B Execution Traces</h2>
+  
+            <div class="wf-card">
+                <div class="wf-header">
+                    <div>
+                        <h3>Megabonk 2D Survivors Game Clone (Agentic Build)</h3>
+                        <div class="wf-meta">
+                            <span class="chip">Tokens Saved: <strong>56,628 (75.0%)</strong></span>
+                            <span class="chip">Cost Saved: <strong>$0.1699</strong></span>
+                            <span class="chip">AST Latency: <strong>215ms</strong></span>
+                            <span class='badge badge-good'>Validated: VALID (16,175 bytes)</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="tablewrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Step / Phase</th>
+                                <th>Tool / Command (Baseline vs AST)</th>
+                                <th class="num">Baseline Tokens</th>
+                                <th class="num">AST Tokens</th>
+                                <th class="num">Saved</th>
+                                <th class="num">AST Latency</th>
+                                <th>LLM Output</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                <tr>
+                    <td class="step-name"><strong>Phase 1: Project Orientation & Layout</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>find . -maxdepth 2</code></div><div class="ast-cmd"><code>get_project_map(depth=2)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">478</span>
+                            <div class="bar bar-base" style="width: 7%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>6,769</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--6,291</strong><br><small>(-1316.1%)</small></td>
+                    <td class="num">9ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 1: Inspect Frontend Canvas / UI Patterns</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Read(ui/src/App.tsx)</code></div><div class="ast-cmd"><code>get_file_context(ui/src/App.tsx, skeleton)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">3,827</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>140</strong></span>
+                            <div class="bar bar-ast" style="width: 3%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-3,687</strong><br><small>(96.3%)</small></td>
+                    <td class="num">8ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 2: Check Existing Math & Vector Symbols</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep 'ComputeSavings'</code></div><div class="ast-cmd"><code>check_symbol_exists(ComputeSavings)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">336</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>44</strong></span>
+                            <div class="bar bar-ast" style="width: 13%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-292</strong><br><small>(86.9%)</small></td>
+                    <td class="num">5ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 2: Search Entity State & Loop Patterns</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'game loop requestAnimationFrame state entity update' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('game loop requestAnimationFrame state entity update', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">32</span>
+                            <div class="bar bar-base" style="width: 50%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>64</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--32</strong><br><small>(-100.0%)</small></td>
+                    <td class="num">50ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 3: Turn 1 - Collision & Weapon Systems</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'projectile collision distance circle hitbox math' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('projectile collision distance circle hitbox math', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">31</span>
+                            <div class="bar bar-base" style="width: 7%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>390</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--359</strong><br><small>(-1158.1%)</small></td>
+                    <td class="num">42ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 3: Turn 2 - Enemy Wave Spawning & Scaling</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'enemy wave spawn timer interval scaling difficulty' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('enemy wave spawn timer interval scaling difficulty', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">32</span>
+                            <div class="bar bar-base" style="width: 15%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>209</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--177</strong><br><small>(-553.1%)</small></td>
+                    <td class="num">42ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 3: Turn 3 - Upgrade Card UI & XP System</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'level up upgrade card selection pause resume modal' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('level up upgrade card selection pause resume modal', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">32</span>
+                            <div class="bar bar-base" style="width: 19%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>165</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--133</strong><br><small>(-415.6%)</small></td>
+                    <td class="num">43ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 4: Blast Radius of Shared Math Utility</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep callers of 'EstimateTokens' + Read(callers)</code></div><div class="ast-cmd"><code>get_impact_graph(EstimateTokens)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">29,314</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>6,785</strong></span>
+                            <div class="bar bar-ast" style="width: 23%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-22,529</strong><br><small>(76.9%)</small></td>
+                    <td class="num">7ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 4: Verify Deletion Safety of Deprecated Helper</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>manual grep callers for deletion safety</code></div><div class="ast-cmd"><code>check_deletion_safety(['EstimateTokens'])</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">29,314</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>6</strong></span>
+                            <div class="bar bar-ast" style="width: 0%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-29,308</strong><br><small>(100.0%)</small></td>
+                    <td class="num">1ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 5: Offload 4,000-Token Game Spec to Virtual Context</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Chat History Accumulation (4000 tokens)</code></div><div class="ast-cmd"><code>store_context('Megabonk Survivors Game Specification & Roadmap') -> ctx_e97a4fd0b859</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">4,022</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>18</strong></span>
+                            <div class="bar bar-ast" style="width: 0%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-4,004</strong><br><small>(99.6%)</small></td>
+                    <td class="num">2ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 5: Post-Compaction Virtual Context Recovery</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Post-Compaction Raw Re-paste into Chat</code></div><div class="ast-cmd"><code>fetch_context([ctx_e97a4fd0b859])</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">4,022</span>
+                            <div class="bar bar-base" style="width: 95%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>4,205</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--183</strong><br><small>(-4.5%)</small></td>
+                    <td class="num">1ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 5: Subagent Handoff for Audio/Visual Polish</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Subagent Prompt (Full History Duplication)</code></div><div class="ast-cmd"><code>handoff(create: 'Megabonk AV Polish Subagent')</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">4,056</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>73</strong></span>
+                            <div class="bar bar-ast" style="width: 1%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-3,983</strong><br><small>(98.2%)</small></td>
+                    <td class="num">3ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="wf-card">
+                <div class="wf-header">
+                    <div>
+                        <h3>Busey Bench: Complex Gary Busey SVG Vector Synthesis</h3>
+                        <div class="wf-meta">
+                            <span class="chip">Tokens Saved: <strong>52,618 (74.5%)</strong></span>
+                            <span class="chip">Cost Saved: <strong>$0.1579</strong></span>
+                            <span class="chip">AST Latency: <strong>204ms</strong></span>
+                            <span class='badge badge-good'>Validated: VALID (9,598 bytes)</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="tablewrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Step / Phase</th>
+                                <th>Tool / Command (Baseline vs AST)</th>
+                                <th class="num">Baseline Tokens</th>
+                                <th class="num">AST Tokens</th>
+                                <th class="num">Saved</th>
+                                <th class="num">AST Latency</th>
+                                <th>LLM Output</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                <tr>
+                    <td class="step-name"><strong>Phase 1: Project Orientation & Chart/SVG Conventions</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>find . -maxdepth 2</code></div><div class="ast-cmd"><code>get_project_map(depth=2)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">478</span>
+                            <div class="bar bar-base" style="width: 7%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>6,769</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--6,291</strong><br><small>(-1316.1%)</small></td>
+                    <td class="num">14ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 1: Inspect Frontend SVG & Gauge Components</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Read(ui/src/components/charts/RingGauge.tsx)</code></div><div class="ast-cmd"><code>get_file_context(ui/src/components/charts/RingGauge.tsx, skeleton)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">460</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>108</strong></span>
+                            <div class="bar bar-ast" style="width: 23%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-352</strong><br><small>(76.5%)</small></td>
+                    <td class="num">5ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 2: Check Existing Color Palette Symbols</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep 'ComputeSavings'</code></div><div class="ast-cmd"><code>check_symbol_exists(ComputeSavings)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">336</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>44</strong></span>
+                            <div class="bar bar-ast" style="width: 13%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-292</strong><br><small>(86.9%)</small></td>
+                    <td class="num">4ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 2: Search SVG Filter & Gradient Definitions</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'linearGradient radialGradient feGaussianBlur clipPath defs' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('linearGradient radialGradient feGaussianBlur clipPath defs', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">34</span>
+                            <div class="bar bar-base" style="width: 51%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>66</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--32</strong><br><small>(-94.1%)</small></td>
+                    <td class="num">39ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 3: Turn 1 - Head Outline & Hair Volume Paths</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'svg path bezier curve cubic arc hair outline' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('svg path bezier curve cubic arc hair outline', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">30</span>
+                            <div class="bar bar-base" style="width: 11%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>259</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--229</strong><br><small>(-763.3%)</small></td>
+                    <td class="num">38ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 3: Turn 2 - Expressive Facial Features & Teeth</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'mouth teeth smile eye iris pupil reflection highlight' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('mouth teeth smile eye iris pupil reflection highlight', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">33</span>
+                            <div class="bar bar-base" style="width: 50%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>65</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--32</strong><br><small>(-97.0%)</small></td>
+                    <td class="num">51ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 3: Turn 3 - Skin Shading & Wrinkle Contour Lines</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep -rn 'shadow highlight contour cheek forehead wrinkle line' + Read(files)</code></div><div class="ast-cmd"><code>get_context_capsule('shadow highlight contour cheek forehead wrinkle line', auto)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">32</span>
+                            <div class="bar bar-base" style="width: 26%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>120</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--88</strong><br><small>(-275.0%)</small></td>
+                    <td class="num">39ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 4: Blast Radius of Color Utility</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>grep callers of 'EstimateTokens' + Read(callers)</code></div><div class="ast-cmd"><code>get_impact_graph(EstimateTokens)</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">29,314</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>6,785</strong></span>
+                            <div class="bar bar-ast" style="width: 23%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-22,529</strong><br><small>(76.9%)</small></td>
+                    <td class="num">6ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 4: Deletion Safety for Palette Refactor</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>manual grep callers for deletion safety</code></div><div class="ast-cmd"><code>check_deletion_safety(['EstimateTokens'])</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">29,314</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>6</strong></span>
+                            <div class="bar bar-ast" style="width: 0%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-29,308</strong><br><small>(100.0%)</small></td>
+                    <td class="num">1ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 5: Offload 3,500-Token Gary Busey Vector Spec</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Chat History Accumulation (3500 tokens)</code></div><div class="ast-cmd"><code>store_context('Gary Busey Vector Anatomy & Color Palette Specification') -> ctx_7660e3c2ca7e</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">3,524</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>20</strong></span>
+                            <div class="bar bar-ast" style="width: 0%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-3,504</strong><br><small>(99.4%)</small></td>
+                    <td class="num">2ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 5: Post-Compaction Virtual Context Recovery</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Post-Compaction Raw Re-paste into Chat</code></div><div class="ast-cmd"><code>fetch_context([ctx_7660e3c2ca7e])</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">3,524</span>
+                            <div class="bar bar-base" style="width: 95%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>3,708</strong></span>
+                            <div class="bar bar-ast" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>--184</strong><br><small>(-5.2%)</small></td>
+                    <td class="num">2ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                <tr>
+                    <td class="step-name"><strong>Phase 5: Subagent Handoff for Shadow Gradients</strong></td>
+                    <td class="cmd-cell"><div class="base-cmd"><code>Subagent Prompt (Full History Duplication)</code></div><div class="ast-cmd"><code>handoff(create: 'Busey SVG Shading Subagent')</code></div></td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val">3,561</span>
+                            <div class="bar bar-base" style="width: 100%;"></div>
+                        </div>
+                    </td>
+                    <td class="num">
+                        <div class="bar-wrap">
+                            <span class="bar-val text-good"><strong>72</strong></span>
+                            <div class="bar bar-ast" style="width: 2%;"></div>
+                        </div>
+                    </td>
+                    <td class="num text-good"><strong>-3,489</strong><br><small>(98.0%)</small></td>
+                    <td class="num">2ms</td>
+                    <td>&mdash;</td>
+                </tr>
+                
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+
+  <footer>
+    ast-context-cache benchmark runner &bull; Generated 2026-11-13 17:45:33 UTC &bull; Local Engine v5.0.25
+  </footer>
+</div>
+</body>
+</html>
