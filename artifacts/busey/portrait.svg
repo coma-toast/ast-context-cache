@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="45%" r="75%" fx="45%" fy="40%">
+      <stop offset="0%" stop-color="#2a3342"/>
+      <stop offset="60%" stop-color="#181d26"/>
+      <stop offset="100%" stop-color="#0a0c10"/>
+    </radialGradient>
+
+    <!-- Skin Base & Shading Gradients -->
+    <linearGradient id="skinBase" x1="25%" y1="15%" x2="75%" y2="85%">
+      <stop offset="0%" stop-color="#ffd5b5"/>
+      <stop offset="40%" stop-color="#f8be98"/>
+      <stop offset="80%" stop-color="#d98c64"/>
+      <stop offset="100%" stop-color="#ad5836"/>
+    </linearGradient>
+
+    <radialGradient id="cheekFlush" cx="45%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e86351" stop-opacity="0.45"/>
+      <stop offset="70%" stop-color="#d65140" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#c43828" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Hair Wild Volume Gradient -->
+    <linearGradient id="hairGrad" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#f5e8d3"/>
+      <stop offset="50%" stop-color="#d4c3aa"/>
+      <stop offset="85%" stop-color="#998670"/>
+      <stop offset="100%" stop-color="#5c4d3d"/>
+    </linearGradient>
+
+    <!-- Eyeball & Iris Shading -->
+    <radialGradient id="eyeSclera" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="70%" stop-color="#f0ece6"/>
+      <stop offset="95%" stop-color="#cfc2b6"/>
+      <stop offset="100%" stop-color="#998777"/>
+    </radialGradient>
+
+    <radialGradient id="irisGrad" cx="40%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#8ce1ff"/>
+      <stop offset="35%" stop-color="#38a3d6"/>
+      <stop offset="70%" stop-color="#175b82"/>
+      <stop offset="100%" stop-color="#09283d"/>
+    </radialGradient>
+
+    <!-- Tooth & Mouth Depth Gradient -->
+    <linearGradient id="mouthDepth" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#210808"/>
+      <stop offset="60%" stop-color="#3b0f0f"/>
+      <stop offset="100%" stop-color="#591414"/>
+    </linearGradient>
+
+    <linearGradient id="teethGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fffaee"/>
+      <stop offset="75%" stop-color="#ebdcc0"/>
+      <stop offset="100%" stop-color="#baa786"/>
+    </linearGradient>
+
+    <!-- Blur Filter for Facial Shadows -->
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="1024" height="1024" fill="url(#bgGrad)"/>
+
+  <!-- Neck & Shoulder Base -->
+  <g id="neck-torso">
+    <path d="M340 760 Q260 840 180 1024 L844 1024 Q764 840 684 760 Z" fill="#b0623d"/>
+    <path d="M360 740 Q512 820 664 740 L650 900 Q512 960 374 900 Z" fill="#994d2c"/>
+    <path d="M470 780 L512 870 L554 780 Z" fill="#75351a" opacity="0.6"/>
+  </g>
+
+  <!-- Hair Back Layer (Wild Strands) -->
+  <g id="hair-back" fill="url(#hairGrad)">
+    <path d="M220 540 Q150 380 230 220 Q320 80 512 90 Q704 80 794 220 Q874 380 804 540 Q840 400 810 260 Q760 110 512 110 Q264 110 214 260 Q184 400 220 540 Z"/>
+    <path d="M190 340 C140 240 220 130 330 80 C270 140 230 230 220 330 Z"/>
+    <path d="M834 340 C884 240 804 130 694 80 C754 140 794 230 804 330 Z"/>
+  </g>
+
+  <!-- Head Base Contour (Gary Busey Angular Jaw) -->
+  <g id="head-base">
+    <path d="M290 380 C280 260 360 200 512 195 C664 200 744 260 734 380 C724 490 736 570 710 680 C680 780 594 820 512 825 C430 820 344 780 314 680 C288 570 300 490 290 380 Z" fill="url(#skinBase)"/>
+    <!-- Cheek Volume & Intense Bone Structure -->
+    <ellipse cx="380" cy="540" rx="95" ry="65" fill="url(#cheekFlush)"/>
+    <ellipse cx="644" cy="540" rx="95" ry="65" fill="url(#cheekFlush)"/>
+  </g>
+
+  <!-- Forehead Wrinkles (Signature Gary Busey Expression) -->
+  <g id="forehead-wrinkles" stroke="#8c4323" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.75">
+    <path d="M370 270 Q512 250 654 270"/>
+    <path d="M350 300 Q512 278 674 300"/>
+    <path d="M380 330 Q512 312 644 330"/>
+    <path d="M480 345 L485 390"/>
+    <path d="M512 340 L512 392"/>
+    <path d="M544 345 L539 390"/>
+  </g>
+
+  <!-- Eyes (Wide, Unblinking Intensity) -->
+  <g id="eyes">
+    <!-- Left Eye -->
+    <g id="left-eye">
+      <path d="M350 435 Q410 405 470 435 Q410 475 350 435 Z" fill="url(#eyeSclera)"/>
+      <circle cx="414" cy="437" r="22" fill="url(#irisGrad)"/>
+      <circle cx="414" cy="437" r="9" fill="#000000"/>
+      <circle cx="408" cy="431" r="5" fill="#ffffff" opacity="0.9"/>
+      <!-- Eyelids & Crow's Feet -->
+      <path d="M340 435 Q410 395 480 435" stroke="#692b11" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M348 440 Q410 480 472 440" stroke="#783416" stroke-width="3" fill="none"/>
+      <path d="M330 425 L345 435 L328 448" stroke="#8c4323" stroke-width="3" fill="none"/>
+      <path d="M325 438 L342 442" stroke="#8c4323" stroke-width="2.5" fill="none"/>
+    </g>
+
+    <!-- Right Eye -->
+    <g id="right-eye">
+      <path d="M554 435 Q614 405 674 435 Q614 475 554 435 Z" fill="url(#eyeSclera)"/>
+      <circle cx="610" cy="437" r="22" fill="url(#irisGrad)"/>
+      <circle cx="610" cy="437" r="9" fill="#000000"/>
+      <circle cx="604" cy="431" r="5" fill="#ffffff" opacity="0.9"/>
+      <!-- Eyelids & Crow's Feet -->
+      <path d="M544 435 Q614 395 684 435" stroke="#692b11" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M552 440 Q614 480 676 440" stroke="#783416" stroke-width="3" fill="none"/>
+      <path d="M694 425 L679 435 L696 448" stroke="#8c4323" stroke-width="3" fill="none"/>
+      <path d="M699 438 L682 442" stroke="#8c4323" stroke-width="2.5" fill="none"/>
+    </g>
+
+    <!-- Intense Raised Eyebrows -->
+    <path d="M335 390 Q415 350 475 385 Q415 365 335 390 Z" fill="url(#hairGrad)"/>
+    <path d="M689 390 Q609 350 549 385 Q609 365 689 390 Z" fill="url(#hairGrad)"/>
+  </g>
+
+  <!-- Nose (Prominent, Broad Bridge) -->
+  <g id="nose">
+    <path d="M490 395 L484 535 Q450 550 460 575 Q485 595 512 595 Q539 595 564 575 Q574 550 540 535 L534 395 Z" fill="#eb9c73" opacity="0.85"/>
+    <path d="M472 568 C465 572 475 585 490 580" stroke="#521f0b" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <path d="M552 568 C559 572 549 585 534 580" stroke="#521f0b" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="512" cy="565" rx="18" ry="12" fill="#ffa67e" opacity="0.7"/>
+    <!-- Nasolabial Folds (Laugh Lines to Jaw) -->
+    <path d="M455 540 Q405 610 395 700" stroke="#783115" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path d="M569 540 Q619 610 629 700" stroke="#783115" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Mouth & Giant Enamel Smile (Quintessential Gary Busey Teeth) -->
+  <g id="mouth">
+    <!-- Mouth Interior Cavity -->
+    <path d="M375 640 Q512 615 649 640 Q665 725 512 735 Q359 725 375 640 Z" fill="url(#mouthDepth)"/>
+
+    <!-- Upper Teeth Row -->
+    <g id="upper-teeth" fill="url(#teethGrad)" stroke="#4a180d" stroke-width="1.8">
+      <!-- Central Incisors (Large, Iconic) -->
+      <path d="M494 632 L512 633 L511 668 L493 667 Z"/>
+      <path d="M512 633 L530 632 L531 667 L513 668 Z"/>
+      <!-- Lateral Incisors -->
+      <path d="M476 633 L494 632 L493 664 L477 662 Z"/>
+      <path d="M530 632 L548 633 L547 662 L531 664 Z"/>
+      <!-- Canines & Premolars -->
+      <path d="M456 636 L476 633 L475 660 L457 655 Z"/>
+      <path d="M548 633 L568 636 L567 655 L549 660 Z"/>
+      <path d="M434 640 L456 636 L455 652 L436 646 Z"/>
+      <path d="M568 636 L590 640 L588 646 L569 652 Z"/>
+      <path d="M410 644 L434 640 L433 644 L415 642 Z"/>
+      <path d="M590 640 L614 644 L609 642 L591 644 Z"/>
+    </g>
+
+    <!-- Lower Teeth Row -->
+    <g id="lower-teeth" fill="url(#teethGrad)" stroke="#4a180d" stroke-width="1.5">
+      <path d="M495 690 L512 689 L511 708 L496 708 Z"/>
+      <path d="M512 689 L529 690 L528 708 L513 708 Z"/>
+      <path d="M480 691 L495 690 L494 706 L481 705 Z"/>
+      <path d="M529 690 L544 691 L543 705 L530 706 Z"/>
+      <path d="M462 693 L480 691 L479 703 L464 701 Z"/>
+      <path d="M544 691 L562 693 L560 701 L545 703 Z"/>
+    </g>
+
+    <!-- Upper & Lower Lips -->
+    <path d="M370 638 Q512 608 654 638 Q512 622 370 638 Z" fill="#b85845"/>
+    <path d="M375 640 C395 725 470 742 512 743 C554 742 629 725 649 640 C619 715 554 732 512 733 C470 732 405 715 375 640 Z" fill="#c76350"/>
+  </g>
+
+  <!-- Chin Crease & Structure -->
+  <g id="chin">
+    <path d="M472 765 Q512 775 552 765" stroke="#702c11" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="512" cy="785" rx="36" ry="18" fill="#d97f55" opacity="0.6"/>
+  </g>
+
+  <!-- Wild Feathered Hair Front Layer -->
+  <g id="hair-front" fill="url(#hairGrad)" stroke="#806b54" stroke-width="1.5">
+    <path d="M290 280 C230 180 340 70 470 75 C390 100 320 170 300 270 Z"/>
+    <path d="M430 110 C500 50 620 60 670 120 C590 80 500 90 440 120 Z"/>
+    <path d="M620 110 C720 80 810 160 760 280 C760 190 700 130 630 120 Z"/>
+    <!-- Wild side spikes -->
+    <path d="M230 350 C170 320 160 230 240 220 C200 260 210 320 235 345 Z"/>
+    <path d="M794 350 C854 320 864 230 784 220 C824 260 814 320 789 345 Z"/>
+    <path d="M250 460 C180 430 190 350 250 360 C210 390 220 440 252 455 Z"/>
+    <path d="M774 460 C844 430 834 350 774 360 C814 390 804 440 772 455 Z"/>
+  </g>
+</svg>

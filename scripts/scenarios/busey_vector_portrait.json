@@ -1,0 +1,81 @@
+{
+  "id": "busey_svg_portrait",
+  "name": "Busey Bench: Complex Gary Busey SVG Vector Synthesis",
+  "description": "Multi-agent engineering workflow synthesizing a 1024x1024 standalone SVG portrait of Gary Busey's face using vector shapes, layered gradients, Gaussian blur filters, clipping paths, hair flow paths, wrinkles, teeth, and expressive facial anatomy.",
+  "target_artifact": "artifacts/busey/portrait.svg",
+  "steps": [
+    {
+      "name": "Phase 1: Project Orientation & Chart/SVG Conventions",
+      "action": "map",
+      "depth": 2
+    },
+    {
+      "name": "Phase 1: Inspect Frontend SVG & Gauge Components",
+      "action": "file_context",
+      "file": "ui/src/components/charts/RingGauge.tsx",
+      "mode": "skeleton"
+    },
+    {
+      "name": "Phase 2: Check Existing Color Palette Symbols",
+      "action": "exists",
+      "symbol": "ComputeSavings"
+    },
+    {
+      "name": "Phase 2: Search SVG Filter & Gradient Definitions",
+      "action": "capsule",
+      "query": "linearGradient radialGradient feGaussianBlur clipPath defs",
+      "mode": "auto",
+      "budget": 2000,
+      "generate_code": true
+    },
+    {
+      "name": "Phase 3: Turn 1 - Head Outline & Hair Volume Paths",
+      "action": "capsule",
+      "query": "svg path bezier curve cubic arc hair outline",
+      "mode": "auto",
+      "budget": 2000,
+      "generate_code": true
+    },
+    {
+      "name": "Phase 3: Turn 2 - Expressive Facial Features & Teeth",
+      "action": "capsule",
+      "query": "mouth teeth smile eye iris pupil reflection highlight",
+      "mode": "auto",
+      "budget": 2000,
+      "generate_code": true
+    },
+    {
+      "name": "Phase 3: Turn 3 - Skin Shading & Wrinkle Contour Lines",
+      "action": "capsule",
+      "query": "shadow highlight contour cheek forehead wrinkle line",
+      "mode": "auto",
+      "budget": 2000
+    },
+    {
+      "name": "Phase 4: Blast Radius of Color Utility",
+      "action": "impact",
+      "symbol": "EstimateTokens"
+    },
+    {
+      "name": "Phase 4: Deletion Safety for Palette Refactor",
+      "action": "deletion_safety",
+      "symbols": ["EstimateTokens"]
+    },
+    {
+      "name": "Phase 5: Offload 3,500-Token Gary Busey Vector Spec",
+      "action": "store_context",
+      "label": "Gary Busey Vector Anatomy & Color Palette Specification",
+      "token_size": 3500
+    },
+    {
+      "name": "Phase 5: Post-Compaction Virtual Context Recovery",
+      "action": "fetch_context"
+    },
+    {
+      "name": "Phase 5: Subagent Handoff for Shadow Gradients",
+      "action": "handoff",
+      "brief": "Fine-tune secondary ambient occlusion shadows and cheek highlights using multi-stop radial gradients.",
+      "label": "Busey SVG Shading Subagent"
+    }
+  ]
+}

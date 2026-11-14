@@ -2,6 +2,8 @@
 
 [![Release](https://img.shields.io/github/v/release/coma-toast/ast-context-cache)](https://github.com/coma-toast/ast-context-cache/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
+[![Context Reduction](https://img.shields.io/badge/Context%20Reduction-74.8%25-4ade80.svg)](#benchmarks--context-efficiency)
+[![Compression](https://img.shields.io/badge/Compression-3.96x-38bdf8.svg)](#benchmarks--context-efficiency)
 
 **Give AI coding agents the code they need in a fraction of the tokens.** ast-context-cache is a local MCP server that indexes your repos with tree-sitter and answers agents with symbols, signatures, and summaries instead of whole files. It also keeps an agent's plans alive across chat compaction and hands subagents what their parent already found, so nothing gets read twice. Everything runs on your machine: no cloud, no account, no data leaves it.
 
@@ -61,7 +63,24 @@ tokens_saved = max(0, full_source_baseline − tokens_returned) + dedup_skips
 
 The token benchmark (`make bench-tokens`, `internal/tokenbench`) runs fixed queries against a small fixture repo and fails if any expected hit goes missing. On that fixture the 27 scenarios came to 32,564 tokens in 4.x JSON and 6,666 in 5.0 text with the relevance floor, with no expected hit lost. These are fixture numbers, not a promise for your repo. Floor defaults and how to tune them for your embedder: [docs/USAGE.md](docs/USAGE.md#relevance-floor).
 
+## Benchmarks & Context Efficiency
+
+Rigorous A/B simulation comparing standard LLM coding agent search workflows (whole-file reads, broad regex greps, raw chat context) against the local AST Context Engine across 5-turn complex feature synthesis tasks (Megabonk 2D Survivors and Gary Busey SVG). Measured live against `Qwen3.8-27B-Q4_K_M` (MBP oMLX local inference).
+
+![Context Efficiency Benchmark](docs/images/benchmark-context-efficiency.svg)
+
+| Metric | Baseline (Find + Grep + Read) | ast-context-cache MCP | Improvement |
+|--------|-------------------------------|-----------------------|-------------|
+| **Total Prompt Tokens** | 146,136 tokens | 36,890 tokens | **-74.8% (-109,246 tok)** |
+| **Compression Ratio** | 1.0x (uncompressed) | **3.96x** | **~4x less context window** |
+| **Blast Radius / Safety** | 58,628 tokens | 6,791 tokens | **-88.4% (-51,837 tok)** |
+| **Compaction & Handoff** | 22,709 tokens | 8,096 tokens | **-64.5% (-14,613 tok)** |
+| **Warm Search Latency** | Multi-second OS reads | **&lt; 25ms** | **Sub-millisecond AST lookup** |
+| **Local Model TPS** | Constrained by 140k+ prompt | **22.4 tok/s (1.2s TTFT)** | **Fast local generation** |
+
 ## Core features
+
+![Capabilities Beyond Token Savings](docs/images/capabilities-beyond-tokens.svg)
 
 | | |
 |--|--|
@@ -268,4 +287,4 @@ Install ONNX Runtime 1.25+ (`libonnxruntime-dev` or [releases](https://github.co
 
 ## License
 
-MIT
+[MIT](LICENSE) © coma-toast
