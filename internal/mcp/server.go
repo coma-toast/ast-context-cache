@@ -19,6 +19,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/indexer"
 	"github.com/coma-toast/ast-context-cache/internal/projectlinks"
 	"github.com/coma-toast/ast-context-cache/internal/projectmeta"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 	"github.com/coma-toast/ast-context-cache/internal/startup"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
@@ -521,6 +522,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
+				realtime.Notify(realtime.KnowledgeBase)
 				result = map[string]interface{}{
 					"id":              id,
 					"name":            name,
@@ -547,7 +549,12 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
-				go func() { _, _ = docs.UpdateSource(id) }()
+				realtime.Notify(realtime.KnowledgeBase)
+				go func() {
+					if _, err := docs.UpdateSource(id); err == nil {
+						realtime.Notify(realtime.KnowledgeBase)
+					}
+				}()
 				result = map[string]interface{}{
 					"status": "added",
 					"id":     id,
@@ -566,6 +573,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
+				realtime.Notify(realtime.KnowledgeBase)
 				result = map[string]interface{}{"status": "removed", "id": id}
 			}
 		}
@@ -599,6 +607,7 @@ func handleToolCall(w http.ResponseWriter, rpcReq JSONRPCRequest) {
 			if err != nil {
 				result = map[string]string{"error": err.Error()}
 			} else {
+				realtime.Notify(realtime.KnowledgeBase)
 				result = map[string]interface{}{"status": "updated", "id": id}
 			}
 		}

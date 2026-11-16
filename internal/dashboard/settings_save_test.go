@@ -15,6 +15,8 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/hostdisk"
 	"github.com/coma-toast/ast-context-cache/internal/instance"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 )
 
 type batchResponse struct {
@@ -239,4 +241,175 @@ func TestRedactSecret(t *testing.T) {
 			assert.Equal(t, tt.want, redactSecret(tt.key, tt.value, tt.msg))
 		})
 	}
+}
+
+func TestSettingsBatchAutoLogsConfigChangeAndMasksSecrets(t *testing.T) {
+	h, _ := setupSettingsBatch(t, "")
+	rawSecret := "sk-supersecret-never-leak-987654321"
+
+	// 1. Initial save: non-secret and secret keys both record config_change; secret is masked.
+	code, out := postBatch(t, h, http.MethodPost, `{"settings":{"idle_unload_minutes":"5","EMBED_OPENAI_API_KEY":"`+rawSecret+`"}}`)
+	require.Equal(t, http.StatusOK, code, out.Error)
+
+	res, err := memory.QueryKB(memory.KBQueryInput{
+		Kinds:   []memory.Kind{memory.KindConfigChange},
+		Scope:   memory.ScopeGlobal,
+		Status:  "all",
+		PerPage: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 2)
+
+	byTarget := map[string]memory.Entry{}
+	for _, e := range res.Entries {
+		byTarget[e.Target] = e
+		assert.Equal(t, "dashboard", e.Actor)
+		assert.Equal(t, memory.ScopeGlobal, e.Scope)
+		assert.Equal(t, defaultConfigChangeReason, e.Reason)
+	}
+	assert.Equal(t, "", byTarget["idle_unload_minutes"].BeforeValue)
+	assert.Equal(t, "5", byTarget["idle_unload_minutes"].AfterValue)
+	assert.Equal(t, "(unset)", byTarget["EMBED_OPENAI_API_KEY"].BeforeValue)
+	assert.Equal(t, "(updated)", byTarget["EMBED_OPENAI_API_KEY"].AfterValue)
+
+	var leakCount int
+	require.NoError(t, db.ContextDB.QueryRow(
+		`SELECT COUNT(*) FROM structured_memory WHERE before_value LIKE ? OR after_value LIKE ? OR body LIKE ? OR reason LIKE ?`,
+		"%"+rawSecret+"%", "%"+rawSecret+"%", "%"+rawSecret+"%", "%"+rawSecret+"%",
+	).Scan(&leakCount))
+	assert.Zero(t, leakCount, "raw secret must never be persisted in structured_memory")
+
+	// 2. Unchanged non-secret value (even with whitespace) must not log another entry.
+	code, out = postBatch(t, h, http.MethodPost, `{"settings":{"idle_unload_minutes":" 5 "}}`)
+	require.Equal(t, http.StatusOK, code, out.Error)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/batch", nil)
+	applied, _, err := applySettings(httptest.NewRecorder(), req, map[string]string{"idle_unload_minutes": "5"})
+	require.NoError(t, err)
+	assert.Zero(t, applied.notify&realtime.KnowledgeBase, "unchanged setting must not notify KnowledgeBase")
+
+	res, err = memory.QueryKB(memory.KBQueryInput{
+		Kinds:   []memory.Kind{memory.KindConfigChange},
+		Scope:   memory.ScopeGlobal,
+		Status:  "all",
+		PerPage: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 2)
+
+	// 3. Update non-secret and clear secret: records before -> after and (set) -> (cleared), and notifies KnowledgeBase.
+	applied, _, err = applySettings(httptest.NewRecorder(), req, map[string]string{
+		"idle_unload_minutes":  "10",
+		"EMBED_OPENAI_API_KEY": "",
+	})
+	require.NoError(t, err)
+	assert.NotZero(t, applied.notify&realtime.KnowledgeBase, "changed settings must notify KnowledgeBase")
+
+	histIdle, err := memory.History(memory.HistoryInput{Ref: byTarget["idle_unload_minutes"].Ref})
+	require.NoError(t, err)
+	require.Len(t, histIdle.Entries, 2)
+	assert.Equal(t, "5", histIdle.Entries[1].BeforeValue)
+	assert.Equal(t, "10", histIdle.Entries[1].AfterValue)
+	assert.Equal(t, histIdle.Entries[1].Ref, histIdle.Entries[0].SupersededBy)
+
+	histKey, err := memory.History(memory.HistoryInput{Ref: byTarget["EMBED_OPENAI_API_KEY"].Ref})
+	require.NoError(t, err)
+	require.Len(t, histKey.Entries, 2)
+	assert.Equal(t, "(set)", histKey.Entries[1].BeforeValue)
+	assert.Equal(t, "(cleared)", histKey.Entries[1].AfterValue)
+	assert.Equal(t, histKey.Entries[1].Ref, histKey.Entries[0].SupersededBy)
+
+	// 4. Clearing an already unset secret must not log.
+	applied, _, err = applySettings(httptest.NewRecorder(), req, map[string]string{"EMBED_OPENAI_API_KEY": ""})
+	require.NoError(t, err)
+	assert.Zero(t, applied.notify&realtime.KnowledgeBase)
+
+	histKeyAfter, err := memory.History(memory.HistoryInput{Ref: byTarget["EMBED_OPENAI_API_KEY"].Ref})
+	require.NoError(t, err)
+	assert.Len(t, histKeyAfter.Entries, 2)
+}
+
+func TestBuildMemoryScopedCounts(t *testing.T) {
+	_, _ = setupSettingsBatch(t, "")
+
+	_, err := memory.Store(memory.StoreInput{
+		Kind:        memory.KindFact,
+		Scope:       memory.ScopeProject,
+		ProjectPath: "/proj/a",
+		Subject:     "api",
+		Predicate:   "uses",
+		Object:      "rest",
+	})
+	require.NoError(t, err)
+	_, err = memory.Store(memory.StoreInput{
+		Kind:        memory.KindProcedure,
+		Scope:       memory.ScopeProject,
+		ProjectPath: "/proj/a",
+		Rule:        "always run go test",
+	})
+	require.NoError(t, err)
+	_, err = memory.Store(memory.StoreInput{
+		Kind:   memory.KindPreference,
+		Scope:  memory.ScopeGlobal,
+		Object: "concise output",
+	})
+	require.NoError(t, err)
+	_, err = memory.Store(memory.StoreInput{
+		Kind:        memory.KindEvent,
+		Scope:       memory.ScopeProject,
+		ProjectPath: "/proj/a",
+		Title:       "deployed v1",
+	})
+	require.NoError(t, err)
+	_, err = memory.Store(memory.StoreInput{
+		Kind:       memory.KindConfigChange,
+		Scope:      memory.ScopeGlobal,
+		Target:     "idle_unload_minutes",
+		AfterValue: "5",
+	})
+	require.NoError(t, err)
+	_, err = memory.Store(memory.StoreInput{
+		Kind:        memory.KindDiscovery,
+		Scope:       memory.ScopeProject,
+		ProjectPath: "/proj/a",
+		Title:       "cache warm",
+	})
+	require.NoError(t, err)
+	// Different project entry should be excluded when filtering to /proj/a.
+	_, err = memory.Store(memory.StoreInput{
+		Kind:        memory.KindFact,
+		Scope:       memory.ScopeProject,
+		ProjectPath: "/proj/b",
+		Subject:     "other",
+		Predicate:   "uses",
+		Object:      "grpc",
+	})
+	require.NoError(t, err)
+	// Quarantined entry in /proj/a should count in QuarantinedCount, not ActiveFacts.
+	qRes, err := memory.Store(memory.StoreInput{
+		Kind:        memory.KindFact,
+		Scope:       memory.ScopeProject,
+		ProjectPath: "/proj/a",
+		Subject:     "q",
+		Predicate:   "is",
+		Object:      "pending",
+	})
+	require.NoError(t, err)
+	_, err = db.ContextDB.Exec(`UPDATE structured_memory SET quarantined = 1 WHERE ref = ?`, qRes.Ref)
+	require.NoError(t, err)
+
+	scoped := buildMemory("/proj/a", 1)
+	assert.Equal(t, 1, scoped.ActiveFacts)
+	assert.Equal(t, 1, scoped.ActiveProcedures)
+	assert.Equal(t, 1, scoped.ActivePreferences)
+	assert.Equal(t, 1, scoped.ActiveEvents)
+	assert.Equal(t, 1, scoped.ActiveConfigChanges)
+	assert.Equal(t, 1, scoped.ActiveDiscoveries)
+	assert.Equal(t, 1, scoped.QuarantinedCount)
+	assert.Greater(t, scoped.StructuredMemoryTokens, 0)
+	assert.Equal(t, 6, scoped.MemoryOrphanCount)
+
+	all := buildMemory("", 1)
+	assert.Equal(t, 2, all.ActiveFacts)
+	assert.Greater(t, all.StructuredMemoryTokens, scoped.StructuredMemoryTokens)
 }

@@ -277,18 +277,25 @@ func TestToolSchemasContainRequiredFields(t *testing.T) {
 		byName[tl.Name] = tl
 	}
 
-	// store_memory: valid_at, invalid_at, expires_at (MEM-5, MEM-8)
+	// store_memory: valid_at, invalid_at, expires_at (MEM-5, MEM-8) and Stream 3A KB fields
 	store := byName["store_memory"]
 	storeProps := store.InputSchema["properties"].(map[string]any)
 	assert.Contains(t, storeProps, "valid_at", "store_memory missing valid_at")
 	assert.Contains(t, storeProps, "invalid_at", "store_memory missing invalid_at")
 	assert.Contains(t, storeProps, "expires_at", "store_memory missing expires_at")
+	for _, field := range []string{"title", "body", "tags", "actor", "category", "severity", "target", "before_value", "after_value", "reason", "occurred_at"} {
+		assert.Contains(t, storeProps, field, "store_memory missing %s", field)
+	}
+	assert.Equal(t, []string{"kind"}, store.InputSchema["required"], "store_memory should only require kind (session_id optional for project/global)")
 
-	// recall_memory: as_of_system, expand (MEM-5, MEM-10)
+	// recall_memory: as_of_system, expand (MEM-5, MEM-10) and Stream 3A KB filters
 	recall := byName["recall_memory"]
 	recallProps := recall.InputSchema["properties"].(map[string]any)
 	assert.Contains(t, recallProps, "as_of_system", "recall_memory missing as_of_system")
 	assert.Contains(t, recallProps, "expand", "recall_memory missing expand")
+	for _, field := range []string{"refs", "tags", "actor", "since", "until", "verified_only"} {
+		assert.Contains(t, recallProps, field, "recall_memory missing %s", field)
+	}
 
 	// list_context: expand (MEM-10)
 	list := byName["list_context"]

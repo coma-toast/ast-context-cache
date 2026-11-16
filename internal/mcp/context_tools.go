@@ -13,6 +13,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/flags"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
 
@@ -38,6 +39,7 @@ func handleStoreContext(toolArgs map[string]interface{}, emb embedder.Interface,
 		logToolQuery("store_context", args, len(resultJSON), db.EstimateTokens(content), 0, context.SavingsMeta{}, start, cpuStart, projectPath, errMsg)
 		return out
 	}
+	realtime.Notify(realtime.KnowledgeBase)
 	out := map[string]interface{}{
 		"ref":                   res.Ref,
 		"label":                 res.Label,
@@ -61,7 +63,17 @@ func handleStoreContext(toolArgs map[string]interface{}, emb embedder.Interface,
 			for _, s := range stored {
 				lines = append(lines, map[string]interface{}{"ref": s.Ref, "kind": s.Kind, "line": s.Line})
 				if emb != nil {
-					go memory.EmbedEntry(s.Ref, sessionID, s.Line, emb)
+					if e, err := memory.Peek(s.Ref); err == nil && e != nil {
+						eCopy := *e
+						go func() {
+							_, _ = memory.EmbedEntryFromEntry(eCopy, emb)
+						}()
+					} else {
+						ref, line := s.Ref, s.Line
+						go func() {
+							_, _ = memory.EmbedEntryWithVector(ref, sessionID, line, emb)
+						}()
+					}
 				}
 			}
 			out["memory_extracted"] = lines
@@ -185,6 +197,9 @@ func handleFlushContext(toolArgs map[string]interface{}, start time.Time, cpuSta
 		resultJSON, _ := json.Marshal(out)
 		logToolQuery("flush_context", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, err.Error())
 		return out
+	}
+	if res.FlushedRefs > 0 {
+		realtime.Notify(realtime.KnowledgeBase)
 	}
 	out := map[string]interface{}{
 		"flushed_refs":         res.FlushedRefs,

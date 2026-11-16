@@ -83,7 +83,7 @@ func handleFlushContextAPI(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		realtime.Notify(realtime.Stats | realtime.IndexHealth)
+		realtime.Notify(realtime.KnowledgeBase | realtime.Stats | realtime.IndexHealth)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"flushed_refs":         res.FlushedRefs,
 			"virtual_tokens_freed": res.VirtualTokensFreed,
@@ -105,7 +105,7 @@ func handleFlushContextAPI(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	realtime.Notify(realtime.Stats | realtime.IndexHealth)
+	realtime.Notify(realtime.KnowledgeBase | realtime.Stats | realtime.IndexHealth)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"flushed_refs":         res.FlushedRefs,
 		"virtual_tokens_freed": res.VirtualTokensFreed,

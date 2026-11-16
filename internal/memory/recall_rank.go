@@ -13,20 +13,14 @@ import (
 )
 
 const (
-	searchEntriesLikeQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
-		FROM structured_memory WHERE (subject LIKE ? OR predicate LIKE ? OR object LIKE ? OR rule LIKE ?)`
+	searchEntriesLikeWhere = ` FROM structured_memory WHERE (subject LIKE ? OR predicate LIKE ? OR object LIKE ? OR rule LIKE ? OR title LIKE ? OR body LIKE ? OR target LIKE ? OR tags LIKE ? OR reason LIKE ? OR category LIKE ? OR actor LIKE ?)`
 	// The FTS table has no alias so bm25() and MATCH can name it.
-	searchEntriesFTSQuery = `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
-		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,
-		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at, sm.quarantined
-		FROM structured_memory_fts
-		JOIN structured_memory sm ON sm.ref = structured_memory_fts.ref
-		WHERE structured_memory_fts MATCH ?`
-	orderByBM25RefLimitClause    = ` ORDER BY bm25(structured_memory_fts), sm.ref LIMIT ?`
-	orderByAccessRefLimitClause  = ` ORDER BY access_count DESC, ref LIMIT ?`
-	ftsContentColumnsFilterStart = `{subject predicate object rule} : (`
+	searchEntriesKBFTSFrom = ` FROM structured_memory_kb_fts
+		JOIN structured_memory sm ON sm.ref = structured_memory_kb_fts.ref
+		WHERE structured_memory_kb_fts MATCH ?`
+	orderByKBBM25RefLimitClause    = ` ORDER BY bm25(structured_memory_kb_fts), sm.ref LIMIT ?`
+	orderByAccessRefLimitClause    = ` ORDER BY access_count DESC, ref LIMIT ?`
+	ftsKBContentColumnsFilterStart = `{title subject predicate object rule body tags target before_value after_value reason category actor} : (`
 )
 
 // searchEntries runs the FTS, LIKE and (with an embedder) vector searches and fuses their
@@ -52,80 +46,88 @@ func searchEntries(in RecallInput, emb embedder.Interface) ([]Entry, map[string]
 	return entries, scores, nil
 }
 
-// decayFactor returns the recency multiplier for an entry, clamped to 0.3–1.5x (MEM-6).
-// Procedures are exempt by default (MEM-7). Half-lives are settings: session scope
-// defaults to 24 hours, project scope to 30 days, and global scope has no decay.
-//
-// The factor is the product of three independent terms, each clamped to [0.3, 1.5]
-// before the final clamp:
-//
-//	recency  = 0.5^(sinceLastAccess / halfLife)       — decays with time since last access
-//	frequency = 1 + log2(1+accessCount) / k            — grows with more accesses, never decays
-//	age      = 0.5^(age / (halfLife * 4))             — mild decay for stale entries
-//
-// k is chosen so frequency tops out near 1.5 (log2(1+16)/k ≈ 1.5 → k ≈ 4.0).
+// decayFactor returns the recency/verified multiplier for an entry.
+// Base time-decay is clamped to 0.3–1.5x (MEM-6); Verified entries receive a
+// 1.25x boost clamped up to 1.75x max.
+// Procedures (unless memory_decay_procedures), preferences, events, config_change,
+// discoveries, and global entries are exempt from time-decay (base factor 1.0).
 func decayFactor(e Entry, in RecallInput) float64 {
-	if e.Kind == KindProcedure {
+	factor := 1.0
+	exempt := false
+	switch e.Kind {
+	case KindPreference, KindEvent, KindConfigChange, KindDiscovery:
+		exempt = true
+	case KindProcedure:
 		if !db.SettingBool("memory_decay_procedures", "AST_FEATURE_MEMORY_DECAY_PROCEDURES", false) {
-			return 1.0
+			exempt = true
 		}
 	}
 	if e.Scope == ScopeGlobal {
-		return 1.0
+		exempt = true
 	}
-	halfLifeDays := 1.0
-	if e.Scope == ScopeProject {
-		halfLifeDays = 30.0
-	}
-	// MEM-6: half-lives are settings. The session half-life is in hours, the
-	// project half-life in days; both fall back to the defaults above.
-	if e.Scope == ScopeSession {
-		if h := db.SettingInt("memory_halflife_session_hours", "AST_MEMORY_HALFLIFE_SESSION_HOURS", 24); h > 0 {
-			halfLifeDays = float64(h) / 24.0
+
+	if !exempt {
+		halfLifeDays := 1.0
+		if e.Scope == ScopeProject {
+			halfLifeDays = 30.0
 		}
-	} else if e.Scope == ScopeProject {
-		if d := db.SettingInt("memory_halflife_project_days", "AST_MEMORY_HALFLIFE_PROJECT_DAYS", 30); d > 0 {
-			halfLifeDays = float64(d)
-		}
-	}
-	// recency: half-life since the last access.
-	recency := 1.0
-	if e.LastAccessedAt != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05", e.LastAccessedAt); err == nil {
-			sinceLast := time.Since(t).Hours() / 24.0
-			if sinceLast < 0 {
-				sinceLast = 0
+		// MEM-6: half-lives are settings. The session half-life is in hours, the
+		// project half-life in days; both fall back to the defaults above.
+		if e.Scope == ScopeSession {
+			if h := db.SettingInt("memory_halflife_session_hours", "AST_MEMORY_HALFLIFE_SESSION_HOURS", 24); h > 0 {
+				halfLifeDays = float64(h) / 24.0
 			}
-			recency = math.Pow(0.5, sinceLast/halfLifeDays)
-		}
-	}
-	// frequency: more accesses raise the factor, never lower it. k=4 tops out near 1.5.
-	frequency := 1.0
-	if e.AccessCount > 0 {
-		frequency = 1.0 + math.Log2(1.0+float64(e.AccessCount))/4.0
-	}
-	// age: mild decay for entries created long ago, independent of access recency.
-	age := 1.0
-	if e.CreatedAt != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05", e.CreatedAt); err == nil {
-			ageDays := time.Since(t).Hours() / 24.0
-			if ageDays < 0 {
-				ageDays = 0
+		} else if e.Scope == ScopeProject {
+			if d := db.SettingInt("memory_halflife_project_days", "AST_MEMORY_HALFLIFE_PROJECT_DAYS", 30); d > 0 {
+				halfLifeDays = float64(d)
 			}
-			age = math.Pow(0.5, ageDays/(halfLifeDays*4.0))
+		}
+		// recency: half-life since the last access.
+		recency := 1.0
+		if e.LastAccessedAt != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", e.LastAccessedAt); err == nil {
+				sinceLast := time.Since(t).Hours() / 24.0
+				if sinceLast < 0 {
+					sinceLast = 0
+				}
+				recency = math.Pow(0.5, sinceLast/halfLifeDays)
+			}
+		}
+		// frequency: more accesses raise the factor, never lower it. k=4 tops out near 1.5.
+		frequency := 1.0
+		if e.AccessCount > 0 {
+			frequency = 1.0 + math.Log2(1.0+float64(e.AccessCount))/4.0
+		}
+		// age: mild decay for entries created long ago, independent of access recency.
+		age := 1.0
+		if e.CreatedAt != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", e.CreatedAt); err == nil {
+				ageDays := time.Since(t).Hours() / 24.0
+				if ageDays < 0 {
+					ageDays = 0
+				}
+				age = math.Pow(0.5, ageDays/(halfLifeDays*4.0))
+			}
+		}
+		factor = recency * frequency * age
+		if factor < 0.3 {
+			factor = 0.3
+		}
+		if factor > 1.5 {
+			factor = 1.5
 		}
 	}
-	factor := recency * frequency * age
-	if factor < 0.3 {
-		factor = 0.3
-	}
-	if factor > 1.5 {
-		factor = 1.5
+
+	if e.Verified {
+		factor *= 1.25
+		if factor > 1.75 {
+			factor = 1.75
+		}
 	}
 	return factor
 }
 
-// applyDecay multiplies each fused score by its recency factor and re-sorts.
+// applyDecay multiplies each fused score by its recency/verified factor and re-sorts.
 func applyDecay(entries []Entry, scores map[string]float64, in RecallInput) []Entry {
 	if !flags.Enabled(flags.KeyMemoryV2) {
 		return entries
@@ -192,22 +194,31 @@ func fuseEntries(lists ...[]Entry) ([]Entry, map[string]float64) {
 	return out, scores
 }
 
-// searchFTS matches the query against the content columns only (never ref), best bm25 first.
+// searchFTS matches the query against the KB FTS content columns only (never ref), best bm25 first.
 func searchFTS(in RecallInput) ([]Entry, error) {
 	ftsQuery := search.BuildFTSQuery(search.QueryTerms(in.Query))
 	if ftsQuery == "" {
 		return nil, nil
 	}
+	fullTier2 := in.Expand || len(in.Refs) > 0
 	clause, args := filterClauses(in, "sm.", smEntryValidity)
-	args = append([]any{ftsContentColumnsFilterStart + ftsQuery + ")"}, args...)
-	return queryEntries(searchEntriesFTSQuery+clause+orderByBM25RefLimitClause, append(args, in.Limit*2)...)
+	args = append([]any{ftsKBContentColumnsFilterStart + ftsQuery + ")"}, args...)
+	q := "SELECT " + entrySelectColsAliased("sm", fullTier2) + searchEntriesKBFTSFrom + clause + orderByKBBM25RefLimitClause
+	return queryEntries(q, append(args, in.Limit*2)...)
 }
 
 func searchLike(in RecallInput) ([]Entry, error) {
+	fullTier2 := in.Expand || len(in.Refs) > 0
 	likeQ := `%` + in.Query + `%`
 	clause, args := filterClauses(in, "", entryValidity)
-	args = append([]any{likeQ, likeQ, likeQ, likeQ}, args...)
-	return queryEntries(searchEntriesLikeQuery+clause+orderByAccessRefLimitClause, append(args, in.Limit*2)...)
+	likeArgs := make([]any, 0, 11+len(args)+1)
+	for i := 0; i < 11; i++ {
+		likeArgs = append(likeArgs, likeQ)
+	}
+	likeArgs = append(likeArgs, args...)
+	likeArgs = append(likeArgs, in.Limit*2)
+	q := "SELECT " + entrySelectCols(fullTier2) + searchEntriesLikeWhere + clause + orderByAccessRefLimitClause
+	return queryEntries(q, likeArgs...)
 }
 
 func vectorSearch(in RecallInput, emb embedder.Interface) ([]Entry, error) {
@@ -233,8 +244,9 @@ func vectorSearch(in RecallInput, emb embedder.Interface) ([]Entry, error) {
 	for _, r := range refs {
 		args = append(args, r)
 	}
+	fullTier2 := in.Expand || len(in.Refs) > 0
 	clause, filterArgs := filterClauses(in, "", entryValidity)
-	q := selectEntriesByRefsQuery + strings.TrimSuffix(strings.Repeat("?,", len(refs)), ",") + ")" + clause
+	q := "SELECT " + entrySelectCols(fullTier2) + " FROM structured_memory WHERE ref IN (" + strings.TrimSuffix(strings.Repeat("?,", len(refs)), ",") + ")" + clause
 	entries, err := queryEntries(q, append(args, filterArgs...)...)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ const panelToQuery: Record<string, string[]> = {
   stats: ['stats', 'weeklyDigest', 'featureCoverage', 'contextSessions'],
   'index-health': ['indexHealth'],
   memory: ['memory', 'contextSessions'],
+  kb: ['kb'],
   recent: ['recent'],
   'symbol-chart': ['symbolKinds'],
   'language-chart': ['languageStats'],

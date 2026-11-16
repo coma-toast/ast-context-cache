@@ -23,8 +23,10 @@
     "@mui/x-charts": "^9.7.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.1",
-    "recharts": "^3.9.1"
+    "recharts": "^3.9.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@storybook/addon-a11y": "^10.4.4",

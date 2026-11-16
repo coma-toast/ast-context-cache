@@ -9,10 +9,7 @@ import (
 )
 
 const (
-	selectActiveSessionEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
-		FROM structured_memory WHERE scope = 'session' AND session_id = ? AND (valid_until IS NULL OR valid_until = '')
+	selectActiveSessionEntriesWhere = ` FROM structured_memory WHERE scope = 'session' AND session_id = ? AND (valid_until IS NULL OR valid_until = '')
 		ORDER BY created_at, ref`
 	selectSessionEntryRefsQuery = `SELECT ref FROM structured_memory WHERE scope = 'session' AND session_id = ?`
 	deleteSessionEntriesQuery   = `DELETE FROM structured_memory WHERE scope = 'session' AND session_id = ?`
@@ -25,7 +22,8 @@ func ActiveForSession(sessionID string) ([]Entry, error) {
 	if sessionID == "" {
 		return nil, errs.NewCode(errs.CodeInvalidInput, "session_id required")
 	}
-	entries, err := queryEntries(selectActiveSessionEntriesQuery, sessionID)
+	q := "SELECT " + entrySelectCols(true) + selectActiveSessionEntriesWhere
+	entries, err := queryEntries(q, sessionID)
 	if err != nil {
 		return nil, errs.WrapMessage("failed to read session memory", err, "session_id", sessionID)
 	}

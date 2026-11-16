@@ -1,8 +1,12 @@
 import type {
   ApiError,
   BrowseDirResult,
+  ContextNoteDetailResponse,
+  ContextNoteListParams,
+  ContextNoteListResponse,
   ContextSessionsResponse,
   DataDirMoveStatus,
+  DocEntriesResponse,
   FeatureCoverage,
   FlagsResponse,
   FlushHandoffTreeResponse,
@@ -16,6 +20,14 @@ import type {
   InstallerOverview,
   InstallerPlan,
   InstallerPlanRequest,
+  KBActionRequest,
+  KBActionResponse,
+  KBCreateInput,
+  KBDetailResponse,
+  KBListParams,
+  KBListResponse,
+  KBMutationResponse,
+  KBUpdateInput,
   MCPTier,
   MemoryData,
   NetworkState,
@@ -138,6 +150,66 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   return data
 }
 
+async function del<T>(path: string): Promise<T> {
+  const url = apiUrl(path)
+  let r: Response
+  try {
+    r = await fetch(url, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+  } catch (e) {
+    throw new Error(`${path}: network error (${e instanceof Error ? e.message : 'fetch failed'})`)
+  }
+  redirectOnUnauthorized(r.status)
+  const text = await r.text()
+  let data: T & ErrorBody
+  try {
+    data = JSON.parse(text) as T & ErrorBody
+  } catch {
+    throw new Error(`${path}: invalid JSON (HTTP ${r.status})`)
+  }
+  if (!r.ok || data.error) throw apiError(data.error || `${path}: HTTP ${r.status}`, data)
+  return data
+}
+
+function kbQueryString(params: KBListParams = {}, extra?: Record<string, string>): string {
+  const p = new URLSearchParams()
+  if (params.q) p.set('q', params.q)
+  if (params.kinds?.length) p.set('kinds', params.kinds.join(','))
+  if (params.scope) p.set('scope', params.scope)
+  if (params.project_id) p.set('project_id', params.project_id)
+  if (params.session_id) p.set('session_id', params.session_id)
+  if (params.status) p.set('status', params.status)
+  if (params.tags?.length) p.set('tags', params.tags.join(','))
+  if (params.actor) p.set('actor', params.actor)
+  if (params.since) p.set('since', params.since)
+  if (params.until) p.set('until', params.until)
+  if (params.verified_only) p.set('verified_only', 'true')
+  if (params.sort) p.set('sort', params.sort)
+  if (params.page != null) p.set('page', String(params.page))
+  if (params.per_page != null) p.set('per_page', String(params.per_page))
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) p.set(k, v)
+  }
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
+function contextNotesQueryString(params: ContextNoteListParams = {}): string {
+  const p = new URLSearchParams()
+  if (params.q) p.set('q', params.q)
+  if (params.session_id) p.set('session_id', params.session_id)
+  if (params.project_id) p.set('project_id', params.project_id)
+  if (params.kind) p.set('kind', params.kind)
+  if (params.tags?.length) p.set('tags', params.tags.join(','))
+  if (params.page != null) p.set('page', String(params.page))
+  if (params.per_page != null) p.set('per_page', String(params.per_page))
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
 interface ErrorBody {
   error?: string
   code?: string
@@ -188,6 +260,68 @@ export const api = {
   indexHealth: (projectId?: string) => get<IndexHealth>(`/api/dashboard/index-health${qs(projectId)}`),
   memory: (projectId?: string, page = 1) =>
     get<MemoryData>(`/api/dashboard/memory${qs(projectId, { doc_sources_page: String(page) })}`),
+  kbList: (params: KBListParams = {}) => get<KBListResponse>(`/api/dashboard/kb${kbQueryString(params)}`),
+  kbGetEntry: (ref: string) => get<KBDetailResponse>(`/api/dashboard/kb/entry?ref=${encodeURIComponent(ref)}`),
+  kbCreateEntry: (body: KBCreateInput) => post<KBMutationResponse>('/api/dashboard/kb/entry', body),
+  kbUpdateEntry: (body: KBUpdateInput) => put<KBMutationResponse>('/api/dashboard/kb/entry', body),
+  kbEntryAction: (body: KBActionRequest) => post<KBActionResponse>('/api/dashboard/kb/entry/action', body),
+  kbExportUrl: (params: KBListParams, format: 'markdown' | 'json') =>
+    apiUrl(`/api/dashboard/kb/export${kbQueryString(params, { format })}`),
+  kbExportDownload: async (params: KBListParams, format: 'markdown' | 'json'): Promise<void> => {
+    const path = `/api/dashboard/kb/export${kbQueryString(params, { format })}`
+    const url = apiUrl(path)
+    let r: Response
+    try {
+      r = await fetch(url, { credentials: 'same-origin' })
+    } catch (e) {
+      throw new Error(`${path}: network error (${e instanceof Error ? e.message : 'fetch failed'})`)
+    }
+    redirectOnUnauthorized(r.status)
+    if (!r.ok) {
+      const text = await r.text()
+      let msg = `${path}: HTTP ${r.status}`
+      try {
+        const parsed = JSON.parse(text) as ErrorBody
+        if (parsed.error) msg = parsed.error
+      } catch {
+        if (text) msg = `${msg} — ${text.slice(0, 120)}`
+      }
+      throw new Error(msg)
+    }
+    const blob = await r.blob()
+    const defaultName = format === 'markdown' ? 'knowledge-base.md' : 'knowledge-base.json'
+    const disp = r.headers.get('Content-Disposition') || ''
+    const match = /filename="([^"]+)"/i.exec(disp)
+    const filename = match?.[1] || defaultName
+    if (typeof document !== 'undefined') {
+      const objUrl = URL.createObjectURL(blob)
+      try {
+        const a = document.createElement('a')
+        a.href = objUrl
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } finally {
+        URL.revokeObjectURL(objUrl)
+      }
+    }
+  },
+  contextNotesList: (params: ContextNoteListParams = {}) =>
+    get<ContextNoteListResponse>(`/api/dashboard/context-notes${contextNotesQueryString(params)}`),
+  contextNoteDetail: (ref: string) =>
+    get<ContextNoteDetailResponse>(`/api/dashboard/context-notes/detail?ref=${encodeURIComponent(ref)}`),
+  contextNoteDelete: (ref: string) =>
+    del<{ status: string; ref: string; virtual_tokens_freed: number }>(
+      `/api/dashboard/context-notes?ref=${encodeURIComponent(ref)}`,
+    ),
+  docEntries: (sourceId: number, q?: string, page?: number, perPage?: number) => {
+    const p = new URLSearchParams({ source_id: String(sourceId) })
+    if (q) p.set('q', q)
+    if (page != null) p.set('page', String(page))
+    if (perPage != null) p.set('per_page', String(perPage))
+    return get<DocEntriesResponse>(`/api/dashboard/doc-entries?${p.toString()}`)
+  },
   settings: () => get<SettingsData>('/api/dashboard/settings'),
   projects: () => get<Project[]>('/api/projects'),
   recentSplit: (projectId?: string) =>

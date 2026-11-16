@@ -7,6 +7,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/context"
 	"github.com/coma-toast/ast-context-cache/internal/contextnotes"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
 
@@ -79,6 +80,9 @@ func handleEditContext(toolArgs map[string]interface{}, emb embedder.Interface, 
 		}
 		logToolQuery("edit_context", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, projectPath, errMsg)
 		return out
+	}
+	if !res.DryRun && res.Changed {
+		realtime.Notify(realtime.KnowledgeBase)
 	}
 	resultJSON, _ := json.Marshal(res)
 	savings := context.SavingsMeta{}

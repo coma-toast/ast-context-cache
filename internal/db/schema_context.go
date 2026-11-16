@@ -134,13 +134,30 @@ const (
 			token_est INTEGER NOT NULL DEFAULT 0,
 			access_count INTEGER DEFAULT 0,
 			last_accessed_at TEXT,
-			created_at TEXT DEFAULT (datetime('now'))
+			created_at TEXT DEFAULT (datetime('now')),
+			title TEXT,
+			body TEXT,
+			tags TEXT,
+			actor TEXT,
+			category TEXT,
+			severity TEXT,
+			target TEXT,
+			before_value TEXT,
+			after_value TEXT,
+			reason TEXT,
+			occurred_at TEXT,
+			verified INTEGER DEFAULT 0,
+			verified_at TEXT,
+			redacted_fields TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_session ON structured_memory(session_id);
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_project ON structured_memory(project_path);
 		CREATE INDEX IF NOT EXISTS idx_struct_mem_fact ON structured_memory(kind, subject, predicate, valid_until);
+		CREATE INDEX IF NOT EXISTS idx_struct_mem_kind_occurred ON structured_memory(kind, occurred_at);
+		CREATE INDEX IF NOT EXISTS idx_struct_mem_target ON structured_memory(kind, target, scope, valid_until);
 	`
 	createStructuredMemoryFTSTable = `CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_fts USING fts5(ref, subject, predicate, object, rule)`
+	createStructuredMemoryKBFTS    = `CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_kb_fts USING fts5(ref, title, subject, predicate, object, rule, body, tags, target, before_value, after_value, reason, category, actor)`
 	// Handoff trees. Timestamps are written by the handoff package as UTC "YYYY-MM-DD HH:MM:SS"
 	// (datetime('now') format) so they compare correctly against each other and SQLite's clock.
 	createHandoffTreesTable = `
@@ -294,6 +311,7 @@ func initContextSchema(conn *sql.DB) {
 
 	conn.Exec(createStructuredMemoryTable)
 	conn.Exec(createStructuredMemoryFTSTable)
+	conn.Exec(createStructuredMemoryKBFTS)
 
 	conn.Exec(createHandoffTreesTable)
 	conn.Exec(createHandoffsTable)

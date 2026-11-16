@@ -1,291 +1,181 @@
-import { useCallback, useMemo, useState } from 'react'
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  IconButton,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TablePagination,
-  TextField,
-  Typography,
-} from '@mui/material'
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import DeleteIcon from '@mui/icons-material/Delete'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import type { MemoryData } from '../api/types'
-import { api, formatNum } from '../api/client'
-import { getScopedItem, setScopedItem } from '../lib/scopedStorage'
-import { useToast } from '../context/ToastContext'
-import { StatCard } from '../components/HealthBar'
+import { useCallback, useState } from 'react'
+import { Box, Chip, Stack, Tab, Tabs, Typography } from '@mui/material'
+import { formatNum } from '../api/client'
+import type { MemoryData, MemorySubTab } from '../api/types'
+import { DocSourcesSubtab } from '../components/kb/DocSourcesSubtab'
+import { KBDetailDrawer } from '../components/kb/KBDetailDrawer'
+import { KBExplorerSubtab } from '../components/kb/KBExplorerSubtab'
+import { KBPreferencesSubtab } from '../components/kb/KBPreferencesSubtab'
+import { KBTimelineSubtab } from '../components/kb/KBTimelineSubtab'
+import { VirtualContextSubtab } from '../components/kb/VirtualContextSubtab'
 
-const SORT_STORAGE_KEY = 'ast-memory-doc-sources-sort'
-
-type SortField = 'name' | 'type' | 'age'
-type SortDirection = 'asc' | 'desc'
-
-interface SortState {
-  field: SortField
-  direction: SortDirection
+export interface MemoryTabProps {
+  data: MemoryData | null
+  onRefresh: () => void
+  docSourcesPage: number
+  onDocSourcesPageChange: (page: number) => void
+  projectId?: string
+  kbRefreshNonce?: number
+  subTab?: MemorySubTab
+  selectedRef?: string
+  onSubTabChange?: (sub: MemorySubTab) => void
+  onSelectRef?: (ref: string) => void
 }
 
-function loadSort(): SortState {
-  try {
-    const saved = getScopedItem(SORT_STORAGE_KEY)
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      if (parsed && typeof parsed.field === 'string' && typeof parsed.direction === 'string') {
-        if (['name', 'type', 'age'].includes(parsed.field) && ['asc', 'desc'].includes(parsed.direction)) {
-          return parsed
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return { field: 'name', direction: 'asc' }
-}
-
-function saveSort(sort: SortState) {
-  try {
-    setScopedItem(SORT_STORAGE_KEY, JSON.stringify(sort))
-  } catch {
-    // ignore
-  }
-}
-
-function getAgeSeconds(ageStr: string): number {
-  if (!ageStr) return 0
-  const totalSeconds = parseDuration(ageStr)
-  return totalSeconds
-}
-
-function parseDuration(duration: string): number {
-  const regex = /(\d+)\s*(second|minute|hour|day|week|month|year)s?/gi
-  let total = 0
-  let match
-  while ((match = regex.exec(duration)) !== null) {
-    const value = parseInt(match[1], 10)
-    switch (match[2].toLowerCase()) {
-      case 'second': total += value; break
-      case 'minute': total += value * 60; break
-      case 'hour': total += value * 60 * 60; break
-      case 'day': total += value * 60 * 60 * 24; break
-      case 'week': total += value * 60 * 60 * 24 * 7; break
-      case 'month': total += value * 60 * 60 * 24 * 30; break
-      case 'year': total += value * 60 * 60 * 24 * 365; break
-    }
-  }
-  return total
-}
+const SUB_TABS: { id: MemorySubTab; label: string }[] = [
+  { id: 'explorer', label: 'Explorer' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'preferences', label: 'Preferences' },
+  { id: 'virtual-context', label: 'Virtual context' },
+  { id: 'doc-sources', label: 'Doc sources' },
+]
 
 export function MemoryTab({
   data,
   onRefresh,
   docSourcesPage,
   onDocSourcesPageChange,
-}: {
-  data: MemoryData | null
-  onRefresh: () => void
-  docSourcesPage: number
-  onDocSourcesPageChange: (page: number) => void
-}) {
-  const { showToast } = useToast()
-  const [docName, setDocName] = useState('')
-  const [docUrl, setDocUrl] = useState('')
-  const [docType, setDocType] = useState('markdown')
-  const [packBusy, setPackBusy] = useState(false)
-  const [sort, setSort] = useState<SortState>(loadSort)
+  projectId,
+  kbRefreshNonce = 0,
+  subTab,
+  selectedRef,
+  onSubTabChange,
+  onSelectRef,
+}: MemoryTabProps) {
+  const [internalSubTab, setInternalSubTab] = useState<MemorySubTab>('explorer')
+  const [internalSelectedRef, setInternalSelectedRef] = useState('')
+  const [localRefreshNonce, setLocalRefreshNonce] = useState(0)
 
-  const handleSort = useCallback((field: SortField) => {
-    const next: SortState = {
-      field,
-      direction: sort.field === field && sort.direction === 'asc' ? 'desc' : 'asc',
-    }
-    setSort(next)
-    saveSort(next)
-  }, [sort])
+  const activeSubTab = subTab ?? internalSubTab
+  const activeRef = selectedRef !== undefined ? selectedRef : internalSelectedRef
+  const effectiveRefreshNonce = kbRefreshNonce + localRefreshNonce
 
-  const sortedSources = useMemo(() => {
-    if (!data?.DocSources) return []
-    const sorted = [...data.DocSources]
-    const dir = sort.direction === 'asc' ? 1 : -1
-    sorted.sort((a, b) => {
-      switch (sort.field) {
-        case 'name':
-          return dir * a.Name.localeCompare(b.Name)
-        case 'type':
-          return dir * a.Type.localeCompare(b.Type)
-        case 'age':
-          return dir * (getAgeSeconds(a.Age) - getAgeSeconds(b.Age))
-        default:
-          return 0
+  const handleSubTabChange = useCallback(
+    (next: MemorySubTab) => {
+      if (subTab === undefined) {
+        setInternalSubTab(next)
       }
-    })
-    return sorted
-  }, [data?.DocSources, sort])
+      onSubTabChange?.(next)
+    },
+    [subTab, onSubTabChange],
+  )
+
+  const handleSelectRef = useCallback(
+    (ref: string) => {
+      const normalized = ref.trim()
+      if (selectedRef === undefined) {
+        setInternalSelectedRef(normalized)
+      }
+      onSelectRef?.(normalized)
+    },
+    [selectedRef, onSelectRef],
+  )
+
+  const handleKBMutated = useCallback(() => {
+    setLocalRefreshNonce((n) => n + 1)
+    onRefresh()
+  }, [onRefresh])
 
   return (
-    <Box>
-      <Typography variant="overline" color="text.secondary">
-        Virtual context
-      </Typography>
-      <Grid container spacing={2} sx={{ mt: 0.5, mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Inventory tokens" value={formatNum(data.VirtualInventoryTokens)} sub={`${data.VirtualNotesCount} notes`} />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="30d utilization" value={`${data.VirtualUtilPct30d?.toFixed(0) || 0}%`} />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Orphans" value={formatNum(data.VirtualOrphanCount)} />
-        </Grid>
-      </Grid>
+    <Box data-testid="memory-tab">
+      <Stack
+        direction="row"
+        spacing={1.5}
+        useFlexGap
+        sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', mb: 1.5 }}
+      >
+        <Box>
+          <Typography variant="h6" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+            Memory
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Knowledge Base hub
+          </Typography>
+        </Box>
 
-      <Typography variant="overline" color="text.secondary">
-        Knowledge base (doc sources)
-      </Typography>
-      <Card variant="outlined" sx={{ mt: 1, mb: 2 }}>
-        <CardContent>
-          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 2 }}>
-            <TextField size="small" label="Name" value={docName} onChange={(e) => setDocName(e.target.value)} />
-            <TextField size="small" label="URL" value={docUrl} onChange={(e) => setDocUrl(e.target.value)} sx={{ minWidth: 240 }} />
-            <TextField size="small" label="Type" value={docType} onChange={(e) => setDocType(e.target.value)} />
-            <Button
-              variant="contained"
+        {data && (
+          <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+            <Chip size="small" variant="outlined" label={`Facts: ${formatNum(data.ActiveFacts ?? 0)}`} />
+            <Chip size="small" variant="outlined" label={`Preferences: ${formatNum(data.ActivePreferences ?? 0)}`} />
+            <Chip size="small" variant="outlined" label={`Events: ${formatNum(data.ActiveEvents ?? 0)}`} />
+            <Chip
               size="small"
-              onClick={async () => {
-                try {
-                  await api.addDocSource(docName, docUrl, docType)
-                  showToast('Doc source added', 'success')
-                  setDocName('')
-                  setDocUrl('')
-                  onRefresh()
-                } catch (e) {
-                  showToast(String(e), 'error')
-                }
-              }}
-            >
-              Add source
-            </Button>
-            <Button
               variant="outlined"
-              size="small"
-              disabled={packBusy}
-              onClick={async () => {
-                setPackBusy(true)
-                try {
-                  const r = await api.installDocPack()
-                  showToast(`Starter pack: ${r.added ?? 0} sources queued`, 'success')
-                  onRefresh()
-                } catch (e) {
-                  showToast(String(e), 'error')
-                } finally {
-                  setPackBusy(false)
-                }
-              }}
-            >
-              Add starter doc pack
-            </Button>
-          </Stack>
-          {data.DocSources?.length === 0 ? (
-            <Typography color="text.secondary">No doc sources — add one above or use Add starter doc pack</Typography>
-          ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell
-                    onClick={() => handleSort('name')}
-                    sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: 'action.hover' } }}
-                  >
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                      Name
-                      {renderSortIcon(sort, 'name')}
-                    </Stack>
-                  </TableCell>
-                  <TableCell
-                    onClick={() => handleSort('type')}
-                    sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: 'action.hover' } }}
-                  >
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                      Type
-                      {renderSortIcon(sort, 'type')}
-                    </Stack>
-                  </TableCell>
-                  <TableCell
-                    onClick={() => handleSort('age')}
-                    sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: 'action.hover' } }}
-                  >
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                      Age
-                      {renderSortIcon(sort, 'age')}
-                    </Stack>
-                  </TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {sortedSources.map((d) => (
-                  <TableRow key={d.ID}>
-                    <TableCell>{d.Name}</TableCell>
-                    <TableCell>{d.Type}</TableCell>
-                    <TableCell>{d.Age}{d.Stale ? ' (stale)' : ''}</TableCell>
-                    <TableCell align="right">
-                      <IconButton size="small" aria-label="Refresh" onClick={async () => {
-                        try {
-                          await api.docSourceAction('refresh', d.ID)
-                          showToast('Refreshing', 'info')
-                          onRefresh()
-                        } catch (e) {
-                          showToast(String(e), 'error')
-                        }
-                      }}>
-                        <RefreshIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" aria-label="Delete" onClick={async () => {
-                        if (!confirm(`Delete doc source "${d.Name}"?`)) return
-                        try {
-                          await api.docSourceAction('delete', d.ID)
-                          showToast('Deleted', 'success')
-                          onRefresh()
-                        } catch (e) {
-                          showToast(String(e), 'error')
-                        }
-                      }}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {(data.DocSourcesTotal ?? 0) > 0 && (
-            <TablePagination
-              component="div"
-              count={data.DocSourcesTotal}
-              page={Math.max(0, docSourcesPage - 1)}
-              onPageChange={(_e, newPage) => onDocSourcesPageChange(newPage + 1)}
-              rowsPerPage={data.DocSourcesPerPage || 10}
-              rowsPerPageOptions={[data.DocSourcesPerPage || 10]}
+              label={`Config changes: ${formatNum(data.ActiveConfigChanges ?? 0)}`}
             />
-          )}
-        </CardContent>
-      </Card>
+            <Chip size="small" variant="outlined" label={`Discoveries: ${formatNum(data.ActiveDiscoveries ?? 0)}`} />
+            <Chip
+              size="small"
+              variant={(data.QuarantinedCount ?? 0) > 0 ? 'filled' : 'outlined'}
+              color={(data.QuarantinedCount ?? 0) > 0 ? 'warning' : 'default'}
+              label={`Quarantined: ${formatNum(data.QuarantinedCount ?? 0)}`}
+            />
+          </Stack>
+        )}
+      </Stack>
+
+      <Tabs
+        value={activeSubTab}
+        onChange={(_e, next) => handleSubTabChange(next as MemorySubTab)}
+        variant="scrollable"
+        scrollButtons="auto"
+        aria-label="Memory sections"
+        sx={{ mb: 2, borderBottom: '1px solid', borderColor: 'divider' }}
+      >
+        {SUB_TABS.map((t) => (
+          <Tab key={t.id} value={t.id} label={t.label} />
+        ))}
+      </Tabs>
+
+      {activeSubTab === 'explorer' && (
+        <KBExplorerSubtab
+          projectId={projectId}
+          kbRefreshNonce={effectiveRefreshNonce}
+          selectedRef={activeRef}
+          onSelectRef={handleSelectRef}
+        />
+      )}
+
+      {activeSubTab === 'timeline' && (
+        <KBTimelineSubtab
+          projectId={projectId}
+          kbRefreshNonce={effectiveRefreshNonce}
+          onSelectRef={handleSelectRef}
+        />
+      )}
+
+      {activeSubTab === 'preferences' && (
+        <KBPreferencesSubtab
+          projectId={projectId}
+          kbRefreshNonce={effectiveRefreshNonce}
+          onSelectRef={handleSelectRef}
+        />
+      )}
+
+      {activeSubTab === 'virtual-context' && (
+        <VirtualContextSubtab
+          data={data}
+          onRefresh={onRefresh}
+          projectId={projectId}
+          kbRefreshNonce={effectiveRefreshNonce}
+        />
+      )}
+
+      {activeSubTab === 'doc-sources' && (
+        <DocSourcesSubtab
+          data={data}
+          onRefresh={onRefresh}
+          docSourcesPage={docSourcesPage}
+          onDocSourcesPageChange={onDocSourcesPageChange}
+        />
+      )}
+
+      <KBDetailDrawer
+        refId={activeRef}
+        onClose={() => handleSelectRef('')}
+        onSelectRef={handleSelectRef}
+        onMutated={handleKBMutated}
+      />
     </Box>
   )
-}
-
-function renderSortIcon(sort: SortState, field: SortField) {
-  if (sort.field !== field) return <KeyboardArrowDownIcon fontSize="inherit" sx={{ opacity: 0.35 }} />
-  return sort.direction === 'asc'
-    ? <ArrowUpwardIcon fontSize="inherit" />
-    : <KeyboardArrowDownIcon fontSize="inherit" />
 }

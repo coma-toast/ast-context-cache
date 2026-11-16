@@ -256,6 +256,11 @@ func applySettings(w http.ResponseWriter, r *http.Request, vals map[string]strin
 	out := settingsApplied{values: map[string]string{}, extra: map[string]string{}, notify: realtime.SettingsChanged}
 	keys := slices.Sorted(maps.Keys(vals))
 	slices.SortStableFunc(keys, func(a, b string) int { return settingApplyRank(a) - settingApplyRank(b) })
+	before := make(map[string]settingSnapshot, len(keys))
+	for _, key := range keys {
+		val, isSecret, hadBefore := snapshotSettingBefore(key)
+		before[key] = settingSnapshot{val: val, isSecret: isSecret, hadBefore: hadBefore}
+	}
 	net := map[string]string{}
 	for _, k := range keys {
 		if netlisten.IsKey(k) {
@@ -271,7 +276,7 @@ func applySettings(w http.ResponseWriter, r *http.Request, vals map[string]strin
 	for _, key := range keys {
 		value := vals[key]
 		out.values[key] = value
-		if secretSettingKeys[key] || key == instance.FaviconUploadKey {
+		if isSecretSettingKey(key) {
 			out.values[key] = ""
 		}
 		var err error
@@ -312,6 +317,21 @@ func applySettings(w http.ResponseWriter, r *http.Request, vals map[string]strin
 		f := currentFavicon()
 		logger.Info("Saved favicon settings", "mode", f.Mode, "source", f.Source, "version", f.Version())
 		out.extra["favicon_mode"], out.extra["favicon_source"], out.extra["favicon_url"] = f.Mode, f.Source, faviconURL(f)
+	}
+	for _, key := range keys {
+		snap := before[key]
+		if snap.isSecret {
+			b, a, changed := secretChangeSummary(snap.hadBefore, vals[key])
+			if changed && recordSettingsConfigChange(key, b, a, "") {
+				out.notify |= realtime.KnowledgeBase
+			}
+			continue
+		}
+		if snap.val != vals[key] {
+			if recordSettingsConfigChange(key, snap.val, vals[key], "") {
+				out.notify |= realtime.KnowledgeBase
+			}
+		}
 	}
 	return out, "", nil
 }

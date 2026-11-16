@@ -23,12 +23,30 @@ func invalidate(dbx *sql.DB, ref, reason, supersededBy string) error {
 	return nil
 }
 
-// invalidateConflicting supersedes every currently active fact with the same
-// subject, predicate and scope, each marked with reasonContradiction. It is
+// invalidateConflicting supersedes every currently active entry of kind with the same
+// subject, predicate and scope, each marked with ReasonContradiction. It is
 // called with factSupersessionMu held by the caller. The new ref is excluded.
-func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predicate, newRef string) ([]string, error) {
+func invalidateConflicting(kind Kind, scope Scope, sessionID, projectPath, subject, predicate, newRef string) ([]string, error) {
+	if kind == "" {
+		kind = KindFact
+	}
 	q := selectActiveFactRefsQuery
-	args := []any{subject, predicate}
+	args := []any{string(kind), subject, predicate}
+	q, args = appendScopeFilter(q, args, scope, sessionID, projectPath)
+	return invalidateMatchingRefs(q, args, ReasonContradiction, newRef)
+}
+
+// invalidateTargetChain supersedes every currently active config_change entry with
+// the same target and scope, each marked with ReasonSuperseded and linked via
+// superseded_by = newRef. Called with factSupersessionMu held by the caller.
+func invalidateTargetChain(scope Scope, sessionID, projectPath, target, newRef string) ([]string, error) {
+	q := selectActiveTargetRefsQuery
+	args := []any{target}
+	q, args = appendScopeFilter(q, args, scope, sessionID, projectPath)
+	return invalidateMatchingRefs(q, args, ReasonSuperseded, newRef)
+}
+
+func appendScopeFilter(q string, args []any, scope Scope, sessionID, projectPath string) (string, []any) {
 	switch scope {
 	case ScopeSession:
 		q += andSessionScopeClause
@@ -39,6 +57,10 @@ func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predica
 	case ScopeGlobal:
 		q += andGlobalScopeClause
 	}
+	return q, args
+}
+
+func invalidateMatchingRefs(q string, args []any, reason, newRef string) ([]string, error) {
 	rows, err := db.ContextDB.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -52,7 +74,9 @@ func invalidateConflicting(scope Scope, sessionID, projectPath, subject, predica
 		}
 	}
 	for _, ref := range refs {
-		invalidate(db.ContextDB, ref, ReasonContradiction, newRef)
+		if err := invalidate(db.ContextDB, ref, reason, newRef); err != nil {
+			logger.Warn("Failed to invalidate superseded memory entry", "ref", ref, "reason", reason, "error", err)
+		}
 	}
 	return refs, nil
 }

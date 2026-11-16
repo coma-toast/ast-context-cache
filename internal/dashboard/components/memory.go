@@ -30,6 +30,11 @@ type MemoryData struct {
 	KvRepairTodayRepairs      int
 	ActiveFacts               int
 	ActiveProcedures          int
+	ActivePreferences         int
+	ActiveEvents              int
+	ActiveConfigChanges       int
+	ActiveDiscoveries         int
+	QuarantinedCount          int
 	StructuredMemoryTokens    int
 	MemoryOrphanCount         int
 	DocSources                []IndexDocSource
