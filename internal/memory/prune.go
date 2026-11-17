@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"strings"
 	"time"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/search"
 )
@@ -157,7 +159,8 @@ func RunExpiryJob() {
 // RunStaleAnchorJob runs the periodic MEM-1 job: invalidate facts whose world-time
 // anchor has passed (world_invalid_at is set and earlier than now). A fact whose
 // world_invalid_at is in the past is no longer true in the world, so it is
-// invalidated with reason "stale_anchor". Rows without world_invalid_at are ignored.
+// invalidated with reason "stale_anchor". Rows without world_invalid_at and
+// verified rows are ignored.
 func RunStaleAnchorJob() {
 	now := db.SQLTime(time.Now().UTC())
 	res, err := db.ContextDB.Exec(
@@ -165,6 +168,7 @@ func RunStaleAnchorJob() {
 		 SET valid_until = ?, invalidated_reason = ?
 		 WHERE kind = 'fact'
 		   AND (valid_until IS NULL OR valid_until = '')
+		   AND COALESCE(verified, 0) = 0
 		   AND world_invalid_at IS NOT NULL AND world_invalid_at != ''
 		   AND world_invalid_at < ?`,
 		now, ReasonStaleAnchor, now,
@@ -234,5 +238,41 @@ func RejectQuarantined(ref string) error {
 		logger.Warn("Failed to delete memory vector for quarantined ref", "ref", ref, "error", err)
 	}
 	logger.Info("Quarantined entry rejected", "ref", ref)
+	return nil
+}
+
+// ApproveQuarantined clears quarantined = 0 on an active quarantined entry,
+// re-indexes both FTS tables, and spawns async embedding if emb != nil.
+func ApproveQuarantined(ref string, emb embedder.Interface) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return errs.NewCode(errs.CodeInvalidInput, "ref required")
+	}
+	res, err := db.ContextDB.Exec(
+		`UPDATE structured_memory
+		 SET quarantined = 0
+		 WHERE ref = ? AND quarantined = 1 AND (valid_until IS NULL OR valid_until = '')`,
+		ref,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errs.NewCode(errs.CodeNotFound, "no active quarantined entry with ref %q", ref)
+	}
+	e, err := entryByRef(ref)
+	if err != nil {
+		logger.Warn("Failed to load approved quarantined entry for reindex", "ref", ref, "error", err)
+		return nil
+	}
+	if err := indexEntryFTS(e); err != nil {
+		logger.Warn("Failed to reindex approved memory FTS", "ref", ref, "error", err)
+	}
+	if emb != nil {
+		go func() {
+			_, _ = EmbedEntryFromEntry(e, emb)
+		}()
+	}
+	logger.Info("Quarantined entry approved", "ref", ref)
 	return nil
 }

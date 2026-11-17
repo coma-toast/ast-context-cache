@@ -3,6 +3,7 @@ package dashboard
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/flags"
@@ -32,6 +33,15 @@ func handleDashboardFlagsJSON(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func flagEnabledBefore(key string) (bool, bool) {
+	for _, st := range flags.State() {
+		if st.Key == key {
+			return st.Enabled, true
+		}
+	}
+	return false, false
+}
+
 func postFlag(w http.ResponseWriter, r *http.Request) {
 	var req setFlagRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -42,11 +52,18 @@ func postFlag(w http.ResponseWriter, r *http.Request) {
 		writeFlagsError(w, http.StatusBadRequest, "key and enabled required")
 		return
 	}
+	prev, hasPrev := flagEnabledBefore(req.Key)
 	if err := flags.Set(req.Key, *req.Enabled); err != nil {
 		writeFlagsError(w, flagErrorStatus(err), err.Error())
 		return
 	}
-	realtime.Notify(realtime.SettingsChanged)
+	notify := realtime.SettingsChanged
+	if hasPrev && prev != *req.Enabled {
+		if recordSettingsConfigChange(req.Key, strconv.FormatBool(prev), strconv.FormatBool(*req.Enabled), "Feature flag toggled") {
+			notify |= realtime.KnowledgeBase
+		}
+	}
+	realtime.Notify(notify)
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "flags": flags.State()})
 }
 

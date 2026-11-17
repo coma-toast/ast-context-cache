@@ -26,6 +26,13 @@ type embedResult struct {
 // It embeds FormatLine(e) in a goroutine with a timeout (default 300ms, configured via AST_CONFLICT_TIMEOUT_MS),
 // searches vector cache, and falls back to FTS if it times out or embedder is nil.
 func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) ([]Conflict, string) {
+	targetKind := e.Kind
+	if targetKind == "" {
+		targetKind = KindFact
+	}
+	if targetKind != KindFact && targetKind != KindDiscovery {
+		return nil, "fts"
+	}
 	if timeout <= 0 {
 		timeoutMs := db.SettingInt("conflict_timeout_ms", "AST_CONFLICT_TIMEOUT_MS", 300)
 		timeout = time.Duration(timeoutMs) * time.Millisecond
@@ -53,11 +60,11 @@ func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) 
 				continue
 			}
 			cand, err := entryByRef(ref)
-			if err != nil || cand.ValidUntil != "" {
+			if err != nil || cand.ValidUntil != "" || cand.Quarantined != 0 {
 				continue
 			}
-			// Filter to facts only, same scope, and project/repo siblings
-			if cand.Kind != KindFact {
+			// Filter to matching kind, same scope, and project/repo siblings
+			if cand.Kind != targetKind {
 				continue
 			}
 			if cand.Scope != e.Scope {
@@ -90,8 +97,15 @@ func ConflictCandidates(e Entry, emb embedder.Interface, timeout time.Duration) 
 }
 
 func ftsConflictCandidates(e Entry) []Conflict {
-	// Fallback FTS search over subject/predicate/object terms; limit to active facts only.
-	terms := search.QueryTerms(e.Subject + " " + e.Predicate + " " + e.Object)
+	targetKind := e.Kind
+	if targetKind == "" {
+		targetKind = KindFact
+	}
+	if targetKind != KindFact && targetKind != KindDiscovery {
+		return nil
+	}
+	// Fallback FTS search over title/body/subject/predicate/object terms; limit to matching active kind.
+	terms := search.QueryTerms(e.Title + " " + e.Body + " " + e.Subject + " " + e.Predicate + " " + e.Object)
 	if len(terms) == 0 {
 		return nil
 	}
@@ -99,7 +113,7 @@ func ftsConflictCandidates(e Entry) []Conflict {
 	if ftsQuery == "" {
 		return nil
 	}
-	kinds := []Kind{KindFact}
+	kinds := []Kind{targetKind}
 	clause, args := filterClauses(RecallInput{
 		SessionID:           e.SessionID,
 		ProjectPath:         e.ProjectPath,
@@ -107,14 +121,12 @@ func ftsConflictCandidates(e Entry) []Conflict {
 		Kinds:               kinds,
 		IncludeRepoSiblings: e.Scope == ScopeProject,
 	}, "sm.", smEntryValidity)
-	q := `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
-		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,
-		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at, sm.quarantined
-		FROM structured_memory_fts
-		JOIN structured_memory sm ON sm.ref = structured_memory_fts.ref
-		WHERE structured_memory_fts MATCH ?` + clause + ` ORDER BY bm25(structured_memory_fts) LIMIT 10`
+	q := `SELECT ` + entrySelectColsAliased("sm", false) + `
+		FROM structured_memory_kb_fts
+		JOIN structured_memory sm ON sm.ref = structured_memory_kb_fts.ref
+		WHERE structured_memory_kb_fts MATCH ?` + clause + ` ORDER BY bm25(structured_memory_kb_fts) LIMIT 10`
 
-	rows, err := db.ContextDB.Query(q, append([]any{ftsContentColumnsFilterStart + ftsQuery + ")"}, args...)...)
+	rows, err := db.ContextDB.Query(q, append([]any{ftsKBContentColumnsFilterStart + ftsQuery + ")"}, args...)...)
 	if err != nil {
 		return nil
 	}

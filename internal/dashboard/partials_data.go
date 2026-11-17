@@ -3,6 +3,7 @@ package dashboard
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -304,11 +305,48 @@ func buildMemory(projectID string, docSourcesPage int) components.MemoryData {
 	m.KvRepairQuality30d = s.KvRepairQuality30d
 	m.KvRepairManual30d = s.KvRepairManual30d
 	m.KvRepairTodayRepairs = s.KvRepairTodayRepairs
-	inv := memory.Inventory()
-	m.ActiveFacts = inv.ActiveFacts
-	m.ActiveProcedures = inv.ActiveProcedures
-	m.StructuredMemoryTokens = inv.ActiveTokens
-	m.MemoryOrphanCount = inv.OrphanCount
+	fillScopedMemoryRollup(&m, projectID)
 	appendMemoryDocSources(&m, docSourcesPage)
 	return m
+}
+
+func fillScopedMemoryRollup(m *components.MemoryData, projectID string) {
+	if db.ContextDB == nil {
+		return
+	}
+	if res, err := memory.QueryKB(memory.KBQueryInput{
+		ProjectPath:              projectID,
+		IncludeGlobalWithProject: true,
+		PerPage:                  1,
+	}); err == nil {
+		m.ActiveFacts = res.Counts.Fact
+		m.ActiveProcedures = res.Counts.Procedure
+		m.ActivePreferences = res.Counts.Preference
+		m.ActiveEvents = res.Counts.Event
+		m.ActiveConfigChanges = res.Counts.ConfigChange
+		m.ActiveDiscoveries = res.Counts.Discovery
+		m.QuarantinedCount = res.Counts.Quarantined
+	} else {
+		logger.Warn("Failed to query KB counts for memory summary", "project_id", projectID, "error", err)
+	}
+
+	where := `WHERE (valid_until IS NULL OR valid_until = '') AND COALESCE(quarantined, 0) = 0`
+	var args []any
+	if projectID != "" {
+		paths := projectlinks.ResolveScopeWithRepoSiblings(projectID, true)
+		if len(paths) == 0 {
+			paths = []string{projectID}
+		}
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(paths)), ",")
+		where += ` AND (project_path IN (` + ph + `) OR scope = 'global')`
+		for _, p := range paths {
+			args = append(args, p)
+		}
+	}
+	if err := db.ContextDB.QueryRow(`SELECT COALESCE(SUM(token_est), 0) FROM structured_memory `+where, args...).Scan(&m.StructuredMemoryTokens); err != nil {
+		logger.Warn("Failed to sum structured memory tokens", "project_id", projectID, "error", err)
+	}
+	if err := db.ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory `+where+` AND (access_count IS NULL OR access_count = 0)`, args...).Scan(&m.MemoryOrphanCount); err != nil {
+		logger.Warn("Failed to count orphan structured memory entries", "project_id", projectID, "error", err)
+	}
 }

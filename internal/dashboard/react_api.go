@@ -39,6 +39,7 @@ func registerReactAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dashboard/host-usage", handleDashboardHostUsageJSON)
 	registerHandoffAPI(mux)
 	registerInstallerAPI(mux)
+	registerKBAPI(mux)
 }
 
 func handleDashboardRecentLogsJSON(w http.ResponseWriter, r *http.Request) {

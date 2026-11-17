@@ -131,7 +131,7 @@ When working with codebases that have an MCP server available, **always prefer M
 | `edit_context` | Edit a stored note **in place**, keeping its `ctx_*` ref: `append`, `replace`, `delete`, `rewrite`, `revert`. Context-as-a-file; every edit is reversible — see [docs/context-edit.md](docs/context-edit.md). |
 | `define_context_fn` / `apply_context_fn` | Register and re-invoke a **named reusable transform** across notes or a whole session. Off by default (`feature_context_fn`) — see [docs/context-fn.md](docs/context-fn.md). |
 | `flush_context` | Delete stored virtual context (session, refs, or all). |
-| `store_memory` | Compact temporal facts / procedural rules → `mem_*` refs (auto-supersedes same subject+predicate). |
+| `store_memory` | Structured memory (`fact`, `procedure`, `preference`, `event`, `config_change`, `discovery`) → `mem_*` refs (auto-supersedes matching fact/preference/config_change; secret-redacted; `session_id` optional for `project`/`global`). |
 | `forget_memory` | Invalidate structured memory (refs, subject+predicate, or all). |
 | `report_kv_repair_event` | Report KV cache miss/quality signal before/after `fetch_context` (observability). |
 | `analyze_dead_code` | Find unused functions, classes, and imports. |
@@ -287,21 +287,21 @@ handoff(action="list", session_id="parent")  then  handoff(action="collect", ses
 - **Errors** carry stable codes: `handoff_not_found`, `handoff_expired`, `handoff_depth_exceeded`, `handoff_children_exceeded`, `handoff_tree_limit_exceeded`, `claim_deadlock_risk`, `feature_disabled`.
 - **Never put credentials in a brief or scratchpad post**: anyone holding the ref can read the tree.
 
-### Structured memory (facts & procedures)
+### Structured memory (Knowledge Base)
 
-**Virtual context** (`ctx_*`) = bulky notes/plans/diffs. **Structured memory** (`mem_*`) = compact prefs and rules — much smaller than `store_context`.
+**Virtual context** (`ctx_*`) = bulky notes/plans/diffs. **Structured memory** (`mem_*`) = compact facts, rules, preferences, events, config changes, and discoveries — much smaller than `store_context`.
 
 | Tool | Tier | Role |
 |------|------|------|
-| `store_memory` | extended | Save fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope: `session` / `project` / `global` |
-| `recall_memory` | core | Retrieve within `token_budget` (default 800); optional `query`, `as_of` for temporal facts |
+| `store_memory` | extended | Save `fact`, `procedure`, `preference`, `event`, `config_change`, or `discovery`; scope: `session` / `project` / `global` (`session_id` optional for `project`/`global`); optional `body` (max 16 KB Markdown), `tags`, `actor`, `category`, `severity`, `target`/`before_value`/`after_value`/`reason`, `occurred_at`; redacts secrets with `warnings`/`redacted_fields` |
+| `recall_memory` | core | Tier-1 compact lines within `token_budget` (default 800, cap 2000), or Tier-2 full bodies/diffs via `expand=true` or `refs` (cap 8000); supports `query`, `since`/`until`, `tags`, `actor`, `verified_only`, `as_of` |
 | `forget_memory` | extended | Invalidate by `refs` (array or comma list; scope read from each ref; `not_found` lists unknown refs), `subject`+`predicate`, or `all=true` |
 
-**When to use:** user prefs ("always use fish"), coding conventions, procedural rules — not long analysis. Facts auto-invalidate prior same subject+predicate in scope.
+**When to use:** user/project preferences, coding conventions, procedural rules, incidents/events, config changes, and discoveries — not unbounded transcripts (keep `body` ≤ 16 KB or offload to `store_context` + `source_ref`). Facts and preferences auto-invalidate prior matching `subject`+`predicate` in scope; `config_change` auto-invalidates prior matching `target` in scope. `store_context(..., extract_memory=true)` and handoff completion promote `FACT:`, `RULE:`, `PREFERENCE:`, `EVENT:`, `CONFIG_CHANGE:`, and `DISCOVERY:` lines.
 
-**Environment gotchas:** when you hit a non-obvious quirk of a project — "this app's login form matches by internal user id, not display name", a fixture that must be seeded first, a flag that silently no-ops — `store_memory` it with `scope=project` right then, so the next session recalls it instead of rediscovering it. Open any task on a project with `recall_memory(project_path=…)` before reading code. Project memories key on the repo, not the checkout: one stored in a WTG worktree comes back in a sibling worktree on a different branch (pass `repo_siblings=false` to limit recall to the one checkout).
+**Environment gotchas:** when you hit a non-obvious quirk of a project — "this app's login form matches by internal user id, not display name", a fixture that must be seeded first, a flag that silently no-ops — `store_memory` it with `scope=project` (no `session_id` needed) right then, so the next session recalls it instead of rediscovering it. Open any task on a project with `recall_memory(project_path=…)` before reading code. Project memories key on the repo, not the checkout: one stored in a WTG worktree comes back in a sibling worktree on a different branch (pass `repo_siblings=false` to limit recall to the one checkout).
 
-**RAG integration:** `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
+**RAG integration:** `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`), retrieving relevant `global` and `project` entries even without `session_id`.
 
 **KV repair:** For quantized KV miss/quality signals, call **`report_kv_repair_event`** (extended) before/after `fetch_context` on a `kind=kv_repair` archive. See [skills/usage/SKILL.md](skills/usage/SKILL.md).
 

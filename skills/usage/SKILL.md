@@ -200,32 +200,36 @@ Code **`tokens_saved`** on the main dashboard card counts **`get_context_capsule
 
 If `store_context` is missing from `tools/list`, ask the user to set `AST_MCP_TIER=extended` and restart ast-mcp.
 
-## Structured memory (facts & procedures)
+## Structured memory (Knowledge Base)
 
-**Virtual context** (`ctx_*`) = bulky notes/plans/diffs. **Structured memory** (`mem_*`) = compact prefs and rules — much smaller than `store_context`. Prefer **`recall_memory`** over **`fetch_context`** when you need preferences or procedures, not full notes.
+**Virtual context** (`ctx_*`) = bulky notes/plans/diffs. **Structured memory** (`mem_*`) = compact facts, rules, preferences, events, config changes, and discoveries — much smaller than `store_context`. Prefer **`recall_memory`** over **`fetch_context`** when you need preferences, conventions, incidents, or procedures, not full notes.
 
 | Tool | Tier | Role |
 |------|------|------|
-| `store_memory` | extended | Fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope `session` / `project` / `global` |
-| `recall_memory` | core | Retrieve within `token_budget` (default 800); optional `query`, `as_of` |
+| `store_memory` | extended | Store `fact`, `procedure`, `preference`, `event`, `config_change`, or `discovery`; scope `session` / `project` / `global` (`session_id` optional for `project`/`global`); optional `body` (max 16 KB Markdown), `tags`, `actor`, `category`, `severity`, `target`/`before_value`/`after_value`/`reason`, `occurred_at` (redacts secrets with `warnings`/`redacted_fields`) |
+| `recall_memory` | core | Tier-1 compact lines within `token_budget` (default 800, cap 2000), or Tier-2 full bodies/diffs with `expand=true` or `refs` (cap 8000); supports `query`, `since`/`until`, `tags`, `actor`, `verified_only`, `as_of` |
 | `forget_memory` | extended | Invalidate by `refs` (array or comma list; scope read from each ref), `subject`+`predicate`, or `all=true` |
 
 ```
 store_memory(kind="fact", session_id="conv-uuid", subject="user.shell", predicate="is", object="fish")
 store_memory(kind="procedure", session_id="conv-uuid", rule="Always run make test before committing")
-recall_memory(session_id="conv-uuid", query="shell", token_budget=800)
+store_memory(kind="preference", scope="global", object="concise diffs")
+store_memory(kind="event", project_path="/abs/repo", title="Deploy rolled back", severity="warning", tags=["prod"])
+store_memory(kind="config_change", project_path="/abs/repo", target="max_conns", before_value="50", after_value="100", reason="Avoid pool exhaustion")
+store_memory(kind="discovery", project_path="/abs/repo", title="Batch loader removes N+1", body="## Details\n...")
+recall_memory(project_path="/abs/repo", since="2026-01-01T00:00:00Z", expand=true, token_budget=4000)
 forget_memory(refs=["mem_a", "mem_b"])  # or "mem_a,mem_b"; or subject+predicate, or all=true
 ```
 
 `forget_memory(refs=…)` needs no `scope`/`session_id` and touches only the named refs; the response lists `invalidated`, `not_found`, `already_invalid`, and `scope_mismatch` (if you pass `scope`, it only guards), and is an error when nothing was invalidated.
 
-Facts auto-invalidate prior same subject+predicate in scope (`invalidate_previous` default true). Optional: `store_context(..., extract_memory=true)` saves only lines that start with `FACT:` (`subject | predicate | object`, or `subject predicate object…`) or `RULE:` as session-scoped `mem_*`; headings, prose, and fenced code are ignored and text is kept as written. Unparseable marked lines come back in `memory_skipped`. RAG: `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`).
+Facts and preferences auto-invalidate prior same `subject`+`predicate` in scope (`invalidate_previous` default true); `config_change` auto-invalidates prior active entries for the same `target` in scope. Optional: `store_context(..., extract_memory=true)` saves only lines starting with `FACT:`, `RULE:`, `PREFERENCE:`, `EVENT:`, `CONFIG_CHANGE:`, or `DISCOVERY:` as session-scoped `mem_*`; headings, prose, and fenced code are ignored and text is kept as written. Unparseable marked lines come back in `memory_skipped`. RAG: `retrieve(..., include_memory=true)` prepends compact memory (~20% of `token_budget`), retrieving relevant `global` and `project` memory even without `session_id`.
 
 **Environment gotchas — store them as you find them.** Any non-obvious quirk of a project belongs in project-scoped memory the moment you hit it, so the next session recalls it instead of rediscovering it:
 
 ```
-store_memory(kind="fact", scope="project", project_path="/abs/repo",
-             subject="login.form", predicate="matches_by", object="internal user id, not display name")
+store_memory(kind="discovery", scope="project", project_path="/abs/repo",
+             title="login.form matches by internal user id, not display name")
 recall_memory(project_path="/abs/repo", scope="project")  # do this before reading code
 ```
 

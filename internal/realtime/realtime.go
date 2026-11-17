@@ -22,6 +22,8 @@ const (
 	Settings
 	// Handoffs is a handoff tree lifecycle change: create, open, complete, abandon, claim, flush.
 	Handoffs
+	// KnowledgeBase fires on Knowledge Base (structured_memory), context_notes, and doc_sources mutations.
+	KnowledgeBase
 )
 
 // Composite masks for common events.

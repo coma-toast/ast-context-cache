@@ -2,9 +2,11 @@ package memory
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
@@ -19,14 +21,7 @@ import (
 func v2Enabled() bool { return flags.Enabled(flags.KeyMemoryV2) }
 
 const (
-	selectActiveEntriesQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
-		FROM structured_memory WHERE 1=1`
-	selectEntriesByRefsQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
-		FROM structured_memory WHERE ref IN (`
+	bodyTruncSuffix              = "\n... [truncated; request smaller budget or view in Dashboard]"
 	selectActiveEntryTokensQuery = `SELECT ref, token_est FROM structured_memory WHERE (valid_until IS NULL OR valid_until = '')`
 	invalidateEntryQuery         = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ?`
 	invalidateActiveEntryQuery   = `UPDATE structured_memory SET valid_until = datetime('now'), invalidated_reason = ? WHERE ref = ? AND (valid_until IS NULL OR valid_until = '')`
@@ -35,6 +30,7 @@ const (
 	validAsOfClause              = ` AND valid_from <= ? AND (valid_until IS NULL OR valid_until = '' OR valid_until > ?)`
 	validFromAsOfClause          = ` AND valid_from <= ?`
 	validNowClause               = ` AND (valid_until IS NULL OR valid_until = '')`
+	validNowOrSupersededClause   = ` AND ((valid_until IS NULL OR valid_until = '') OR invalidated_reason IN ('contradiction', 'superseded') OR (superseded_by IS NOT NULL AND superseded_by != ''))`
 	// MEM-5: world-time as_of clauses use COALESCE(world_valid_at, valid_from) so that
 	// as_of queries use world time when present and fall back to system time when the
 	// world columns are empty. The "now" clause stays on system time (valid_until).
@@ -43,6 +39,7 @@ const (
 	smValidAsOfClause        = ` AND sm.valid_from <= ? AND (sm.valid_until IS NULL OR sm.valid_until = '' OR sm.valid_until > ?)`
 	smValidFromAsOfClause    = ` AND sm.valid_from <= ?`
 	smValidNowClause         = ` AND (sm.valid_until IS NULL OR sm.valid_until = '')`
+	smValidNowOrSuperseded   = ` AND ((sm.valid_until IS NULL OR sm.valid_until = '') OR sm.invalidated_reason IN ('contradiction', 'superseded') OR (sm.superseded_by IS NOT NULL AND sm.superseded_by != ''))`
 	// MEM-5: world-time as_of clauses qualified for the structured_memory join.
 	smWorldValidAsOfClause          = ` AND COALESCE(sm.world_valid_at, sm.valid_from) <= ? AND (COALESCE(sm.world_invalid_at, sm.valid_until) IS NULL OR COALESCE(sm.world_invalid_at, sm.valid_until) = '' OR COALESCE(sm.world_invalid_at, sm.valid_until) > ?)`
 	smWorldValidFromAsOfClause      = ` AND COALESCE(sm.world_valid_at, sm.valid_from) <= ?`
@@ -85,6 +82,15 @@ type RecallInput struct {
 	Debug bool
 	// Expand returns full entry bodies instead of compact one-line summaries (MEM-10).
 	Expand bool
+	// KB filters (Tier-1/Tier-2 recall).
+	Refs               []string
+	Tags               []string
+	Actor              string
+	Since              string
+	Until              string
+	VerifiedOnly       bool
+	IncludeQuarantined bool
+	IncludeSuperseded  bool
 }
 
 // DemotedEntry is a matched entry that did not make the final output, with the reason.
@@ -108,28 +114,55 @@ type RecallResult struct {
 
 // validityClauses holds the validity filters for one column qualification, so
 // joined and unjoined queries share validityClause.
-type validityClauses struct{ now, asOf, fromAsOf, worldAsOf, worldFromAsOf string }
+type validityClauses struct{ now, nowOrSuperseded, asOf, fromAsOf, worldAsOf, worldFromAsOf string }
 
 var (
-	entryValidity   = validityClauses{now: validNowClause, asOf: validAsOfClause, fromAsOf: validFromAsOfClause, worldAsOf: worldValidAsOfClause, worldFromAsOf: worldValidFromAsOfClause}
-	smEntryValidity = validityClauses{now: smValidNowClause, asOf: smValidAsOfClause, fromAsOf: smValidFromAsOfClause, worldAsOf: smWorldValidAsOfClause, worldFromAsOf: smWorldValidFromAsOfClause}
+	entryValidity   = validityClauses{now: validNowClause, nowOrSuperseded: validNowOrSupersededClause, asOf: validAsOfClause, fromAsOf: validFromAsOfClause, worldAsOf: worldValidAsOfClause, worldFromAsOf: worldValidFromAsOfClause}
+	smEntryValidity = validityClauses{now: smValidNowClause, nowOrSuperseded: smValidNowOrSuperseded, asOf: smValidAsOfClause, fromAsOf: smValidFromAsOfClause, worldAsOf: smWorldValidAsOfClause, worldFromAsOf: smWorldValidFromAsOfClause}
 )
 
 // Recall returns compact valid facts and procedures matching query within token budget.
 func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 	in.Query = strings.TrimSpace(in.Query)
+	in.Actor = strings.TrimSpace(in.Actor)
+	if in.Since = strings.TrimSpace(in.Since); in.Since != "" {
+		norm, err := db.NormalizeSQLTime(in.Since)
+		if err != nil {
+			return nil, err
+		}
+		in.Since = norm
+	}
+	if in.Until = strings.TrimSpace(in.Until); in.Until != "" {
+		norm, err := db.NormalizeSQLTime(in.Until)
+		if err != nil {
+			return nil, err
+		}
+		in.Until = norm
+	}
+
 	if in.Limit <= 0 {
-		in.Limit = 10
+		if len(in.Refs) > 10 {
+			in.Limit = len(in.Refs)
+		} else {
+			in.Limit = 10
+		}
 	}
 	if in.Limit > 50 {
 		in.Limit = 50 // hard cap: 50 lines
 	}
+
+	fullTier2 := in.Expand || len(in.Refs) > 0
 	if in.TokenBudget <= 0 {
 		in.TokenBudget = 800
 	}
-	if in.TokenBudget > 2000 && v2Enabled() {
-		in.TokenBudget = 2000 // hard cap: 2,000 tokens
+	maxBudget := 2000
+	if fullTier2 {
+		maxBudget = 8000
 	}
+	if in.TokenBudget > maxBudget && v2Enabled() {
+		in.TokenBudget = maxBudget
+	}
+
 	var entries []Entry
 	var scores map[string]float64
 	var err error
@@ -156,15 +189,15 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 		}
 		entries = entries[:in.Limit]
 	}
-	budgeted, tokensUsed, savedEst, demotedBudget := applyTokenBudget(entries, in.TokenBudget, v2 && in.Debug)
+	budgeted, tokensUsed, savedEst, demotedBudget := applyTokenBudget(entries, in.TokenBudget, v2 && in.Debug, fullTier2)
 	lines := make([]CompactLine, 0, len(budgeted))
 	for _, e := range budgeted {
-		line := FormatLine(e)
-		if line == "" {
+		cl := FormatCompactLine(e, scores[e.Ref])
+		if cl.Line == "" {
 			continue
 		}
-		RecordAccess(e.Ref, in.SessionID, in.ProjectPath, "recall_memory", estimateEntryTokens(e))
-		lines = append(lines, CompactLine{Ref: e.Ref, Kind: e.Kind, Line: line, Score: scores[e.Ref]})
+		RecordAccess(e.Ref, in.SessionID, in.ProjectPath, "recall_memory", returnedTokens(e, fullTier2))
+		lines = append(lines, cl)
 	}
 	var demoted []DemotedEntry
 	if v2 {
@@ -188,17 +221,86 @@ func Recall(in RecallInput, emb embedder.Interface) (*RecallResult, error) {
 	}, nil
 }
 
+func returnedTokens(e Entry, fullTier2 bool) int {
+	if fullTier2 {
+		return estimateEntryTokens(e)
+	}
+	tok := db.EstimateTokens(FormatLine(e))
+	if tok <= 0 && e.TokenEst > 0 {
+		return e.TokenEst
+	}
+	return tok
+}
+
+// truncateEntryToBudget trims e.Body at a UTF-8 rune boundary and appends
+// bodyTruncSuffix so a single oversized entry fits within budget.
+func truncateEntryToBudget(e Entry, budget int) (Entry, int) {
+	if e.Body == "" {
+		return e, estimateEntryTokens(e)
+	}
+	e.TokenEst = 0
+	header := FormatLine(e)
+	var cuts []int
+	cuts = append(cuts, 0)
+	for i, r := range e.Body {
+		w := utf8.RuneLen(r)
+		if w < 0 {
+			w = 1
+		}
+		cuts = append(cuts, i+w)
+	}
+
+	buildText := func(prefix string) string {
+		body := prefix + bodyTruncSuffix
+		if header != "" {
+			return header + "\n" + body
+		}
+		return body
+	}
+
+	lo, hi := 0, len(cuts)-1
+	best := -1
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		tok := db.EstimateTokens(buildText(e.Body[:cuts[mid]]))
+		if tok <= budget {
+			best = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+
+	if best < 0 {
+		e.Body = strings.TrimPrefix(bodyTruncSuffix, "\n")
+	} else {
+		e.Body = e.Body[:cuts[best]] + bodyTruncSuffix
+	}
+	tok := estimateEntryTokens(e)
+	e.TokenEst = tok
+	return e, tok
+}
+
 // applyTokenBudget applies the token budget cap, returning the entries that fit within
 // the budget, the number of tokens used, the estimated tokens saved by truncation, and
 // the entries that were demoted below the budget (MEM-9).
-func applyTokenBudget(entries []Entry, budget int, debug bool) ([]Entry, int, int, []DemotedEntry) {
+func applyTokenBudget(entries []Entry, budget int, debug bool, fullTier2 bool) ([]Entry, int, int, []DemotedEntry) {
 	var out []Entry
 	used := 0
 	saved := 0
 	var demoted []DemotedEntry
 	for _, e := range entries {
-		tok := estimateEntryTokens(e)
-		fullEst := tok * 8
+		tok := returnedTokens(e, fullTier2)
+		fullEst := e.TokenEst
+		if fullEst < tok*8 {
+			fullEst = tok * 8
+		}
+		if len(out) == 0 && fullTier2 && tok > budget && e.Body != "" {
+			e, tok = truncateEntryToBudget(e, budget)
+			if fullEst < tok {
+				fullEst = tok
+			}
+		}
 		if used+tok > budget && len(out) > 0 {
 			if debug {
 				demoted = append(demoted, DemotedEntry{
@@ -235,6 +337,8 @@ func validityClause(in RecallInput, c validityClauses) (string, []any) {
 		return c.worldAsOf, []any{in.AsOf, in.AsOf}
 	case in.IncludeHistory:
 		return "", nil
+	case in.IncludeSuperseded:
+		return c.nowOrSuperseded, nil
 	}
 	return c.now, nil
 }
@@ -327,19 +431,123 @@ func kindClause(kinds []Kind, prefix string) (string, []any) {
 	return clause + strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + ")", args
 }
 
-// filterClauses joins the validity, scope and kind filters every recall query applies;
-// prefix qualifies columns for joins and v must match it.
+func refsClause(refs []string, prefix string) (string, []any) {
+	if len(refs) == 0 {
+		return "", nil
+	}
+	var clean []string
+	for _, r := range refs {
+		if r = strings.TrimSpace(r); r != "" {
+			clean = append(clean, r)
+		}
+	}
+	if len(clean) == 0 {
+		return "", nil
+	}
+	args := make([]any, len(clean))
+	for i, r := range clean {
+		args[i] = r
+	}
+	return andFragment + prefix + "ref IN (" + strings.TrimSuffix(strings.Repeat("?,", len(clean)), ",") + ")", args
+}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+func tagsClause(tags []string, prefix string) (string, []any) {
+	norm := normalizeTags(tags)
+	if len(norm) == 0 {
+		return "", nil
+	}
+	col := "lower(COALESCE(" + prefix + "tags, ''))"
+	var parts []string
+	var args []any
+	for _, t := range norm {
+		b, _ := json.Marshal(t)
+		jsonPat := "%" + escapeLike(string(b)) + "%"
+		csvPat := "%," + escapeLike(t) + ",%"
+		parts = append(parts, "("+col+` LIKE ? ESCAPE '\' OR ',' || REPLACE(`+col+`, ' ', '') || ',' LIKE ? ESCAPE '\')`)
+		args = append(args, jsonPat, csvPat)
+	}
+	return andFragment + "(" + strings.Join(parts, orFragment) + ")", args
+}
+
+func actorClause(actor, prefix string) (string, []any) {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return "", nil
+	}
+	return andFragment + prefix + "actor = ?", []any{actor}
+}
+
+func timeRangeClause(since, until, prefix string) (string, []any) {
+	var clause string
+	var args []any
+	tsCol := "COALESCE(NULLIF(" + prefix + "occurred_at,''), " + prefix + "created_at)"
+	if since != "" {
+		norm := since
+		if n, err := db.NormalizeSQLTime(since); err == nil {
+			norm = n
+		}
+		clause += andFragment + tsCol + " >= ?"
+		args = append(args, norm)
+	}
+	if until != "" {
+		norm := until
+		if n, err := db.NormalizeSQLTime(until); err == nil {
+			norm = n
+		}
+		clause += andFragment + tsCol + " <= ?"
+		args = append(args, norm)
+	}
+	return clause, args
+}
+
+func verifiedClause(verifiedOnly bool, prefix string) string {
+	if !verifiedOnly {
+		return ""
+	}
+	return andFragment + "COALESCE(" + prefix + "verified, 0) = 1"
+}
+
+func quarantineClause(includeQuarantined bool, prefix string) string {
+	if includeQuarantined {
+		return ""
+	}
+	return andFragment + "COALESCE(" + prefix + "quarantined, 0) = 0"
+}
+
+// filterClauses joins the validity, quarantine, scope, kind, and KB filters every recall
+// query applies; prefix qualifies columns for joins and v must match it.
 func filterClauses(in RecallInput, prefix string, v validityClauses) (string, []any) {
 	validity, args := validityClause(in, v)
+	quar := quarantineClause(in.IncludeQuarantined, prefix)
 	scope, scopeArgs := scopeClauseFor(in, prefix)
 	kind, kindArgs := kindClause(in.Kinds, prefix)
-	args = append(append(args, scopeArgs...), kindArgs...)
-	return validity + scope + kind, args
+	refs, refsArgs := refsClause(in.Refs, prefix)
+	tags, tagsArgs := tagsClause(in.Tags, prefix)
+	actor, actorArgs := actorClause(in.Actor, prefix)
+	tr, trArgs := timeRangeClause(in.Since, in.Until, prefix)
+	ver := verifiedClause(in.VerifiedOnly, prefix)
+
+	args = append(args, scopeArgs...)
+	args = append(args, kindArgs...)
+	args = append(args, refsArgs...)
+	args = append(args, tagsArgs...)
+	args = append(args, actorArgs...)
+	args = append(args, trArgs...)
+	return validity + quar + scope + kind + refs + tags + actor + tr + ver, args
 }
 
 func listActiveEntries(in RecallInput) ([]Entry, error) {
+	fullTier2 := in.Expand || len(in.Refs) > 0
 	clause, args := filterClauses(in, "", entryValidity)
-	return queryEntries(selectActiveEntriesQuery+clause+orderByAccessCreatedLimitClause, append(args, in.Limit*2)...)
+	q := "SELECT " + entrySelectCols(fullTier2) + " FROM structured_memory WHERE 1=1" + clause + orderByAccessCreatedLimitClause
+	return queryEntries(q, append(args, in.Limit*2)...)
 }
 
 func queryEntries(q string, args ...any) ([]Entry, error) {
@@ -409,7 +617,7 @@ func Forget(in ForgetInput) (*ForgetResult, error) {
 		if sc == "" {
 			sc = ScopeSession
 		}
-		refs, _ := invalidateConflicting(sc, in.SessionID, in.ProjectPath, in.Subject, pred, "")
+		refs, _ := invalidateConflicting(KindFact, sc, in.SessionID, in.ProjectPath, in.Subject, pred, "")
 		return &ForgetResult{InvalidatedRefs: len(refs)}, nil
 	}
 	return nil, errs.NewCode(errs.CodeInvalidInput, "refs, subject, or all=true required")

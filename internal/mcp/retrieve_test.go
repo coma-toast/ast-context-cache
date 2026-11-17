@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/coma-toast/ast-context-cache/internal/db"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 )
 
 // Golden shape for retrieve stats JSON (regression guard for observability fields). Timings
@@ -71,4 +72,44 @@ func TestRetrieveDedupsOnlyDeliveredChunks(t *testing.T) {
 	assert.Equal(t, 1, next.Stats.DedupedCount)
 	raw, _ := json.Marshal(next.Stats)
 	assert.Contains(t, string(raw), `"deduped":1`)
+}
+
+func TestRetrieveIncludeMemoryWithoutSessionID(t *testing.T) {
+	project, _ := indexedPython(t, "clients.py", twoClientsPy)
+
+	_, err := memory.Store(memory.StoreInput{
+		Kind:      memory.KindPreference,
+		Scope:     memory.ScopeGlobal,
+		Subject:   "load_model",
+		Predicate: "prefers",
+		Object:    "warm cache before inference",
+	})
+	require.NoError(t, err)
+
+	_, err = memory.Store(memory.StoreInput{
+		Kind:        memory.KindDiscovery,
+		Scope:       memory.ScopeProject,
+		ProjectPath: project,
+		Title:       "load_model retries once on OOM",
+		Body:        "Observed during cold start.",
+	})
+	require.NoError(t, err)
+
+	out := HandleRetrieve(map[string]interface{}{
+		"query":          "load_model",
+		"include_docs":   false,
+		"include_memory": true,
+		"token_budget":   float64(4000),
+	}, project)
+	raw, ok := out["result"].(json.RawMessage)
+	require.True(t, ok, "%v", out)
+
+	var r RetrieveResult
+	require.NoError(t, json.Unmarshal(raw, &r))
+	assert.True(t, len(r.Context) > 0)
+	assert.Contains(t, r.Context, "## Agent memory\n")
+	assert.Contains(t, r.Context, "warm cache before inference")
+	assert.Contains(t, r.Context, "load_model retries once on OOM")
+	assert.Equal(t, 2, r.Stats.MemoryLines)
+	assert.Positive(t, r.Stats.MemoryTokens)
 }

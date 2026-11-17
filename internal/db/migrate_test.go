@@ -242,3 +242,131 @@ func TestInitFailsWithoutRunningStepsWhenSnapshotFails(t *testing.T) {
 	assert.Equal(t, 0, plainUserVersion(t, contextDBPath()))
 	assert.Equal(t, 0, plainUserVersion(t, usageDBPath()))
 }
+
+func TestContextStepsV6BackfillsKBFTS(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DB_PATH", "")
+	require.NoError(t, os.MkdirAll(cacheDir(), 0o755))
+
+	ctxConn, err := sql.Open("sqlite3", contextDBPath())
+	require.NoError(t, err)
+	_, err = ctxConn.Exec(`
+		CREATE TABLE structured_memory (
+			ref TEXT PRIMARY KEY,
+			kind TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT 'session',
+			session_id TEXT,
+			project_path TEXT,
+			subject TEXT,
+			predicate TEXT,
+			object TEXT,
+			rule TEXT,
+			valid_from TEXT NOT NULL DEFAULT (datetime('now')),
+			valid_until TEXT,
+			superseded_by TEXT,
+			source_ref TEXT,
+			token_est INTEGER NOT NULL DEFAULT 0,
+			access_count INTEGER DEFAULT 0,
+			last_accessed_at TEXT,
+			created_at TEXT DEFAULT (datetime('now')),
+			invalidated_reason TEXT,
+			world_valid_at TEXT,
+			world_invalid_at TEXT,
+			expires_at TEXT,
+			quarantined INTEGER DEFAULT 0
+		);
+		CREATE VIRTUAL TABLE structured_memory_fts USING fts5(ref, subject, predicate, object, rule);
+		INSERT INTO structured_memory (ref, kind, scope, project_path, subject, predicate, object, token_est)
+		VALUES ('mem_fact1', 'fact', 'project', '/repo', 'sqlite', 'uses', 'walmode', 6);
+		INSERT INTO structured_memory (ref, kind, scope, project_path, rule, token_est)
+		VALUES ('mem_proc1', 'procedure', 'global', '/repo', 'always run gofmt before commit', 8);
+		INSERT INTO structured_memory_fts (ref, subject, predicate, object, rule)
+		VALUES ('mem_fact1', 'sqlite', 'uses', 'walmode', ''),
+		       ('mem_proc1', '', '', '', 'always run gofmt before commit');
+		PRAGMA user_version = 5;
+	`)
+	require.NoError(t, err)
+	require.NoError(t, ctxConn.Close())
+
+	t.Cleanup(Close)
+	require.NoError(t, Init())
+
+	assert.Equal(t, len(contextSteps), plainUserVersion(t, contextDBPath()))
+
+	// Verify all 14 new columns exist on structured_memory.
+	cols := map[string]bool{}
+	colRows, err := ContextDB.Query(`PRAGMA table_info(structured_memory)`)
+	require.NoError(t, err)
+	for colRows.Next() {
+		var cid, notNull, pk int
+		var name, colType string
+		var dflt sql.NullString
+		require.NoError(t, colRows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk))
+		cols[name] = true
+	}
+	require.NoError(t, colRows.Err())
+	colRows.Close()
+
+	for _, wantCol := range []string{
+		"title", "body", "tags", "actor", "category", "severity",
+		"target", "before_value", "after_value", "reason", "occurred_at",
+		"verified", "verified_at", "redacted_fields",
+	} {
+		assert.True(t, cols[wantCol], "missing column %q after v6 migration", wantCol)
+	}
+
+	// Verify new indexes exist.
+	for _, wantIdx := range []string{"idx_struct_mem_kind_occurred", "idx_struct_mem_target"} {
+		var n int
+		require.NoError(t, ContextDB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, wantIdx).Scan(&n))
+		assert.Equal(t, 1, n, "missing index %q after v6 migration", wantIdx)
+	}
+
+	// Verify pre-existing fact and procedure survived with defaults on new columns.
+	var kind, scope, subj, pred, obj string
+	var verified int
+	var title sql.NullString
+	require.NoError(t, ContextDB.QueryRow(
+		`SELECT kind, scope, subject, predicate, object, verified, title FROM structured_memory WHERE ref = ?`, "mem_fact1",
+	).Scan(&kind, &scope, &subj, &pred, &obj, &verified, &title))
+	assert.Equal(t, "fact", kind)
+	assert.Equal(t, "project", scope)
+	assert.Equal(t, "sqlite", subj)
+	assert.Equal(t, "uses", pred)
+	assert.Equal(t, "walmode", obj)
+	assert.Equal(t, 0, verified)
+	assert.False(t, title.Valid)
+
+	var rule string
+	require.NoError(t, ContextDB.QueryRow(
+		`SELECT kind, scope, rule, verified FROM structured_memory WHERE ref = ?`, "mem_proc1",
+	).Scan(&kind, &scope, &rule, &verified))
+	assert.Equal(t, "procedure", kind)
+	assert.Equal(t, "global", scope)
+	assert.Equal(t, "always run gofmt before commit", rule)
+	assert.Equal(t, 0, verified)
+
+	// Verify structured_memory_kb_fts was created, backfilled, and is searchable.
+	assert.True(t, tableExists(t, ContextDB, "structured_memory_kb_fts"))
+	var kbCount int
+	require.NoError(t, ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory_kb_fts`).Scan(&kbCount))
+	assert.Equal(t, 2, kbCount)
+
+	var matchedRef string
+	require.NoError(t, ContextDB.QueryRow(`SELECT ref FROM structured_memory_kb_fts WHERE structured_memory_kb_fts MATCH 'walmode'`).Scan(&matchedRef))
+	assert.Equal(t, "mem_fact1", matchedRef)
+
+	require.NoError(t, ContextDB.QueryRow(`SELECT ref FROM structured_memory_kb_fts WHERE structured_memory_kb_fts MATCH 'gofmt'`).Scan(&matchedRef))
+	assert.Equal(t, "mem_proc1", matchedRef)
+
+	// Verify structured_memory_fts remains intact.
+	var ftsCount int
+	require.NoError(t, ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory_fts`).Scan(&ftsCount))
+	assert.Equal(t, 2, ftsCount)
+
+	// Re-running Init is idempotent.
+	Close()
+	require.NoError(t, Init())
+	require.NoError(t, ContextDB.QueryRow(`SELECT COUNT(*) FROM structured_memory_kb_fts`).Scan(&kbCount))
+	assert.Equal(t, 2, kbCount)
+}

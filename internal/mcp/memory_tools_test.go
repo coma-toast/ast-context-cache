@@ -588,3 +588,191 @@ func TestStoreMemoryConflictResponseAlwaysIncludesFields(t *testing.T) {
 	assert.IsType(t, []interface{}{}, out["possible_conflicts"], "possible_conflicts must be an array")
 	assert.Contains(t, []string{"fts", "embed", "none"}, out["conflict_method"], "conflict_method must be fts, embed, or none")
 }
+
+func TestStoreMemoryEventOptionalSession(t *testing.T) {
+	setupMemoryToolTest(t)
+
+	// Event with project_path and NO session_id defaults to project scope.
+	out, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":         "event",
+		"project_path": "/tmp/kb-proj",
+		"title":        "Deploy rolled back",
+		"body":         "Rollback triggered after 5xx spike.",
+		"severity":     "warning",
+		"category":     "deploy",
+		"actor":        "ci-bot",
+		"tags":         []interface{}{"prod", "rollback"},
+	})
+	require.False(t, isErr, out)
+	ref, _ := out["ref"].(string)
+	assert.True(t, strings.HasPrefix(ref, "mem_"))
+	assert.Equal(t, "event", out["kind"])
+
+	entry, err := memory.Peek(ref)
+	require.NoError(t, err)
+	assert.Equal(t, memory.ScopeProject, entry.Scope)
+	assert.Equal(t, "/tmp/kb-proj", entry.ProjectPath)
+	assert.Equal(t, "warning", entry.Severity)
+	assert.Equal(t, "deploy", entry.Category)
+	assert.Equal(t, "ci-bot", entry.Actor)
+	assert.Equal(t, []string{"prod", "rollback"}, entry.Tags)
+	assert.NotEmpty(t, entry.OccurredAt)
+
+	// Preference without session_id or project_path defaults to global scope.
+	prefOut, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":   "preference",
+		"object": "concise diffs",
+	})
+	require.False(t, isErr, prefOut)
+	prefRef, _ := prefOut["ref"].(string)
+	prefEntry, err := memory.Peek(prefRef)
+	require.NoError(t, err)
+	assert.Equal(t, memory.ScopeGlobal, prefEntry.Scope)
+	assert.Equal(t, "user", prefEntry.Subject)
+	assert.Equal(t, "prefers", prefEntry.Predicate)
+}
+
+func TestStoreMemoryRedactionWarning(t *testing.T) {
+	setupMemoryToolTest(t)
+	secret := "sk-ant-api03-1234567890abcdef1234567890abcdef"
+	out, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":         "discovery",
+		"project_path": "/tmp/kb-redact",
+		"title":        "Credential leaked in env dump",
+		"body":         "Found token " + secret + " in debug output",
+	})
+	require.False(t, isErr, out)
+	assert.NotEmpty(t, toStrings(out["warnings"]))
+	assert.Contains(t, toStrings(out["redacted_fields"]), "body")
+	assert.Contains(t, out, "possible_conflicts")
+	assert.Contains(t, out, "conflict_method")
+
+	ref := out["ref"].(string)
+	rec, isErr := callTool(t, "recall_memory", map[string]interface{}{
+		"refs": []interface{}{ref},
+	})
+	require.False(t, isErr, rec)
+	entries, ok := rec["entries"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, entries, 1)
+	body := entries[0].(map[string]interface{})["body"].(string)
+	assert.NotContains(t, body, secret)
+}
+
+func TestStoreMemoryRejectsOversizedBody(t *testing.T) {
+	setupMemoryToolTest(t)
+	out, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":         "discovery",
+		"project_path": "/tmp/kb-big",
+		"title":        "Too large",
+		"body":         strings.Repeat("x", 16*1024+1),
+	})
+	assert.True(t, isErr)
+	assert.Contains(t, out["error"], "16 KB")
+}
+
+func TestRecallMemorySinceUntilExpand8k(t *testing.T) {
+	setupMemoryToolTest(t)
+
+	// Old entry (Jan 2026).
+	janOut, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":         "event",
+		"project_path": "/tmp/kb-time",
+		"title":        "Jan incident",
+		"occurred_at":  "2026-01-15T12:00:00Z",
+		"actor":        "alice",
+		"tags":         []interface{}{"jan"},
+	})
+	require.False(t, isErr, janOut)
+
+	// Recent entry (Mar 2026) with a ~3,000-token Markdown body (>2k Tier-1 cap, <8k Tier-2 cap).
+	bigBody := strings.Repeat("alpha beta gamma delta ", 700)
+	marOut, isErr := callTool(t, "store_memory", map[string]interface{}{
+		"kind":         "discovery",
+		"project_path": "/tmp/kb-time",
+		"title":        "Mar bottleneck",
+		"body":         bigBody,
+		"occurred_at":  "2026-03-10T09:00:00Z",
+		"actor":        "bob",
+		"tags":         "perf,mar",
+	})
+	require.False(t, isErr, marOut)
+	marRef := marOut["ref"].(string)
+
+	// since/until + actor filter selects only the March entry.
+	filtered, isErr := callTool(t, "recall_memory", map[string]interface{}{
+		"project_path": "/tmp/kb-time",
+		"since":        "2026-02-01T00:00:00Z",
+		"until":        "2026-04-01T00:00:00Z",
+		"actor":        "bob",
+		"tags":         "perf",
+	})
+	require.False(t, isErr, filtered)
+	lines, ok := filtered["lines"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, lines, 1)
+	assert.Equal(t, marRef, lines[0].(map[string]interface{})["ref"])
+	assert.Nil(t, filtered["entries"], "Tier-1 default omits full entries")
+
+	// expand=true with token_budget=9000 caps at 8000 (not 2000) so the >2k-token body fits intact.
+	expanded, isErr := callTool(t, "recall_memory", map[string]interface{}{
+		"project_path": "/tmp/kb-time",
+		"since":        "2026-02-01T00:00:00Z",
+		"expand":       true,
+		"token_budget": 9000,
+	})
+	require.False(t, isErr, expanded)
+	entries, ok := expanded["entries"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, entries, 1)
+	gotBody := entries[0].(map[string]interface{})["body"].(string)
+	assert.Equal(t, strings.TrimSpace(bigBody), gotBody)
+	assert.Greater(t, int(expanded["tokens_used"].(float64)), 2000)
+
+	// Direct refs lookup also returns entries (Tier-2) without expand=true.
+	byRef, isErr := callTool(t, "recall_memory", map[string]interface{}{
+		"refs":         marRef,
+		"token_budget": 8000,
+	})
+	require.False(t, isErr, byRef)
+	refEntries, ok := byRef["entries"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, refEntries, 1)
+	assert.Equal(t, strings.TrimSpace(bigBody), refEntries[0].(map[string]interface{})["body"].(string))
+}
+
+func TestStoreContextExtractsAllKBKinds(t *testing.T) {
+	setupMemoryToolTest(t)
+	note := `Session summary:
+FACT: api.timeout | is | 30s
+RULE: Always run make test before pushing
+PREFERENCE: user | prefers | gofmt over tabs
+EVENT: [warning] DB failover | infra | Primary switched to replica
+CONFIG_CHANGE: max_conns | 50 -> 100 | Avoid pool exhaustion
+DISCOVERY: N+1 query in loader | Batching cuts latency by 80%`
+
+	out, isErr := callTool(t, "store_context", map[string]interface{}{
+		"content":        note,
+		"session_id":     "s-extract-kb",
+		"project_path":   "/tmp/kb-extract",
+		"extract_memory": true,
+	})
+	require.False(t, isErr, out)
+
+	extracted, ok := out["memory_extracted"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, extracted, 6)
+
+	gotKinds := make([]string, 0, len(extracted))
+	for _, item := range extracted {
+		gotKinds = append(gotKinds, item.(map[string]interface{})["kind"].(string))
+	}
+	assert.Equal(t, []string{"fact", "procedure", "preference", "event", "config_change", "discovery"}, gotKinds)
+
+	rec, isErr := callTool(t, "recall_memory", map[string]interface{}{
+		"session_id": "s-extract-kb",
+		"limit":      20,
+	})
+	require.False(t, isErr, rec)
+	assert.Len(t, rec["lines"], 6)
+}

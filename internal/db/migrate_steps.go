@@ -1,5 +1,7 @@
 package db
 
+import "database/sql"
+
 // Schema steps, one list per database. Append new steps at the end with the next version.
 // Steps must stay additive (new tables and columns only: no DROP, RENAME or column type
 // change) so a 4.x binary still runs against a 5.x data directory; migrate_test.go
@@ -45,6 +47,29 @@ const (
 	// MEM-1/TR-3: quarantine state. A quarantined entry is excluded from default recall/search
 	// and invalidated with reason quarantine when rejected (RejectQuarantined).
 	addStructuredMemoryQuarantinedColumn = `ALTER TABLE structured_memory ADD COLUMN quarantined INTEGER DEFAULT 0`
+	// KB: knowledge-base / audit columns, indexes, and FTS5 index on structured_memory.
+	addStructuredMemoryTitleColumn          = `ALTER TABLE structured_memory ADD COLUMN title TEXT`
+	addStructuredMemoryBodyColumn           = `ALTER TABLE structured_memory ADD COLUMN body TEXT`
+	addStructuredMemoryTagsColumn           = `ALTER TABLE structured_memory ADD COLUMN tags TEXT`
+	addStructuredMemoryActorColumn          = `ALTER TABLE structured_memory ADD COLUMN actor TEXT`
+	addStructuredMemoryCategoryColumn       = `ALTER TABLE structured_memory ADD COLUMN category TEXT`
+	addStructuredMemorySeverityColumn       = `ALTER TABLE structured_memory ADD COLUMN severity TEXT`
+	addStructuredMemoryTargetColumn         = `ALTER TABLE structured_memory ADD COLUMN target TEXT`
+	addStructuredMemoryBeforeValueColumn    = `ALTER TABLE structured_memory ADD COLUMN before_value TEXT`
+	addStructuredMemoryAfterValueColumn     = `ALTER TABLE structured_memory ADD COLUMN after_value TEXT`
+	addStructuredMemoryReasonColumn         = `ALTER TABLE structured_memory ADD COLUMN reason TEXT`
+	addStructuredMemoryOccurredAtColumn     = `ALTER TABLE structured_memory ADD COLUMN occurred_at TEXT`
+	addStructuredMemoryVerifiedColumn       = `ALTER TABLE structured_memory ADD COLUMN verified INTEGER DEFAULT 0`
+	addStructuredMemoryVerifiedAtColumn     = `ALTER TABLE structured_memory ADD COLUMN verified_at TEXT`
+	addStructuredMemoryRedactedFieldsColumn = `ALTER TABLE structured_memory ADD COLUMN redacted_fields TEXT`
+	createStructuredMemoryKindOccurredIndex = `CREATE INDEX IF NOT EXISTS idx_struct_mem_kind_occurred ON structured_memory(kind, occurred_at)`
+	createStructuredMemoryTargetIndex       = `CREATE INDEX IF NOT EXISTS idx_struct_mem_target ON structured_memory(kind, target, scope, valid_until)`
+	createStructuredMemoryKBFTSStepTable    = `CREATE VIRTUAL TABLE IF NOT EXISTS structured_memory_kb_fts USING fts5(ref, title, subject, predicate, object, rule, body, tags, target, before_value, after_value, reason, category, actor)`
+	backfillStructuredMemoryKBFTSQuery      = `INSERT INTO structured_memory_kb_fts (ref, title, subject, predicate, object, rule, body, tags, target, before_value, after_value, reason, category, actor)
+		SELECT COALESCE(ref, ''), COALESCE(title, ''), COALESCE(subject, ''), COALESCE(predicate, ''), COALESCE(object, ''), COALESCE(rule, ''), COALESCE(body, ''), COALESCE(tags, ''), COALESCE(target, ''), COALESCE(before_value, ''), COALESCE(after_value, ''), COALESCE(reason, ''), COALESCE(category, ''), COALESCE(actor, '')
+		FROM structured_memory
+		WHERE ref NOT IN (SELECT ref FROM structured_memory_kb_fts)`
+	pragmaStructuredMemoryTableInfoQuery = `PRAGMA table_info(structured_memory)`
 )
 
 var indexSteps []schemaStep
@@ -55,6 +80,68 @@ var contextSteps = []schemaStep{
 	{version: 3, name: "recount_token_est", run: recountTokenEstimates},
 	{version: 4, name: "structured_memory_invalidation", run: execSteps(addStructuredMemoryInvalidatedReasonColumn, addStructuredMemoryWorldValidAtColumn, addStructuredMemoryWorldInvalidAtColumn, addStructuredMemoryExpiresAtColumn, createStructuredMemoryExpiresIndex)},
 	{version: 5, name: "structured_memory_quarantine", run: execSteps(addStructuredMemoryQuarantinedColumn)},
+	{version: 6, name: "structured_memory_kb", run: migrateStructuredMemoryKB},
+}
+
+func migrateStructuredMemoryKB(tx *sql.Tx) error {
+	existing := map[string]bool{}
+	rows, err := tx.Query(pragmaStructuredMemoryTableInfoQuery)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	// Fresh databases already have these columns from initContextSchema, so skip any
+	// column that already exists while adding missing ones on pre-v6 databases.
+	columns := []struct {
+		name string
+		stmt string
+	}{
+		{"title", addStructuredMemoryTitleColumn},
+		{"body", addStructuredMemoryBodyColumn},
+		{"tags", addStructuredMemoryTagsColumn},
+		{"actor", addStructuredMemoryActorColumn},
+		{"category", addStructuredMemoryCategoryColumn},
+		{"severity", addStructuredMemorySeverityColumn},
+		{"target", addStructuredMemoryTargetColumn},
+		{"before_value", addStructuredMemoryBeforeValueColumn},
+		{"after_value", addStructuredMemoryAfterValueColumn},
+		{"reason", addStructuredMemoryReasonColumn},
+		{"occurred_at", addStructuredMemoryOccurredAtColumn},
+		{"verified", addStructuredMemoryVerifiedColumn},
+		{"verified_at", addStructuredMemoryVerifiedAtColumn},
+		{"redacted_fields", addStructuredMemoryRedactedFieldsColumn},
+	}
+	for _, col := range columns {
+		if existing[col.name] {
+			continue
+		}
+		if _, err := tx.Exec(col.stmt); err != nil {
+			return err
+		}
+	}
+	return execSteps(
+		createStructuredMemoryKindOccurredIndex,
+		createStructuredMemoryTargetIndex,
+		createStructuredMemoryKBFTSStepTable,
+		backfillStructuredMemoryKBFTSQuery,
+	)(tx)
 }
 
 var usageSteps = []schemaStep{

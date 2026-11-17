@@ -528,10 +528,294 @@ export interface MemoryData {
   VirtualOrphanCount: number
   VirtualStored30d: number
   VirtualAccessed30d: number
+  ActiveFacts?: number
+  ActiveProcedures?: number
+  ActivePreferences?: number
+  ActiveEvents?: number
+  ActiveConfigChanges?: number
+  ActiveDiscoveries?: number
+  QuarantinedCount?: number
+  StructuredMemoryTokens?: number
+  MemoryOrphanCount?: number
   DocSources: DocSource[]
   DocSourcesTotal: number
   DocSourcesPage: number
   DocSourcesPerPage: number
+}
+
+export type KBKind = 'fact' | 'procedure' | 'preference' | 'event' | 'config_change' | 'discovery'
+
+export type KBScope = 'session' | 'project' | 'global'
+
+export type KBSeverity = 'info' | 'warning' | 'error' | 'critical'
+
+export type KBStatusFilter = 'active' | 'archived' | 'quarantined' | 'all'
+
+export type MemorySubTab = 'explorer' | 'timeline' | 'preferences' | 'virtual-context' | 'doc-sources'
+
+export interface KBEntry {
+  ref: string
+  kind: KBKind
+  scope: KBScope
+  session_id?: string
+  project_path?: string
+  subject?: string
+  predicate?: string
+  object?: string
+  rule?: string
+  valid_from?: string
+  valid_until?: string
+  superseded_by?: string
+  source_ref?: string
+  token_est?: number
+  access_count?: number
+  last_accessed_at?: string
+  created_at?: string
+  invalidated_reason?: string
+  world_valid_at?: string
+  world_invalid_at?: string
+  expires_at?: string
+  quarantined?: number
+  title?: string
+  body?: string
+  tags?: string[]
+  actor?: string
+  category?: string
+  severity?: string
+  target?: string
+  before_value?: string
+  after_value?: string
+  reason?: string
+  occurred_at?: string
+  verified?: boolean
+  verified_at?: string
+  redacted_fields?: string[]
+}
+
+export type KBHistoryEntry = KBEntry
+
+export interface KBConflict {
+  ref: string
+  line: string
+  similarity: number
+}
+
+export interface KBCounts {
+  fact: number
+  procedure: number
+  preference: number
+  event: number
+  config_change: number
+  discovery: number
+  total: number
+  quarantined: number
+}
+
+export interface KBListResponse {
+  entries: KBEntry[]
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
+  counts: KBCounts
+}
+
+export interface KBDetailResponse {
+  entry: KBEntry
+  history: KBHistoryEntry[]
+  conflicts: KBConflict[]
+}
+
+export interface KBCreateInput {
+  kind: KBKind
+  scope?: KBScope
+  session_id?: string
+  project_path?: string
+  project_id?: string
+  subject?: string
+  predicate?: string
+  object?: string
+  rule?: string
+  source_ref?: string
+  invalidate_previous?: boolean
+  world_valid_at?: string
+  world_invalid_at?: string
+  ttl?: number
+  ttl_hours?: number
+  ttl_minutes?: number
+  expires_at?: string
+  title?: string
+  body?: string
+  tags?: string[]
+  actor?: string
+  category?: string
+  severity?: KBSeverity | string
+  target?: string
+  before_value?: string
+  after_value?: string
+  reason?: string
+  occurred_at?: string
+  verified?: boolean
+}
+
+export interface KBUpdateInput {
+  ref: string
+  title?: string
+  body?: string
+  subject?: string
+  predicate?: string
+  object?: string
+  rule?: string
+  tags?: string[]
+  actor?: string
+  category?: string
+  severity?: KBSeverity | string
+  target?: string
+  before_value?: string
+  after_value?: string
+  reason?: string
+  occurred_at?: string
+  verified?: boolean
+  new_version?: boolean
+}
+
+export interface KBMutationResponse {
+  entry: KBEntry
+  warnings: string[]
+  redacted_fields: string[]
+  invalidated_refs?: string[]
+  conflicts?: KBConflict[]
+}
+
+export type KBAction = 'forget' | 'restore' | 'verify' | 'approve_quarantine' | 'reject_quarantine'
+
+export interface KBActionRequest {
+  ref: string
+  action: KBAction
+  verified?: boolean
+}
+
+export interface KBForgetResult {
+  invalidated_refs: number
+  virtual_tokens_freed: number
+  invalidated?: string[]
+  not_found?: string[]
+  already_invalid?: string[]
+  scope_mismatch?: string[]
+}
+
+export interface KBRestoreResult {
+  restored_refs: string[]
+  conflicts?: string[]
+}
+
+export interface KBActionResponse {
+  status: string
+  action: KBAction | string
+  ref: string
+  entry?: KBEntry | null
+  result?: KBForgetResult | KBRestoreResult
+}
+
+export interface KBListParams {
+  q?: string
+  kinds?: KBKind[]
+  scope?: KBScope | ''
+  project_id?: string
+  session_id?: string
+  status?: KBStatusFilter
+  tags?: string[]
+  actor?: string
+  since?: string
+  until?: string
+  verified_only?: boolean
+  sort?: 'occurred_desc' | 'created_desc' | 'access_desc'
+  page?: number
+  per_page?: number
+}
+
+export interface ContextNoteListItem {
+  ref: string
+  session_id: string
+  project_path?: string
+  label?: string
+  snippet: string
+  tags?: string
+  kind?: string
+  metadata_json?: string
+  virtual_tokens: number
+  access_count: number
+  revision: number
+  created_at?: string
+  last_accessed_at?: string
+  handoff_tree_active: boolean
+}
+
+export interface ContextNoteListResponse {
+  items: ContextNoteListItem[]
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
+}
+
+export interface ContextNoteDetail {
+  ref: string
+  session_id: string
+  project_path?: string
+  label?: string
+  content?: string
+  tags?: string
+  kind?: string
+  metadata_json?: string
+  virtual_tokens?: number
+  access_count?: number
+  created_at?: string
+  last_accessed_at?: string
+  revision: number
+}
+
+export interface ContextNoteRevision {
+  revision: number
+  content: string
+  token_est: number
+  op: string
+  created_at: string
+}
+
+export interface ContextNoteDetailResponse {
+  note: ContextNoteDetail
+  revisions: ContextNoteRevision[]
+  active_handoff_tree: boolean
+}
+
+export interface ContextNoteListParams {
+  q?: string
+  session_id?: string
+  project_id?: string
+  kind?: string
+  tags?: string[]
+  page?: number
+  per_page?: number
+}
+
+export interface DocContentEntry {
+  id: number
+  source_id: number
+  title: string
+  content: string
+  path?: string
+  content_hash?: string
+  updated_at: string
+}
+
+export interface DocEntriesResponse {
+  source_id: number
+  entries: DocContentEntry[]
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
 }
 
 export interface DocSource {

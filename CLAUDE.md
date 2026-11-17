@@ -56,12 +56,12 @@ Host compaction is a last resort, not a routine step: reach for it only when ref
 
 ### Structured memory (agents)
 
-**Virtual context** (`ctx_*`) = bulky notes/plans. **Structured memory** (`mem_*`) = compact facts and procedures.
+**Virtual context** (`ctx_*`) = bulky notes/plans. **Structured memory** (`mem_*`) = compact facts, procedures, preferences, events, config changes, and discoveries.
 
-1. **`store_memory`** (extended) — fact (`subject`/`predicate`/`object`) or procedure (`rule`); scope `session` / `project` / `global`.
-2. **`recall_memory`** (core) — prefer over `fetch_context` for prefs/rules; optional `as_of`, `token_budget` (default 800).
+1. **`store_memory`** (extended) — kinds `fact`, `procedure`, `preference`, `event`, `config_change`, `discovery`; scope `session` / `project` / `global` (`session_id` optional for `project`/`global`); optional `body` (max 16 KB Markdown), `tags`, `actor`, `category`, `severity`, `target`/`before_value`/`after_value`/`reason`, `occurred_at` (secrets redacted with `warnings`/`redacted_fields`).
+2. **`recall_memory`** (core) — Tier-1 compact lines (`token_budget` default 800, cap 2000), or Tier-2 full bodies/diffs via `expand=true` or `refs` (cap 8000); filters `since`/`until`, `tags`, `actor`, `verified_only`, `as_of`.
 3. **`forget_memory`** (extended) — invalidate by refs (array or comma list; scope read from each ref, unknown refs returned in `not_found`), subject+predicate, or `all=true`.
-4. Optional: `retrieve(..., include_memory=true)`; `store_context(..., extract_memory=true)` saves only lines starting with `FACT:`/`RULE:` as `mem_*` (other text ignored, text kept as written).
+4. Optional: `retrieve(..., include_memory=true)` (works without `session_id` for `global`/`project` memory); `store_context(..., extract_memory=true)` and handoff completion promote `FACT:`, `RULE:`, `PREFERENCE:`, `EVENT:`, `CONFIG_CHANGE:`, and `DISCOVERY:` lines.
 
 **KV repair:** **`report_kv_repair_event`** (extended) before/after `fetch_context` on `kind=kv_repair` archives.
 

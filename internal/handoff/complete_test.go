@@ -204,3 +204,28 @@ func TestCompletePromotedMemoryIsEmbedded(t *testing.T) {
 		return db.IndexDB.QueryRow(testCountMemoryVectorsQuery, "mem:"+res.PromotedMemory[0]).Scan(&n) == nil && n == 1
 	}, 5*time.Second, 20*time.Millisecond, "promoted memory gets a vector like any other memory")
 }
+
+func TestCompletePromotesAllKBKinds(t *testing.T) {
+	s := newFanInService(t)
+	h := seedHandoff(t, handoffSeed{root: "parent-kb", children: 1})
+	child := h.children[0]
+	content := "Investigated pool settings.\n" +
+		"PREFERENCE: user | prefers | structured logs\n" +
+		"EVENT: [warning] Pool exhausted | db | Hit max connections\n" +
+		"CONFIG_CHANGE: max_conns | 25 -> 100 | Avoid exhaustion\n" +
+		"DISCOVERY: Stale keepalive | Idle conns dropped at 60s\n"
+	res, err := s.Complete(context.Background(), CompleteRequest{
+		SessionID: child, Content: content,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, SummarySourceDerived, res.SummarySource)
+	assert.Contains(t, res.Summary, "PREFERENCE: user prefers structured logs")
+	assert.Contains(t, res.Summary, "EVENT: [warning] Pool exhausted")
+	assert.Contains(t, res.Summary, "CONFIG_CHANGE: max_conns: 25 -> 100")
+	assert.Contains(t, res.Summary, "DISCOVERY: Stale keepalive")
+	assert.Len(t, res.PromotedMemory, 4)
+
+	recalled, err := memory.Recall(memory.RecallInput{SessionID: string(h.root), Scope: memory.ScopeSession}, nil)
+	require.NoError(t, err)
+	assert.Len(t, recalled.Entries, 4)
+}

@@ -176,20 +176,33 @@ func HandleRetrieve(args map[string]interface{}, projectPath string) map[string]
 	memoryPreamble := ""
 	memoryTokens := 0
 	memoryLines := 0
-	if includeMemory && sessionID != "" {
+	if includeMemory {
 		memBudget := tokenBudget / 5
 		if memBudget < 200 {
 			memBudget = 200
 		}
 		if memRes, err := memory.Recall(memory.RecallInput{
-			Query: query, SessionID: sessionID, ProjectPath: projectPath, TokenBudget: memBudget,
-		}, GetEmbedder()); err == nil && memRes.Formatted != "" {
-			memoryPreamble = "## Agent memory\n" + memRes.Formatted + "\n\n"
-			memoryTokens = memRes.TokensUsed
-			memoryLines = len(memRes.Lines)
-			tokenBudget -= memoryTokens
-			if tokenBudget < 800 {
-				tokenBudget = 800
+			Query: query, SessionID: sessionID, ProjectPath: projectPath,
+			TokenBudget: memBudget, IncludeRepoSiblings: true,
+		}, GetEmbedder()); err == nil {
+			memText := memRes.Formatted
+			if memText == "" && len(memRes.Lines) > 0 {
+				var lines []string
+				for _, l := range memRes.Lines {
+					if l.Line != "" {
+						lines = append(lines, "- "+l.Line)
+					}
+				}
+				memText = strings.Join(lines, "\n")
+			}
+			if memText != "" {
+				memoryPreamble = "## Agent memory\n" + memText + "\n\n"
+				memoryTokens = memRes.TokensUsed
+				memoryLines = len(memRes.Lines)
+				tokenBudget -= memoryTokens
+				if tokenBudget < 800 {
+					tokenBudget = 800
+				}
 			}
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/tokens"
 )
 
@@ -159,12 +160,12 @@ func (s *realService) completeTx(tx *sql.Tx, sid SessionID, c *completingChild, 
 	return released, nil
 }
 
-// promoteResultMemory stores the result's FACT:/RULE: lines as session memory of the parent,
-// sourced to the result note, and returns the new mem_ refs (RT-5). The entries belong to the
-// parent and outlive the tree. A failed entry is skipped: the result is already committed.
+// promoteResultMemory stores the result's marked memory lines (FACT:/RULE:/PREFERENCE:/EVENT:/CONFIG_CHANGE:/DISCOVERY:)
+// as session memory of the parent, sourced to the result note, and returns the new mem_ refs (RT-5).
+// The entries belong to the parent and outlive the tree. A failed entry is skipped: the result is already committed.
 func (s *realService) promoteResultMemory(parent SessionID, project, resultRef, content string) []string {
 	ex := memory.ExtractFromText(content)
-	if len(ex.Facts) == 0 && len(ex.Procedures) == 0 {
+	if len(ex.Facts)+len(ex.Procedures)+len(ex.Preferences)+len(ex.Events)+len(ex.ConfigChanges)+len(ex.Discoveries) == 0 {
 		return nil
 	}
 	stored, err := memory.StoreExtracted(string(parent), project, resultRef, ex, memory.ScopeSession)
@@ -175,8 +176,21 @@ func (s *realService) promoteResultMemory(parent SessionID, project, resultRef, 
 	for _, r := range stored {
 		refs = append(refs, r.Ref)
 		if s.emb != nil {
-			go memory.EmbedEntry(r.Ref, string(parent), r.Line, s.emb)
+			if e, err := memory.Peek(r.Ref); err == nil && e != nil {
+				eCopy := *e
+				go func() {
+					_, _ = memory.EmbedEntryFromEntry(eCopy, s.emb)
+				}()
+			} else {
+				ref, line := r.Ref, r.Line
+				go func() {
+					_, _ = memory.EmbedEntryWithVector(ref, string(parent), line, s.emb)
+				}()
+			}
 		}
+	}
+	if len(refs) > 0 {
+		realtime.Notify(realtime.KnowledgeBase)
 	}
 	return refs
 }
@@ -224,9 +238,9 @@ func returnStub(resultRef string, ref HandoffRef, status Status, summary string)
 	return "[result " + resultRef + " for " + string(ref) + "] " + string(status) + " — " + summary
 }
 
-// deriveSummary builds a summary mechanically when the child gave none (RT-3): the FACT: and
-// RULE: lines first, then the content's leading lines. It stops gathering once past the cap;
-// the caller truncates to it.
+// deriveSummary builds a summary mechanically when the child gave none (RT-3): the marked
+// memory lines (FACT:/RULE:/PREFERENCE:/EVENT:/CONFIG_CHANGE:/DISCOVERY:) first, then the
+// content's leading lines. It stops gathering once past the cap; the caller truncates to it.
 func deriveSummary(content string, maxTokens int) string {
 	ex := memory.ExtractFromText(content)
 	var lines []string
@@ -235,6 +249,26 @@ func deriveSummary(content string, maxTokens int) string {
 	}
 	for _, p := range ex.Procedures {
 		lines = append(lines, "RULE: "+p.Rule)
+	}
+	for _, p := range ex.Preferences {
+		lines = append(lines, "PREFERENCE: "+p.Subject+" "+p.Predicate+" "+p.Object)
+	}
+	for _, ev := range ex.Events {
+		prefix := "EVENT: "
+		if ev.Severity != "" {
+			prefix += "[" + ev.Severity + "] "
+		}
+		lines = append(lines, prefix+ev.Title)
+	}
+	for _, cc := range ex.ConfigChanges {
+		change := cc.AfterValue
+		if cc.BeforeValue != "" {
+			change = cc.BeforeValue + " -> " + cc.AfterValue
+		}
+		lines = append(lines, "CONFIG_CHANGE: "+cc.Target+": "+change)
+	}
+	for _, d := range ex.Discoveries {
+		lines = append(lines, "DISCOVERY: "+d.Title)
 	}
 	size := 0
 	for _, l := range lines {
@@ -254,11 +288,11 @@ func deriveSummary(content string, maxTokens int) string {
 	return strings.Join(lines, "\n")
 }
 
-// isMarkerLine reports whether line is a FACT:/RULE: line, which deriveSummary already placed
+// isMarkerLine reports whether line is a marked memory line, which deriveSummary already placed
 // first.
 func isMarkerLine(line string) bool {
 	ex := memory.ExtractFromText(line)
-	return len(ex.Facts)+len(ex.Procedures)+len(ex.Skipped) > 0
+	return len(ex.Facts)+len(ex.Procedures)+len(ex.Preferences)+len(ex.Events)+len(ex.ConfigChanges)+len(ex.Discoveries)+len(ex.Skipped) > 0
 }
 
 // truncateToTokens cuts s so db.EstimateTokens of the result is at most maxTokens, preferring a

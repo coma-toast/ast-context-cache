@@ -11,6 +11,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/embedder"
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 	"github.com/coma-toast/ast-context-cache/internal/memory"
+	"github.com/coma-toast/ast-context-cache/internal/realtime"
 	"github.com/coma-toast/ast-context-cache/internal/sys"
 )
 
@@ -78,6 +79,7 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 	if pp == "" {
 		pp = projectPath
 	}
+	body, _ := toolArgs["body"].(string)
 	in := memory.StoreInput{
 		Kind:        memory.Kind(strings.ToLower(strings.TrimSpace(kindStr))),
 		Scope:       memory.Scope(strings.ToLower(strings.TrimSpace(scopeStr))),
@@ -88,6 +90,17 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		Object:      strArg(toolArgs, "object"),
 		Rule:        strArg(toolArgs, "rule"),
 		SourceRef:   strArg(toolArgs, "source_ref"),
+		Title:       strArg(toolArgs, "title"),
+		Body:        body,
+		Tags:        parseStringList(toolArgs["tags"]),
+		Actor:       strArg(toolArgs, "actor"),
+		Category:    strArg(toolArgs, "category"),
+		Severity:    strArg(toolArgs, "severity"),
+		Target:      strArg(toolArgs, "target"),
+		BeforeValue: strArg(toolArgs, "before_value"),
+		AfterValue:  strArg(toolArgs, "after_value"),
+		Reason:      strArg(toolArgs, "reason"),
+		OccurredAt:  strArg(toolArgs, "occurred_at"),
 		// A new fact supersedes the active one for its subject and predicate unless the
 		// caller opts out.
 		InvalidatePrevious: true,
@@ -127,10 +140,20 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		logToolQuery("store_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
 		return out
 	}
+	realtime.Notify(realtime.KnowledgeBase)
+
+	storedEntry, peekErr := memory.Peek(res.Ref)
 	if emb != nil {
-		go func() {
-			_, _ = memory.EmbedEntryWithVector(res.Ref, sessionID, res.Line, emb)
-		}()
+		if peekErr == nil && storedEntry != nil {
+			eCopy := *storedEntry
+			go func() {
+				_, _ = memory.EmbedEntryFromEntry(eCopy, emb)
+			}()
+		} else {
+			go func() {
+				_, _ = memory.EmbedEntryWithVector(res.Ref, sessionID, res.Line, emb)
+			}()
+		}
 	}
 
 	out := map[string]interface{}{
@@ -140,23 +163,36 @@ func handleStoreMemory(toolArgs map[string]interface{}, emb embedder.Interface, 
 		"virtual_tokens_stored": res.VirtualTokensStored,
 		"invalidated_refs":      res.InvalidatedRefs,
 	}
+	if len(res.Warnings) > 0 {
+		out["warnings"] = res.Warnings
+	}
+	if len(res.RedactedFields) > 0 {
+		out["redacted_fields"] = res.RedactedFields
+	}
 
-	if in.Kind == memory.KindFact {
-		entry := memory.Entry{
-			Ref:            res.Ref,
-			Kind:           in.Kind,
-			Scope:          in.Scope,
-			SessionID:      sessionID,
-			ProjectPath:    in.ProjectPath,
-			Subject:        in.Subject,
-			Predicate:      in.Predicate,
-			Object:         in.Object,
-			Rule:           in.Rule,
-			SourceRef:      in.SourceRef,
-			TokenEst:       res.VirtualTokensStored,
-			AccessCount:    1,
-			LastAccessedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
-			CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
+	if in.Kind == memory.KindFact || in.Kind == memory.KindDiscovery {
+		var entry memory.Entry
+		if peekErr == nil && storedEntry != nil {
+			entry = *storedEntry
+		} else {
+			entry = memory.Entry{
+				Ref:            res.Ref,
+				Kind:           in.Kind,
+				Scope:          in.Scope,
+				SessionID:      sessionID,
+				ProjectPath:    in.ProjectPath,
+				Subject:        in.Subject,
+				Predicate:      in.Predicate,
+				Object:         in.Object,
+				Rule:           in.Rule,
+				Title:          in.Title,
+				Body:           in.Body,
+				SourceRef:      in.SourceRef,
+				TokenEst:       res.VirtualTokensStored,
+				AccessCount:    1,
+				LastAccessedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
+				CreatedAt:      time.Now().UTC().Format("2006-01-02 15:04:05"),
+			}
 		}
 		conflicts, method := memory.ConflictCandidates(entry, emb, 0)
 		confSlice := make([]map[string]interface{}, 0, len(conflicts))
@@ -182,12 +218,12 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		pp = projectPath
 	}
 	limit := 10
-	if l, ok := toolArgs["limit"].(float64); ok && l > 0 {
-		limit = int(l)
+	if l := intArg(toolArgs, "limit"); l > 0 {
+		limit = l
 	}
 	budget := 800
-	if b, ok := toolArgs["token_budget"].(float64); ok && b > 0 {
-		budget = int(b)
+	if b := intArg(toolArgs, "token_budget"); b > 0 {
+		budget = b
 	}
 	asOf := strArg(toolArgs, "as_of")
 	if asOf != "" {
@@ -201,10 +237,16 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		asOf = normalized
 	}
 	in := memory.RecallInput{
-		Query:       strArg(toolArgs, "query"),
-		SessionID:   sessionID,
-		ProjectPath: pp,
-		AsOf:        asOf,
+		Query:        strArg(toolArgs, "query"),
+		Refs:         parseStringList(toolArgs["refs"]),
+		SessionID:    sessionID,
+		ProjectPath:  pp,
+		Tags:         parseStringList(toolArgs["tags"]),
+		Actor:        strArg(toolArgs, "actor"),
+		Since:        strArg(toolArgs, "since"),
+		Until:        strArg(toolArgs, "until"),
+		VerifiedOnly: boolArg(toolArgs, "verified_only"),
+		AsOf:         asOf,
 		// MEM-5: as_of_system=true asks what was known at that time using system
 		// valid_from/valid_until instead of world time.
 		AsOfSystem:  boolArg(toolArgs, "as_of_system"),
@@ -224,20 +266,18 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		in.IncludeRepoSiblings = v
 	}
 	if k, ok := toolArgs["kind"].(string); ok && k != "" {
-		in.Kinds = []memory.Kind{memory.Kind(strings.ToLower(k))}
+		in.Kinds = []memory.Kind{memory.Kind(strings.ToLower(strings.TrimSpace(k)))}
 	}
-	if kinds, ok := toolArgs["kinds"].([]interface{}); ok {
-		for _, item := range kinds {
-			if s, ok := item.(string); ok {
-				in.Kinds = append(in.Kinds, memory.Kind(strings.ToLower(s)))
-			}
+	if rawKinds, exists := toolArgs["kinds"]; exists && rawKinds != nil {
+		for _, s := range parseStringList(rawKinds) {
+			in.Kinds = append(in.Kinds, memory.Kind(strings.ToLower(s)))
 		}
 	}
 	if scope, ok := toolArgs["scope"].(string); ok && scope != "" {
-		in.Scope = memory.Scope(strings.ToLower(scope))
+		in.Scope = memory.Scope(strings.ToLower(strings.TrimSpace(scope)))
 	}
 	if v, ok := toolArgs["history"].(bool); ok && v {
-		return recallHistory(toolArgs, start, cpuStart, args, pp)
+		return recallHistory(toolArgs, in, start, cpuStart, args, pp)
 	}
 	res, err := memory.Recall(in, emb)
 	if err != nil {
@@ -256,7 +296,7 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 	if len(res.Demoted) > 0 {
 		out["demoted"] = res.Demoted
 	}
-	if in.Expand {
+	if in.Expand || len(in.Refs) > 0 {
 		out["entries"] = res.Entries
 	}
 	resultJSON, _ := json.Marshal(out)
@@ -265,7 +305,7 @@ func handleRecallMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 }
 
 // recallHistory handles recall_memory with history=true, returning the full version chain.
-func recallHistory(toolArgs map[string]interface{}, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
+func recallHistory(toolArgs map[string]interface{}, recallIn memory.RecallInput, start time.Time, cpuStart sys.CPUSample, args map[string]interface{}, projectPath string) interface{} {
 	ref := strArg(toolArgs, "ref")
 	query := strArg(toolArgs, "query")
 	includeWorld := boolArg(toolArgs, "include_world")
@@ -276,9 +316,13 @@ func recallHistory(toolArgs map[string]interface{}, start time.Time, cpuStart sy
 		return out
 	}
 	hist, err := memory.History(memory.HistoryInput{
-		Ref:          ref,
-		Query:        query,
-		IncludeWorld: includeWorld,
+		Ref:                 ref,
+		Query:               query,
+		Scope:               recallIn.Scope,
+		SessionID:           recallIn.SessionID,
+		ProjectPath:         recallIn.ProjectPath,
+		IncludeRepoSiblings: recallIn.IncludeRepoSiblings,
+		IncludeWorld:        includeWorld,
 	})
 	if err != nil {
 		out := map[string]string{"error": err.Error()}
@@ -340,6 +384,9 @@ func handleForgetMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 			logToolQuery("forget_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
 			return out
 		}
+		if len(res.RestoredRefs) > 0 {
+			realtime.Notify(realtime.KnowledgeBase)
+		}
 		tokensUsed := 0
 		if res.RestoredRefs != nil {
 			tokensUsed = len(res.RestoredRefs)
@@ -358,6 +405,9 @@ func handleForgetMemory(toolArgs map[string]interface{}, emb embedder.Interface,
 		resultJSON, _ := json.Marshal(out)
 		logToolQuery("forget_memory", args, len(resultJSON), 0, 0, context.SavingsMeta{}, start, cpuStart, pp, err.Error())
 		return out
+	}
+	if res.InvalidatedRefs > 0 {
+		realtime.Notify(realtime.KnowledgeBase)
 	}
 	out := map[string]interface{}{
 		"invalidated_refs":     res.InvalidatedRefs,

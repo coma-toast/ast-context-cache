@@ -13,6 +13,7 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/db"
 	"github.com/coma-toast/ast-context-cache/internal/db/dbtest"
 	"github.com/coma-toast/ast-context-cache/internal/flags"
+	"github.com/coma-toast/ast-context-cache/internal/memory"
 )
 
 // No t.Parallel: the db pools and the flags snapshot are package globals.
@@ -147,4 +148,50 @@ func TestSettingsPostRejectsFlagKeys(t *testing.T) {
 	assert.Equal(t, "use /api/dashboard/flags for feature flags", out.Error)
 	assert.Empty(t, db.GetSetting(flags.KeyHandoff, ""), "flag not written through the generic path")
 	assert.True(t, flags.Enabled(flags.KeyHandoff))
+}
+
+func TestFlagToggleAutoLogsConfigChange(t *testing.T) {
+	h := setupFlagsAPI(t)
+
+	// Toggle false -> true.
+	code, out := serveFlags(t, h, http.MethodPost, "/api/dashboard/flags", `{"key":"feature_handoff_hooks","enabled":true}`)
+	require.Equal(t, http.StatusOK, code, out.Error)
+
+	res, err := memory.QueryKB(memory.KBQueryInput{
+		Kinds:   []memory.Kind{memory.KindConfigChange},
+		Scope:   memory.ScopeGlobal,
+		Status:  "all",
+		PerPage: 20,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 1)
+	assert.Equal(t, "feature_handoff_hooks", res.Entries[0].Target)
+	assert.Equal(t, "false", res.Entries[0].BeforeValue)
+	assert.Equal(t, "true", res.Entries[0].AfterValue)
+	assert.Equal(t, "dashboard", res.Entries[0].Actor)
+	assert.Equal(t, "Feature flag toggled", res.Entries[0].Reason)
+
+	// Re-posting true (unchanged) must not add another config_change.
+	code, out = serveFlags(t, h, http.MethodPost, "/api/dashboard/flags", `{"key":"feature_handoff_hooks","enabled":true}`)
+	require.Equal(t, http.StatusOK, code, out.Error)
+	res, err = memory.QueryKB(memory.KBQueryInput{
+		Kinds:   []memory.Kind{memory.KindConfigChange},
+		Scope:   memory.ScopeGlobal,
+		Status:  "all",
+		PerPage: 20,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 1)
+
+	firstRef := res.Entries[0].Ref
+
+	// Toggle true -> false creates a superseding version in the target chain.
+	code, out = serveFlags(t, h, http.MethodPost, "/api/dashboard/flags", `{"key":"feature_handoff_hooks","enabled":false}`)
+	require.Equal(t, http.StatusOK, code, out.Error)
+	hist, err := memory.History(memory.HistoryInput{Ref: firstRef})
+	require.NoError(t, err)
+	require.Len(t, hist.Entries, 2)
+	assert.Equal(t, "true", hist.Entries[1].BeforeValue)
+	assert.Equal(t, "false", hist.Entries[1].AfterValue)
+	assert.Equal(t, hist.Entries[1].Ref, hist.Entries[0].SupersededBy)
 }

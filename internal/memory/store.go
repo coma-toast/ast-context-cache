@@ -13,23 +13,61 @@ import (
 )
 
 const (
+	maxBodyBytes = 16 * 1024
+
 	insertEntryQuery = `INSERT INTO structured_memory
 			(ref, kind, scope, session_id, project_path, subject, predicate, object, rule, source_ref, token_est,
-			 world_valid_at, world_invalid_at, expires_at, quarantined)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	selectActiveFactRefsQuery = `SELECT ref FROM structured_memory WHERE kind = 'fact' AND subject = ? AND predicate = ? AND (valid_until IS NULL OR valid_until = '')`
-	andSessionScopeClause     = ` AND scope = 'session' AND session_id = ?`
-	andProjectScopeClause     = ` AND scope = 'project' AND project_path = ?`
-	andGlobalScopeClause      = ` AND scope = 'global'`
+			 world_valid_at, world_invalid_at, expires_at, quarantined,
+			 title, body, tags, actor, category, severity, target, before_value, after_value, reason, occurred_at,
+			 verified, verified_at, redacted_fields)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	selectActiveFactRefsQuery   = `SELECT ref FROM structured_memory WHERE kind = ? AND subject = ? AND predicate = ? AND (valid_until IS NULL OR valid_until = '')`
+	selectActiveTargetRefsQuery = `SELECT ref FROM structured_memory WHERE kind = 'config_change' AND target = ? AND (valid_until IS NULL OR valid_until = '')`
+	andSessionScopeClause       = ` AND scope = 'session' AND session_id = ?`
+	andProjectScopeClause       = ` AND scope = 'project' AND project_path = ?`
+	andGlobalScopeClause        = ` AND scope = 'global'`
 	// MEM-1: all invalidation routes record a reason (contradiction, user_forget,
-	// ttl, stale_anchor, quarantine, restored) — rows are never deleted on invalidate.
+	// ttl, stale_anchor, quarantine, restored, superseded) — rows are never deleted on invalidate.
 	supersedeEntryQuery = `UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = NULLIF(?, ''), invalidated_reason = ? WHERE ref = ?`
-	// Entry queries now select the v2 columns too. Old rows read as zero values.
-	selectEntryByRefQuery = `SELECT ref, kind, scope, session_id, project_path, subject, predicate, object, rule,
-		valid_from, valid_until, superseded_by, source_ref, token_est, access_count, last_accessed_at, created_at,
-		invalidated_reason, world_valid_at, world_invalid_at, expires_at, quarantined
-		FROM structured_memory WHERE ref = ?`
 )
+
+// entrySelectCols returns the comma-separated column list for scanning an Entry.
+// When fullTier2 is false, body/before_value/after_value/reason are selected as empty
+// strings so Tier-1 recall never reads large Tier-2 payloads from SQLite.
+func entrySelectCols(fullTier2 bool) string {
+	return entrySelectColsAliased("", fullTier2)
+}
+
+// entrySelectColsAliased returns the comma-separated column list qualified with alias
+// (e.g. "sm") for scanning an Entry in joined queries.
+func entrySelectColsAliased(alias string, fullTier2 bool) string {
+	p := ""
+	if alias != "" {
+		p = strings.TrimSuffix(alias, ".") + "."
+	}
+	bodyCol := "''"
+	beforeCol := "''"
+	afterCol := "''"
+	reasonCol := "''"
+	if fullTier2 {
+		bodyCol = p + "body"
+		beforeCol = p + "before_value"
+		afterCol = p + "after_value"
+		reasonCol = p + "reason"
+	}
+	return fmt.Sprintf(
+		"%sref, %skind, %sscope, %ssession_id, %sproject_path, %ssubject, %spredicate, %sobject, %srule, "+
+			"%svalid_from, %svalid_until, %ssuperseded_by, %ssource_ref, %stoken_est, %saccess_count, %slast_accessed_at, %screated_at, "+
+			"%sinvalidated_reason, %sworld_valid_at, %sworld_invalid_at, %sexpires_at, %squarantined, "+
+			"%stitle, %s, %stags, %sactor, %scategory, %sseverity, %starget, %s, %s, %s, "+
+			"%soccurred_at, %sverified, %sverified_at, %sredacted_fields",
+		p, p, p, p, p, p, p, p, p,
+		p, p, p, p, p, p, p, p,
+		p, p, p, p, p,
+		p, bodyCol, p, p, p, p, p, beforeCol, afterCol, reasonCol,
+		p, p, p, p,
+	)
+}
 
 // Invalidation reasons (MEM-1). They are stored in invalidated_reason so the
 // history chain can explain why any row stopped being active.
@@ -49,9 +87,6 @@ const (
 // SELECT wouldn't see the other call's not-yet-committed INSERT).
 var factSupersessionMu sync.Mutex
 
-// StoreInput is the payload for store_memory.
-// MEM-5/MEM-8: optional world-time and TTL fields. valid_at/invalid_at are world-time
-// anchors (when the fact was/is true in the world); ttl is an absolute TTL.
 // normalizeTime parses and normalizes a client value; an empty string means "use
 // system time" for that bound.
 func normalizeTime(v string) string {
@@ -72,6 +107,9 @@ func normalizeTime(v string) string {
 	return ""
 }
 
+// StoreInput is the payload for store_memory.
+// MEM-5/MEM-8: optional world-time and TTL fields. valid_at/invalid_at are world-time
+// anchors (when the fact was/is true in the world); ttl is an absolute TTL.
 type StoreInput struct {
 	Kind               Kind
 	Scope              Scope
@@ -89,6 +127,18 @@ type StoreInput struct {
 	TTLHours           int    // MEM-8: TTL hours (Nh); preserved with minute precision
 	TTLMinutes         int    // MEM-8: TTL minutes (Nm); preserved with minute precision
 	ExpiresAt          string // MEM-8: absolute expires_at; if set overrides TTL
+	Title              string
+	Body               string
+	Tags               []string
+	Actor              string
+	Category           string
+	Severity           string
+	Target             string
+	BeforeValue        string
+	AfterValue         string
+	Reason             string
+	OccurredAt         string
+	Verified           bool
 }
 
 // StoreResult is returned from Store.
@@ -98,6 +148,8 @@ type StoreResult struct {
 	VirtualTokensStored int      `json:"virtual_tokens_stored"`
 	InvalidatedRefs     []string `json:"invalidated_refs,omitempty"`
 	Line                string   `json:"line"`
+	Warnings            []string `json:"warnings,omitempty"`
+	RedactedFields      []string `json:"redacted_fields,omitempty"`
 }
 
 func newRef(prefix string) (string, error) {
@@ -106,6 +158,26 @@ func newRef(prefix string) (string, error) {
 		return "", err
 	}
 	return prefix + hex.EncodeToString(b), nil
+}
+
+func defaultScopeForKind(k Kind, sessionID, projectPath string) Scope {
+	switch k {
+	case KindPreference:
+		if projectPath != "" {
+			return ScopeProject
+		}
+		return ScopeGlobal
+	case KindEvent, KindDiscovery, KindConfigChange:
+		if projectPath != "" {
+			return ScopeProject
+		}
+		if sessionID == "" {
+			return ScopeGlobal
+		}
+		return ScopeSession
+	default:
+		return ScopeSession
+	}
 }
 
 func normalizeScope(s Scope, sessionID, projectPath string) (Scope, error) {
@@ -127,60 +199,172 @@ func normalizeScope(s Scope, sessionID, projectPath string) (Scope, error) {
 	}
 }
 
-// Store saves a fact or procedure. With InvalidatePrevious a fact supersedes the active facts
-// sharing its subject, predicate and scope.
+func normalizeTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(tags))
+	var out []string
+	for _, raw := range tags {
+		t := strings.ToLower(strings.TrimSpace(raw))
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// Store saves a structured memory entry. With InvalidatePrevious, facts and preferences
+// supersede active entries sharing kind, subject, predicate, and scope. Config changes
+// supersede active entries sharing target and scope.
 func Store(in StoreInput) (*StoreResult, error) {
+	if len(in.Body) > maxBodyBytes {
+		return nil, errs.NewCode(errs.CodeInvalidInput, "body exceeds 16 KB limit; use store_context for large content and pass ctx_* ref in source_ref")
+	}
+
 	in.SessionID = strings.TrimSpace(in.SessionID)
 	in.ProjectPath = strings.TrimSpace(in.ProjectPath)
+	in.SourceRef = strings.TrimSpace(in.SourceRef)
+	in.Subject = strings.TrimSpace(in.Subject)
+	in.Predicate = strings.TrimSpace(in.Predicate)
+	in.Object = strings.TrimSpace(in.Object)
+	in.Rule = strings.TrimSpace(in.Rule)
+	in.Title = strings.TrimSpace(in.Title)
+	in.Body = strings.TrimSpace(in.Body)
+	in.Actor = strings.TrimSpace(in.Actor)
+	in.Category = strings.TrimSpace(in.Category)
+	in.Severity = strings.ToLower(strings.TrimSpace(in.Severity))
+	in.Target = strings.TrimSpace(in.Target)
+	in.BeforeValue = strings.TrimSpace(in.BeforeValue)
+	in.AfterValue = strings.TrimSpace(in.AfterValue)
+	in.Reason = strings.TrimSpace(in.Reason)
+	in.OccurredAt = strings.TrimSpace(in.OccurredAt)
+
+	if in.Kind == KindPinned {
+		return nil, errs.NewCode(errs.CodeInvalidInput, "pinned notes must be stored via store_context, not store_memory")
+	}
+	if !IsValidKind(in.Kind) {
+		return nil, errs.NewCode(errs.CodeInvalidInput, "kind must be fact, procedure, preference, event, config_change, or discovery")
+	}
+
+	if in.Scope == "" {
+		in.Scope = defaultScopeForKind(in.Kind, in.SessionID, in.ProjectPath)
+	}
 	scope, err := normalizeScope(in.Scope, in.SessionID, in.ProjectPath)
 	if err != nil {
 		return nil, err
 	}
-	var entry Entry
+
+	if !IsValidSeverity(in.Severity) {
+		return nil, errs.NewCode(errs.CodeInvalidInput, fmt.Sprintf("invalid severity: %s", in.Severity), "severity", in.Severity)
+	}
+	if in.Kind == KindEvent && in.Severity == "" {
+		in.Severity = SeverityInfo
+	}
+
+	occurredAt := ""
+	if in.OccurredAt != "" {
+		parsed, err := db.NormalizeSQLTime(in.OccurredAt)
+		if err != nil {
+			return nil, err
+		}
+		occurredAt = parsed
+	} else if in.Kind == KindEvent || in.Kind == KindConfigChange {
+		occurredAt = db.SQLTime(time.Now().UTC())
+	}
+
 	switch in.Kind {
 	case KindFact:
-		in.Subject = strings.TrimSpace(in.Subject)
-		in.Predicate = strings.TrimSpace(in.Predicate)
-		in.Object = strings.TrimSpace(in.Object)
 		if in.Predicate == "" {
 			in.Predicate = "is"
 		}
 		if in.Subject == "" || in.Object == "" {
 			return nil, errs.NewCode(errs.CodeInvalidInput, "subject and object required for fact")
 		}
-		entry = Entry{
-			Kind:        KindFact,
-			Scope:       scope,
-			SessionID:   in.SessionID,
-			ProjectPath: in.ProjectPath,
-			Subject:     in.Subject,
-			Predicate:   in.Predicate,
-			Object:      in.Object,
-			SourceRef:   in.SourceRef,
-		}
 	case KindProcedure:
-		in.Rule = strings.TrimSpace(in.Rule)
 		if in.Rule == "" {
 			return nil, errs.NewCode(errs.CodeInvalidInput, "rule required for procedure")
 		}
-		entry = Entry{
-			Kind:        KindProcedure,
-			Scope:       scope,
-			SessionID:   in.SessionID,
-			ProjectPath: in.ProjectPath,
-			Rule:        in.Rule,
-			SourceRef:   in.SourceRef,
+	case KindPreference:
+		if in.Object == "" && in.Rule != "" {
+			in.Object = in.Rule
 		}
-	default:
-		return nil, errs.NewCode(errs.CodeInvalidInput, "kind must be fact or procedure")
-	case KindPinned:
-		return nil, errs.NewCode(errs.CodeInvalidInput, "pinned notes must be stored via store_context, not store_memory")
+		if in.Subject == "" {
+			in.Subject = "user"
+		}
+		if in.Predicate == "" {
+			in.Predicate = "prefers"
+		}
+		if in.Subject == "" || in.Object == "" {
+			return nil, errs.NewCode(errs.CodeInvalidInput, "subject and object required for preference")
+		}
+	case KindEvent:
+		if in.Title == "" && (in.Subject == "" || in.Object == "") {
+			return nil, errs.NewCode(errs.CodeInvalidInput, "title (or subject and object) required for event")
+		}
+	case KindDiscovery:
+		if in.Title == "" && (in.Subject == "" || in.Object == "") {
+			return nil, errs.NewCode(errs.CodeInvalidInput, "title (or subject and object) required for discovery")
+		}
+	case KindConfigChange:
+		if in.Target == "" {
+			return nil, errs.NewCode(errs.CodeInvalidInput, "target required for config_change")
+		}
+		if in.AfterValue == "" && in.Body == "" {
+			return nil, errs.NewCode(errs.CodeInvalidInput, "after_value or body required for config_change")
+		}
 	}
+
 	ref, err := newRef("mem_")
 	if err != nil {
 		return nil, err
 	}
-	entry.Ref = ref
+
+	var verifiedAt string
+	if in.Verified {
+		verifiedAt = db.SQLTime(time.Now().UTC())
+	}
+
+	entry := Entry{
+		Ref:         ref,
+		Kind:        in.Kind,
+		Scope:       scope,
+		SessionID:   in.SessionID,
+		ProjectPath: in.ProjectPath,
+		Subject:     in.Subject,
+		Predicate:   in.Predicate,
+		Object:      in.Object,
+		Rule:        in.Rule,
+		SourceRef:   in.SourceRef,
+		Title:       in.Title,
+		Body:        in.Body,
+		Tags:        normalizeTags(in.Tags),
+		Actor:       in.Actor,
+		Category:    in.Category,
+		Severity:    in.Severity,
+		Target:      in.Target,
+		BeforeValue: in.BeforeValue,
+		AfterValue:  in.AfterValue,
+		Reason:      in.Reason,
+		OccurredAt:  occurredAt,
+		Verified:    in.Verified,
+		VerifiedAt:  verifiedAt,
+	}
+
+	// Redact secrets across all text fields BEFORE token estimation, SQLite insert, and FTS indexing.
+	_, warnings := RedactEntry(&entry)
 	entry.TokenEst = estimateEntryTokens(entry)
 
 	// MEM-5/MEM-8: normalize world time and compute expires_at from TTL.
@@ -203,37 +387,70 @@ func Store(in StoreInput) (*StoreResult, error) {
 		expiresAt = db.SQLTime(time.Now().UTC().Add(d))
 	}
 
+	tagsEnc := EncodeTags(entry.Tags)
+	redactedEnc := EncodeTags(entry.RedactedFields)
+
 	insert := func() error {
 		_, err := db.ContextDB.Exec(insertEntryQuery,
-			ref, string(entry.Kind), string(scope), nullIfEmpty(in.SessionID), nullIfEmpty(in.ProjectPath),
+			ref, string(entry.Kind), string(scope), nullIfEmpty(entry.SessionID), nullIfEmpty(entry.ProjectPath),
 			nullIfEmpty(entry.Subject), nullIfEmpty(entry.Predicate), nullIfEmpty(entry.Object), nullIfEmpty(entry.Rule),
 			nullIfEmpty(entry.SourceRef), entry.TokenEst,
 			nullIfEmpty(worldValidAt),
 			nullIfEmpty(worldInvalidAt),
 			nullIfEmpty(expiresAt),
 			0, // quarantined = 0 (not quarantined) by default
+			nullIfEmpty(entry.Title),
+			nullIfEmpty(entry.Body),
+			nullIfEmpty(tagsEnc),
+			nullIfEmpty(entry.Actor),
+			nullIfEmpty(entry.Category),
+			nullIfEmpty(entry.Severity),
+			nullIfEmpty(entry.Target),
+			nullIfEmpty(entry.BeforeValue),
+			nullIfEmpty(entry.AfterValue),
+			nullIfEmpty(entry.Reason),
+			nullIfEmpty(entry.OccurredAt),
+			boolToInt(entry.Verified),
+			nullIfEmpty(entry.VerifiedAt),
+			nullIfEmpty(redactedEnc),
 		)
 		return err
 	}
+
 	var invalidated []string
-	if in.Kind == KindFact && in.InvalidatePrevious {
+	switch entry.Kind {
+	case KindFact, KindPreference:
+		if in.InvalidatePrevious {
+			factSupersessionMu.Lock()
+			invalidated, _ = invalidateConflicting(entry.Kind, scope, entry.SessionID, entry.ProjectPath, entry.Subject, entry.Predicate, ref)
+			err = insert()
+			factSupersessionMu.Unlock()
+		} else {
+			err = insert()
+		}
+	case KindConfigChange:
 		factSupersessionMu.Lock()
-		invalidated, _ = invalidateConflicting(scope, in.SessionID, in.ProjectPath, in.Subject, in.Predicate, ref)
+		invalidated, _ = invalidateTargetChain(scope, entry.SessionID, entry.ProjectPath, entry.Target, ref)
 		err = insert()
 		factSupersessionMu.Unlock()
-	} else {
+	default:
 		err = insert()
 	}
 	if err != nil {
 		return nil, err
 	}
-	indexFTS(ref, entry.Subject, entry.Predicate, entry.Object, entry.Rule)
+
+	if err := indexEntryFTS(entry); err != nil {
+		logger.Warn("Failed to index memory FTS", "ref", ref, "error", err)
+	}
 	return &StoreResult{
 		Ref:                 ref,
 		Kind:                entry.Kind,
 		VirtualTokensStored: entry.TokenEst,
 		InvalidatedRefs:     invalidated,
 		Line:                FormatLine(entry),
+		Warnings:            warnings,
+		RedactedFields:      entry.RedactedFields,
 	}, nil
 }
 
@@ -244,7 +461,7 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
-// StoreExtracted saves all extracted facts/procedures from text.
+// StoreExtracted saves all extracted memory entries from text.
 func StoreExtracted(sessionID, projectPath, sourceRef string, ex Extracted, scope Scope) ([]StoreResult, error) {
 	var results []StoreResult
 	for _, f := range ex.Facts {
@@ -278,6 +495,72 @@ func StoreExtracted(sessionID, projectPath, sourceRef string, ex Extracted, scop
 		}
 		results = append(results, *res)
 	}
+	for _, pref := range ex.Preferences {
+		res, err := Store(StoreInput{
+			Kind:               KindPreference,
+			Scope:              scope,
+			SessionID:          sessionID,
+			ProjectPath:        projectPath,
+			Subject:            pref.Subject,
+			Predicate:          pref.Predicate,
+			Object:             pref.Object,
+			SourceRef:          sourceRef,
+			InvalidatePrevious: true,
+		})
+		if err != nil {
+			continue
+		}
+		results = append(results, *res)
+	}
+	for _, ev := range ex.Events {
+		res, err := Store(StoreInput{
+			Kind:        KindEvent,
+			Scope:       scope,
+			SessionID:   sessionID,
+			ProjectPath: projectPath,
+			Title:       ev.Title,
+			Body:        ev.Body,
+			Category:    ev.Category,
+			Severity:    ev.Severity,
+			SourceRef:   sourceRef,
+		})
+		if err != nil {
+			continue
+		}
+		results = append(results, *res)
+	}
+	for _, cc := range ex.ConfigChanges {
+		res, err := Store(StoreInput{
+			Kind:        KindConfigChange,
+			Scope:       scope,
+			SessionID:   sessionID,
+			ProjectPath: projectPath,
+			Target:      cc.Target,
+			BeforeValue: cc.BeforeValue,
+			AfterValue:  cc.AfterValue,
+			Reason:      cc.Reason,
+			SourceRef:   sourceRef,
+		})
+		if err != nil {
+			continue
+		}
+		results = append(results, *res)
+	}
+	for _, d := range ex.Discoveries {
+		res, err := Store(StoreInput{
+			Kind:        KindDiscovery,
+			Scope:       scope,
+			SessionID:   sessionID,
+			ProjectPath: projectPath,
+			Title:       d.Title,
+			Body:        d.Body,
+			SourceRef:   sourceRef,
+		})
+		if err != nil {
+			continue
+		}
+		results = append(results, *res)
+	}
 	return results, nil
 }
 
@@ -287,7 +570,15 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	var sessionID, projectPath, subject, predicate, object, rule, sourceRef, validFrom, validUntil, supersededBy, lastAccessed, createdAt interface{}
 	var invalidatedReason, worldValidAt, worldInvalidAt, expiresAt interface{}
 	var quarantined interface{}
-	err := row.Scan(&e.Ref, &kind, &scope, &sessionID, &projectPath, &subject, &predicate, &object, &rule, &validFrom, &validUntil, &supersededBy, &sourceRef, &e.TokenEst, &e.AccessCount, &lastAccessed, &createdAt, &invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt, &quarantined)
+	var title, body, tags, actor, category, severity, target, beforeValue, afterValue, reason, occurredAt interface{}
+	var verified, verifiedAt, redactedFields interface{}
+	err := row.Scan(
+		&e.Ref, &kind, &scope, &sessionID, &projectPath, &subject, &predicate, &object, &rule,
+		&validFrom, &validUntil, &supersededBy, &sourceRef, &e.TokenEst, &e.AccessCount, &lastAccessed, &createdAt,
+		&invalidatedReason, &worldValidAt, &worldInvalidAt, &expiresAt, &quarantined,
+		&title, &body, &tags, &actor, &category, &severity, &target, &beforeValue, &afterValue, &reason,
+		&occurredAt, &verified, &verifiedAt, &redactedFields,
+	)
 	if err != nil {
 		return e, err
 	}
@@ -310,6 +601,20 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	e.WorldInvalidAt = strVal(worldInvalidAt)
 	e.ExpiresAt = strVal(expiresAt)
 	e.Quarantined = intVal(quarantined)
+	e.Title = strVal(title)
+	e.Body = strVal(body)
+	e.Tags = DecodeTags(strVal(tags))
+	e.Actor = strVal(actor)
+	e.Category = strVal(category)
+	e.Severity = strVal(severity)
+	e.Target = strVal(target)
+	e.BeforeValue = strVal(beforeValue)
+	e.AfterValue = strVal(afterValue)
+	e.Reason = strVal(reason)
+	e.OccurredAt = strVal(occurredAt)
+	e.Verified = intVal(verified) != 0
+	e.VerifiedAt = strVal(verifiedAt)
+	e.RedactedFields = DecodeTags(strVal(redactedFields))
 	return e, nil
 }
 
@@ -340,6 +645,7 @@ func intVal(v interface{}) int {
 }
 
 func entryByRef(ref string) (Entry, error) {
-	row := db.ContextDB.QueryRow(selectEntryByRefQuery, ref)
+	q := "SELECT " + entrySelectCols(true) + " FROM structured_memory WHERE ref = ?"
+	row := db.ContextDB.QueryRow(q, ref)
 	return scanEntry(row)
 }

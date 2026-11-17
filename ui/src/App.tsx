@@ -15,7 +15,7 @@ import {
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import { api } from './api/client'
-import type { ContextSessionsResponse, FeatureCoverage, HandoffTreesResponse, Health, HostUsageResponse, IndexHealth, MCPTier, MemoryData, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
+import type { ContextSessionsResponse, FeatureCoverage, HandoffTreesResponse, Health, HostUsageResponse, IndexHealth, MCPTier, MemoryData, MemorySubTab, SettingsData, Stats, TimeseriesPoint, ToolStat, WeeklyDigest } from './api/types'
 import { HealthBar } from './components/HealthBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider, useToast } from './context/ToastContext'
@@ -47,9 +47,55 @@ const NAV = [
 
 type TabId = (typeof NAV)[number]['id']
 
+const MEMORY_SUB_TABS: readonly MemorySubTab[] = [
+  'explorer',
+  'timeline',
+  'preferences',
+  'virtual-context',
+  'doc-sources',
+]
+
+function parseUrlState(): { tab: TabId; sub: MemorySubTab; ref: string } {
+  if (typeof window === 'undefined') {
+    return { tab: 'overview', sub: 'explorer', ref: '' }
+  }
+  const params = new URLSearchParams(window.location.search)
+  const rawTab = params.get('tab')
+  const tab: TabId = NAV.some((n) => n.id === rawTab) ? (rawTab as TabId) : 'overview'
+  const rawSub = params.get('sub')
+  const sub: MemorySubTab = MEMORY_SUB_TABS.includes(rawSub as MemorySubTab)
+    ? (rawSub as MemorySubTab)
+    : 'explorer'
+  const ref = params.get('ref')?.trim() || ''
+  return { tab, sub, ref }
+}
+
+function buildUrlForState(nextTab: TabId, nextSub: MemorySubTab, nextRef: string): string {
+  const params = new URLSearchParams(window.location.search)
+  if (nextTab === 'overview') {
+    params.delete('tab')
+    params.delete('sub')
+    params.delete('ref')
+  } else if (nextTab === 'memory') {
+    params.set('tab', 'memory')
+    params.set('sub', nextSub)
+    if (nextRef) {
+      params.set('ref', nextRef)
+    } else {
+      params.delete('ref')
+    }
+  } else {
+    params.set('tab', nextTab)
+    params.delete('sub')
+    params.delete('ref')
+  }
+  const qsStr = params.toString()
+  return `${window.location.pathname}${qsStr ? `?${qsStr}` : ''}${window.location.hash}`
+}
+
 const TAB_HINTS: Record<TabId, string> = {
   overview: 'Server and embedder health, activity, the last 7 days, virtual context, and file watchers',
-  memory: 'Virtual context inventory and cached documentation sources',
+  memory: 'Knowledge base explorer, timeline, preferences, virtual context, and cached docs',
   activity: 'Query volume and token savings over time',
   analytics: 'Tool performance, symbol mix, and import graph',
   recent: 'MCP calls, indexing events, and server logs',
@@ -60,7 +106,11 @@ function DashboardInner() {
   const { showToast, releaseToastGroup } = useToast()
   const indexDrainGens = useRef(new Map<string, number>())
   const { width: sidebarWidth, onPointerDown: onSidebarResize } = useResizableSidebar()
-  const [tab, setTab] = useState<TabId>('overview')
+  const initialUrl = useMemo(() => parseUrlState(), [])
+  const [tab, setTab] = useState<TabId>(initialUrl.tab)
+  const [memorySubTab, setMemorySubTab] = useState<MemorySubTab>(initialUrl.sub)
+  const [selectedKBRef, setSelectedKBRef] = useState<string>(initialUrl.ref)
+  const [kbRefreshNonce, setKbRefreshNonce] = useState(0)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [projectId, setProjectId] = useState('')
   const [projects, setProjects] = useState<{ path: string; name: string }[]>([])
@@ -190,10 +240,63 @@ function DashboardInner() {
     setDocSourcesPage(1)
   }, [pid])
 
+  const syncHistory = useCallback((nextTab: TabId, nextSub: MemorySubTab, nextRef: string, replace = false) => {
+    if (typeof window === 'undefined') return
+    const target = buildUrlForState(nextTab, nextSub, nextRef)
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (target === current) return
+    if (replace) {
+      window.history.replaceState(null, '', target)
+    } else {
+      window.history.pushState(null, '', target)
+    }
+  }, [])
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = parseUrlState()
+      setTab(next.tab)
+      setMemorySubTab(next.sub)
+      setSelectedKBRef(next.ref)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const handleTabChange = useCallback(
+    (nextTab: TabId) => {
+      setTab(nextTab)
+      setMobileOpen(false)
+      syncHistory(nextTab, memorySubTab, selectedKBRef)
+    },
+    [memorySubTab, selectedKBRef, syncHistory],
+  )
+
+  const handleSubTabChange = useCallback(
+    (nextSub: MemorySubTab) => {
+      setMemorySubTab(nextSub)
+      syncHistory('memory', nextSub, selectedKBRef)
+    },
+    [selectedKBRef, syncHistory],
+  )
+
+  const handleSelectRef = useCallback(
+    (nextRef?: string | null) => {
+      const normalized = nextRef?.trim() || ''
+      setSelectedKBRef(normalized)
+      syncHistory('memory', memorySubTab, normalized)
+    },
+    [memorySubTab, syncHistory],
+  )
+
   useWebSocket(
     (panels) => {
       const keys = panelsToKeys(panels)
-      if (keys.length) load(keys)
+      if (keys.includes('kb')) {
+        setKbRefreshNonce((n) => n + 1)
+      }
+      const loadKeys = keys.filter((k) => k !== 'kb')
+      if (loadKeys.length) load(loadKeys)
     },
     (data) => {
       const message = `${data.toolName}: ${data.query?.slice(0, 40)}`
@@ -224,7 +327,7 @@ function DashboardInner() {
       </Typography>
       <List dense>
         {NAV.map((item) => (
-          <ListItemButton key={item.id} selected={tab === item.id} onClick={() => { setTab(item.id); setMobileOpen(false) }} aria-current={tab === item.id ? 'page' : undefined}>
+          <ListItemButton key={item.id} selected={tab === item.id} onClick={() => handleTabChange(item.id)} aria-current={tab === item.id ? 'page' : undefined}>
             <ListItemText primary={item.label} />
           </ListItemButton>
         ))}
@@ -376,16 +479,34 @@ function DashboardInner() {
               )}
             </ErrorBoundary>
           )}
-          {tab === 'memory' && (
-            <ErrorBoundary label="Memory" onRetry={() => load(['memory'])}>
-              <MemoryTab
-                data={memory}
-                onRefresh={() => load(['memory'])}
-                docSourcesPage={docSourcesPage}
-                onDocSourcesPageChange={setDocSourcesPage}
-              />
-            </ErrorBoundary>
-          )}
+          {tab === 'memory' && (() => {
+            const memoryKbProps: {
+              projectId?: string
+              kbRefreshNonce: number
+              subTab: MemorySubTab
+              selectedRef: string
+              onSubTabChange: (sub: MemorySubTab) => void
+              onSelectRef: (ref?: string | null) => void
+            } = {
+              projectId: pid,
+              kbRefreshNonce,
+              subTab: memorySubTab,
+              selectedRef: selectedKBRef,
+              onSubTabChange: handleSubTabChange,
+              onSelectRef: handleSelectRef,
+            }
+            return (
+              <ErrorBoundary label="Memory" onRetry={() => load(['memory'])}>
+                <MemoryTab
+                  data={memory}
+                  onRefresh={() => load(['memory'])}
+                  docSourcesPage={docSourcesPage}
+                  onDocSourcesPageChange={setDocSourcesPage}
+                  {...memoryKbProps}
+                />
+              </ErrorBoundary>
+            )
+          })()}
           {tab === 'activity' && (
             <ErrorBoundary label="Activity" onRetry={() => load(['timeseries'])}>
               <ActivityTab data={timeseries} interval={timeseriesInterval} onIntervalChange={setTimeseriesInterval} />

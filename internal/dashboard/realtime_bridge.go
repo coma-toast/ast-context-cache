@@ -69,6 +69,8 @@ func panelMatchesMask(name string, mask realtime.Reason) bool {
 		return mask&realtime.Settings != 0
 	case "handoffs":
 		return mask&realtime.Handoffs != 0
+	case "kb":
+		return mask&realtime.KnowledgeBase != 0
 	default:
 		return false
 	}

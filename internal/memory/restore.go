@@ -27,11 +27,7 @@ type RestoreResult struct {
 func Restore(in RestoreInput) (*RestoreResult, error) {
 	var restored []string
 	var conflicts []string
-	type toReembed struct {
-		ref  string
-		line string
-	}
-	var reembedList []toReembed
+	var reembedList []Entry
 
 	factSupersessionMu.Lock()
 	defer factSupersessionMu.Unlock()
@@ -99,6 +95,7 @@ func Restore(in RestoreInput) (*RestoreResult, error) {
 		}
 
 		// 4. Invalidate the fact that superseded it (B), setting superseded_by = ref, reason = ReasonRestored.
+		invalidatedSupersededBy := ""
 		if supersededBy.Valid && supersededBy.String != "" {
 			_, err = tx.Exec(
 				`UPDATE structured_memory SET valid_until = datetime('now'), superseded_by = ?, invalidated_reason = ? WHERE ref = ?`,
@@ -108,24 +105,37 @@ func Restore(in RestoreInput) (*RestoreResult, error) {
 				tx.Rollback()
 				return nil, err
 			}
-			deleteFTS(supersededBy.String)
-			_ = search.Cache.DeleteRefs("memory", []string{memoryVectorKey(supersededBy.String)})
+			invalidatedSupersededBy = supersededBy.String
 		}
 
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
 
-		// Re-insert the restored entry into FTS so it becomes searchable again.
-		indexFTS(ref, subject.String, predicate.String, object.String, rule.String)
+		// Perform FTS/vector updates after tx.Commit() so pooled connections never
+		// contend on SQLite's write lock held by the uncommitted transaction.
+		if invalidatedSupersededBy != "" {
+			deleteFTS(invalidatedSupersededBy)
+			_ = search.Cache.DeleteRefs("memory", []string{memoryVectorKey(invalidatedSupersededBy)})
+		}
 
-		line := FormatLine(Entry{
-			Subject:   subject.String,
-			Predicate: predicate.String,
-			Object:    object.String,
-			Rule:      rule.String,
-		})
-		reembedList = append(reembedList, toReembed{ref: ref, line: line})
+		// Re-insert the restored entry into FTS so it becomes searchable again.
+		restoredEntry, err := entryByRef(ref)
+		if err == nil {
+			if err := indexEntryFTS(restoredEntry); err != nil {
+				logger.Warn("Failed to reindex restored memory FTS", "ref", ref, "error", err)
+			}
+			reembedList = append(reembedList, restoredEntry)
+		} else {
+			indexFTS(ref, subject.String, predicate.String, object.String, rule.String)
+			reembedList = append(reembedList, Entry{
+				Ref:       ref,
+				Subject:   subject.String,
+				Predicate: predicate.String,
+				Object:    object.String,
+				Rule:      rule.String,
+			})
+		}
 		restored = append(restored, ref)
 	}
 
@@ -134,7 +144,7 @@ func Restore(in RestoreInput) (*RestoreResult, error) {
 		for _, item := range reembedList {
 			item := item
 			go func() {
-				_, _ = EmbedEntryWithVector(item.ref, "", item.line, in.Embedder)
+				_, _ = EmbedEntryFromEntry(item, in.Embedder)
 			}()
 		}
 	}

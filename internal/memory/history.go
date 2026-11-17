@@ -10,36 +10,48 @@ import (
 	"github.com/coma-toast/ast-context-cache/internal/errs"
 )
 
-const (
-	historySelect = `SELECT sm.ref, sm.kind, sm.scope, sm.session_id, sm.project_path, sm.subject, sm.predicate, sm.object, sm.rule,
-		sm.valid_from, sm.valid_until, sm.superseded_by, sm.source_ref, sm.token_est, sm.access_count, sm.last_accessed_at, sm.created_at,
-		sm.invalidated_reason, sm.world_valid_at, sm.world_invalid_at, sm.expires_at, sm.quarantined
-		FROM structured_memory sm`
-)
+func historySelectSQL() string {
+	return "SELECT " + entrySelectColsAliased("sm", true) + " FROM structured_memory sm"
+}
 
 // HistoryEntry is a version of a memory entry with its invalidation reason and timestamps.
 type HistoryEntry struct {
-	Ref               string `json:"ref"`
-	Kind              Kind   `json:"kind"`
-	Scope             Scope  `json:"scope"`
-	SessionID         string `json:"session_id,omitempty"`
-	ProjectPath       string `json:"project_path,omitempty"`
-	Subject           string `json:"subject,omitempty"`
-	Predicate         string `json:"predicate,omitempty"`
-	Object            string `json:"object,omitempty"`
-	Rule              string `json:"rule,omitempty"`
-	ValidFrom         string `json:"valid_from,omitempty"`
-	ValidUntil        string `json:"valid_until,omitempty"`
-	SupersededBy      string `json:"superseded_by,omitempty"`
-	SourceRef         string `json:"source_ref,omitempty"`
-	TokenEst          int    `json:"token_est,omitempty"`
-	AccessCount       int    `json:"access_count,omitempty"`
-	LastAccessedAt    string `json:"last_accessed_at,omitempty"`
-	CreatedAt         string `json:"created_at,omitempty"`
-	InvalidatedReason string `json:"invalidated_reason,omitempty"`
-	WorldValidAt      string `json:"world_valid_at,omitempty"`
-	WorldInvalidAt    string `json:"world_invalid_at,omitempty"`
-	ExpiresAt         string `json:"expires_at,omitempty"`
+	Ref               string   `json:"ref"`
+	Kind              Kind     `json:"kind"`
+	Scope             Scope    `json:"scope"`
+	SessionID         string   `json:"session_id,omitempty"`
+	ProjectPath       string   `json:"project_path,omitempty"`
+	Subject           string   `json:"subject,omitempty"`
+	Predicate         string   `json:"predicate,omitempty"`
+	Object            string   `json:"object,omitempty"`
+	Rule              string   `json:"rule,omitempty"`
+	ValidFrom         string   `json:"valid_from,omitempty"`
+	ValidUntil        string   `json:"valid_until,omitempty"`
+	SupersededBy      string   `json:"superseded_by,omitempty"`
+	SourceRef         string   `json:"source_ref,omitempty"`
+	TokenEst          int      `json:"token_est,omitempty"`
+	AccessCount       int      `json:"access_count,omitempty"`
+	LastAccessedAt    string   `json:"last_accessed_at,omitempty"`
+	CreatedAt         string   `json:"created_at,omitempty"`
+	InvalidatedReason string   `json:"invalidated_reason,omitempty"`
+	WorldValidAt      string   `json:"world_valid_at,omitempty"`
+	WorldInvalidAt    string   `json:"world_invalid_at,omitempty"`
+	ExpiresAt         string   `json:"expires_at,omitempty"`
+	Quarantined       int      `json:"quarantined,omitempty"`
+	Title             string   `json:"title,omitempty"`
+	Body              string   `json:"body,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	Actor             string   `json:"actor,omitempty"`
+	Category          string   `json:"category,omitempty"`
+	Severity          string   `json:"severity,omitempty"`
+	Target            string   `json:"target,omitempty"`
+	BeforeValue       string   `json:"before_value,omitempty"`
+	AfterValue        string   `json:"after_value,omitempty"`
+	Reason            string   `json:"reason,omitempty"`
+	OccurredAt        string   `json:"occurred_at,omitempty"`
+	Verified          bool     `json:"verified,omitempty"`
+	VerifiedAt        string   `json:"verified_at,omitempty"`
+	RedactedFields    []string `json:"redacted_fields,omitempty"`
 }
 
 // HistoryResult is the result of a recall_memory history query.
@@ -51,22 +63,26 @@ type HistoryResult struct {
 
 // HistoryInput configures a recall_memory history query.
 type HistoryInput struct {
-	Ref          string // optional: single entry by ref
-	Query        string // optional: query string for subject/predicate/object/rule
-	Subject      string // optional: exact subject (MEM-3)
-	Predicate    string // optional: exact predicate (MEM-3)
-	IncludeWorld bool   // include world-time columns
+	Ref                 string // optional: single entry by ref
+	Query               string // optional: query string for subject/predicate/object/rule/title/target/reason
+	Subject             string // optional: exact subject (MEM-3)
+	Predicate           string // optional: exact predicate (MEM-3)
+	Scope               Scope  // optional: scope filter for query mode
+	SessionID           string // optional: session filter for query mode
+	ProjectPath         string // optional: project filter for query mode
+	IncludeRepoSiblings bool   // optional: include repo siblings when ProjectPath is set
+	IncludeWorld        bool   // include world-time columns
 }
 
 // History returns the full version chain for a memory entry or entries matching
-// a subject+predicate, with reasons and timestamps. It is used by
+// a query, with reasons and timestamps. It is used by
 // recall_memory(history=true, ref=...) and recall_memory(history=true, query=...).
 func History(in HistoryInput) (*HistoryResult, error) {
 	if in.Ref != "" {
 		return historyByRef(in.Ref, in.IncludeWorld)
 	}
 	if in.Query != "" {
-		return historyByQuery(in.Query, in.IncludeWorld)
+		return historyByQuery(in)
 	}
 	return nil, errs.NewCode(errs.CodeInvalidInput, "history requires either a ref or a query")
 }
@@ -118,7 +134,7 @@ func historyByRef(ref string, includeWorld bool) (*HistoryResult, error) {
 }
 
 func historyEntryByRef(ref string, includeWorld bool) (HistoryEntry, error) {
-	q := historySelect
+	q := historySelectSQL()
 	if !includeWorld {
 		q += ` WHERE sm.ref = ? AND (sm.world_valid_at IS NULL OR sm.world_valid_at = '')`
 	} else {
@@ -134,7 +150,7 @@ func historyEntryByRef(ref string, includeWorld bool) (HistoryEntry, error) {
 }
 
 func historyEntriesSupersededBy(ref string, includeWorld bool) ([]HistoryEntry, error) {
-	q := historySelect
+	q := historySelectSQL()
 	if !includeWorld {
 		q += ` WHERE sm.superseded_by = ? AND (sm.world_valid_at IS NULL OR sm.world_valid_at = '')`
 	} else {
@@ -180,20 +196,45 @@ func entryToHistoryEntry(e Entry) HistoryEntry {
 		WorldValidAt:      e.WorldValidAt,
 		WorldInvalidAt:    e.WorldInvalidAt,
 		ExpiresAt:         e.ExpiresAt,
+		Quarantined:       e.Quarantined,
+		Title:             e.Title,
+		Body:              e.Body,
+		Tags:              e.Tags,
+		Actor:             e.Actor,
+		Category:          e.Category,
+		Severity:          e.Severity,
+		Target:            e.Target,
+		BeforeValue:       e.BeforeValue,
+		AfterValue:        e.AfterValue,
+		Reason:            e.Reason,
+		OccurredAt:        e.OccurredAt,
+		Verified:          e.Verified,
+		VerifiedAt:        e.VerifiedAt,
+		RedactedFields:    e.RedactedFields,
 	}
 }
 
-func historyByQuery(query string, includeWorld bool) (*HistoryResult, error) {
-	q := historySelect
+func historyByQuery(in HistoryInput) (*HistoryResult, error) {
+	q := historySelectSQL()
 	var args []any
 	var where []string
-	if !includeWorld {
+	if !in.IncludeWorld {
 		where = append(where, "(sm.world_valid_at IS NULL OR sm.world_valid_at = '')")
 	}
-	like := "%" + strings.ReplaceAll(query, "%", "\\%") + "%"
-	content := make([]string, 0, 4)
-	for _, col := range []string{"sm.subject", "sm.predicate", "sm.object", "sm.rule"} {
-		content = append(content, col+" LIKE ?")
+	if sc, scArgs := scopeClauseFor(RecallInput{
+		Scope:               in.Scope,
+		SessionID:           in.SessionID,
+		ProjectPath:         in.ProjectPath,
+		IncludeRepoSiblings: in.IncludeRepoSiblings,
+	}, "sm."); sc != "" {
+		where = append(where, strings.TrimPrefix(sc, andFragment))
+		args = append(args, scArgs...)
+	}
+	like := "%" + escapeLike(in.Query) + "%"
+	cols := []string{"sm.subject", "sm.predicate", "sm.object", "sm.rule", "sm.title", "sm.target", "sm.reason"}
+	content := make([]string, 0, len(cols))
+	for _, col := range cols {
+		content = append(content, col+` LIKE ? ESCAPE '\'`)
 		args = append(args, like)
 	}
 	where = append(where, "("+strings.Join(content, " OR ")+")")
